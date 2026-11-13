@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: see the thirteen challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev, Espoo, MariaDB. **Not yet decided.**
+- Challenge: see the fourteen challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev, Espoo, MariaDB, Google DeepMind. **Not yet decided.** Note: the Google/Gemini challenge is open-ended and can likely be stacked on top of another challenge entry.
 - Team members: TBD
 - Stack: TBD
