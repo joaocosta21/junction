@@ -2,3 +2,7 @@
 .env.*
 *.key
 credentials*
+.DS_Store
+
+# Challenge datasets - partner-provided, not ours to redistribute
+AIMO/
