@@ -42,23 +42,22 @@ Their anti-pattern, quoted: *"This is not about replacing today's e-commerce UI 
 
 ---
 
-# ⭐ Q3 — `MAY_CONTAIN` and allergen silence
+# ⭐ Q3 — Allergen policy: `MAY_CONTAIN`, `UNDECLARED`, and silence
 
 **Facts:**
-- Schema documents **only `CONTAINS` and `FREE_FROM`** as allergen `unit` values. `[DOCS]`
-- **A third value, `MAY_CONTAIN`, is everywhere** and undocumented — AN 1,225 · AY 954 · AM 728 · SA 727. `[DATA]`
-- **~59% of the catalog has no allergen statement at all** (`allergen` non-empty on 41%, `nonAllergen` on 29%). `[DATA]`
-- **`X99`** = "other/unspecified", 121 CONTAINS + 74 FREE_FROM. `[DATA]`
-- **Your own example product `464306` is `FREE_FROM_LACTOSE` but carries allergen `AM` = milk, as `CONTAINS`.** Lactose-free is not milk-allergen-free. `[DATA]`
+- Schema documents **only `CONTAINS` and `FREE_FROM`**. `[DOCS]`
+- **Two more relations exist and are undocumented: `MAY_CONTAIN` (9,956 rows) and `UNDECLARED` (303 rows).** `[DATA]`
+- **~59% of the catalog has no allergen statement** (`allergen` non-empty 41%, `nonAllergen` 29%). `[DATA]`
+- **`X99` (121 CONTAINS + 74 FREE_FROM) names no substance** — semantically empty, unusable for a safety claim. `[DATA]`
+- **The lactose trap is systemic, not anecdotal: of 4,178 `FREE_FROM_LACTOSE` products, 1,485 (35.5%) explicitly declare milk (`AM`) as `CONTAINS`.** Only 1,255 (30%) carry a positive `AM: FREE_FROM`. Same on gluten — 196 `FREE_FROM_GLUTEN` products declare oats (`GO`) as CONTAINS. `[DATA]`
+- **2 products assert the same allergen in both `allergen` and `nonAllergen`** — `468044` (AM), `469429` (AM + AN). Direct self-contradiction. `[DATA]`
 
-**Why it matters:** Your scenario is *"allergen-safe substitution under pressure, in a school or hospital kitchen."* `[DOCS]` A filter written against the two documented values **silently treats "may contain traces" as safe.** We can only *certify* a swap on the ~29% with an explicit free-from.
+**Why it matters:** Your scenario is *"allergen-safe substitution under pressure, in a school or hospital kitchen."* `[DOCS]` A filter written against the two documented values **silently treats "may contain traces" as safe**, and a nutritional claim is not an allergen assertion.
 
 **Ask:**
-- Is `MAY_CONTAIN` a hard fail, or an escalation to a human?
-- **Is silence ever committable** for a school/hospital kitchen?
-- Are these GS1 AllergenTypeCodes — is there a lookup table?
-
----
+- Is `MAY_CONTAIN` a hard fail or an escalation? What does **`UNDECLARED`** mean?
+- **Is silence ever committable** for a school/hospital kitchen, or must there be an explicit free-from?
+- **We mapped the allergen codes ourselves** (the 14 most-frequent `nonAllergen` codes form a tight block matching the EU's 14 mandatory declarable allergens) — can you confirm a few? `AM` milk · `AW` cereals-with-gluten · `UW` wheat · `AY` soy · `AE` eggs · `AN` tree nuts · `NL` lupin · `UM` molluscs. Is it GS1 AllergenTypeCode?
 
 # Q4 — Brief says substitution isn't core; rubric gives it 15%
 
@@ -68,17 +67,19 @@ Their anti-pattern, quoted: *"This is not about replacing today's e-commerce UI 
 
 ---
 
-# Q5 — Is the 5-digit `category` hierarchical?
+# Q5 — Category hierarchy: confirm the 4-digit prefix is the parent
+
+**We think we proved this ourselves — just confirming.**
 
 **Facts:**
-- 349 categories, all exactly 5 digits. *"Category names are not part of this data set."* `[DOCS]`
-- **230 of your 250 substitution pairs (92%) stay inside the same category** `[DATA]` — so same-category is how you model substitutability.
+- 349 categories, all 5 digits. *"Category names are not part of this data set."* `[DOCS]`
+- **The codes are hierarchical at 4 digits.** Products sharing the first 4 digits have mean name-similarity **0.280 vs 0.025** for different prefixes — 11× the mean, ~100× the median. `cos(10400, 10401) = 0.471` vs `cos(10400, 52201) = 0.146`. `[DATA]`
+- **A 3-digit fallback does NOT work** (median similarity 0.110). `[DATA]`
+- **230 of your 250 substitution pairs (92%) stay inside the same category.** `[DATA]`
 
-**Why it matters:** If 10400 and 10401 are siblings under a 104xx parent, we can rank substitutes by **category distance** — which is your *"good-better-best"* ask. If it's flat, we fall back to brand + pack size, which is weaker.
+**Why it matters:** This gives us category-distance ranking for substitutes — your *"good-better-best"* ask — without a name mapping.
 
-**Ask:** Is the code hierarchical? Can we have a code→name mapping?
-
----
+**Ask:** Confirm 4-digit = parent category? And can we have a code→name mapping to make the demo readable?
 
 # Q6 — Will you judge date/lead-time logic?
 
@@ -147,6 +148,6 @@ Their anti-pattern, quoted: *"This is not about replacing today's e-commerce UI 
 **Q1** (order contract) · **Q2** (stale cut-offs) · **Q3** (`MAY_CONTAIN`)
 
 ## Two openers that show we read the data
-> *"Your example product 464306 is lactose-free but still flags milk as an allergen — how should an agent treat that in a hospital kitchen?"*
+> *"35% of your lactose-free products explicitly declare milk as an allergen — 1,485 of 4,178. How should an agent treat that in a hospital kitchen?"*
 
 > *"53% of deliverable products have an order cut-off in the past. Artefact, or should we model next-slot rollover?"*
