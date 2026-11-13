@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: TBD
+- Challenge: **Hostinger — "Decode the Noise"** (see [HOSTINGER-CHALLENGE.md](HOSTINGER-CHALLENGE.md))
 - Team members: TBD
 - Stack: TBD
