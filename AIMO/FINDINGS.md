@@ -1,5 +1,58 @@
 # Valio Aimo — technical findings (verified against live API + 87MB catalog)
 
+> **Corrections applied after the full per-file analysis.** Deeper detail per artifact lives in [docs/API.md](docs/API.md), [docs/PRODUCT-DATA.md](docs/PRODUCT-DATA.md), [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md), [docs/CSV-DATASETS.md](docs/CSV-DATASETS.md).
+
+## ⚠️ Superseded claims in earlier revisions of this file
+| Was | Now |
+|---|---|
+| API returns `null` for optional fields | **It never returns null — it omits the keys.** Zero nulls across 298 products |
+| Three `availableAmount` sentinels | **Eight.** Detect by magnitude `>= 1_000_000`, never an allow-list |
+| Two unavailable states | **Three.** A schedule line with `availableAmount == 0.0` while `logisticModel`/`closingTime` are populated (10/244) |
+| `closingTime` has two values; Terminal stale | **12 distinct values; 53% of deliverable products (129/244) are already past** |
+| Allergen states: 3 (CONTAINS/FREE_FROM/MAY_CONTAIN) | **Five-state: CONTAINS · MAY_CONTAIN (9,956) · UNDECLARED (303) · FREE_FROM · SILENT** |
+| `temperatureCondition` meanings unavailable | **Decodable.** 8 = ambient (18–22 °C) · 7 = frozen (−25…−18) · 1→4 = monotone chilled ladder (0–3, 2–4, 2–6, 5–8). Codes 5/6/9 (240 products) unresolved |
+| `substitutions` directed, no reverse edges | **Partly symmetric — 31 of 125 unordered pairs recorded both ways.** 196 source products (not 189), 72 A→B→C chains, 35 with >1 substitute, **one self-loop: `471661` lists itself** |
+| 3,068 products have "empty" `synkkaData` | **None are empty** — minimum 2 populated keys. Sparse cluster is 2–4 keys, and the 15 rich keys are *absent*, not empty |
+| Pack size needs the price ratio | **`units[unitId == salesUnit].sizeInBaseUnits` works on 100% of products** — a static, API-free path (see below) |
+| `nutritionalClaim` 24 values · `allergen` codes undocumented | **21 distinct ids** (24 id+unit pairs) · **allergen codes now mapped**, 30 at high confidence |
+| Carbon coverage 62.9%, gaps unexplained | **81.2% on food, 0.4% on non-food** — `kg CO2-eq/kg` is a food-LCA unit |
+
+## ⭐ The pack-size path that beats the price ratio
+`salesUnit` and `baseUnit` are **always** among the product's own `units[].unitId` — zero exceptions across 17,546 products. Four invariants hold on every row: each appears exactly once; the `baseUnit` row always has `sizeInBaseUnits == 1.0`; no duplicate `unitId`s.
+→ **`units[unitId == salesUnit].sizeInBaseUnits` is available on 100% of products**, needs no API call, and needs none of the undocumented unit-code translations.
+⚠️ **But `synkkaData.unitConversions` has exactly ONE row per product, never a hierarchy**, and its `synkkaPackagingType` is `CASE` on 35.6% (tracking `salesUnit`: KI → CASE 6,071). So for ~1/3 of products its `netWeight`/`volume` describes **the case, not the unit** — multiplying by pack size double-counts.
+⚠️ `volume` is worse than first measured: only **1,071 of 8,970 volume rows (11.9%, = 6.1% of catalog)** carry a genuine volume unit. `netWeight.unit` by contrast is clean — GRM 9,297 / KGM 489, nothing else.
+⚠️ **1,660 products (9.5%) have no static pack-size signal at all.** Name-token coverage is **88.0%** (not 81.2%) once `kpl` and comma decimals are counted; 10.9% carry an `N x M` multipack pattern.
+
+## ⭐ Allergen safety — the real numbers
+- **1,485 of 4,178 `FREE_FROM_LACTOSE` products (35.5%) declare milk `AM` as `CONTAINS`.** Only 1,255 (30%) carry a positive `AM: FREE_FROM`. *Lactose-free is not dairy-free.*
+- 503 claim `FREE_FROM_LACTOSE` with a **non-zero `LACS` nutrition fact**.
+- `FREE_FROM_LACTOSE` and `LOW_LACTOSE` **never co-occur** — distinct claims, never union them.
+- 196 `FREE_FROM_GLUTEN` products declare oats `GO` as CONTAINS.
+- **2 products assert the same allergen in both `allergen` and `nonAllergen`** — `468044` (AM), `469429` (AM + AN).
+- `X99` (121 CONTAINS + 74 FREE_FROM) **names no substance** — unusable for a safety claim.
+- `allergen`: 44 distinct ids / 93 pairs · `nonAllergen`: 40 ids. **Mapped at high confidence:** AM milk · AW cereals-with-gluten · UW wheat · AY soy · AE eggs · AN tree nuts · SA almonds · BM mustard · GO oats · SH hazelnuts · AS sesame · NR rye · GB barley · AF fish · AP peanuts · ML lactose · AU sulphites · BC celery · AC crustaceans · NL lupin · UM molluscs. Method: the 14 most-frequent `nonAllergen` codes form a tight block (3,580–4,651, then a cliff to 1,094) = the EU's 14 mandatory declarable allergens.
+
+## ⭐ Category codes ARE hierarchical — at 4 digits
+Products sharing the first **4** digits have mean name-similarity **0.280 vs 0.025** across prefixes (11× mean, ~100× median). `cos(10400,10401) = 0.471` vs `cos(10400,52201) = 0.146`.
+**A 3-digit fallback does NOT work** (median 0.110). → category-distance substitute ranking is viable without a name mapping.
+
+## Other traps worth knowing
+- **`Price.value` is ex-VAT; `PriceWithTax.value` is inc-VAT** — same field name, opposite meaning, and `PriceWithTax` has no `valueWithTax`. A shared deserialiser mixes them silently.
+- **Datetime offsets have no colon** (`+0200`) — breaks `datetime.fromisoformat` on Python ≤3.10. `availableDate` is a bare date. Open-ended prices use `validTo: "9999-12-31..."`.
+- **`error: true` entries have only 4 keys**; `error: false` → all four price objects present (296/296). The only independent axis is `comparisonPrice`/`comparisonUnit`, absent together on 20.8%.
+- **`netPriceFound` is true on only 7 of 298 products** — nearly everything is at catalog price.
+- **`classifications.packaging` is a dead group** — present on 17,535 products, empty on every one.
+- **`medias` primary flag is unreliable** — 1,394 products have 0 primaries, 2,350 have 2, two have 83. `next(m for m in medias if m["primary"])` raises.
+- **GTIN is not a join key** — `salesUnitGtin` and `synkkaData.gtin` differ on 6,867 products (both correct: sales unit vs consumer unit), and 27 `gtin` values are shared by 54 products. **Use `id`.**
+- **Nutrient ids differ between structures** — `nutritionalContent` uses `VITD-`/`VITC-`, `classifications.vitamin` uses `VITD`/`VITC`. A join on id silently drops them.
+- **The 422 body echoes the whole rejected input** — a 1,001-id request returns ~9 KB. Truncate before logging.
+- **Download redirect targets need no API key** — `/files/<hash>/<name>` returns 200 unauthenticated. Endpoints return **307**.
+- Dirty enums beyond `vatCode`: `countryOfOrigin` non-ISO `zy` 179 / `xs` 11 / `zz` 5 · `productionMethod` `MARINE_FISHERY1` ×3, `AQUACULTURE1` ×2 · `basisQuantityUnit` undocumented PTN/H87/KGM/GL · 6 dirty (id,unit) pairs in `nutritionFact`/`gda`.
+- **`materialAdditionalDescriptions` is schema-required yet empty on 99.9%.** Present ≠ populated, everywhere.
+- Delivery reliability **predicts availability**: DR < 0.75 → 22.5% empty `scheduleLines`; DR = 1.0 → 0%.
+
+
 Empirical reconnaissance. Everything here was tested, not inferred from the brief.
 
 ## Portal docs are reachable programmatically
