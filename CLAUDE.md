@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: see the seventeen challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev (main), Espoo, MariaDB, Google (Gemini), Google (Gemma), NVIDIA (Nemotron), Context.dev (tech). **Not yet decided.** Note: Gemini, Gemma, Nemotron and Context.dev-tech are open-ended technology awards that stack on top of another challenge entry.
+- Challenge: see the eighteen challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev (main), Espoo, MariaDB, Google (Gemini), Google (Gemma), NVIDIA (Nemotron), Context.dev (tech), Aiven (tech). **Not yet decided.** Note: Gemini, Gemma, Nemotron, Context.dev-tech and Aiven are open-ended technology awards that stack on top of another challenge entry.
 - Team members: TBD
 - Stack: TBD
