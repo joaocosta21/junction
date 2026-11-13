@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: see the twenty challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev (main), Espoo, MariaDB, Google (Gemini), Google (Gemma), NVIDIA (Nemotron), Context.dev (tech), Aiven (tech), Cloudinary (tech), Modal (tech). **Not yet decided.** Note: Gemini, Gemma, Nemotron, Context.dev-tech, Aiven, Cloudinary and Modal are open-ended technology awards that stack on top of another challenge entry. **Cloudinary needs its own separate submission form.**
+- Challenge: see the twenty-one challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev (main), Espoo, MariaDB, Google (Gemini), Google (Gemma), NVIDIA (Nemotron), Context.dev (tech), Aiven (tech), Cloudinary (tech), Modal (tech), Oxylabs (tech). **Not yet decided.** Note: Gemini, Gemma, Nemotron, Context.dev-tech, Aiven, Cloudinary, Modal and Oxylabs are open-ended technology awards that stack on top of another challenge entry. **Cloudinary needs its own separate submission form. Oxylabs requires buying a $500 plan (free first month with code) — CANCEL IT AFTER.**
 - Team members: TBD
 - Stack: TBD
