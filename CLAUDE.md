@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: see the ten challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa. **Not yet decided.**
+- Challenge: see the eleven challenge briefs in this repo — Hostinger, Tieto, Bahn Express, AfterQuery, Exa, Cala, S-Pankki, AstraZeneca, Aalto, Stoa, Context.dev. **Not yet decided.**
 - Team members: TBD
 - Stack: TBD
