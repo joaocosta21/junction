@@ -49,7 +49,7 @@ We tested the live API and analysed all 17,546 products. Findings that shaped ou
 | 4 | **`MAY_CONTAIN` is an undocumented third allergen `unit` value**, and pervasive (AN 1,225 · AY 954 · AM 728 · SA 727) | A filter on the two documented values **silently treats "may contain traces" as safe** → **Q6** |
 | 5 | **~59% of the catalog has no allergen statement.** `allergen` non-empty 41.1%, `nonAllergen` 29.2% | Can only *certify* a swap on ~29% → **Q6** |
 | 6 | `salesBlock` was **never `true`**. **Three** unavailable states exist: empty `scheduleLines` (~14%); the identical shape for a nonexistent id; and **one line with `availableAmount == 0.0`** while `logisticModel`/`closingTime` are populated (10/244) | Checking only `scheduleLines == []` treats the third as orderable |
-| 7 | **Seven sentinels in `availableAmount`** — `999999` (documented) plus `9999999999.0`, `666666666.0`, `3333333333.0`, `1249999999.0`, `999999999.0`, `49999999.0`. Real quantities all ≤ ~120 | Detect by magnitude (`>= 1_000_000`), never an allow-list |
+| 7 | **Eight sentinels in `availableAmount`** — `999999` (documented) plus `9999999999.0`, `666666666.0`, `3333333333.0`, `1249999999.0`, `999999999.0`, `416666666.0`, `49999999.0`. Real quantities all ≤ ~120 | Detect by magnitude (`>= 1_000_000`), never an allow-list |
 | 8 | **Pack size = `catalogPrice.value / comparisonPrice.value`.** Verified: 1.0 for a 1 L carton (ST), 10.015 for a crate of ten, 19.94 for 2×10 L | **Means we never need the undocumented sales-unit code translations.** Missing on 22.5%, rounded to 2 dp |
 | 9 | `unitConversions.volume.unit` is often **not** a volume unit: GRM 5,498 · **H87 1,500** (= piece) · KGM 875 · LTR only 762 | Reading `.volume` as litres is wrong more often than right |
 | 10 | **632 products are `variableUnit: true`** | Unit count doesn't determine quantity or price → **fixed-price commitment is impossible** |
@@ -157,8 +157,8 @@ Offsets are serialised **without a colon** (`+0200` / `+0300`). `availableDate` 
 
 → **Checking only `scheduleLines == []` treats state 3 as orderable.** Must also check `availableAmount > 0`.
 
-### ⚠️ Seven sentinel values in `availableAmount` — use a magnitude threshold
-`999999` (documented) · `9999999999.0` · `666666666.0` · `3333333333.0` · `1249999999.0` · `999999999.0` · `49999999.0`
+### ⚠️ Eight sentinel values in `availableAmount` — use a magnitude threshold
+`999999` (documented) · `9999999999.0` · `666666666.0` · `3333333333.0` · `1249999999.0` · `999999999.0` · `416666666.0` · `49999999.0`
 Real quantities observed were all **≤ ~120**. → Detect with `amount >= 1_000_000`, **never an allow-list.**
 
 ### ⚠️ The 422 body echoes the entire rejected input
@@ -179,7 +179,7 @@ productId,deliveryReliability
 460001,1.0
 460002,1.0
 ```
-**4,425 rows = 25.2% of catalog.** 243 distinct values, 0.0–1.0, where 1 = all orders delivered as ordered. Historical delivered-vs-ordered ratio. Not every product has a value.
+**4,425 rows = 25.2% of catalog.** 243 distinct values, 0.0–1.0, where 1 = all orders delivered as ordered. **56.3% sit at exactly 1.0**, 72.1% at ≥0.99, only 6.6% below 0.9, 12 products at 0.0 — so a linear normalisation has almost no discriminating power; map the 0.85–1.0 band instead. Zero malformed rows, zero duplicates, all ids resolve.
 
 ## 3.3 `valio_aimo_junction26_carbon_footprint.csv`
 ```csv
@@ -187,7 +187,7 @@ productId,AVG kg CO2-eq/kg
 460000,2.315
 460001,1.44
 ```
-**11,033 rows = 62.9%.** 177 distinct values. **Category average, not a per-product measurement** — but 89 categories hold more than one distinct value, so it is not a clean category lookup either.
+**11,033 rows = 62.9%.** 177 distinct values, 0.13–30.46, median 2.11. **Category average, not a per-product measurement** — but 89 of 279 categories (31.9%) hold more than one distinct value, and 86 of 177 values span multiple categories, so **it is not a clean category lookup either.** Coverage is **81.2% on food, 0.4% on non-food** — the unit is a food-LCA unit. Zero malformed rows, zero duplicates, all ids resolve.
 
 ## 3.4 `valio_aimo_junction26_product_data.json`
 JSON **array** of 17,546 objects. 87 MB → ~15 s load, ~2 GB RSS; index once, never load at demo time.
@@ -216,7 +216,8 @@ JSON **array** of 17,546 objects. 87 MB → ~15 s load, ~2 GB RSS; index once, n
   "substitutions": [               // 1.1% (189 products, 250 pairs). DIRECTED — no reverse edges
     { "product": "464306", "substituteProduct": "465039" }
   ],
-  "synkkaData": { /* see below */ }// REQUIRED. GS1 Synkka manufacturer data. ~17.5% essentially empty
+  "synkkaData": { /* see below */ }// REQUIRED. GS1 Synkka manufacturer data. No product has it empty;
+                                   // sparse cluster is 2-4 populated keys (3,015 products)
 }
 ```
 
@@ -372,14 +373,29 @@ Each: **what we found** → **why it matters** → **what changes with the answe
 
 **Changes:** If coming, we wire to yours. If not, we synthesise and document it in ASSUMPTIONS — defensible, but we want to say it deliberately rather than look like we missed it.
 
-## Q10 — Why is delivery reliability only 25% covered?
-**Found:** `deliveryReliability` **25.2%** (243 distinct, 0.0–1.0) · carbon **62.9%** · **both only 17.8%** (3,123 products).
+## Q10 — Why is delivery reliability only 25% covered? (we solved the carbon half ourselves)
 
-**Why it matters:** you offer *"delivery time & sustainability comparison"* as an optional direction, but a three-axis ranking is honest on about **1 in 6 products**. The design question is what missing *means*:
-- new product, no history → **neutral**
-- poor or excluded supplier → **penalised**
-- deliberately withheld → shouldn't influence ranking
+**Found — carbon is explained, and it is not random.** Splitting the catalog on food vs non-food (non-food = category prefixes 63xx cleaning/napkins/tableware, 64xx packaging, 20xx kitchen equipment, 90xx office supplies — 22.6% of products):
 
-**Our plan:** rank coverage-aware and **degrade explicitly — missing ≠ good** — stating per result which axes we could evaluate.
+| Segment | n | Delivery reliability | **Carbon** | Both | Neither |
+|---|---|---|---|---|---|
+| **Food** | 13,577 | 26.5% | **81.2%** | 23.0% | 15.4% |
+| **Non-food** | 3,969 | 20.9% | **0.4%** | 0.0% | 78.7% |
 
-**Changes:** Getting this backwards means confidently ranking a product well *because we know nothing about it.*
+Carbon isn't "62.9% with random gaps" — it's **81.2% on food and essentially zero on non-food**, because `kg CO2-eq/kg` is a food-LCA unit that is meaningless for a knife or a bottle of oven cleaner. 36 vendors with ≥20 products have <5% carbon coverage and **all are non-food** (DUNI 817 products, Essity 245, Wulff 232, Huhtamaki 190, Diversey/Kiilto 343).
+
+**We also tested the "category average" claim.** Directionally honest but **not a clean category lookup**: of 279 categories with carbon data, 190 (68.1%) hold exactly one distinct value and **89 (31.9%) hold more**. 97.7% of covered products sit on their category's modal value. The splits are driven by **plant-based vs animal protein** — in category 41705, 105 products at 15.79 (Finnish meatballs) vs 2.195 and 1.73 (vegan patties). And **86 of 177 distinct values (48.6%) span more than one category**, with 0.79 spanning 47 — so category isn't the key either. The averages come from a coarser external food-type taxonomy ("beef", "cheese", "root vegetable") that **isn't in the dataset and isn't reconstructible from it**. Value precision corroborates averaging: 3-decimal values all end in 5 (exact midpoints of two 2-dp numbers), and 26 values carry 15–17 decimals of float noise.
+
+→ Our rule: look carbon up **by `productId` only, never impute from a category sibling** (wrong for 32% of categories — and the splits are exactly the plant-based cases where a sustainability feature earns its keep).
+
+**What's still open — delivery reliability.** Coverage is **dispersed ~25% everywhere** (per-category rate p25 0.15 / median 0.26 / p75 0.37, **no category at 100%**), which looks like order-history volume rather than product type. Distribution is wildly top-heavy: **56.3% at exactly 1.0**, 72.1% at ≥0.99, only 6.6% below 0.9, and **12 products at 0.0**.
+
+**It also carries real forward signal.** An 80-product availability probe: **DR < 0.75 → 9/40 (22.5%) returned empty `scheduleLines`** and 30% unavailable overall, vs **DR == 1.0 → 0/40 empty** and 2.5% unavailable. Low-DR skews Terminal (15/40); DR=1.0 skews Stock (35/40). And the 12 products at DR 0.0 **still report themselves fully available and fully priced** — so historical reliability and the forward availability promise are independent signals that only meet in the ranking.
+
+**Ask:**
+- **Why is delivery reliability only on 25% of products** — insufficient order history, a deliberate cut-off, or something else?
+- **Should missing reliability rank neutral or penalised?** (New product with no history → neutral. Excluded supplier → penalised. We currently weight-renormalise and never impute.)
+- **Is reliability computed over a fixed window?** 56% sitting at exactly 1.0 suggests either a short window or few orders per product.
+- **Confirm our read that carbon is food-only by design** — so we can drop the axis as *not applicable* on non-food rather than showing it as missing data.
+
+**Changes:** Getting this backwards means confidently ranking a product well *because we know nothing about it.* Our current design: carbon absent on non-food = **not applicable, drop the axis**; delivery absent = **unknown, renormalise the weights**. Two different kinds of missing, handled differently.
