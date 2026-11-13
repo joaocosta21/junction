@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: deciding between **Hostinger — "Decode the Noise"** ([brief](HOSTINGER-CHALLENGE.md)), **Tieto — "Earned Trust in AI Code"** ([brief](TIETO-CHALLENGE.md)) and **Bahn Express — "Spread"** ([brief](BAHN-CHALLENGE.md))
+- Challenge: deciding between **Hostinger — "Decode the Noise"** ([brief](HOSTINGER-CHALLENGE.md)), **Tieto — "Earned Trust in AI Code"** ([brief](TIETO-CHALLENGE.md)), **Bahn Express — "Spread"** ([brief](BAHN-CHALLENGE.md)) and **AfterQuery — "Break the Agent"** ([brief](AFTERQUERY-CHALLENGE.md))
 - Team members: TBD
 - Stack: TBD
