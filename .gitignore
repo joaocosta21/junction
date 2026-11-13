@@ -4,5 +4,6 @@
 credentials*
 .DS_Store
 
-# Challenge datasets - partner-provided, not ours to redistribute
-AIMO/
+# Partner-provided datasets - not ours to redistribute
+AIMO/*.json
+AIMO/*.csv

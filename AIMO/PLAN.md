@@ -2,13 +2,13 @@
 
 Merge of the team plan (realistic schedule, right priorities) and the deep analysis plan (data traps, contract design, tech-award stacking). **The team schedule wins on timing; the analysis wins on what to avoid and what to monetise.**
 
-Supersedes [AIMO-PLAN.md](AIMO-PLAN.md), which was scoped for 30h and is ~2× over-budget.
+Supersedes [PLAN-30H-SUPERSEDED.md](PLAN-30H-SUPERSEDED.md), which was scoped for 30h and is ~2× over-budget.
 
 ---
 
 ## 0. Why this shape
 
-**Prize:** €4,000 / €2,000 / €1,000, est. 25–40 teams, **published rubric**. See [AIMO-CHALLENGE.md](AIMO-CHALLENGE.md).
+**Prize:** €4,000 / €2,000 / €1,000, est. 25–40 teams, **published rubric**. See [CHALLENGE.md](CHALLENGE.md).
 
 **We chose this challenge** because nothing in its rubric requires domain knowledge we lack (unlike AstraZeneca's Finnish health system), it has the largest named cash pool of any challenge we reviewed, and **45% of the score — 30% working demo + 15% openness/documentation — is available to disciplined execution alone.**
 
@@ -42,10 +42,10 @@ Supersedes [AIMO-PLAN.md](AIMO-PLAN.md), which was scoped for 30h and is ~2× ov
 ## 2. Schedule
 
 ### Fase 0 — Tonight 21:45–00:00 · arranque
-- **ALL: read [AIMO-FINDINGS.md](AIMO-FINDINGS.md) — 10 minutes.** Every trap below is already verified; discovering them tomorrow costs hours.
+- **ALL: read [FINDINGS.md](FINDINGS.md) — 10 minutes.** Every trap below is already verified; discovering them tomorrow costs hours.
 - **ALL: save the submission draft by 23:30.** Hard deadline.
 - **ALL: claim credits now** — Modal (`VVX-2QX-8HW`, **$100 each person**), Aiven ($50), Gemini. Minutes of work, and Gemini is capped at 400 teams.
-- **Bio 1:** portal (`junction26.valioaimo.fi`), download datasets, read API docs. ✅ *API key already tested and working — `{"status":"ok"}`. Both endpoints and their schemas are documented in AIMO-FINDINGS.md.*
+- **Bio 1:** portal (`junction26.valioaimo.fi`), download datasets, read API docs. ✅ *API key already tested and working — `{"status":"ok"}`. Both endpoints and their schemas are documented in FINDINGS.md.*
 - **Bio 2:** first `policy.yaml` — what is auto-order vs human approval — and the log format.
 - **CS:** repo, gateway skeleton with **3 endpoints: `search`, `offer`, `order`** (⚠️ **not "quote"** — the brief says *"fixed prices rather than a negotiated quote"*; naming it `offer` is a free openness point), real call to the mock API.
 - **ALL: choose 3 demo requests.** Recommended:
@@ -109,7 +109,7 @@ Sunday morning is buffer. Junction submission closes **10:00**; set status to **
 
 ## 4. Data traps — encode these on day one
 
-All verified against the live API. Full detail in [AIMO-FINDINGS.md](AIMO-FINDINGS.md).
+All verified against the live API. Full detail in [FINDINGS.md](FINDINGS.md).
 
 | # | Trap | What to do |
 |---|---|---|

@@ -60,7 +60,7 @@ aimo-ttp/
 
 ### Ownership
 - **A — CS lead, contract & server.** `spec/`, `orders/`, `audit/ledger.py`, `trust/attest.py`, deploy. Owns the 15% artifact + backbone of 30%.
-- **B — data.** `catalog/`, `sources/`, `trust/verifiers.py`. **Every trap in AIMO-FINDINGS.md is B's responsibility to encode on day one.**
+- **B — data.** `catalog/`, `sources/`, `trust/verifiers.py`. **Every trap in FINDINGS.md is B's responsibility to encode on day one.**
 - **C — decision logic.** `planner/`, `policy/`. Carries 20% need-matching + 15% robustness.
 - **D — surface.** `console/`, `agent/intent.py`, `audit/render.py`, then pitch/deck/video from H20.
 
