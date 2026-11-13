@@ -1,6 +1,85 @@
 # Recommendation — challenge choice and tech-award pairing
 
-Based on three independent analyses of all 22 briefs against our team (3 biomedical engineers + 1 CS, ~30h). **All three independently ranked Aalto first.**
+> **REVISED** after team capability update: **all four members program competently and have extended experience; all have done Arduino.** Objective stated: **maximize probability of winning money** (not prestige), at an event with ~2000 participants.
+>
+> This revision supersedes the Aalto-first recommendation below the line. Two assumptions changed: implementation bandwidth is 4 engineers rather than 1, and the goal is expected cash rather than peer prestige. **Aalto names no cash prize** — its only route to money is peer review → top 5 → the €10,000 main prize, a single high-variance shot.
+
+## PRIMARY: AfterQuery — "Break the Agent"
+
+Best cash-per-entrant on the board.
+
+| | AfterQuery | Aalto | Hostinger |
+|---|---|---|---|
+| Cash pool | **€3,000 / €1,500 / €500** | none named | none named |
+| Est. teams | **15–30** | 15–25 | 70–110 |
+| Places paid | **3** | — | — |
+| Rubric | **Published, mechanical, directly gameable** | none | partial |
+
+Plus: winning team members go **straight to the final stage of AfterQuery's interview process** (work trial with their environments team).
+
+### Why it fits now
+- **60 of 100 rubric points** = a reproducible measurable gap + explaining the agent's mistakes. That is experimental method, not product polish.
+- The earlier blocker (MCP harness + one-command reproducibility on a single CS engineer) **no longer applies** with 4 capable programmers.
+- Build the environment in a **physiological / clinical-reasoning domain we know**, so our reference run genuinely beats the frontier agent and the failures are explainable rather than gotchas. The rubric awards zero for gaps from "unfairly withheld information, trick wording, impossible timing, or broken tools."
+- Most teams read the rubric and leave → thin field.
+
+### What kills entries
+- **Reward hacking.** Judges spend **15 minutes** attacking the reward, and rerun with a **do-nothing baseline and a stop-early baseline**. Build those ourselves and red-team our own reward first.
+- **Non-reproducibility.** Judges rerun everything from our README with one command. Our demo does not score — their reruns do.
+
+### Their published tiebreaker
+*"We'll favor a team that shows a smaller model improving after training on experience from its environment."* → free extra award, see stack.
+
+## The stack — unusually coherent for this choice
+Each item is simultaneously an AfterQuery deliverable and a separate award.
+
+| Award | The work | Hours | Doubles as |
+|---|---|---|---|
+| **Modal** | Sandboxes for untrusted agent code; `modal deploy` | 3–4 | Exactly what an RL environment needs |
+| **Gemma + Modal Dojo** | Fine-tune a small model on environment experience | 8–10 | **AfterQuery's stated tiebreaker** |
+| **Aiven** | ClickHouse log of agent runs and failures, surfaced | 4–5 | **The "explain the agent's mistakes" deliverable (30 pts)** |
+| **NVIDIA Nemotron** | Run Nemotron as one of the benchmarked agents | 3–4 | **Prize: 2× RTX 5080 (~€2,000)**, thin field |
+
+~18h of award work, parallelisable across 4 people.
+
+**Five independent shots at money from one project:** AfterQuery top-3, Nemotron, Modal, Gemma, Aiven.
+
+## SECOND TICKET: MariaDB SVT track
+Best odds-per-hour on the list. **€1,000 cash + €1,000 UpCloud credits + MariaDB certification for all four (~$750)** against an estimated **3–8 serious SVT entries**. Sponsor pre-announced that RAG is "recommended for most teams" and SVT "will be recognised for the added technical ambition." Edit-war / bias-drift detection is statistical change detection over revision history, on starter repos with near-zero setup.
+
+**Contingent on whether multiple main challenges are allowed — verify this first (see open items).**
+
+## DROPPED
+- **Aalto** — no cash prize named; single-shot via peer review. Reconsider only if we prefer swinging for the €10,000 main prize over multiple smaller shots. (Full original reasoning retained below.)
+- **Hostinger** — est. 70–110 teams, no named cash, infra tax.
+- **Stoa** — hardest brief, no rubric, no named cash.
+- **Bahn** — Sunday 08:00 final with 07:30 cutoff collides with the 10:00 submission.
+- **Tieto, Espoo, Cala** — wrong domain, and Espoo/Cala's cash pools sit behind crowded or foreign-domain fields.
+
+## Prize-pool reference (where cash is actually named)
+| Challenge | Cash | Est. teams |
+|---|---|---|
+| AfterQuery | €3,000 / €1,500 / €500 | 15–30 |
+| Espoo | €1,500 / €1,000 / €500 | 30–45 |
+| AstraZeneca | €1,000 / €750 / €250 | 25–40 |
+| MariaDB | €1,000 + €1,000 credits + certs / €500 / €250 | 30–50 (SVT: 3–8) |
+| Cala | Comet programme ≈ €5,000/team + €1,000 credits | 40–60 |
+| NVIDIA (tech) | 2× RTX 5080 | thin |
+| Junction overall | **€10,000 main; €100,000 total pool** | peer-reviewed |
+
+Several challenges (Aalto, Hostinger, Stoa, Bahn, Exa, Tieto, S-Pankki, Context.dev) name **no cash** in their briefs — relevant given our objective.
+
+## OPEN ITEMS — verify tonight, in priority order
+- [ ] **Can one project enter multiple MAIN challenges?** Rules say "at least one"; the form says "Challenge" singular. If yes → AfterQuery + MariaDB-SVT. **This is the single highest-value question.**
+- [ ] Collect AfterQuery's starter kit: Harbor + OpenCode harness, scoring skeleton, model credits. Confirm the harness runs end-to-end before designing the environment.
+- [ ] Confirm Nemotron's exact model ID at the NVIDIA table (brief contradicts itself: requires "3.5 Super VL", example string says `nemotron-3.5-lightning-30b-a3b`).
+- [ ] Claim credits: **Modal ($100 × 4 = $400, code `VVX-2QX-8HW`)**, Verda (€200), Gemini (capped at 400 teams), Claude, OpenAI, Featherless (ask about selected-team bare-metal GPU).
+- [ ] Confirm all four of us are 18+ (required for Google-provided accounts).
+- [ ] One API key per teammate on NVIDIA Build (~40 req/min each; agent loops need retries with backoff).
+
+---
+
+# ORIGINAL ANALYSIS (superseded on objective, still valid on fit)
 
 ## Primary: Aalto — "Beyond the Clinic"
 
