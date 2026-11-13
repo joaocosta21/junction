@@ -38,6 +38,6 @@ Also check the **chosen challenge's own judging criteria** from the partner — 
 - Reserve real time Saturday night/Sunday morning for video + deck + submission form. Submission is at 10:00, not after.
 
 ## To fill in
-- Challenge: **Hostinger — "Decode the Noise"** (see [HOSTINGER-CHALLENGE.md](HOSTINGER-CHALLENGE.md))
+- Challenge: deciding between **Hostinger — "Decode the Noise"** ([brief](HOSTINGER-CHALLENGE.md)) and **Tieto — "Earned Trust in AI Code"** ([brief](TIETO-CHALLENGE.md))
 - Team members: TBD
 - Stack: TBD
