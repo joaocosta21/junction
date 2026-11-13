@@ -45,11 +45,11 @@ We tested the live API and analysed all 17,546 products. Findings that shaped ou
 |---|---|---|
 | 1 | **No order/quote/basket endpoint exists** (404 verified). Only 6 operations total. | Defining the order contract appears to be our deliverable → **Q1** |
 | 2 | **Both APIs ignore `requestedDate`.** Three dates tested → byte-identical responses; `availableDate` frozen at **2026-11-16** | "By Monday" can't be tested as a constraint → **Q2** |
-| 3 | **Every Terminal product's `closingTime` is 2026-11-12T15:00** — over a day before server time — while claiming 2026-11-16 availability. Stock products: 2026-11-15T17:00 (future) | Respect it → reject half the catalog. Ignore it → no cut-off logic → **Q3** |
+| 3 | **53% of deliverable products (129/244) report a `closingTime` already in the past**, across 12 distinct values, while still claiming 2026-11-16 availability | Respect them → reject most of the catalog. Ignore them → no cut-off logic → **Q3** |
 | 4 | **`MAY_CONTAIN` is an undocumented third allergen `unit` value**, and pervasive (AN 1,225 · AY 954 · AM 728 · SA 727) | A filter on the two documented values **silently treats "may contain traces" as safe** → **Q6** |
 | 5 | **~59% of the catalog has no allergen statement.** `allergen` non-empty 41.1%, `nonAllergen` 29.2% | Can only *certify* a swap on ~29% → **Q6** |
-| 6 | `salesBlock` was **never `true`** in 80 sampled products. **Empty `scheduleLines`** is the real undeliverable signal (~14%) — and it's the same shape returned for a nonexistent product id | Must distinguish unknown-SKU from undeliverable |
-| 7 | Three sentinels in `availableAmount`: `999999` (documented), **`9999999999.0`**, **`666666666.0`** (both undocumented) | Arithmetic on these yields absurd orders |
+| 6 | `salesBlock` was **never `true`**. **Three** unavailable states exist: empty `scheduleLines` (~14%); the identical shape for a nonexistent id; and **one line with `availableAmount == 0.0`** while `logisticModel`/`closingTime` are populated (10/244) | Checking only `scheduleLines == []` treats the third as orderable |
+| 7 | **Seven sentinels in `availableAmount`** — `999999` (documented) plus `9999999999.0`, `666666666.0`, `3333333333.0`, `1249999999.0`, `999999999.0`, `49999999.0`. Real quantities all ≤ ~120 | Detect by magnitude (`>= 1_000_000`), never an allow-list |
 | 8 | **Pack size = `catalogPrice.value / comparisonPrice.value`.** Verified: 1.0 for a 1 L carton (ST), 10.015 for a crate of ten, 19.94 for 2×10 L | **Means we never need the undocumented sales-unit code translations.** Missing on 22.5%, rounded to 2 dp |
 | 9 | `unitConversions.volume.unit` is often **not** a volume unit: GRM 5,498 · **H87 1,500** (= piece) · KGM 875 · LTR only 762 | Reading `.volume` as litres is wrong more often than right |
 | 10 | **632 products are `variableUnit: true`** | Unit count doesn't determine quantity or price → **fixed-price commitment is impossible** |
@@ -124,22 +124,47 @@ Portal docs (`/docs`, `/redoc`, `/openapi.json`) sit at the **root** path behind
 ```
 ⚠️ `logisticModel` and `closingTime` **keys are absent entirely** on undeliverable products — use `.get()`.
 
-### ⚠️ Declared nullability — straight from the spec
-The OpenAPI spec formally declares these as nullable. **This is documented, not just observed.**
+### ⚠️ The API never returns `null` — it OMITS keys
+The spec declares 9 fields as `anyOf [T, null]`, but **across 298 products on both endpoints, zero JSON nulls were observed.** Absent fields are simply missing from the object. Verified empirically.
 
-| Endpoint | Fields declared `| null` |
+| Endpoint | Fields that can be ABSENT |
 |---|---|
-| `/price` → `ProductPrice` | `catalogPrice` · `priceWithTax` · `comparisonPrice` · `comparisonUnit` · `tax` · `listPrice` — **every price object can be null** |
+| `/price` → `ProductPrice` | `catalogPrice` · `priceWithTax` · `comparisonPrice` · `comparisonUnit` · `tax` · `listPrice` |
 | `/availability` → `ProductAvailability` | `closingTime` · `logisticModel` |
 | `/availability` → `ScheduleLine` | `availableDate` |
 
-Non-nullable and always present: `productId`, `quantity`, `netPriceFound`, `error` (price) · `productId`, `salesBlock`, `scheduleLines` (availability) · `salesBlock`, `availableAmount`, `salesUnit` (schedule line).
+Always present: `productId`, `quantity`, `netPriceFound`, `error` (price) · `productId`, `salesBlock`, `scheduleLines` (availability) · `salesBlock`, `availableAmount`, `salesUnit` (schedule line).
 
-**Two distinct failure modes to handle separately:**
-1. **Declared null** — the key exists with value `null` (any price object; `closingTime`; `logisticModel`; `availableDate`)
-2. **Key absent entirely** — observed on undeliverable products, where `logisticModel` and `closingTime` do not appear at all
+**`error` and the price objects are perfectly coupled** (verified 298 products):
+- `error: false` → `catalogPrice`, `priceWithTax`, `tax`, `listPrice` present on **100%** (296/296)
+- `error: true` → the entry has **only 4 keys**: `productId`, `quantity`, `netPriceFound`, `error`
 
-→ `resp["catalogPrice"]["value"]` can fail two different ways. **Use `.get()` chains with defaults throughout, and never assume `error: false` means the price objects are populated.**
+**The only independent axis is `comparisonPrice` + `comparisonUnit`** — absent *together* on 20.8% (62/298) even on perfectly priced products (e.g. `460180`). This is exactly what breaks the pack-size shortcut.
+`netPriceFound` is also independent — **true on only 7 of 298 products**, so nearly everything is at catalog price.
+
+→ Use `.get()` chains throughout. `resp["catalogPrice"]["value"]` raises `KeyError`, not a null check.
+
+### ⚠️ `Price.value` vs `PriceWithTax.value` — same name, opposite meaning
+`Price.value` is tax-**exclusive** (and carries its own `valueWithTax`). `PriceWithTax.value` is tax-**inclusive** and has **no** `valueWithTax`. A shared deserialiser across both types will silently mix ex-VAT and inc-VAT numbers.
+
+### ⚠️ Datetime format breaks `fromisoformat` on Python ≤3.10
+Offsets are serialised **without a colon** (`+0200` / `+0300`). `availableDate` alone is a bare `YYYY-MM-DD`. Open-ended prices use `validTo: "9999-12-31T00:00:00+0200"`.
+
+### ⚠️ Three distinct unavailable states, not two
+1. `scheduleLines: []` — undeliverable on any date; `logisticModel` and `closingTime` keys **absent**
+2. `scheduleLines: []` — **identical shape returned for a nonexistent product id**
+3. **`scheduleLines` with ONE line whose `availableAmount == 0.0` and `availableDate` absent**, while `logisticModel` and `closingTime` ARE populated (10 of 244 lines; e.g. `460660` KI, `465280` PRK)
+
+→ **Checking only `scheduleLines == []` treats state 3 as orderable.** Must also check `availableAmount > 0`.
+
+### ⚠️ Seven sentinel values in `availableAmount` — use a magnitude threshold
+`999999` (documented) · `9999999999.0` · `666666666.0` · `3333333333.0` · `1249999999.0` · `999999999.0` · `49999999.0`
+Real quantities observed were all **≤ ~120**. → Detect with `amount >= 1_000_000`, **never an allow-list.**
+
+### ⚠️ The 422 body echoes the entire rejected input
+`detail[].input` contains the whole payload — a 1,001-id over-limit request returns ~9 KB. **Truncate before logging.**
+
+Other confirmed details: `customer` is **strictly typed** (integer `123` is rejected, not coerced). `GET /api/ping` returns `{"status":"ok"}` as `application/json` (undocumented — the spec says `{}`). Download endpoints return **307**, and their `/files/<hash>/<name>` redirect targets need **no API key at all** — unauthenticated capability links. Product JSON is exactly 87,077,467 bytes.
 
 ### File downloads (follow redirects)
 ```bash
@@ -285,9 +310,9 @@ Each: **what we found** → **why it matters** → **what changes with the answe
 **Changes:** If judged → we need the intended rules (per temperature class? logistic model? vendor?), unreverse-engineerable from a single-date mock. If not → we build the plumbing correctly for production credibility, demo against 2026-11-16, stop investing.
 
 ## Q3 — Which `closingTime` semantics should we honour? ⭐
-**Found:** server time 2026-11-13T21:33+02:00. **Every Terminal product: `closingTime` 2026-11-12T15:00 — over a day past — while claiming 2026-11-16 availability.** Stock: 2026-11-15T17:00 (future). Documented as *"order by closingTime at the latest to receive goods on availableDate."*
+**Found:** `closingTime` has **12 distinct values**, not two — and **53% of deliverable products (129 of 244 sampled) report a cut-off that is already in the past.** Terminal products cluster at 2026-11-12T15:00 (over a day before server time 2026-11-13T21:33+02:00) while claiming 2026-11-16 availability; Stock products at 2026-11-15T17:00 (future). Documented as *"order by closingTime at the latest to receive goods on availableDate."*
 
-**Why it matters:** decides whether half the assortment is orderable in our demo. Respect it → reject **every Terminal product**. Ignore it → no cut-off logic, and cut-off handling is exactly what the 15% robustness criterion rewards.
+**Why it matters:** decides whether **the majority** of the assortment is orderable in our demo. Respect the cut-offs literally → reject **53% of deliverable products**. Ignore them → no cut-off logic at all, and cut-off handling is exactly what the 15% robustness criterion rewards.
 
 **Our plan:** detect the contradiction, degrade the commitment window to the price validity window, log the reason, surface it as a data-quality finding — our answer to your *"trust protocol"* problem.
 
