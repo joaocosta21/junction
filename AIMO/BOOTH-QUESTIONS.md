@@ -124,6 +124,23 @@ Portal docs (`/docs`, `/redoc`, `/openapi.json`) sit at the **root** path behind
 ```
 ⚠️ `logisticModel` and `closingTime` **keys are absent entirely** on undeliverable products — use `.get()`.
 
+### ⚠️ Declared nullability — straight from the spec
+The OpenAPI spec formally declares these as nullable. **This is documented, not just observed.**
+
+| Endpoint | Fields declared `| null` |
+|---|---|
+| `/price` → `ProductPrice` | `catalogPrice` · `priceWithTax` · `comparisonPrice` · `comparisonUnit` · `tax` · `listPrice` — **every price object can be null** |
+| `/availability` → `ProductAvailability` | `closingTime` · `logisticModel` |
+| `/availability` → `ScheduleLine` | `availableDate` |
+
+Non-nullable and always present: `productId`, `quantity`, `netPriceFound`, `error` (price) · `productId`, `salesBlock`, `scheduleLines` (availability) · `salesBlock`, `availableAmount`, `salesUnit` (schedule line).
+
+**Two distinct failure modes to handle separately:**
+1. **Declared null** — the key exists with value `null` (any price object; `closingTime`; `logisticModel`; `availableDate`)
+2. **Key absent entirely** — observed on undeliverable products, where `logisticModel` and `closingTime` do not appear at all
+
+→ `resp["catalogPrice"]["value"]` can fail two different ways. **Use `.get()` chains with defaults throughout, and never assume `error: false` means the price objects are populated.**
+
 ### File downloads (follow redirects)
 ```bash
 curl -L -H "X-API-Key: $KEY" https://junction26.valioaimo.fi/api/products/download
