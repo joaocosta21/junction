@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
 
 from pydantic import Field
 
@@ -20,6 +19,7 @@ from tta.contracts.common import (
     DataSource,
     ExclusionReason,
     Money,
+    Number,
     OptionKind,
     Quantity,
     Ratio,
@@ -59,7 +59,7 @@ class OfferLine(Contract):
     pack_size: PackSize
     covers: Quantity = Field(description="How much of the requested quantity this line covers, in the request's unit")
     unit_net_price: UnitPrice
-    tax_rate: Decimal | None = None  # percent, from tax.taxRate
+    tax_rate: Number | None = None  # percent, from tax.taxRate
     net: Money
     tax: Money
     gross: Money

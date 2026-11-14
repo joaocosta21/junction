@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from typing import Annotated
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 
 from tta.contracts.common import (
     ApprovalStatus,
@@ -15,6 +15,7 @@ from tta.contracts.common import (
     DataSource,
     DecisionKind,
     JsonDict,
+    Number,
     OrderStatus,
     PlacedBy,
     UnitPrice,
@@ -23,6 +24,10 @@ from tta.contracts.offer import OfferOption
 from tta.contracts.policy import PolicyDecision
 
 MAX_NOTE_LENGTH = 1000
+MAX_RECORD_ID_LENGTH = 64
+
+# An id the gateway issued (offer, option, order, approval), as a caller sends it back.
+RecordId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_RECORD_ID_LENGTH, pattern=r"^[A-Za-z0-9_-]+$")]
 
 # The mock has no order endpoint, by design. The order record says so (SPEC section 8).
 ORDER_RECORD_NOTE = (
@@ -34,15 +39,15 @@ ORDER_RECORD_NOTE = (
 class PlaceOrderRequest(Contract):
     """Body of POST /v1/orders. The buyer profile is never a field: it comes from the caller's token."""
 
-    offer_id: str
-    option_id: str
+    offer_id: RecordId
+    option_id: RecordId
 
 
 class DecisionRequest(Contract):
     """Body of POST /v1/approvals/{id}/decision."""
 
     decision: DecisionKind
-    option_id: str | None = Field(default=None, description="Another option of the same offer, when approving")
+    option_id: RecordId | None = Field(default=None, description="Another option of the same offer, when approving")
     note: str | None = Field(default=None, max_length=MAX_NOTE_LENGTH)
 
 
@@ -53,7 +58,7 @@ class RelianceStatement(Contract):
     unit_net_price: UnitPrice
     price_valid_to: datetime | None = None
     availability_state: AvailabilityState
-    available_amount: Decimal | None = None  # None when the quantity is not confirmed
+    available_amount: Number | None = None  # None when the quantity is not confirmed
     available_date: date | None = None
     closing_time: datetime | None = None
     time_now: datetime  # the server time at which Valio stated these figures (the offer's data time)

@@ -13,6 +13,7 @@ MONEY_PLACES = 2
 QUANTITY_PLACES = 3
 UNIT_PRICE_PLACES = 4
 RATIO_PLACES = 4
+NUMBER_PLACES = 6
 
 CURRENCY_EUR = "EUR"
 
@@ -38,6 +39,9 @@ UnitPrice = Annotated[
     Decimal, PlainSerializer(_as_number(UNIT_PRICE_PLACES), return_type=float, when_used="json")
 ]
 Ratio = Annotated[Decimal, PlainSerializer(_as_number(RATIO_PLACES), return_type=float, when_used="json")]
+# Any other decimal the supplier or the product file states (a tax rate, a stock figure, a lot step): exact inside,
+# a JSON number outside, like money and quantities.
+Number = Annotated[Decimal, PlainSerializer(_as_number(NUMBER_PLACES), return_type=float, when_used="json")]
 
 JsonDict = dict[str, Any]
 

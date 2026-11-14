@@ -15,6 +15,7 @@ from tta.contracts.common import (
     ClaimStatus,
     Contract,
     DataSource,
+    Number,
     Quantity,
 )
 
@@ -26,8 +27,8 @@ QUANTITY_NOT_CONFIRMED_THRESHOLD = Decimal(999_999)
 class PriceAmount(Contract):
     """`Price` of the API: `value` excludes tax, `value_with_tax` includes it."""
 
-    value: Decimal
-    value_with_tax: Decimal
+    value: Number
+    value_with_tax: Number
     valid_from: datetime
     valid_to: datetime
     currency: str
@@ -43,8 +44,8 @@ class PriceLine(Contract):
     list_price: PriceAmount | None = None
     comparison_price: PriceAmount | None = None
     comparison_unit: str | None = None  # KG or L
-    tax_rate: Decimal | None = None  # percent; authoritative over the product file's vatCode
-    tax_value: Decimal | None = None
+    tax_rate: Number | None = None  # percent; authoritative over the product file's vatCode
+    tax_value: Number | None = None
 
     @property
     def has_price(self) -> bool:
@@ -64,7 +65,7 @@ class PriceResponse(Contract):
 
 class ScheduleLine(Contract):
     sales_block: bool
-    available_amount: Decimal  # raw value; a placeholder at or above the threshold is not a quantity
+    available_amount: Number  # raw value; a placeholder at or above the threshold is not a quantity
     available_date: date | None = None
     sales_unit: str
 

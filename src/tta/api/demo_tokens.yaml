@@ -1,0 +1,73 @@
+# Demonstration tokens. PUBLIC BY DESIGN: this file is in the public repository and the tokens are shown in
+# /docs, so anyone can try the gateway. They protect nothing and must never guard real data.
+#
+# They are loaded only when TTA_ENV is `dev` or `demo`. In any other environment this file is not read:
+# tokens come from the environment (TTA_TOKENS, a JSON object of the same shape: token -> identity) and
+# the gateway refuses to start without them.
+#
+# One token is one identity (AIMO/SPEC.md section 2):
+#   AGENT     bound to one buyer profile; places orders within that profile's authority; holds no role
+#   APPROVER  a human of one buyer with one or more roles; decides approvals; cannot place an order
+#   SUPPLIER  reads the supplier's view of the audit trail and nothing else
+# The approver ids are the ones listed under `approver_roles` in src/tta/policy/profiles/*.yaml: a token
+# alone is not enough, the buyer's profile must name the person for the role.
+# The names are invented for the demonstration.
+
+demo-agent-hotel-kitchen:
+  kind: AGENT
+  id: "agent:hotel-kitchen"
+  display_name: Hotel kitchen agent (demo)
+  profile_id: hotel-kitchen
+
+demo-agent-allergy-ward:
+  kind: AGENT
+  id: "agent:allergy-ward"
+  display_name: Allergy ward agent (demo)
+  profile_id: allergy-ward
+
+demo-approver-hotel-purchasing:
+  kind: APPROVER
+  id: "human:hotel-purchasing"
+  display_name: Demo approver Hanna
+  profile_id: hotel-kitchen
+  roles: [purchasing_manager]
+
+demo-approver-hotel-finance:
+  kind: APPROVER
+  id: "human:hotel-finance"
+  display_name: Demo approver Mikko
+  profile_id: hotel-kitchen
+  roles: [finance]
+
+demo-approver-hotel-dietitian:
+  kind: APPROVER
+  id: "human:hotel-dietitian"
+  display_name: Demo approver Leena
+  profile_id: hotel-kitchen
+  roles: [dietitian]
+
+demo-approver-ward-dietitian:
+  kind: APPROVER
+  id: "human:ward-dietitian"
+  display_name: Demo approver Sari
+  profile_id: allergy-ward
+  roles: [dietitian]
+
+demo-approver-ward-purchasing:
+  kind: APPROVER
+  id: "human:ward-purchasing"
+  display_name: Demo approver Jussi
+  profile_id: allergy-ward
+  roles: [purchasing_manager]
+
+demo-approver-ward-finance:
+  kind: APPROVER
+  id: "human:ward-finance"
+  display_name: Demo approver Anna
+  profile_id: allergy-ward
+  roles: [finance]
+
+demo-supplier-valio-aimo:
+  kind: SUPPLIER
+  id: "supplier:valio-aimo"
+  display_name: Valio Aimo (supplier view, demo)

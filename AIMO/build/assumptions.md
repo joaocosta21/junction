@@ -185,3 +185,16 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - An idempotency key is 1 to 100 characters of letters, digits, `.`, `_`, `:` and `-`.
 - A thread waits at most 5 seconds for the store, then the caller gets `supplier-unavailable` and can send the same request again.
 - The order book's one lock is held across the supplier call and protects one process only (next step).
+
+## API (T09)
+- One service object (`tta.api.service.Gateway`) is behind every transport: REST routes, MCP tools, pages and the buyer agent. The limits and the authorisation checks live there, not in the routes.
+- Who may call what: an agent, everything of its own buyer except the approval routes; an approver, the reads of its own buyer and the approval routes; the supplier, the audit route only.
+- Demo tokens are public by design and read only when `TTA_ENV` is `dev` or `demo`. Elsewhere `TTA_TOKENS` (a JSON object, token to identity) is required and the app does not start without it. Tokens are kept as SHA-256 digests and compared in constant time.
+- Rate limit: 60 calls a minute per identity, 240 for the shared demo tokens; in memory, one process. Body limit 64 KB. Lists return at most 100 items; no paging. A request names at most 1,000 product ids.
+- A problem response never repeats text the caller sent and has no `instance` member. A validation problem lists `{field, problem}` pairs.
+- Creating an offer or an order answers 201, a retry with the same key too.
+- Stale or expired at order time: the 409 carries `fresh_offer_id` when a fresh offer could be built.
+- Live mode falls back to the recorded capture when the supplier cannot be reached (for 30 seconds before trying live again) or fewer than 10 calls are left in the budget. `/healthz` shows the mode asked for and the source of the last answer. A live price followed by a failed live availability call gives an offer labelled replay that holds a live price.
+- `/healthz` is public: environment, mode, source, the audit head (event count and last hash), which optional parts are in, and which settings are set (true or false, never a value).
+- OpenAPI examples are produced by running the scenarios through the service against the capture; none is written by hand. `/docs` loads its assets from a CDN (FastAPI's default) and needs the network; `/openapi.json` does not.
+- Pages are mounted only in dev and demo (question T09-4).

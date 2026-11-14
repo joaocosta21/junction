@@ -414,6 +414,22 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Built overnight:** while an order of an offer is waiting or ordered, a second order on the same offer is refused and the answer names the existing order. After a rejection or an expiry the offer can be ordered again. Before, the same option could be ordered twice under two keys.
 - **Ask:** "Agreed?" A repeat purchase asks for a new offer.
 
+**T09-1 · "Request received" is not yet in an order's trail**
+- **Context:** the trail of an order is found through its offer. The event with the buyer's pasted words is written before any offer exists, so the order's timeline starts at "request parsed".
+- **Planned overnight (fix task after review round 3):** the offer step writes "request received" itself, from the words kept on each request line, so the timeline starts with what the buyer wrote.
+
+**T09-2 · An agent cannot list approvals**
+- **Built overnight:** the gateway refuses an agent on the approval list as well as on the decision (403). An approver may read its own buyer's authority, catalog, offers, orders and audit trail, and decide approvals. The supplier reads the audit trail only.
+- **Ask:** "Should the agent be able to see that its order is waiting, through the approvals list?" It already sees the order's status.
+
+**T09-3 · Rate limits on the public demo**
+- **Built overnight:** 60 calls a minute per token; 240 a minute for the shared demo tokens, because every visitor of the demo uses the same ones. Request bodies are capped at 64 KB and lists at 100 items.
+- **Ask:** "Are those numbers right for the judging session?" They are constants in `src/tta/api/limits.py`.
+
+**T09-4 · Pages exist only in dev and demo**
+- **Built overnight:** the pages act as a demo identity chosen on the page, with no login, so they are mounted only when `TTA_ENV` is `dev` or `demo`. The API and the MCP surface take a bearer token in every environment.
+- **Ask:** "Agreed that a production deployment would have no pages until there is a login?"
+
 ---
 
 ## Claims we no longer make

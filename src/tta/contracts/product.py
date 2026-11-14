@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from tta.contracts.allergen import AllergenStatement
-from tta.contracts.common import Contract, PackSizeSource, Quantity, Unit
+from tta.contracts.common import Contract, Number, PackSizeSource, Quantity, Unit
 
 
 class UnitSize(Contract):
     """One packaging level of a product: how many base units it holds."""
 
     unit_id: str
-    size_in_base_units: Decimal
+    size_in_base_units: Number
     gtin: str | None = None
 
 
@@ -20,14 +18,14 @@ class UnitConversion(Contract):
     """Measured size of one packaging level (synkkaData.unitConversions)."""
 
     packaging_type: str
-    volume_l: Decimal | None = None
-    net_weight_kg: Decimal | None = None
+    volume_l: Number | None = None
+    net_weight_kg: Number | None = None
 
 
 class Deposit(Contract):
     material: str
     unit: str
-    quantity: Decimal
+    quantity: Number
 
 
 class Product(Contract):
@@ -45,7 +43,7 @@ class Product(Contract):
     synkka_gtin: str | None = None
     units: tuple[UnitSize, ...] = ()
     unit_conversions: tuple[UnitConversion, ...] = ()
-    allowed_lot_size: Decimal
+    allowed_lot_size: Number
     variable_weight: bool | None = None  # synkkaData.variableUnit; None when the file does not say
     deposits: tuple[Deposit, ...] = ()
     nutritional_claims: tuple[str, ...] = ()
@@ -55,8 +53,8 @@ class Product(Contract):
     country_of_origin: str | None = None
     countries_of_origin: tuple[str, ...] = ()
     deleted: bool = False
-    delivery_reliability: Decimal | None = None  # share between 0 and 1, from the reliability file
-    carbon_kg_co2e_per_kg: Decimal | None = None  # from the carbon footprint file
+    delivery_reliability: Number | None = None  # share between 0 and 1, from the reliability file
+    carbon_kg_co2e_per_kg: Number | None = None  # from the carbon footprint file
 
     @property
     def display_name(self) -> str:

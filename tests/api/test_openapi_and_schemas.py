@@ -1,0 +1,219 @@
+"""The published interface: generated OpenAPI with examples from the scenarios, and the JSON Schemas
+(SPEC section 2). Scores on the 15% "open, documented standards rather than a proprietary format"."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, TypeAdapter
+
+from tta.api import create_app
+from tta.api.wiring import build_parts
+from tta.catalog import ProductCatalog
+from tta.config import Settings
+from tta.contracts.agent import AgentRun, ParseRequestBody
+from tta.contracts.audit import AuditView
+from tta.contracts.common import Verdict
+from tta.contracts.errors import PROBLEM_CONTENT_TYPE, ProblemDetails
+from tta.contracts.offer import Offer, SubstituteQuery, SubstituteResult
+from tta.contracts.order import Approval, DecisionRequest, Order, PlaceOrderRequest
+from tta.contracts.policy import Authority
+from tta.contracts.product import Product, SearchResult
+from tta.contracts.request import ProductQuery, PurchaseRequest
+from tta.contracts.schemas import all_models
+
+# SPEC section 2, plus the order list the pages need (task note) and the health check.
+ROUTES = {
+    ("get", "/v1/authority"): "get_authority",
+    ("post", "/v1/products/search"): "search_products",
+    ("get", "/v1/products/{product_id}"): "get_product",
+    ("post", "/v1/products/{product_id}/substitutes"): "find_substitutes",
+    ("post", "/v1/offers"): "create_offer",
+    ("get", "/v1/offers/{offer_id}"): "get_offer",
+    ("post", "/v1/orders"): "place_order",
+    ("get", "/v1/orders"): "list_orders",
+    ("get", "/v1/orders/{order_id}"): "get_order",
+    ("get", "/v1/approvals"): "list_approvals",
+    ("post", "/v1/approvals/{approval_id}/decision"): "decide_approval",
+    ("get", "/v1/audit"): "get_audit",
+    ("post", "/v1/requests/parse"): "parse_request",
+    ("post", "/v1/agent/run"): "run_agent",
+    ("get", "/v1/schemas"): "get_schemas",
+    ("get", "/healthz"): "get_health",
+}
+PUBLIC = {"get_schemas", "get_health"}
+REQUEST_MODELS: dict[str, Any] = {
+    "search_products": ProductQuery,
+    "find_substitutes": SubstituteQuery,
+    "create_offer": PurchaseRequest,
+    "place_order": PlaceOrderRequest,
+    "decide_approval": DecisionRequest,
+    "parse_request": ParseRequestBody,
+    "run_agent": ParseRequestBody,
+}
+RESPONSE_MODELS: dict[str, Any] = {
+    "get_authority": Authority,
+    "search_products": SearchResult,
+    "get_product": Product,
+    "find_substitutes": SubstituteResult,
+    "create_offer": Offer,
+    "get_offer": Offer,
+    "place_order": Order,
+    "list_orders": tuple[Order, ...],
+    "get_order": Order,
+    "list_approvals": tuple[Approval, ...],
+    "decide_approval": Order,
+    "get_audit": AuditView,
+    "parse_request": PurchaseRequest,
+    "run_agent": AgentRun,
+}
+
+
+@pytest.fixture(scope="module")
+def document(catalog: ProductCatalog, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
+    settings = Settings.for_tests(tta_data_dir=tmp_path_factory.mktemp("openapi") / "var")
+    app = create_app(settings, parts=build_parts(settings, catalog=catalog))
+    with TestClient(app) as client:
+        response = client.get("/openapi.json")
+        assert response.status_code == 200
+        yield response.json()
+
+
+def _operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        operation["operationId"]: operation
+        for methods in document["paths"].values()
+        for operation in methods.values()
+    }
+
+
+def _examples(media: dict[str, Any]) -> list[Any]:
+    return [example["value"] for example in media.get("examples", {}).values()]
+
+
+def test_the_document_is_openapi_3_1_and_says_what_the_gateway_is(document: dict[str, Any]) -> None:
+    assert document["openapi"].startswith("3.1")
+    assert document["info"]["title"] == "Trusted Trade Agents gateway"
+    description = document["info"]["description"]
+    for phrase in ("fixed prices", "human", "public by design", "illustrative", "RFC 9457", "CloudEvents"):
+        assert phrase in description, phrase
+
+
+def test_the_document_lists_every_route_of_the_specification(document: dict[str, Any]) -> None:
+    listed = {
+        (method, path): operation["operationId"]
+        for path, methods in document["paths"].items()
+        for method, operation in methods.items()
+    }
+
+    assert listed == ROUTES
+
+
+def test_every_route_but_the_public_ones_asks_for_the_bearer_token(document: dict[str, Any]) -> None:
+    scheme = document["components"]["securitySchemes"]["bearerAuth"]
+    assert (scheme["type"], scheme["scheme"]) == ("http", "bearer")
+    assert "public by design" in scheme["description"]
+
+    for name, operation in _operations(document).items():
+        if name in PUBLIC:
+            assert "security" not in operation, name
+        else:
+            assert operation["security"] == [{"bearerAuth": []}], name
+
+
+def test_every_route_has_a_tag_that_names_what_the_brief_asks_for(document: dict[str, Any]) -> None:
+    described = {tag["name"]: tag["description"] for tag in document["tags"]}
+
+    assert {"Core 1: lookup", "Core 2: offer and order", "Core 3: authority and approval"} <= set(described)
+    assert all(described.values())
+    for name, operation in _operations(document).items():
+        assert len(operation["tags"]) == 1 and operation["tags"][0] in described, name
+        assert operation["summary"] and operation["description"], name
+
+
+def test_every_request_body_has_an_example_that_its_contract_accepts(document: dict[str, Any]) -> None:
+    operations = _operations(document)
+
+    for name, model in REQUEST_MODELS.items():
+        examples = _examples(operations[name]["requestBody"]["content"]["application/json"])
+        assert examples, name
+        for example in examples:
+            model.model_validate(example)
+    assert {name for name, operation in operations.items() if "requestBody" in operation} == set(REQUEST_MODELS)
+
+
+def test_every_answer_has_an_example_taken_from_the_scenarios(document: dict[str, Any]) -> None:
+    operations = _operations(document)
+
+    for name, model in RESPONSE_MODELS.items():
+        success = next(code for code in operations[name]["responses"] if code.startswith("2"))
+        examples = _examples(operations[name]["responses"][success]["content"]["application/json"])
+        assert examples, name
+        adapter = TypeAdapter(model)
+        for example in examples:
+            adapter.validate_python(example) if not _is_model(model) else model.model_validate(example)
+
+
+def _is_model(model: Any) -> bool:
+    return isinstance(model, type) and issubclass(model, BaseModel)
+
+
+def test_the_examples_tell_the_two_scenarios(document: dict[str, Any]) -> None:
+    operations = _operations(document)
+    offer = Offer.model_validate(_examples(operations["create_offer"]["responses"]["201"]["content"][
+        "application/json"])[0])
+    order = Order.model_validate(_examples(operations["place_order"]["responses"]["201"]["content"][
+        "application/json"])[0])
+    approvals = _examples(operations["list_approvals"]["responses"]["200"]["content"]["application/json"])[0]
+    audit = operations["get_audit"]["responses"]["200"]["content"]["application/json"]["examples"]
+
+    assert offer.profile_id == "allergy-ward"
+    assert offer.options[0].decision is not None and offer.options[0].decision.verdict is Verdict.AUTO
+    assert order.status.value == "ORDERED" and order.placed_by is not None
+    assert approvals and approvals[0]["profile_id"] == "hotel-kitchen"
+    assert {"buyer", "supplier"} <= set(audit)
+    assert audit["supplier"]["value"]["reader"] == "supplier"
+
+
+def test_every_problem_a_route_can_answer_is_documented_as_problem_json(document: dict[str, Any]) -> None:
+    assert document["components"]["schemas"]["ProblemDetails"]["properties"].keys() >= {"type", "title", "status"}
+    for name, operation in _operations(document).items():
+        problems = {code: answer for code, answer in operation["responses"].items() if code[0] in "45"}
+        if name in PUBLIC:
+            continue
+        assert {"401", "403"} <= set(problems), name
+        for code, answer in problems.items():
+            media = answer["content"][PROBLEM_CONTENT_TYPE]
+            assert media["schema"] == {"$ref": "#/components/schemas/ProblemDetails"}, (name, code)
+            for example in _examples(media):
+                assert ProblemDetails.model_validate(example).status == int(code), (name, code)
+    assert "HTTPValidationError" not in document["components"]["schemas"]
+
+
+def test_the_order_route_documents_its_idempotency_key(document: dict[str, Any]) -> None:
+    header = next(
+        parameter for parameter in _operations(document)["place_order"]["parameters"]
+        if parameter["name"] == "Idempotency-Key"
+    )
+
+    assert header["in"] == "header"
+    assert header["required"] is True
+    assert header["schema"]["maxLength"] == 100
+
+
+def test_the_schemas_route_returns_every_contract_model_without_a_token(client: TestClient) -> None:
+    response = client.get("/v1/schemas")
+
+    assert response.status_code == 200
+    schemas = response.json()
+    assert set(schemas) == set(all_models())
+    assert len(schemas) >= 59
+    assert schemas["Offer"]["properties"]["options"]
+    assert schemas["AuditEvent"]["properties"]["specversion"]
+
+
+def test_the_interactive_documentation_is_served(client: TestClient) -> None:
+    assert client.get("/docs").status_code == 200

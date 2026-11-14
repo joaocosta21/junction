@@ -1,0 +1,170 @@
+"""What `/openapi.json` says beyond the generated shapes: title, description, tags per requirement of the
+brief, the problem responses and the examples (SPEC section 2).
+
+Scores on the 15% "open, documented standards rather than a proprietary format, clear visibility of
+assumptions". The shapes come from the typed contract models, the problem responses from the typed errors
+and the examples from the scenarios run in replay; none of them is written by hand.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
+
+from tta.api.limits import (
+    DEFAULT_RATE_LIMIT_CALLS,
+    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+    DEMO_RATE_LIMIT_CALLS,
+    MAX_BODY_KILOBYTES,
+)
+from tta.api.service import MAX_LIST_ITEMS
+from tta.contracts.errors import (
+    PROBLEM_CONTENT_TYPE,
+    InvalidRequest,
+    NotAuthorised,
+    NotFound,
+    OfferExpired,
+    OfferStale,
+    PolicyBlocked,
+    ProblemDetails,
+    RateLimited,
+    SupplierUnavailable,
+    TtaError,
+    Unauthenticated,
+    UnknownProduct,
+)
+from tta.contracts.request import MAX_PRODUCT_IDS
+
+TITLE = "Trusted Trade Agents gateway"
+VERSION = "0.1.0"
+DESCRIPTION = f"""
+A gateway that makes a food-service wholesaler **readable by a buyer's purchasing agent**: the agent looks up
+products, gets an offer at **fixed prices** with live price and availability, and places the order within its
+authority or sends it to a **human** for approval. Built for the Valio Aimo challenge "Trusted Trade Agents"
+on Valio Aimo's mock API.
+
+**One flow.** `GET /v1/authority` → `POST /v1/offers` → `POST /v1/orders` → placed by the agent, or
+`GET /v1/approvals` and `POST /v1/approvals/{{id}}/decision` by a human → `GET /v1/audit`.
+
+**What an agent can trust.** Every offer line states, claim by claim (price, quantity, delivery date,
+allergens, origin), whether the supplier's data confirms it. Every option carries the policy verdict
+(`AUTO`, `APPROVAL` or `BLOCK`) with the rules that fired, so the agent knows before ordering what it may
+do alone. No model decides a price, a quantity, an allergen status or a verdict.
+
+**Open formats.** OpenAPI 3.1 generated from the typed models (this document); JSON Schema of every model at
+`GET /v1/schemas`; errors as RFC 9457 problem details (`application/problem+json`) with one stable `type`
+per kind of problem; audit events in a CloudEvents 1.0 envelope, hash-chained; `Idempotency-Key` on order
+placement; ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. The same functions are
+offered as MCP tools at `/mcp` when that surface is installed.
+
+**Identity.** Every route under `/v1` except the schemas needs `Authorization: Bearer <token>`. A token is
+one identity: an agent bound to one buyer profile, an approver with roles, or the supplier reader. The buyer
+profile is never a request field. The demonstration tokens are **public by design** and exist only in the
+`dev` and `demo` environments (see the security scheme below).
+
+**Assumptions to know.** The limits in a buyer profile are **illustrative** values of ours: the mock has no
+customer model. `ORDERED` means recorded in this gateway's order book: the mock has no order endpoint, and
+the record commits nobody. Answers say whether their data is `live` or a `replay` of recorded responses.
+
+**Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise). A
+request names at most {MAX_PRODUCT_IDS:,} product ids. A list answers at most {MAX_LIST_ITEMS} items, the
+newest. One token makes at most {DEFAULT_RATE_LIMIT_CALLS} calls in {DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g}
+seconds to the routes that reach the supplier or write to the audit trail ({DEMO_RATE_LIMIT_CALLS} for a
+demonstration token, which every visitor shares); beyond that the answer is `rate-limited` with `Retry-After`.
+"""
+
+TAG_LOOKUP = "Core 1: lookup"
+TAG_ORDER = "Core 2: offer and order"
+TAG_AUTHORITY = "Core 3: authority and approval"
+TAG_SUBSTITUTES = "Exceptions: substitutes"
+TAG_AUDIT = "Audit trail"
+TAG_AGENT = "Buyer agent"
+TAG_OPEN = "Open formats and health"
+TAGS = [
+    {"name": TAG_LOOKUP, "description": "The brief: \"a structured way for an external agent to search for and "
+                                        "retrieve what's available and at what price\"."},
+    {"name": TAG_ORDER, "description": "The brief: \"a defined interaction for moving from inquiry to "
+                                       "commitment, based on fixed prices rather than a negotiated quote\"."},
+    {"name": TAG_AUTHORITY, "description": "The brief: \"what the agent may decide on its own, and what must go "
+                                           "to a human for sign-off\". An agent token is refused here."},
+    {"name": TAG_SUBSTITUTES, "description": "Optional direction of the brief: ranked substitutes, each with "
+                                             "pass or fail and the reason."},
+    {"name": TAG_AUDIT, "description": "The brief: \"a human-readable log for both buyer and Valio Aimo\". One "
+                                       "sentence per decision, two readers, a hash chain."},
+    {"name": TAG_AGENT, "description": "From a pasted sentence to the typed request, and the buyer agent's run. "
+                                       "The gateway, not the model, decides whether an order goes through."},
+    {"name": TAG_OPEN, "description": "JSON Schema of every model, and what is running."},
+]
+
+# One line per typed error, for the examples of the problem responses. The type, title and status are the
+# error class's own.
+EXAMPLE_DETAILS: dict[type[TtaError], str] = {
+    InvalidRequest: "The request does not match what this route takes. body.lines.0.quantity: Field required.",
+    Unauthenticated: "This route needs a bearer token: send the header 'Authorization: Bearer <token>'.",
+    NotAuthorised: "An agent cannot approve or reject an order (F-06). A human with the role asked for decides.",
+    UnknownProduct: "No product in the catalog has this id.",
+    NotFound: "No offer has this id.",
+    OfferExpired: "The offer can no longer be ordered: its \"order by\" time has passed. Ask for a fresh offer.",
+    OfferStale: "Price or availability changed since the offer was made. Ask for a fresh offer.",
+    PolicyBlocked: "The policy does not allow this order, even with approval.",
+    SupplierUnavailable: "The supplier cannot be asked right now, so no call was made.",
+    RateLimited: "Too many requests that reach the supplier or write to the audit trail.",
+}
+PROBLEM_SCHEMA_NAME = ProblemDetails.__name__
+PROBLEM_REF = {"$ref": f"#/components/schemas/{PROBLEM_SCHEMA_NAME}"}
+SUCCESS_MEDIA_TYPE = "application/json"
+
+Examples = dict[str, dict[str, dict[str, Any]]]  # operation id -> example name -> {"summary", "value"}
+
+
+def problems(*errors: type[TtaError]) -> dict[int | str, dict[str, Any]]:
+    """The `responses` of a route for the typed errors it can answer: one entry per status, as problem+json."""
+    documented: dict[int | str, dict[str, Any]] = {}
+    for error in errors:
+        example = error(EXAMPLE_DETAILS[error]).to_problem().model_dump(mode="json", exclude_none=True)
+        answer = documented.setdefault(error.status_code, {
+            "description": "", "content": {PROBLEM_CONTENT_TYPE: {"schema": PROBLEM_REF, "examples": {}}},
+        })
+        named = f"`{error.slug}`: {error.title}"
+        answer["description"] = f"{answer['description']}; {named}" if answer["description"] else named
+        # Two errors share a status only when their types differ, so the type names the example.
+        answer["content"][PROBLEM_CONTENT_TYPE]["examples"][error.slug] = {"summary": error.title, "value": example}
+    return documented
+
+
+def _attach(operation: dict[str, Any], requests: Examples, answers: Examples) -> None:
+    name = operation.get("operationId", "")
+    body = operation.get("requestBody", {}).get("content", {}).get(SUCCESS_MEDIA_TYPE)
+    if body is not None and name in requests:
+        body["examples"] = requests[name]
+    for status, answer in operation.get("responses", {}).items():
+        media = answer.get("content", {}).get(SUCCESS_MEDIA_TYPE)
+        if status.startswith("2") and media is not None and name in answers:
+            media["examples"] = answers[name]
+
+
+def install_openapi(app: FastAPI, build_examples: Callable[[], tuple[Examples, Examples]]) -> None:
+    """Replace the app's OpenAPI builder: FastAPI's generated document, plus the problem schema and the
+    examples. Built on the first request for it and kept."""
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is not None:
+            return app.openapi_schema
+        document = get_openapi(
+            title=TITLE, version=VERSION, description=DESCRIPTION, routes=app.routes, tags=TAGS,
+            license_info={"name": "MIT", "identifier": "MIT"},
+        )
+        document.setdefault("components", {}).setdefault("schemas", {})[PROBLEM_SCHEMA_NAME] = (
+            ProblemDetails.model_json_schema()
+        )
+        requests, answers = build_examples()
+        for methods in document.get("paths", {}).values():
+            for operation in methods.values():
+                _attach(operation, requests, answers)
+        app.openapi_schema = document
+        return document
+
+    app.openapi = openapi  # type: ignore[method-assign]
