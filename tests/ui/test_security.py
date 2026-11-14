@@ -84,6 +84,24 @@ def test_over_https_the_cookie_is_secure_and_bound_to_the_host(make_client: Make
         assert "Secure" in cookie and "HttpOnly" in cookie and "Domain" not in cookie
 
 
+def test_over_https_every_answer_tells_the_browser_to_keep_to_https_for_a_year(make_client: MakeClient) -> None:
+    """A3 F6: the pages rely on the host's TLS; the header makes the browser refuse plain HTTP to them."""
+    direct = make_client(base_url="https://testserver")
+    proxied = make_client()  # behind the host's proxy, which says the browser came over HTTPS
+
+    answers = (
+        direct.get("/"), direct.get("/approvals"), direct.get("/nope"), direct.get("/static/app.css"),
+        proxied.get("/", headers={"X-Forwarded-Proto": "https"}),
+    )
+
+    for answer in answers:
+        assert answer.headers.get_list("strict-transport-security") == ["max-age=31536000"], answer.url
+
+
+def test_over_plain_http_no_answer_carries_the_https_header(client: TestClient) -> None:
+    assert "strict-transport-security" not in client.get("/").headers
+
+
 def test_a_run_without_the_token_or_with_a_wrong_one_is_refused_and_nothing_is_ordered(
     client: TestClient, form_fields: Callable[..., Any], orders: Callable[..., Any]
 ) -> None:

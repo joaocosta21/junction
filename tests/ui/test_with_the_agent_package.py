@@ -62,13 +62,14 @@ def test_scenario_2_is_run_by_the_agent_and_ordered_by_it_alone(
     assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
 
 
-def test_scenario_3_has_no_recording_so_the_page_goes_on_with_its_typed_request(
+def test_scenario_3_has_no_recording_so_the_fixed_rules_read_and_run_it(
     agent_client: TestClient, run_example: Post, only_order: Callable[..., Any]
 ) -> None:
+    """Since L1 the fixed rules read "product 473609" themselves: the agent runs on their reading, no model."""
     page = run_example(agent_client, "scenario-3").text
 
-    assert "The buyer agent could not run" in page and "typed request of this example" in page
-    assert AGENT_STEPS not in page
+    assert AGENT_STEPS in page and "read and made by fixed rules, not by a model" in page
+    assert "The buyer agent could not run" not in page
     assert "Sent for approval" in page
     assert only_order(agent_client).status is OrderStatus.PENDING_APPROVAL
 

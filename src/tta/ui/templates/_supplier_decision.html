@@ -1,0 +1,41 @@
+{# How the order was decided, as Valio Aimo's view of the trail gives it (P9b B13-2). Every value comes from the
+   supplier's events; the trail itself masks the buyer's amounts, allergen codes, names and notes. #}
+{% from "_marks.html" import mark %}
+{% set decision = page.decision %}
+<section id="decision">
+  <h2>How the order was decided</h2>
+  {% if not decision %}
+  <p class="empty">The supplier's view of the trail carries no decision for this order that can be read.</p>
+  {% else %}
+  <div class="verdict verdict-{{ decision.verdict|tone }}">
+    <p class="headline">{{ mark(decision.verdict|tone, decision.verdict|words) }}</p>
+    {% if decision.rules %}
+    <p>The strictest outcome among the rules that applied decides.</p>
+    <ul class="rules">
+      {% for rule in decision.rules %}
+      <li><strong>{{ rule.rule_id }}</strong>
+        <span class="tag">{% if rule.fixed %}a fixed rule: no buyer can switch it off{% else %}a rule the buyer set{% endif %}</span>
+        {{ rule.title }}{% if rule.masked %} ({{ rule.masked }}){% endif %}.
+        {% if rule.product_ids %}On {{ "product" if rule.product_ids|length == 1 else "products" }} {{ rule.product_ids|join(", ") }}.{% endif %}
+        {% if rule.verdict and rule.verdict.value == "BLOCK" %}The order cannot be placed.{% elif rule.approver_role %}Signed by the buyer's {{ rule.approver_role|words }}.{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p>No rule applied.</p>
+    {% endif %}
+  </div>
+  <h3>Products considered and left out</h3>
+  {% if decision.left_out %}
+  <ul class="left-out">
+    {% for row in decision.left_out %}
+    <li><strong>{{ row.count }}</strong> {{ row.reason|words|lower }}{% if row.products %}:
+      {% for product_id, name in row.products %}{{ name or "Name not stated" }} <span class="id">({{ product_id }})</span>{% if not loop.last %}, {% endif %}{% endfor %}
+      {%- if row.more %}, and {{ row.more }} more{% endif %}
+      {%- elif row.masked %} (which allergen and which products are not shown){% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">No product was left out, or the trail does not say.</p>
+  {% endif %}
+  {% endif %}
+</section>

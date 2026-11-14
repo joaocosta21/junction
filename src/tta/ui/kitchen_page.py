@@ -63,7 +63,9 @@ SUBSTITUTION_LABELS = {
 }
 VARIABLE_WEIGHT_LABELS = {
     VariableWeightRule.APPROVAL: "To a human",
-    VariableWeightRule.AUTO_WITH_CEILING: "Allowed when the total is a ceiling, with the note",
+    VariableWeightRule.AUTO_WITH_CEILING: (
+        "Allowed, the total shown as an estimate: Valio Aimo invoices the weight delivered"
+    ),
 }
 DEPOSIT_LABELS = {
     DepositRule.APPROVAL: "To a human",

@@ -43,23 +43,22 @@ goes to a human.</p>
   <label class="field-label" for="text">The request, in the buyer's words</label>
   <textarea id="text" name="text" rows="2" maxlength="{{ max_text_length }}">{{ text }}</textarea>
   <button type="submit" class="primary">Run</button>
-  <div class="photo-upload">
-    <label class="field-label" for="image">Or a photo of the order list, handwritten or printed (JPEG, PNG, WebP or HEIC, at most {{ max_photo_megabytes }} MB)</label>
-    <input type="file" id="image" name="image" accept="{{ photo_types }}">
-    <button type="submit" formaction="{{ photo_path }}" formenctype="multipart/form-data">Read the photo and run</button>
-    <p class="small">Two steps you can check: Gemini writes down the lines it reads in the photo, word for word, then the request parser reads those lines as it reads typed text. The photo is not kept.</p>
-  </div>
   <fieldset class="examples">
     <legend>Or run a scenario in one click</legend>
     <div class="example-list">
-    {% for example in examples %}
+    {% for button in examples %}
+    {% set example = button.example %}
     <button type="submit" name="example" value="{{ example.key }}" class="example">
-      <span class="example-label">{{ example.label }}</span>
+      <span class="example-label">{{ button.heading }} · {{ example.label }}</span>
       <span class="example-text">{{ example.text }}</span>
       <span class="example-shows">{{ example.shows }}</span>
     </button>
     {% endfor %}
     </div>
+    {% for button in examples if button.example.then %}
+    {% set path, words = button.example.then %}
+    <p class="example-then">{{ button.heading }}, then: <a href="{{ path }}">{{ words }}</a></p>
+    {% endfor %}
   </fieldset>
 </form>
 

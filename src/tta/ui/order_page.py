@@ -2,8 +2,9 @@
 
 Scores on the 20% "how decisions are logged and auditable" and on the brief's audit trail ("a human-readable
 log ... for both buyer and Valio Aimo"). The buyer's view shows everything about the order. The supplier's
-view is built only from what the gateway's audit trail gives the supplier reader: no limit value, no allergen
-exclusion, no approver name, no note. The page redacts nothing itself, so it cannot redact wrongly.
+view is built only from what the gateway's audit trail gives the supplier reader: every rule that fired with its
+reason and the products left out (`tta.ui.supplier_view`), and no limit amount, no allergen code, no approver's
+name, no note. The page redacts nothing itself, so it cannot redact wrongly.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from tta.contracts.errors import NotFound
 from tta.contracts.order import Order
 from tta.ui.outcome import Outcome, outcome_of_order
 from tta.ui.site import NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
+from tta.ui.supplier_view import SupplierDecision, supplier_decision
 
 TEMPLATE = "order.html"
 ORDER_FACT = "order"
@@ -99,7 +101,8 @@ class OrderPage:
     order: Order | None  # the buyer's view only
     outcome: Outcome | None  # the buyer's view only
     record: SupplierRecord | None  # the supplier's view only
-    decider: Identity | None  # a demo approver who can decide a waiting order
+    decision: SupplierDecision | None  # the supplier's view only: how the order was decided, as Valio reads it
+    decider: Identity | None  # a demo approver who holds a role the waiting order still needs
     head: tuple[int, str]  # of this order book's audit chain: how many events, and the last hash
 
 
@@ -130,12 +133,6 @@ def supplier_record(audit: AuditView) -> SupplierRecord | None:
     return None
 
 
-def _decider(site: Site, order: Order) -> Identity | None:
-    if order.status is not OrderStatus.PENDING_APPROVAL:
-        return None
-    return next(iter(site.holders(order.profile_id, order.decision.required_roles)), None)
-
-
 def _order_page(site: Site, request: Request, order_id: str, reader: AuditReader) -> OrderPage:
     book = site.book(request)
     read_as, order = _read_order(site, book.service, request, order_id)
@@ -144,11 +141,13 @@ def _order_page(site: Site, request: Request, order_id: str, reader: AuditReader
     if reader is AuditReader.SUPPLIER:
         return OrderPage(
             order_id=order.order_id, reader=reader, read_as=read_as, audit=audit, order=None, outcome=None,
-            record=supplier_record(audit), decider=None, head=head,
+            record=supplier_record(audit), decision=supplier_decision(audit), decider=None, head=head,
         )
+    approval = site.waiting_approval(book.service, order)
     return OrderPage(
         order_id=order.order_id, reader=reader, read_as=read_as, audit=audit, order=order,
-        outcome=outcome_of_order(order), record=None, decider=_decider(site, order), head=head,
+        outcome=outcome_of_order(order, approval), record=None, decision=None, decider=site.decider(approval),
+        head=head,
     )
 
 

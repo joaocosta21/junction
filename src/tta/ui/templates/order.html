@@ -14,9 +14,10 @@
 {% if is_supplier %}
 <div class="banner banner-plain">
   <p><strong>What Valio Aimo sees.</strong> Everything below comes from the supplier's view of the audit trail
-  (<code>GET /v1/audit?reader=supplier</code>): what was asked of its data, what was offered and ordered, the
-  statements the order relied on, and whether the agent acted alone or with human approval. The buyer's spend
-  limits, allergen exclusions, approver names and notes are not in it.</p>
+  (<code>GET /v1/audit?reader=supplier</code>): what was asked of its data, what was offered and ordered, every
+  rule that decided the order and why, the products left out, the statements the order relied on, and who
+  signed. The buyer's limit amounts and allergen codes are masked, an approver is named by role, and notes and
+  the buyer's own words stay out.</p>
 </div>
 {% else %}
 <p class="small">Read as {{ page.read_as.display_name }}, for buyer profile <code>{{ page.order.profile_id }}</code>
@@ -64,12 +65,14 @@
     </tfoot>
     {% endif %}
   </table>
-  {% if record.option.totals and record.option.totals.is_ceiling %}<p class="small">The total is a ceiling: a product is sold by variable weight, so the invoice can be lower, never higher.</p>{% endif %}
+  {% if record.option.totals and record.option.totals.is_ceiling %}<p class="small">About {{ record.option.totals.net|money }} net (an estimate: sold by weight, Valio Aimo invoices the weight delivered).</p>{% endif %}
   {% if record.option.totals and record.option.totals.excludes_deposits %}<p class="small">The total does not include deposits.</p>{% endif %}
 </section>
 {% endif %}
 
-{% if not is_supplier %}
+{% if is_supplier %}
+{% include "_supplier_decision.html" %}
+{% else %}
 <section id="decision">
   <h2>The policy decision in force</h2>
   <div class="verdict verdict-{{ record.decision.verdict|tone }}">

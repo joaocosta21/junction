@@ -3,8 +3,9 @@
 Scores on the 30% "working end-to-end demo" (the visible half of the flow) and the 20% "solving the problem":
 the first screen shows what is confirmed, what is not, and what was excluded and why (SPEC section 12).
 Everything is read from and written to the browser session's own order book (task FIX-10, finding 1).
-Next to the text box, a photo of an order list can be sent instead (task T18): the lines read in it are shown
-above the request as the gateway read it.
+A photo of an order list (task T18) is read by the route `/run-photo`: the lines read in it are shown above the
+request as the gateway read it. No page shows its upload control while no model reads photos (P14 PV-1): only the
+hand-built demo photo could be read, and the photo stays a REST route (`POST /v1/requests/read-image`).
 """
 
 from __future__ import annotations
@@ -19,13 +20,14 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from tta.api.service import Gateway
-from tta.api.uploads import MAX_IMAGE_BYTES, PHOTO_PAGE_PATH, read_upload
-from tta.contracts.common import ExclusionReason, Identity, OrderStatus
+from tta.api.uploads import PHOTO_PAGE_PATH, read_upload
+from tta.contracts.common import ExclusionReason, Identity
 from tta.contracts.errors import NotFound, TtaError
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.contracts.order import Order
 from tta.contracts.policy import Authority
 from tta.contracts.request import MAX_TEXT_LENGTH
+from tta.customers import shipped_customer
 from tta.ui import security, view
 from tta.ui.examples import EXAMPLES, Example, example_by_key, example_for_text
 from tta.ui.outcome import Outcome, outcome_of_run
@@ -55,8 +57,7 @@ TEXT_TOO_LONG = ("The request is too long", f"A request is at most {MAX_TEXT_LEN
 NO_SUCH_EXAMPLE = ("No such example", "Pick one of the examples on the first page.")
 ALREADY_RUNNING = ("This request is already running", "The form was sent twice. Open the first page again in a moment.")
 USE_AN_EXAMPLE = "The examples below carry their typed request, so one of the examples runs without a model."
-PHOTO_TYPES = "image/jpeg,image/png,image/webp,image/heic,image/heif"  # the types Gemini reads (tta.agent.images)
-MAX_PHOTO_MEGABYTES = MAX_IMAGE_BYTES // (1024 * 1024)
+RESERVE = "Reserve"  # the heading of an example outside the demo set
 Start = Callable[[Gateway, str], RunRecord]  # runs one form on a book's service, ordering with the given key
 
 
@@ -66,6 +67,14 @@ class AgentCard:
 
     identity: Identity
     authority: Authority
+
+
+@dataclass(frozen=True)
+class ExampleButton:
+    """An example as the first page shows it: its place in the demo set and its customer, then the example."""
+
+    example: Example
+    heading: str  # "1 · Harbourside Hotel", "Reserve · Harbourside Hotel"
 
 
 @dataclass(frozen=True)
@@ -83,7 +92,7 @@ class Result:
     reason_counts: tuple[tuple[ExclusionReason, int], ...]
     substitutes: Substitutes | None  # looked up when the request ran, or with the button
     can_look_up: bool  # the request names products whose substitutes are not shown yet
-    decider: Identity | None  # a demo approver who holds a role the waiting order needs
+    decider: Identity | None  # a demo approver who holds a role the waiting order still needs
 
 
 def _read_offer(site: Site, service: Gateway, request: Request, offer_id: str) -> tuple[Identity, Offer]:
@@ -96,12 +105,6 @@ def _read_offer(site: Site, service: Gateway, request: Request, offer_id: str) -
         except NotFound:
             continue
     raise page_error(NOT_FOUND, *NO_SUCH_OFFER)
-
-
-def _decider(site: Site, order: Order | None) -> Identity | None:
-    if order is None or order.status is not OrderStatus.PENDING_APPROVAL:
-        return None
-    return next(iter(site.holders(order.profile_id, order.decision.required_roles)), None)
 
 
 def _is_confirmed(option: OfferOption, offer: Offer) -> bool:
@@ -122,15 +125,35 @@ def _result(site: Site, request: Request, offer_id: str) -> Result:
     runs = site.runs(book)
     record, substitutes = runs.by_offer(offer.offer_id), runs.substitutes_of(offer.offer_id)
     order = book.service.order_for_offer(asker, offer.offer_id)  # through the store, never a cut list
+    approval = site.waiting_approval(book.service, order)
     return Result(
-        offer=offer, asker=asker, record=record, order=order, outcome=outcome_of_run(offer, order, record),
+        offer=offer, asker=asker, record=record, order=order,
+        outcome=outcome_of_run(offer, order, record, approval),
         confirmed=tuple(option for option in offer.options if _is_confirmed(option, offer)),
         unconfirmed=tuple(option for option in offer.options if not _is_confirmed(option, offer)),
         excluded=view.spread_by_reason(offer.excluded), reason_counts=view.reason_counts(offer.excluded),
         substitutes=substitutes,
         can_look_up=_names_products(offer) and (substitutes is None or substitutes.problem is not None),
-        decider=_decider(site, order),
+        decider=site.decider(approval),
     )
+
+
+def _customer_name(agent: Identity) -> str:
+    """The customer's name from its customer file (`tta.customers`), or the agent's name when it has none."""
+    customer = shipped_customer(agent.profile_id) if agent.profile_id else None
+    return customer.name if customer is not None else agent.display_name
+
+
+def example_buttons(site: Site) -> tuple[ExampleButton, ...]:
+    """The examples whose demo agent is here, in demo order (P2 W2), each headed by its place and its customer."""
+    buttons = []
+    for example in EXAMPLES:
+        agent = site.agent(example.agent_id)
+        if agent is None:
+            continue
+        place = RESERVE if example.step is None else str(example.step)
+        buttons.append(ExampleButton(example=example, heading=f"{place} · {_customer_name(agent)}"))
+    return tuple(buttons)
 
 
 def _page(
@@ -144,11 +167,11 @@ def _page(
     service = site.book(request).service
     cards = tuple(AgentCard(agent, service.get_authority(agent)) for agent in site.agents)
     return site.render(
-        request, TEMPLATE, status=status, agents=cards, examples=EXAMPLES, asker=asker or site.chosen_agent(request),
+        request, TEMPLATE, status=status, agents=cards, examples=example_buttons(site),
+        asker=asker or site.chosen_agent(request),
         text=text or "", run_key=security.new_token(), result=result, record=record, problem=problem,
         use_an_example=USE_AN_EXAMPLE, exclusions_shown=EXCLUSIONS_SHOWN_FIRST,
         candidates_shown=OTHER_CANDIDATES_SHOWN_FIRST, max_text_length=MAX_TEXT_LENGTH,
-        photo_path=PHOTO_PAGE_PATH, photo_types=PHOTO_TYPES, max_photo_megabytes=MAX_PHOTO_MEGABYTES,
     )
 
 
@@ -260,7 +283,9 @@ def add_routes(app: FastAPI, site: Site) -> None:
 
     @app.post(PHOTO_PAGE_PATH, response_class=HTMLResponse)
     async def run_a_photo(request: Request) -> Response:
-        """The upload control's button: the same form, sent as multipart/form-data with one photo, read in memory."""
+        """The upload control's button: the same form, sent as multipart/form-data with one photo, read in memory.
+        A browser with no form token is refused before the photo is read (A3 F5)."""
+        site.check_session(request)
         upload = await read_upload(request)
         site.check_form(request, upload.fields.get("csrf", ""))
         asker = site.agent(upload.fields.get("who"))

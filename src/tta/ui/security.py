@@ -52,6 +52,10 @@ SECURITY_HEADERS = (
     ("Referrer-Policy", "no-referrer"),  # an order id in an address is not sent to another site
 )
 NO_STORE = ("Cache-Control", "no-store")  # a page shows one buyer's orders: never kept by a shared cache
+# Over HTTPS the browser is told to use nothing else for a year (A3 F6): the pages rely on the host's TLS, and a
+# cookie or a form token must never travel over plain HTTP. Not sent over plain HTTP, where it means nothing.
+HSTS_MAX_AGE_SECONDS = 365 * 24 * 60 * 60
+HSTS = ("Strict-Transport-Security", f"max-age={HSTS_MAX_AGE_SECONDS}")
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")  # 32 random bytes, URL-safe base64 without padding
 
@@ -136,7 +140,8 @@ class BookCookie:
 
 
 class SecurityHeaders:
-    """Adds the security headers to every response of the pages, error pages and static files included."""
+    """Adds the security headers to every response of the pages, error pages and static files included; over
+    HTTPS, `Strict-Transport-Security` too."""
 
     def __init__(self, app: ASGIApp) -> None:
         self._app = app
@@ -146,11 +151,12 @@ class SecurityHeaders:
             await self._app(scope, receive, send)
             return
         is_page = not scope["path"].startswith(STATIC_PATH)
+        added = SECURITY_HEADERS + ((NO_STORE,) if is_page else ()) + ((HSTS,) if is_https(Request(scope)) else ())
 
         async def send_with_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                for name, value in SECURITY_HEADERS + ((NO_STORE,) if is_page else ()):
+                for name, value in added:
                     headers[name] = value
             await send(message)
 

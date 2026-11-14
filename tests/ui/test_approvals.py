@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from markupsafe import escape
 
 from tta.contracts.common import AllergenOutcome, AllergenStrictness, ApprovalStatus, OrderStatus, PlacedBy, Unit
-from tta.contracts.offer import Offer
+from tta.contracts.offer import Offer, OfferOption
 from tta.contracts.request import PurchaseRequest, RequestLine
 
 Post = Callable[..., Any]
@@ -36,6 +36,7 @@ HOTEL_NO_MILK_NO_GLUTEN = PurchaseRequest(
     ),
 )
 HOSTILE = '<script>alert("trade-off")</script>'
+DOUBTFUL = "475224"  # the product of HOTEL_NO_MILK_NO_GLUTEN whose milk is not ruled out
 
 
 def _pending(client: TestClient, identities: Identities, approver_id: str = HANNA) -> Any:
@@ -226,14 +227,22 @@ def test_the_decision_form_carries_the_approver_it_was_shown_to(
 # --- FIX-12b: the facts behind the rules, above the buttons -------------------------------------------------
 
 def _order_as(client: TestClient, identities: Identities, own_book: Callable[..., Any], agent_id: str,
-              request: PurchaseRequest) -> Offer:
-    """An order placed in this browser's book by the agent, through the gateway's own functions."""
+              request: PurchaseRequest, product_id: str | None = None) -> Offer:
+    """An order placed in this browser's book by the agent, through the gateway's own functions: of the first
+    option, or of the option that holds `product_id`."""
     service = own_book(client).service
     agent = identities(client)[agent_id]
     offer = service.create_offer(agent, request)
-    order = service.place_order(agent, offer.offer_id, offer.options[0].option_id, f"fix12b-{agent_id}")
+    option = offer.options[0] if product_id is None else _holding(offer, product_id)
+    order = service.place_order(agent, offer.offer_id, option.option_id, f"fix12b-{agent_id}")
     assert order.status is OrderStatus.PENDING_APPROVAL
     return offer
+
+
+def _holding(offer: Offer, product_id: str) -> OfferOption:
+    """The option with a line of this product. Since L2b the safe option comes first, and the product whose
+    allergen is not ruled out is the option titled "Alternative: allergen not ruled out"."""
+    return next(option for option in offer.options if any(line.product_id == product_id for line in option.lines))
 
 
 def _before_the_buttons(page: str, text: str) -> bool:
@@ -258,8 +267,8 @@ def test_a_substitute_card_shows_what_is_given_up_above_the_buttons(
 def test_a_card_sent_to_the_dietitian_shows_the_allergen_findings_above_the_buttons(
     client: TestClient, identities: Identities, own_book: Callable[..., Any], act_as: Post
 ) -> None:
-    offer = _order_as(client, identities, own_book, "agent:hotel-kitchen", HOTEL_NO_MILK_NO_GLUTEN)
-    check = offer.options[0].lines[0].allergen_check
+    offer = _order_as(client, identities, own_book, "agent:hotel-kitchen", HOTEL_NO_MILK_NO_GLUTEN, DOUBTFUL)
+    check = _holding(offer, DOUBTFUL).lines[0].allergen_check
     assert check is not None
     to_human = [finding.sentence for finding in check.findings if finding.outcome is AllergenOutcome.TO_HUMAN]
 
@@ -287,7 +296,7 @@ def test_the_trade_off_is_escaped(
     request = WARD_SUBSTITUTE if field != "finding" else HOTEL_NO_MILK_NO_GLUTEN
     agent = "agent:allergy-ward" if field != "finding" else "agent:hotel-kitchen"
     approver = "human:ward-purchasing" if field != "finding" else "human:hotel-dietitian"
-    offer = _order_as(client, identities, own_book, agent, request)
+    offer = _order_as(client, identities, own_book, agent, request, DOUBTFUL if field == "finding" else None)
     service = own_book(client).service
     monkeypatch.setattr(service, "get_offer", lambda _identity, _offer_id: _hostile(offer, field))
 
@@ -299,7 +308,7 @@ def test_the_trade_off_is_escaped(
 
 def _hostile(offer: Offer, field: str) -> Offer:
     """The offer with hostile text in one fact the card shows: text from the product file is untrusted."""
-    option = offer.options[0]
+    option = _holding(offer, DOUBTFUL) if field == "finding" else offer.options[0]
     line = option.lines[0]
     if field == "finding":
         assert line.allergen_check is not None

@@ -248,22 +248,30 @@ def test_what_the_agent_refuses_for_free_text_is_the_callers_error() -> None:
             run_request(StubService(run_agent=error), AGENT, "free text", None)
 
 
-def test_the_examples_are_the_three_scenarios_the_dietitian_case_and_a_preference_each_with_a_typed_request() -> None:
-    assert [example.key for example in EXAMPLES] == [
-        "scenario-1", "scenario-2", "scenario-3", "scenario-4", "scenario-5",
+def test_the_examples_are_the_demo_set_in_order_then_the_reserve_each_with_a_typed_request() -> None:
+    """PLAN section 5 (P2 W2): 1 to 5 in demo order, each with its customer's agent, then the reserve."""
+    assert [(example.key, example.step) for example in EXAMPLES] == [
+        ("scenario-1", 1), ("scenario-2", 2), ("scenario-3", 3), ("pattern", 4), ("formula", 5),
+        ("scenario-5", None), ("scenario-4", None),
     ]
     assert [example.agent_id for example in EXAMPLES] == [
         "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen", "agent:hotel-kitchen",
-        "agent:hotel-kitchen",
+        "agent:bakery-cafe", "agent:hotel-kitchen", "agent:hotel-kitchen",
     ]
     for example in EXAMPLES:
         assert example.request.lines[0].text == example.text
         assert example.request.needed_by is not None
-    assert EXAMPLES[1].request.require_confirmed and EXAMPLES[1].request.lines[0].exclude_allergens == ("AM", "AW")
-    assert EXAMPLES[2].request.lines[0].product_ids == ("473609",)
-    fourth = EXAMPLES[3].request.lines[0]
-    assert (fourth.product_ids, fourth.quantity, fourth.unit) == (("469512",), 100, Unit.L)
-    assert (fourth.exclude_allergens, fourth.allergen_strictness) == (("AM",), AllergenStrictness.STRICT)
+    by_key = {example.key: example for example in EXAMPLES}
+    ward = by_key["scenario-2"].request
+    assert ward.require_confirmed and ward.lines[0].exclude_allergens == ("AM", "AW")
+    assert by_key["scenario-3"].request.lines[0].product_ids == ("473609",)
+    dietitian = by_key["scenario-4"].request.lines[0]
+    assert (dietitian.product_ids, dietitian.quantity, dietitian.unit) == (("469512",), 100, Unit.L)
+    assert (dietitian.exclude_allergens, dietitian.allergen_strictness) == (("AM",), AllergenStrictness.STRICT)
+    usual = by_key["pattern"]
+    assert (usual.request.lines[0].quantity, usual.then and usual.then[0]) == (100, "/standing-orders")
+    cream = by_key["formula"].request.lines[0]
+    assert (cream.product_type, cream.name_terms, cream.quantity) == ("cream", ("whipping",), 100)
 
 
 def test_an_example_is_found_by_its_text_whatever_the_spacing_and_case() -> None:

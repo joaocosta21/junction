@@ -1,9 +1,10 @@
-"""The first page takes a photo of an order list next to the text box (task T18), and a fourth example.
+"""The photo route of the pages (task T18), and a fourth example.
 
-Scores on the 30% demo and the 20% "precise match": a kitchen photographs its handwritten list; the page shows
-what was read in it above the request as the gateway read it, then the run goes on as for typed text: offer,
-verdict, order. The photo tests use the agent package as it ships, with no key: the demo photo's transcription
-and reading are recorded (`fixtures/agent/`), so no model is called.
+No page shows the upload control any more (P14 PV-1, the other branch: no model is called tonight, so only the
+hand-built demo photo could be read). The route `/run-photo` stays, and these tests keep it safe: what was read in
+a photo is shown above the request as the gateway read it, then the run goes on as for typed text. The photo
+tests use the agent package as it ships, with no key: the demo photo's transcription and reading are recorded
+(`fixtures/agent/`), so no model is called.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from fastapi.testclient import TestClient
 from tta.catalog import ProductCatalog
 from tta.config import REPO_ROOT, Settings
 from tta.contracts.common import ApproverRole, OrderStatus
+from tta.ui import request_page
 from tta.valio import ReplayGateway
 
 MakeClient = Callable[..., TestClient]
@@ -51,14 +53,14 @@ def send_photo(form_fields: Callable[..., Form]) -> Callable[..., Any]:
     return post
 
 
-def test_the_first_page_has_a_photo_upload_next_to_the_text_box(client: TestClient) -> None:
+def test_the_first_page_has_no_photo_upload_while_no_model_reads_photos(client: TestClient) -> None:
+    """P14 PV-1, the other branch: with no model, only the one hand-built demo photo can be read, so a visitor's
+    own photo is always refused. The control leaves the page; the photo stays a REST route (read-image)."""
     page = client.get("/").text
 
-    upload = page.index('type="file"')
-    assert page.index('id="text"') < upload < page.index('name="example"')
-    assert 'name="image"' in page and 'accept="image/jpeg,image/png,image/webp,image/heic,image/heif"' in page
-    assert 'formaction="/run-photo"' in page and 'formenctype="multipart/form-data"' in page
-    assert "at most 5 MB" in page
+    assert 'type="file"' not in page and 'name="image"' not in page
+    assert "/run-photo" not in page and "multipart/form-data" not in page
+    assert "Gemini writes down" not in page
 
 
 def test_the_demo_photo_is_transcribed_read_and_run_and_its_lines_are_shown_above_the_parsed_request(
@@ -124,6 +126,25 @@ def test_a_photo_form_without_its_token_is_refused(
     assert orders(agent_client) == ()
 
 
+def test_a_photo_form_from_a_browser_with_no_form_token_is_refused_before_its_photo_is_read(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A3 F5: up to 5 MB are read for a photo, so a browser that holds no form token is refused first."""
+    read: list[Any] = []
+
+    async def reading(request: Any) -> Any:
+        read.append(request)
+        raise AssertionError("the body was read")
+
+    monkeypatch.setattr(request_page, "read_upload", reading)
+
+    response = client.post("/run-photo", data={"csrf": "x" * 43, "who": HOTEL},
+                           files={"image": ("list.png", PNG + bytes(1024), "image/png")})
+
+    assert response.status_code == 403 and "This form is out of date" in response.text
+    assert read == []
+
+
 def test_a_photo_form_must_come_from_a_demo_agent(agent_client: TestClient, send_photo: Callable[..., Any]) -> None:
     response = send_photo(agent_client, DEMO_PHOTO.read_bytes(), who="human:hotel-purchasing")
 
@@ -138,18 +159,26 @@ def test_a_post_to_the_photo_page_that_is_not_a_form_with_a_file_is_refused(
     assert response.status_code == 422 and "multipart/form-data" in response.text
 
 
-# --- the fourth example ------------------------------------------------------------------------------------
+# --- the dietitian's example ------------------------------------------------------------------------------------
 
 
-def test_the_fourth_example_sends_an_oat_drink_with_no_milk_statement_to_the_dietitian(
-    client: TestClient, run_example: Callable[..., Any], only_order: Callable[..., Any]
+def test_the_dietitians_example_offers_the_safe_product_first_and_the_doubtful_one_to_the_dietitian(
+    client: TestClient, run_example: Callable[..., Any], only_order: Callable[..., Any], book: Callable[..., Any]
 ) -> None:
+    """Since L2b the safe product comes first; the oat drink whose milk Valio's data does not rule out is the
+    alternative, and only the dietitian can approve it (P-04)."""
     page = run_example(client, "scenario-4").text
     order = only_order(client)
+    offer = book(client).service.get_offer(_hotel_agent(client), order.offer_id)
+    doubtful = next(option for option in offer.options if option.lines[0].product_id == "469512")
 
-    assert "Dietitian: oat drink with no milk statement" in client.get("/").text
-    assert "Sent for approval" in page
-    assert order.status is OrderStatus.PENDING_APPROVAL
-    assert order.decision.required_roles == (ApproverRole.DIETITIAN,)
-    assert "P-04" in order.decision.rule_ids
-    assert order.option.lines[0].product_id == "469512"
+    assert "Reserve · Harbourside Hotel · The dietitian" in client.get("/").text
+    assert "Sent for approval" in page and order.status is OrderStatus.PENDING_APPROVAL
+    assert order.option.lines[0].product_id != "469512"  # the page orders the first option: the safe one
+    assert doubtful.title == "Alternative: allergen not ruled out"
+    assert doubtful.decision.required_roles == (ApproverRole.DIETITIAN,) and "P-04" in doubtful.decision.rule_ids
+
+
+def _hotel_agent(client: TestClient) -> Any:
+    registry = client.app.state.parts.tokens  # type: ignore[attr-defined]
+    return next(identity for identity in registry.identities if identity.id == HOTEL)

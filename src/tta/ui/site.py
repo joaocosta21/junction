@@ -20,9 +20,11 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
 from tta.api.sandbox import Sandbox, Sandboxes
+from tta.api.service import Gateway
 from tta.audit.phrases import moment
 from tta.config import Settings
-from tta.contracts.common import ApproverRole, DataSource, Identity
+from tta.contracts.common import ApprovalStatus, ApproverRole, DataSource, Identity, OrderStatus
+from tta.contracts.order import Approval, Order
 from tta.ui import security, view
 from tta.ui.run import Problem, RunLog, RunLogs
 
@@ -138,9 +140,33 @@ class Site:
             if approver.profile_id == profile_id and role in approver.roles
         )
 
+    def waiting_approval(self, service: Gateway, order: Order | None) -> Approval | None:
+        """The approval a waiting order waits on, read as a demo approver of its buyer; `None` for any other order,
+        or when no demo approver of its buyer can read it."""
+        if order is None or order.status is not OrderStatus.PENDING_APPROVAL or order.approval_id is None:
+            return None
+        reader = next((one for one in self.approvers if one.profile_id == order.profile_id), None)
+        if reader is None:
+            return None
+        pending = service.list_approvals(reader, ApprovalStatus.PENDING)
+        return next((one for one in pending if one.approval_id == order.approval_id), None)
+
+    def decider(self, approval: Approval | None) -> Identity | None:
+        """A demo approver who holds a role the approval still needs (A4 H2): never one who has signed already.
+        `None` when nobody is still needed, or the approval cannot be read."""
+        if approval is None:
+            return None
+        return next(iter(self.holders(approval.profile_id, approval.roles_missing)), None)
+
     def check_form(self, request: Request, submitted: str) -> None:
         """Refuse a form that does not carry this session's token (cross-site request forgery)."""
         if not security.token_matches(request, submitted):
+            raise PageError(FORM_OUT_OF_DATE)
+
+    def check_session(self, request: Request) -> None:
+        """Refuse a form from a browser that holds no form token yet, before its body is read (A3 F5): a form whose
+        token is in a large body is checked once more by `check_form` after reading."""
+        if security.session_token(request) is None:
             raise PageError(FORM_OUT_OF_DATE)
 
     def render(self, request: Request, template: str, status: int = 200, **context: Any) -> HTMLResponse:

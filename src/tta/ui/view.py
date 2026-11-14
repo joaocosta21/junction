@@ -82,8 +82,10 @@ WORDS: dict[type[Enum], dict[str, str]] = {
     },
     PlacedBy: {"AGENT": "by the agent", "HUMAN_APPROVAL": "with human approval"},
     ApproverRole: {"purchasing_manager": "purchasing manager", "dietitian": "dietitian", "finance": "finance"},
+    # The kind of an option, for a reader who has no title. ALTERNATIVE_UNCONFIRMED holds an unconfirmed quantity
+    # and, since L2b, the alternative whose allergen is not ruled out: the pages print the option's own title.
     OptionKind: {
-        "BEST_CONFIRMED": "Confirmed stock", "ALTERNATIVE_UNCONFIRMED": "Quantity not confirmed",
+        "BEST_CONFIRMED": "Confirmed stock", "ALTERNATIVE_UNCONFIRMED": "Alternative",
         "SUBSTITUTE": "Substitute", "CHEAPEST_CONFIRMED": "Cheapest confirmed",
     },
     AvailabilityState: {

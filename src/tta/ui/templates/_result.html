@@ -83,12 +83,12 @@
   {% for option in offer.options %}
   <article class="option option-{{ option.kind|tone }}">
     <header>
-      <p class="rank">Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}</p>
-      <h3>{{ option.title }}</h3>
+      <p class="rank">Option {{ option.rank }}</p>
+      <h3>{{ mark(option.kind|tone, option.title) }}</h3>
     </header>
     <p class="summary">{{ option.summary }}</p>
-    <p class="total"><strong>{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax
-      {%- if option.totals.is_ceiling %} · a ceiling: variable weight, the invoice can be lower, never higher{% endif %}
+    <p class="total"><strong>{% if option.totals.is_ceiling %}About {% endif %}{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax
+      {%- if option.totals.is_ceiling %} · an estimate: sold by weight, Valio Aimo invoices the weight delivered{% endif %}
       {%- if option.totals.excludes_deposits %} · deposits not included{% endif %}</p>
     <p class="coverage">
       {% for part in option.coverage %}Covers {{ part.covered|quantity }} of {{ part.requested|quantity }} {{ part.unit.value }} ({{ part.fill_ratio|percent }}){% if part.missing > 0 %}, {{ part.missing|quantity }} {{ part.unit.value }} missing{% endif %}. {% endfor %}

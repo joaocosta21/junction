@@ -43,6 +43,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B23 | Under "declared only", a product with no allergen statement is still never the first option; it is the labelled alternative | The safe product wins | L2b |
 | B24 | F-11 (formula) is a fixed rule: a profile or a request can add the check and never remove it. A substitute that cannot be compared counts as not keeping the formula | P10 decision 4; Valio: not sure means ask | L3-2 |
 | B25 | Ward and bakery let a preference add 10% without a person; hotel and school set no limit. No profile can set more than 25% | They are the two that prefer reliability | L3-2 |
+| B26 | The photo upload left the first page; the route stays | No model reads photos tonight, so a visitor's own photo would always be refused | L4c |
+| B27 | The bakery's owner also decides allergen questions (the bakery gets a dietitian role held by the owner) | A bakery-café has no dietitian; without this a bakery order with an allergen doubt could never be completed | L4-2 |
 
 ## C. Questions for the team (domain)
 

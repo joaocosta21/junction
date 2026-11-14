@@ -7,6 +7,7 @@ agent still cannot approve, and the audit trail names the person who signed).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import tta.ui
+from tta.contracts.errors import InvalidRequest
 
 API = "/shop/api"
 CREAM = {  # 10 L of whipping cream by Monday: some €30-60 in the recordings
@@ -294,3 +296,136 @@ def test_a_customer_who_switches_ordering_alone_on_gets_a_fully_confirmed_order_
     assert order["option"]["totals"]["net"] == 402.0
     assert [(line["product_id"], line["quantity"]) for line in order["option"]["lines"]] == [("464013", 200)]
     assert _call(client, "GET", "/approvals", "ward").json() == []
+
+
+# --- the shop's back end (C2 F3, F7; the reader's question; the approval's fields) ---------------------------
+
+MILK_1000 = {  # the brief's sentence as the ward's page would send it: milk is excluded for the ward
+    "needed_by": MONDAY,
+    "lines": [{"text": "1,000 litres of lactose-free milk by Monday", "product_type": "milk",
+               "required_claims": ["FREE_FROM_LACTOSE"], "quantity": 1000, "unit": "L"}],
+}
+NOT_RECEIVED = "settings-not-received"
+
+
+class AskingParser:
+    """A reader that cannot read the sentence and asks back, with the lists and objects of its question."""
+
+    model_id = "asking-reader"
+
+    def parse_request(self, text: str, identity: Any) -> Any:
+        raise InvalidRequest(
+            "How much milk, and by when?", missing=["quantity", "needed_by"],
+            question={"text": "How much milk, and by when?", "fields": ["quantity", "needed_by"]},
+        )
+
+
+def _sign(client: TestClient, approval_id: str, role: str, kitchen: str = "bakery", **body: Any) -> Any:
+    decision = {"role": role, "decision": {"decision": "APPROVE"}, **body}
+    return _call(client, "POST", f"/approvals/{approval_id}/decision", kitchen, json=decision)
+
+
+def _waiting_cream(client: TestClient, kitchen: str = "bakery", **change: Any) -> dict[str, Any]:
+    """The 10 L of cream offered and ordered in a kitchen set up with these limits: it waits for a person."""
+    _set_up(client, kitchen, **change)
+    offer = _call(client, "POST", "/offers", kitchen, json=CREAM).json()
+    body = {"offer_id": offer["offer_id"], "option_id": offer["options"][0]["option_id"], "key": f"t.{kitchen}"}
+    order = _call(client, "POST", "/orders", kitchen, json=body).json()
+    assert order["status"] == "PENDING_APPROVAL", order
+    return _call(client, "GET", "/approvals", kitchen).json()[0]
+
+
+def test_a_book_whose_settings_never_arrived_answers_409_and_never_the_hotels_defaults(client: TestClient) -> None:
+    """Without its settings the ward's book is a copy of the hotel's: no allergen excluded, so milk is offered."""
+    order = {"offer_id": "off_x", "option_id": "opt_1", "key": "t.ward.1"}
+    refused = [
+        _call(client, "GET", "/kitchen", "ward"),
+        _call(client, "POST", "/read", "ward", json={"text": "1,000 litres of lactose-free milk by Monday"}),
+        _call(client, "POST", "/offers", "ward", json=MILK_1000),
+        _call(client, "POST", "/orders", "ward", json=order),
+    ]
+
+    for answer in refused:
+        assert answer.status_code == 409, answer.text
+        assert answer.json()["type"] == NOT_RECEIVED
+        assert "limits and allergen rules" in answer.json()["detail"]
+    assert _call(client, "GET", "/orders", "ward").json() == []  # the records still read
+
+    assert _call(client, "PUT", "/kitchen", "ward", json=SHOP_CUSTOMERS["ward"]).status_code == 200
+    offered = _call(client, "POST", "/offers", "ward", json=MILK_1000)
+    assert offered.status_code == 200 and offered.json()["options"] == []  # milk is the ward's excluded allergen
+
+    _call(client, "POST", "/start-again", "ward")
+    assert _call(client, "POST", "/offers", "ward", json=MILK_1000).status_code == 409
+
+
+def test_a_call_must_name_one_of_the_four_customers(client: TestClient) -> None:
+    for kitchen in ("canteen", "my-kitchen", "hotel2"):
+        answer = client.get(API + "/kitchen", headers=_headers(kitchen))
+        assert answer.status_code == 400, kitchen
+        assert "school, ward, hotel or bakery" in answer.json()["detail"]
+
+
+def test_a_customer_is_one_book_by_its_short_name_or_its_customer_id(client: TestClient) -> None:
+    assert _call(client, "PUT", "/kitchen", "school", json=SHOP_CUSTOMERS["school"]).status_code == 200
+
+    by_id = _call(client, "GET", "/kitchen", "school-kitchen")
+
+    assert by_id.status_code == 200
+    assert by_id.json()["profile"]["display_name"] == "Kilo School"
+
+
+def test_the_signer_is_one_of_the_customers_people(client: TestClient) -> None:
+    approval = _waiting_cream(client, max_order_net_eur=10)
+    path = approval["approval_id"]
+
+    for stranger in ("The gateway", "Hanna Laine, Harbourside Hotel", "Hanna Laine"):
+        refused = _sign(client, path, "purchasing_manager", name=stranger)
+        assert refused.status_code == 422, stranger
+        assert "Marko Heikkinen" in refused.json()["detail"]
+    nobody = _sign(client, path, "dietitian")
+    assert nobody.status_code == 422 and "Nobody at Kallio Bakery" in nobody.json()["detail"]
+
+    signed = _sign(client, path, "purchasing_manager")  # no name sent: the customer's own person signs
+    assert signed.status_code == 200, signed.text
+    assert "Marko Heikkinen, Kallio Bakery" in signed.json()["status_sentence"]
+
+
+@pytest.mark.parametrize("name", ["Tuomas Aho", "Tuomas Aho, Kilo School"])
+def test_the_page_may_send_the_persons_name_alone_or_with_the_customer(client: TestClient, name: str) -> None:
+    school = {**SHOP_CUSTOMERS["school"], "max_order_net_eur": 10, "max_daily_net_eur": 10}
+    approval = _waiting_cream(client, "school", **school)
+
+    signed = _sign(client, approval["approval_id"], "finance", "school", name=name)
+
+    assert signed.status_code == 200, signed.text
+    trail = _call(client, "GET", f"/audit?order_id={approval['order_id']}&reader=buyer", "school").json()
+    assert any("Tuomas Aho, Kilo School" in event["sentence"] for event in trail["events"])
+
+
+def test_an_approval_keeps_required_roles_and_the_roles_of_each_decision(client: TestClient) -> None:
+    """The page works out "Decide as …" from these two fields (A4 H2): their names stay as they are."""
+    approval = _waiting_cream(client, max_order_net_eur=10, max_daily_net_eur=10)
+    assert approval["required_roles"] == ["purchasing_manager", "finance"]
+
+    _sign(client, approval["approval_id"], "purchasing_manager")
+    waiting = _call(client, "GET", "/approvals", "bakery").json()[0]
+
+    assert waiting["required_roles"] == ["purchasing_manager", "finance"]
+    assert [decision["roles"] for decision in waiting["decisions"]] == [["purchasing_manager"]]
+    assert _sign(client, approval["approval_id"], "finance").json()["status"] == "ORDERED"
+
+
+def test_a_readers_question_reaches_the_page_with_its_lists_and_objects(
+    make_client: Callable[..., TestClient],
+) -> None:
+    asking = make_client(request_parser=AskingParser())
+    _set_up(asking)
+
+    answer = _call(asking, "POST", "/read", json={"text": "milk for the weekend"})
+
+    assert answer.status_code == 422
+    problem = answer.json()
+    assert problem["detail"] == "How much milk, and by when?"
+    assert problem["missing"] == ["quantity", "needed_by"]
+    assert problem["question"] == {"text": "How much milk, and by when?", "fields": ["quantity", "needed_by"]}

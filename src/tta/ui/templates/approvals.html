@@ -64,8 +64,8 @@ option of the same offer, or rejects. An agent can never approve: the gateway re
       {% for option in card.offer.options %}
       <label class="option option-{{ option.kind|tone }}">
         <span class="rank"><input type="radio" name="option" value="{{ option.option_id }}"{% if option.option_id == approval.option_id %} checked{% endif %}>
-          Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}{% if option.option_id == approval.option_id %} <span class="tag">proposed by the agent</span>{% endif %}</span>
-        <span class="option-title">{{ option.title }}</span>
+          Option {{ option.rank }}{% if option.option_id == approval.option_id %} <span class="tag">proposed by the agent</span>{% endif %}</span>
+        <span class="option-title">{{ mark(option.kind|tone, option.title) }}</span>
         <span class="total"><strong>{{ option.totals.net|money }}</strong> before tax</span>
         <span class="summary">{{ option.summary }}</span>
         {% for facts in card.lines[option.option_id] %}

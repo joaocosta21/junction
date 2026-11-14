@@ -116,8 +116,8 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
   {% for option in offer.options %}
   <article class="option option-{{ option.kind|tone }}">
     <header>
-      <p class="rank">Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}</p>
-      <h3>{{ option.title }}</h3>
+      <p class="rank">Option {{ option.rank }}</p>
+      <h3>{{ mark(option.kind|tone, option.title) }}</h3>
     </header>
     <p class="summary">{{ option.summary }}</p>
     <p class="total"><strong>{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax</p>
