@@ -1,6 +1,8 @@
 # AIMO — build specification
 
-The contract the code follows. Written 14 Nov for the overnight build; it closes the "to specify before coding" list of [PLAN.md](PLAN.md) §9. Facts about the mock API and the data are in [FINDINGS.md](FINDINGS.md) and [docs/](docs/); this file does not repeat them.
+The contract the code follows. First written on 14 Nov for the overnight build; **brought back in line with the code on Sat 14 Nov 2026 (evening)**: every statement below was checked against the committed code, read or run offline in replay. Facts about the mock API and the data are in [FINDINGS.md](FINDINGS.md) and [docs/](docs/); this file does not repeat them.
+
+How figures are labelled here: **catalog** = counted over the whole product file (17,546 products); **recording** = the recorded copy of Valio Aimo's answers used in replay (`fixtures/valio/2026-11-14-demo`, 769 products, recorded Sat 14 Nov 2026 at 02:52 Helsinki time); anything else is called a sample. Demo figures are from the recording at its own clock unless a line says otherwise.
 
 **Rule for every line of code: name the judging criterion it scores on** ([CHALLENGE.md](CHALLENGE.md)). The weights are 30% end-to-end flow · 20% precise match to the request · 20% autonomy and controls · 15% exceptions · 15% openness and path to production.
 
@@ -8,95 +10,114 @@ The contract the code follows. Written 14 Nov for the overnight build; it closes
 
 ## 1. What we build
 
-A gateway between a buyer's purchasing agent and Valio Aimo's price and availability API.
+A gateway between a buyer's purchasing agent and Valio Aimo's price and availability API. It is an interface for agents, not a chat: the brief says "This is not about replacing today's e-commerce UI with a chatbot."
 
 ```
-buyer's agent ──► gateway ──► Valio mock API (price, availability)
-   (Gemini)        │  ├─ catalog (product file, local)
-                   │  ├─ response logic (six availability states, allergens, substitutes)
+buyer's agent ──► gateway ──► Valio mock API (price, availability), or its recorded copy in replay
+ (any agent,       │  ├─ catalog (product file, local)
+  REST or MCP)     │  ├─ response logic (six availability states, allergens, substitutes, the formula)
                    │  ├─ policy (fixed rules + buyer profile)  ──► AUTO · APPROVAL · BLOCK
-                   │  ├─ order book and approvals              ──► human approval panel
-                   │  └─ audit trail (one sentence per decision, two readers)
-                   └─ same functions exposed as REST (OpenAPI) and as MCP tools
+                   │  ├─ order book and approvals              ──► a person confirms
+                   │  ├─ audit trail (one sentence per decision, two readers)
+                   │  └─ signature on every offer and order record the gateway answers
+                   └─ same functions exposed as REST (OpenAPI 3.1) and as 13 MCP tools
 ```
 
-**One flow, every scenario:** request + buyer identity → search → offer (options, a status per claim, exclusions with reasons, the policy verdict for each option) → order → placed by the agent or sent to a human → audit record.
+**One flow, every scenario:** request + buyer identity → lookup → offer (options, a status per statement, exclusions with reasons, the policy verdict for each option) → the rules → order prepared → a person confirms (or, only where the buyer switched ordering alone on and every statement is confirmed, the agent orders) → audit record.
+
+**No model reads requests in the shipped configuration.** Free text is read by fixed rules (`src/tta/agent/rules_reader.py`); a text they cannot read is answered with a question, never a guess (§11). The code for a Gemini model is still in `src/tta/agent/`, and it is called only when a deployer sets `GEMINI_API_KEY`: an option, not part of the product as shipped. No Gemini call was made in the evening build of 14 Nov.
 
 ### Choices, each with its reason
 | Choice | Reason |
 |---|---|
 | Python 3.13, FastAPI, Pydantic v2 | The team knows Python; FastAPI generates OpenAPI 3.1 from the typed models, so the published interface cannot drift from the code (15%) |
 | Code in `src/tta/`, tests in `tests/`, virtualenv `.venv`, `pip` | A root-level `aimo/` package would collide with `AIMO/` on macOS. `tta` = Trusted Trade Agents |
-| Server-rendered pages (Jinja2 and a little plain JavaScript) | No Node build step; one process to deploy |
-| SQLite through a small repository interface | No service to provision overnight. Since 14 Nov the shared order book and audit trail use Aiven PostgreSQL behind the same interface when `DATABASE_URL` is set, and fall back to SQLite when it cannot be reached at start, which `/healthz` then names (task S1, commits `67f3b00`, `7b93821`, `docs/AIVEN.md`) |
-| Gemini through the official SDK | Structured output turns the pasted request into the typed request; function calling drives the buyer agent |
-| **The model never decides a price, a quantity, an allergen status or a verdict** | Those come from deterministic code that can be tested and audited (20% controls) |
-| Policy as data (YAML): fixed rules plus one profile per buyer | The guardrails can be read and changed without touching code |
+| Server-rendered pages (Jinja2 and a little plain JavaScript); the shop page is static files that call `/shop/api/*` | No Node build step; one process to deploy |
+| SQLite through a small repository interface | No service to provision. The shared order book and audit trail use PostgreSQL behind the same interface when `DATABASE_URL` is set (in schema `TTA_DB_SCHEMA` when that is set), and fall back to SQLite when the database cannot be reached at start, which `/healthz` then names (`docs/AIVEN.md`) |
+| A fixed-rules reader for free text | It is deterministic and tested; it asks when it is not sure (Valio Aimo, 14 Nov: flag it and ask for the person's input). The typed request can always be posted directly |
+| **No model decides a price, a quantity, an allergen status or a verdict** | Those come from deterministic code that can be tested and audited (20% controls). This holds also when a deployer adds a model |
+| Policy as data (YAML): fixed rules plus one profile per buyer; one rule (F-10) in code | The guardrails can be read and changed without touching code. F-10 fires only when nothing else asks for a person, which a `when` of the rules file cannot say |
 | Audit events in a CloudEvents 1.0 envelope, hash-chained | A documented open format, and a log that shows tampering (20% controls, 15% openness) |
+| Offers and order records signed by the gateway (Ed25519, detached JWS over canonical JSON) | What the gateway said can be checked later. It is the gateway's signature, with a demo key unless one is set; it is not Valio Aimo's signature (§8) |
 | Errors as RFC 9457 problem details; `Idempotency-Key` on order placement | Agents retry; a retry must never place a second order |
 | Replay mode with a pinned clock | The demo survives the mock being down or every cut-off having passed |
-| Every port is synchronous | One style everywhere; FastAPI runs the routes in its thread pool; SQLite, `httpx` and the Gemini SDK all have synchronous clients |
+| Every port is synchronous | One style everywhere; FastAPI runs the routes in its thread pool |
+
+RFC numbers in this file are cited from the implementers' knowledge, as the code cites them; `docs/STANDARDS.md` says how far each was checked.
 
 ### Layout
 ```
 pyproject.toml · LICENSE (MIT) · README.md
 src/tta/
-  contracts/     shared Pydantic models — the interface. Only the orchestrator edits these.
+  contracts/     shared Pydantic models, typed errors, ports — the interface between the packages
   config.py      settings from the environment
   valio/         client for the mock API, recorder, replay, call budget, clock
-  catalog/       product file loader, search, product types, pack size
-  allergens/     GS1 codes and families, buyer exclusion rule, substitution rule
-  availability/  the six states, verification status per claim
-  policy/        fixed rules, buyer profiles, engine
-  store/         SQLite repository
-  audit/         events, hash chain, sentences, reader views
-  offers/        candidates → options, ranking, combining, substitutes
-  orders/        order states, approvals, idempotency
-  api/           FastAPI app, routes, authentication, MCP surface
-  agent/         Gemini: request parsing and the buyer agent loop; the rule-based reader when no model answers
+  catalog/       product file loader, search, product types (product_types.yaml), pack size, lot step,
+                 flavour, use and "is a drink" read from names (kinds.py)
+  allergens/     GS1 codes and families, buyer exclusion rule, ingredient list, substitution rule, claims
+  availability/  the six states, verification status per statement
+  policy/        rules.yaml (fixed and profile rules), profiles/*.yaml (four buyers), engine, F-10 in code
+  customers/     the four demo customers (data/*.yaml, synthetic): people, usual products, past orders
+  suggestions/   suggestions from a customer's history or the catalog, each checked like any product
+  store/         SQLite repository; PostgreSQL repository and its SQL (sql/001…005)
+  audit/         events, hash chain, sentences, the buyer's and Valio Aimo's views
+  offers/        candidates → options, ranking, combining, substitutes, the formula comparison, re-check
+  orders/        order states, approvals, idempotency, the day's spend
+  evidence/      what a manufacturer's web page says about an allergen Valio's data leaves open (recorded pages)
   menus/         recipe table, menu needs, the menu planner (recipe logic, F-09)
   standing/      standing orders: set up, history, renewal (P-08)
-  ui/            templates and static files
-deploy/modal_app.py
-fixtures/valio/  recorded responses of the mock API
+  api/           FastAPI app, routes, identity, limits, MCP surface, discovery documents, signing
+  agent/         the fixed-rules reader; recorded readings; the optional Gemini reader and agent loop
+  ui/            pages, the shop page and its back end (/shop/api/*)
+deploy/          modal_app.py, check.py, evidence_batch.py, witness.py
+scripts/         capture_valio.py, record_evidence.py, aiven_proof.py
+fixtures/        valio/ (recorded answers of the mock), agent/ (recorded readings), evidence/ (recorded pages)
 tests/
 ```
-`AIMO/catalog_search.py` (Sofia, `bio1`) and `AIMO/policy/` (Gabriela, `bio2`) are merged into the build branch unchanged and are the starting point for `catalog/` and `policy/`.
+`AIMO/catalog_search.py` and `AIMO/policy/` were the starting point for `catalog/` and `policy/` and are kept unchanged.
 
 ---
 
 ## 2. Interface
 
-All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 with offset; currency is ISO 4217 (`EUR`); allergens are GS1 codes; money and quantities are computed with `Decimal` and serialised as JSON numbers (money 2 decimals, quantities 3).
+Versioned paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 with offset; currency is ISO 4217 (`EUR`); allergens are GS1 codes; money and quantities are computed with `Decimal` and serialised as JSON numbers (money 2 decimals, quantities 3).
+
+The list below is the generated OpenAPI document of the committed code (29 operations), nothing more.
 
 | Method and path | Who | Purpose | Brief |
 |---|---|---|---|
-| `GET /v1/authority` | agent | The caller's buyer profile: what it may decide alone | Core 3 |
-| `POST /v1/products/search` | agent | Search the catalog: product type, name terms, claims, category, pack size | Core 1 |
-| `GET /v1/products/{id}` | agent | One product with its allergen statements and claims | Core 1 |
-| `POST /v1/products/{id}/substitutes` | agent | Ranked substitutes, each with pass or fail and the reason | Optional: substitution |
-| `POST /v1/offers` | agent | Typed request → offer with live price and availability | Core 1, Core 2 |
-| `GET /v1/offers/{id}` | agent | The stored offer | Core 2 |
-| `POST /v1/orders` | agent | Commit one option of an offer | Core 2, Core 3 |
-| `GET /v1/orders/{id}` | agent, approver | Order with status, decision and approvals | Core 2 |
-| `GET /v1/approvals?status=pending` | approver | The approval queue | Core 3 |
-| `POST /v1/approvals/{id}/decision` | approver | Approve (optionally choosing another option of the same offer) or reject | Core 3 |
+| `GET /v1/authority` | agent | The caller's buyer profile and every rule in plain words: what it may decide alone | Core 3 |
+| `POST /v1/products/search` | agent | Search the catalog: product type, name terms, claims, labels, category, product ids | Core 1 |
+| `GET /v1/products/{product_id}` | agent | One product with its allergen statements and claims | Core 1 |
+| `POST /v1/products/{product_id}/substitutes` | agent | Ranked substitutes, each with pass or fail, whether it is a like-for-like replacement, and the reason | Optional: substitution |
+| `POST /v1/offers` | agent | Typed request → offer from the price and availability Valio's data states now. `201` with a `Location` header | Core 1, Core 2 |
+| `GET /v1/offers/{offer_id}` | agent | The stored offer | Core 2 |
+| `POST /v1/orders` | agent | Order one option of an offer: it waits for a person unless the buyer allows the agent to order alone and every statement is confirmed (§7). Needs `Idempotency-Key`. `201` with `Location` | Core 2, Core 3 |
+| `GET /v1/orders`, `GET /v1/orders/{order_id}` | agent, approver | The buyer's orders; one order with status, decision and approvals | Core 2 |
+| `GET /v1/approvals` | approver | The approval queue of the caller's buyer | Core 3 |
+| `POST /v1/approvals/{approval_id}/decision` | approver | Approve (optionally choosing another option of the same offer) or reject. An agent token is refused with 403 (F-06) | Core 3 |
 | `GET /v1/audit?order_id=&reader=buyer\|supplier` | agent, approver, supplier | The audit trail as one reader sees it | Audit trail |
-| `POST /v1/requests/parse` | agent | Free text → typed request (Gemini structured output). Two headers say who read it: `TTA-Read-By`, `TTA-Reading-Source` | 20% match |
-| `POST /v1/requests/read-image` | agent | A photo of an order list → Gemini's transcription, returned to be shown → the same parser and text check (task T18, `812de0f`) | 20% match |
-| `POST /v1/agent/run` | demo | Runs the buyer agent on a pasted request and returns its tool-call trace | 30% |
+| `GET /v1/customers`, `GET /v1/customers/{customer_id}` | agent, approver | The caller's own customer: who orders, who holds each role, usual products, past orders, limits. All synthetic and said so. Valio Aimo's token gets 403 | 20% match |
+| `POST /v1/requests/parse` | agent | Free text → typed request. Two headers say who read it: `TTA-Read-By`, `TTA-Reading-Source`. A text that is not read is `422` with a question (§11) | 20% match |
+| `POST /v1/requests/read-image` | agent | A photo of an order list → typed request. Needs a model: with no key only the one recorded demo photo is answered, from its hand-written recording | 20% match |
+| `POST /v1/agent/run` | demo | Runs a buyer agent on a pasted request and returns its trace. With no key: a recorded run, or a fixed run made by the rules, and the report says which | 30% |
 | `GET /v1/menus/recipes` | agent | The recipes a menu can be planned from (ours, illustrative) | Optional: substitution |
 | `POST /v1/menus/plan` | agent | Dishes × servings, minus the kitchen's stock → one offer; an ingredient that cannot be had is replaced by its role's alternative (F-09) | Optional: substitution |
-| `POST /v1/standing-orders`, `GET /v1/standing-orders` | agent | Set up a recurring order; list the caller's buyer's standing orders | Valio scenario "standing order drift detection" |
-| `GET /v1/standing-orders/{id}` | agent | One standing order and its renewals | same |
-| `POST /v1/standing-orders/{id}/renew` | agent | Renew with this week's quantities: an offer, the drift check (P-08), then the order through `place_order` | same |
-| `GET /v1/schemas` | anyone | JSON Schema of every model | 15% |
-| `GET /openapi.json`, `/docs` | anyone | Generated OpenAPI | 15% |
+| `POST /v1/standing-orders`, `GET /v1/standing-orders` | agent | Set up a recurring order; list the buyer's standing orders (at most 20 per buyer) | Valio scenario "standing order drift detection" |
+| `GET /v1/standing-orders/{standing_order_id}` | agent | One standing order and its renewals | same |
+| `POST /v1/standing-orders/{standing_order_id}/renew` | agent | Renew with this week's quantities: an offer, the drift check (P-08), then the order through the normal order step | same |
+| `GET /v1/schemas` | anyone | JSON Schema of every contract model (96 at the committed code), each naming its dialect in `$schema` (2020-12) | 15% |
+| `GET /openapi.json`, `/docs`, `/redoc` | anyone | Generated OpenAPI 3.1 | 15% |
+| `GET /.well-known/api-catalog` (and `HEAD`) | anyone | Where the API, its description, its schemas and the MCP endpoint are (the code cites RFC 9727) | 15% |
+| `GET /llms.txt` | anyone | What the gateway is and the order of calls, as plain text for a language model | 15% |
+| `GET /.well-known/jwks.json` | anyone | The public key offers and orders are signed with | Trust protocol |
+| `GET /healthz` | anyone | What is running: mode, the clock and its basis, the store, the audit head, whether the signing key is a demo key | 15% |
 
-- **MCP:** the tools `get_authority`, `search_products`, `get_product`, `find_substitutes`, `get_offer`, `place_order`, `get_order`, `get_audit` call the same service functions as the REST routes. No logic lives in a transport.
-- **Identity:** every call carries `Authorization: Bearer <token>`. A token maps to one identity: an **agent** bound to one buyer profile, an **approver** with one or more roles, or the **supplier** reader. The buyer profile is never a request field: an agent cannot choose its own authority. Approval routes reject agent tokens: **an agent cannot approve its own order.** Demo tokens are loaded only when `TTA_ENV` is `dev` or `demo`.
-- **Errors:** RFC 9457 `application/problem+json` with a stable `type`: `offer-expired`, `offer-stale`, `policy-blocked`, `not-authorised`, `unknown-product`, `invalid-request`, `supplier-unavailable`, `not-found` (an offer, order or approval id nobody issued), `rate-limited`. Each has one typed error in `tta/contracts/errors.py`.
-- **Idempotency:** `POST /v1/orders` requires an `Idempotency-Key` header. The same key returns the first result.
+- **MCP** (`/mcp/`): 13 tools that call the same service functions as the REST routes: `get_authority`, `search_products`, `get_product`, `find_substitutes`, `get_offer`, `place_order`, `get_order`, `get_audit`, `get_customer`, `plan_menu`, `set_up_standing_order`, `renew_standing_order`, `list_standing_orders`. **No tool lists or decides an approval.** No logic lives in a transport. A request whose `Origin` header names an origin the server does not allow is refused with 403 (`TTA_MCP_ALLOWED_ORIGINS`); a request with no `Origin` passes.
+- **Identity:** every call carries `Authorization: Bearer <token>`. A token maps to one identity: an **agent** bound to one buyer profile, an **approver** with one or more roles, or the **supplier** reader. The buyer profile is never a request field: an agent cannot choose its own authority. Demo tokens (15 identities: 4 agents, 10 approvers, the supplier) are public by design and load only when `TTA_ENV` is `dev` or `demo`.
+- **Errors:** RFC 9457 `application/problem+json` with a stable `type`: `invalid-request`, `not-authorised`, `unknown-product`, `not-found` (an id nobody issued, or another buyer's), `offer-expired`, `offer-stale`, `policy-blocked`, `supplier-unavailable`, `rate-limited`. Each has one typed error in `src/tta/contracts/errors.py`.
+- **Idempotency:** `POST /v1/orders` requires an `Idempotency-Key` header; without it the answer is `400`. The same key returns the first result; the same key with another offer or option is refused.
+- **Limits** (ours, illustrative, per minute, in one process's memory; `src/tta/api/limits.py`): one visitor 20 offers and substitute searches, 20 orders and decisions, 15 request readings and agent runs; one address 60 of each; all callers together 240 of each. Bodies up to 64 KB.
 
 ---
 
@@ -106,28 +127,29 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 | Field | Type | Meaning |
 |---|---|---|
 | `needed_by` | date, optional | The date the goods are needed |
-| `require_confirmed` | bool, default false | Offer only options in which every claim is confirmed |
-| `lines[]` | 1 or more | One per product asked for |
-| `lines[].text` | string | The buyer's own words, kept for the audit trail |
-| `lines[].product_type` | string, optional | A key of the product-type table, e.g. `milk`, `plant_drink`, `beef_chuck` |
+| `require_confirmed` | bool, default false | Offer only options in which every statement is confirmed |
 | `prefer` | `PRICE` · `EARLIEST` · `RELIABILITY` · `LOWER_CARBON`, default `PRICE` | What ranks confirmed products once every constraint is met (§5). `PRICE` is the brief's "based on price and availability" |
-| `standing_order_id` | string, optional | The standing order this request renews; its history is checked (P-08). Set by the standing-order service; it can only add a check |
+| `standing_order_id` | string, optional | The standing order this request renews; its history is checked (P-08). It can only add a check |
+| `lines[]` | 1 to 20 (5 where `TTA_ENV` is `dev` or `demo`) | One per product asked for |
+| `lines[].text` | string | The buyer's own words, kept for the audit trail |
+| `lines[].product_type` | string, optional | A key of the product-type table, e.g. `milk`, `coffee_milk`, `plant_drink`, `beef_chuck` |
 | `lines[].product_ids` | list, optional | Explicit products ("this product", named by id) |
 | `lines[].name_terms` | list | Words that must appear in the product name (English or Finnish) |
 | `lines[].required_claims` | list | `nutritionalClaim` codes that must be present, e.g. `FREE_FROM_LACTOSE` |
-| `lines[].required_labels` | list | Certificate labels (`packagingMarkedLabel` codes other than the three storage temperatures, e.g. `EU_ORGANIC_FARMING`) every product must carry. One `LABEL` constraint check per label |
-| `lines[].stands_in_for`, `lines[].stands_in_role` | string, optional | Set by the menu planner when recipe logic chose another product type: the recipe's type this line replaces, and the job it does in the dish (F-09). Not in the model's schema |
+| `lines[].required_labels` | list | Certificate labels (`packagingMarkedLabel` codes other than the three storage temperatures, e.g. `EU_ORGANIC_FARMING`) every product must carry |
 | `lines[].quantity`, `lines[].unit` | decimal, `L` · `KG` · `UNIT` | `UNIT` means sales units |
 | `lines[].exclude_allergens` | list of GS1 codes | Added to the profile's exclusions; a request can add exclusions and can never remove one |
-| `lines[].allergen_strictness` | `STRICT` · `DECLARED_ONLY`, optional | Required when there is any exclusion and the profile sets none. There is no default: a missing value is `invalid-request` |
-| `lines[].pack` | `ANY` · `BULK` · `PORTION`, default `BULK` for `L` and `KG` | See the portion-pack rule |
+| `lines[].allergen_strictness` | `STRICT` · `DECLARED_ONLY`, optional | How the exclusions are read (§6). **With no rule here and none in the profile, an exclusion reads `STRICT`**, the safe reading, and the offer says so in a note. A request can make the rule stricter, never looser |
+| `lines[].keep_formula` | bool, optional | The formula matters for this line: a substitute must keep it or it goes to a person (F-11). It can only add the check: false or absent leaves the profile's own setting (`formula_matters`) in force |
+| `lines[].pack` | `ANY` · `BULK` · `PORTION` | Defaults to `BULK` for `L` and `KG`, `ANY` for `UNIT`. See the portion-pack rule |
+| `lines[].stands_in_for`, `lines[].stands_in_role` | string, optional | Set by the menu planner when recipe logic chose another product type: the recipe's type this line replaces, and the job it does in the dish (F-09) |
 
 ### From a line to candidate products
 1. **Explicit ids** are used as given, after a check against the local catalog (an unknown id is `unknown-product`; the availability endpoint cannot tell it from an undeliverable product).
-2. **Product type:** `catalog/product_types.yaml` maps a key to category codes, name terms and claims. It is a short table we maintain and document as an assumption. It must cover the demo scenarios and the commonest food-service types found in the catalog.
+2. **Product type:** `catalog/product_types.yaml` maps a key to category codes, name terms and claims. The table is ours: 32 types read from product names (catalog), not a complete taxonomy. A type names one kind of product: milk for coffee is `coffee_milk` (4 products), not `milk` (74) — Valio Aimo, asked on 14 Nov whether a buyer who asks for milk accepts it: "no be explicit". An offer for milk carries a note that coffee milk was left out and how to ask for it.
 3. **No product type:** search product names (English, then Finnish) for every name term, and keep the categories that hold most of the matches.
-4. **Claims:** every `required_claims` code must be on the product. A claim is never read as an allergen statement.
-5. **Pack size** in litres or kg per sales unit: `catalogPrice ÷ comparisonPrice` from the live price, then `unitConversions` when the unit is a real volume or weight, then the product name. If none gives a value the product is excluded with `PACK_SIZE_UNKNOWN`.
+4. **Claims:** every `required_claims` code must be on the product. A claim is never read as an allergen statement. A product whose own allergen data contradicts a required claim is excluded as `CLAIM_CONTRADICTED`.
+5. **Pack size** in litres or kg per sales unit: `catalogPrice ÷ comparisonPrice` from the price answer, then `unitConversions` when the unit is a real volume or weight, then the product name. If none gives a value the product is excluded with `PACK_SIZE_UNKNOWN`.
 6. **Portion-pack rule:** for a `BULK` line, single-serve packs are excluded with `PORTION_PACK` (an inner unit of 5 cl or 50 g or less, such as `463203`, 100 × 2 cl). A `PORTION` line keeps only those.
 7. **Quantity in sales units:** round up to the product's `allowedLotSize` step with `Decimal`. Price and quantity follow the sales unit on the API line, not the one in the product file.
 
@@ -136,31 +158,33 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 ## 4. Availability and what can be trusted
 
 ### The six states
-Evaluated in this order, against the `timeNow` of the response (or the pinned clock in replay):
+Evaluated in this order, against the `timeNow` of the answer (in replay: the recording's own instant, or the demo clock when `TTA_DEMO_CLOCK` is set, §10):
 
 | State | Condition | Role in an offer |
 |---|---|---|
 | `BLOCKED` | `salesBlock` true | Excluded; triggers substitution when the product was asked for by id |
 | `NOT_DELIVERABLE` | no schedule line | Same |
 | `OUT_OF_STOCK` | `availableAmount` 0 | Same |
-| `CUTOFF_PASSED` | `closingTime` earlier than now | Excluded from every request, dated or not, with the reason (`_STATE_REASONS` in `src/tta/offers/candidates.py`). The API gives one schedule line per product, so no later date can be promised instead |
-| `QUANTITY_NOT_CONFIRMED` | `availableAmount` ≥ 999,999 (Terminal or Stock) | Never the suggestion. Offered as a separate option. Ordering it always needs a human. The value is never used in arithmetic |
-| `CONFIRMED` | otherwise | May be suggested and, within authority, ordered by the agent |
+| `CUTOFF_PASSED` | `closingTime` earlier than now | Excluded from every request, dated or not, with the reason. The API gives one schedule line per product, so no later date can be promised instead |
+| `QUANTITY_NOT_CONFIRMED` | `availableAmount` ≥ 999,999 (Terminal or Stock) | Never the suggestion. Offered as a labelled alternative. Ordering it always needs a person (F-01). The value is never used in arithmetic |
+| `CONFIRMED` | otherwise | May be the first option |
 
 A product with a schedule line whose `availableDate` is later than `needed_by` is excluded with `LATE_FOR_NEEDED_BY`.
 
 ### Verification status — our answer to the trust protocol
-Every offer line states, for each claim, whether Valio's data confirms it:
+Every offer line states, for each of five statements, whether Valio's data confirms it:
 
-| Claim | `CONFIRMED` | `UNKNOWN` | `RULED_OUT` |
+| Statement | `CONFIRMED` | `UNKNOWN` | `RULED_OUT` |
 |---|---|---|---|
-| `price` | a net price was returned and `validTo` is in the future | no net price | — |
+| `price` | a price was returned and `validTo` is in the future | no usable price | — |
 | `quantity` | state `CONFIRMED` and the amount covers the line | `QUANTITY_NOT_CONFIRMED` | out of stock, not deliverable, blocked |
 | `delivery_date` | cut-off open and `availableDate` on or before `needed_by` | no `needed_by` given | cut-off passed, or later than `needed_by` |
 | `allergens` | every excluded allergen has an explicit statement | any excluded allergen has `MAY_CONTAIN`, `UNDECLARED` or no statement | an excluded allergen is declared `CONTAINS` |
 | `origin` | the product file states it | absent | — |
 
-**Which claims gate an order without a human** (decided 14 Nov, after the availability hand-back and review round 1): `price` and `quantity` always (rules F-07 and F-01); `delivery_date` when the request gives `needed_by` (F-07, through the needed-by constraint check); `allergens` through the outcome of the allergen rule (F-02, P-04) — under `DECLARED_ONLY` a product with no statement passes and is shown as unverified, because that buyer chose so; `origin` never (it is shown, the buyer did not ask for it). A request with no date is not sent to a human for that reason alone. A passed cut-off is a state, not a claim: it excludes the product from every request, dated or not (table above). `require_confirmed` (on the request or on the profile) is stricter: it keeps only lines for which `OfferLine.confirmed_for_order(dated=...)` holds, which asks for the `allergens` claim itself to be confirmed. A claim that is missing from a line is a missing fact (F-03).
+**What sends an order to a person because of a statement:** `price` and `quantity` always (the rule on an unconfirmed price or a ruled-out date, F-07, and the rule on an unconfirmed quantity, F-01); `delivery_date` when the request gives `needed_by` (F-07); `allergens` through the outcome of the allergen rule (F-02 blocks a declared allergen, P-04 sends a doubt to the dietitian). A passed cut-off is a state, not a statement: it excludes the product. `require_confirmed` (on the request or on the profile) is stricter: it keeps only lines whose statements are confirmed, the `allergens` statement included. A statement missing from a line is a missing fact (F-03).
+
+**Ordering alone asks for more:** where the buyer has switched `auto_order_enabled` on, the agent orders alone only when no rule fires **and all five statements of every line are confirmed, origin and delivery date included** (F-10, §7; Valio Aimo, 14 Nov: "after and if you are 100% sure yes"). So a request with no date, or a product with no stated origin, is never ordered by the agent alone.
 
 ---
 
@@ -168,30 +192,48 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 
 1. Candidates (§3) → one price call and one availability call for the narrowed set (up to 1,000 ids per call).
 2. Classify each candidate (§4) and run the allergen check (§6). Everything that drops out goes to `excluded[]` with a reason code and one sentence.
-3. **Options, at most three (four with `CHEAPEST_CONFIRMED`), ranked by constraint fit, then verification status, then the request's preference, then price:**
-   - `BEST_CONFIRMED` — confirmed products only. Under `PRICE`, the cheapest single product that covers the whole quantity; if none does, combine the cheapest first until the quantity is covered. Under another preference, the products with the best value for that key go first (a product with no value ranks last), and price decides within them (`src/tta/offers/preference.py`). If confirmed stock still falls short, the option is a partial fill and says how much is missing.
-   - `CHEAPEST_CONFIRMED` — only under a preference other than `PRICE`, when the price fill over the same confirmed stock picks other products and costs less. Its summary and the preferred option's summary say the difference in euros and what it buys ("€7.00 more than the cheapest confirmed option, for a delivery reliability of at least 100% instead of unknown"). A preference never outranks constraint fit or verification status.
-   - `ALTERNATIVE_UNCONFIRMED` — the cheapest product in state `QUANTITY_NOT_CONFIRMED` that otherwise fits. A full structured option the approver can pick, not a footnote.
-   - `SUBSTITUTE` — only when the request named products by id and they cannot be supplied in full: the best substitute that passes §6.
-4. Every option carries: its lines; totals (net, tax from `tax.taxRate`, gross; `excludes_deposits`; `is_ceiling` for variable weight); coverage (requested, covered, fill ratio); `valid_until` = the earliest price `validTo` and `closingTime` of its lines; **constraint checks** — one per thing the buyer asked for (product type, quantity, needed-by date, each claim, each allergen exclusion, pack), each `MET`, `NOT_MET` or `UNVERIFIED` with a sentence; and **the policy verdict for that option** (§7), so the agent knows before ordering what it may do alone.
-5. The offer records where its data came from (`live` or `replay`) and the `timeNow` it was built against.
-6. **The comparison** (`OptionComparison`, `src/tta/offers/comparison.py`): each option states its earliest and latest delivery, the lowest delivery reliability, an estimated carbon total (amount × kg CO2e per kg, a litre counted as a kilogram), the labels every line carries, and how many lines have no value for each, in one sentence. Each line carries its own reliability, carbon per kg and labels; a missing value is unknown, never 0. Reliability is known for 4,425 and carbon for 11,033 of the 17,546 catalog products.
+3. **Options, at most three (four with `CHEAPEST_CONFIRMED`), ranked by constraint fit, then verification status, then the request's preference, then price.** Four kinds (`OptionKind`); the title says what a person needs to know:
 
-**Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recorded copy has no answer for the product; never presented as Valio's statement; its price, quantity and delivery date read `UNKNOWN`; task FIX-12a, `9a1893d`).
+   | Kind | Title | What it is |
+   |---|---|---|
+   | `BEST_CONFIRMED` | "Best confirmed option", with " (partial fill)" when confirmed stock falls short; "Confirmed option ranked by delivery reliability" (or the other preference) when the preference's premium put it after the cheapest | Confirmed products only. Under `PRICE`, the cheapest single product that covers the whole quantity; if none does, the cheapest first until the quantity is covered. If confirmed stock still falls short, it says how much is missing |
+   | `CHEAPEST_CONFIRMED` | "Cheapest confirmed option" | Only under a preference other than `PRICE`, when the price fill over the same confirmed stock picks other products and costs less. Both summaries say the difference in euros and what it buys |
+   | `ALTERNATIVE_UNCONFIRMED` | "Alternative: quantity not confirmed" · "Alternative: allergen not ruled out" · "Alternative: quantity not confirmed, allergen not ruled out" | A full structured option a person can pick. It says what is not confirmed about it. It ranks after every confirmed option; it is first only when there is no confirmed one |
+   | `SUBSTITUTE` | "With a substitute for a product that cannot be supplied in full" · "Alternative: a substitute that does not keep the formula" (where the formula matters and the substitute does not keep it) | Only when the request named products by id and they cannot be supplied in full: the best substitute that passes §6 |
+
+   - **The safe product first.** With an allergen excluded, the first option holds only products whose data rules it out; a product with a doubt is "Alternative: allergen not ruled out" and ranks after every safe option at any price, also under `DECLARED_ONLY`.
+   - **A preference has a price.** An option ranked by a preference that costs more than 25% above the cheapest confirmed option comes second, and the gap is stated; a known delivery reliability under 90% ranks with an unknown one (both thresholds are ours, `src/tta/offers/preference.py`).
+   - An unconfirmed product that costs no less than confirmed stock covering the line is not offered.
+   - Plain "milk" fills with regular milk first; when none has confirmed stock (the case in the recording), a named lactose-free or low-lactose product is the first option and the offer says it is an alternative to regular milk.
+4. Every option carries: its lines; totals (net, tax from `tax.taxRate`, gross; `excludes_deposits`); coverage (requested, covered, fill ratio); `valid_until` = the earliest price `validTo` and `closingTime` of its lines; **constraint checks** — one per thing the buyer asked for, each `MET`, `NOT_MET` or `UNVERIFIED` with a sentence; and **the policy verdict for that option** (§7), so the agent knows before ordering what happens.
+   - **A total with a product sold by weight is an estimate**, written "about € …": "The total is an estimate: a product is sold by weight, and Valio Aimo invoices the weight delivered." (Valio Aimo, 14 Nov). The field is still called `totals.is_ceiling`; it means "estimate", not a ceiling.
+5. The offer records where its data came from (`source`: `live` or `replay`), the `time_now` it was built against and the clock's basis (`time_basis`: `recording`, `supplier` or `demo_setting`).
+6. **The comparison** (`OptionComparison`, `src/tta/offers/comparison.py`): each option states its earliest and latest delivery, the lowest delivery reliability, an estimated carbon total (amount × kg CO2e per kg, a litre counted as a kilogram), the labels every line carries, and how many lines have no value for each. A missing value is unknown, never 0. Reliability is known for 4,425 and carbon for 11,033 of the 17,546 products (catalog).
+7. **`Offer.suggestions`**: a list of `Suggestion` records computed from the customer's past orders or the catalog (`src/tta/suggestions/`): at most three, one per kind, in the order forgotten item · usual product · usual quantity · cheaper product with the same formula · larger pack · quantity trend · (reorder due) · Valio Aimo's own suggestion of a related product (`FROM_SUPPLIER`, last, never more than one). Each is checked like any product (allergen rule, claims, confirmed stock, formula) and carries `accept_request`, a new typed request: **a suggestion is in no option and no total and never adds itself to an order.** In the committed code the field is on the contract and `suggestions_for` is tested as a function (`tests/suggestions/`); `POST /v1/offers` answers it empty, because wiring it into the route was not yet committed when this file was checked.
+8. **`Offer.proof`** (and `Order.proof`): the gateway's signature of the record (§8).
+
+**Exclusion reason codes** (`ExclusionReason`, 16): `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `CLAIM_CONTRADICTED` (the product's own allergen data contradicts a claim the request requires) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recording has no answer for the product; never presented as Valio's statement; its price, quantity and delivery date read `UNKNOWN`. The recording holds 769 of the 17,546 products).
 
 ### Substitutes
-- **Candidates:** the pairs Valio lists (250 pairs on 189 products) as a seed, then the same 5-digit category, then the same first 4 digits, then the same first 3. Every candidate is re-checked for price and availability.
-- **Ranking (good, better, best):** passes §6 (a failure is shown, with the reason, and can never be ordered) → keeps every dietary claim of the original → category distance → listed by Valio → pack size closest to the original → verification status → price difference (`src/tta/offers/substitutes.py`). How a product is used is not read: a rice drink can stand in for a barista oat drink (`AIMO/USE-CASES.md`, finding 3).
-- Each result says in one sentence what the buyer gives up, from what the data shows: claims of the original it does not carry (every claim, dietary or not), another brand, not listed by Valio, another category, another pack size, a higher price, and a quantity Valio does not confirm. A lower price is not mentioned: it is not given up.
-- A substitute that lacks a **dietary** claim of the original (`claims_lost`) ranks after those that keep every one, and ordering it always needs a human (F-08). Dietary claims are 8 codes (`DIETARY_CLAIMS`, decided at T07-7): `FREE_FROM_LACTOSE`, `LOW_LACTOSE`, `FREE_FROM_GLUTEN`, `FREE_FROM_WHEAT`, `FREE_FROM_EGGS`, `FREE_FROM_SOY`, `VEGAN`, `VEGETARIAN`. Losing any other claim, for example `LOW_SODIUM_SALT` or `FREE_FROM_PRESERVATIVES`, is named in the sentence above and fires no rule.
-- Substitutes are looked for only on a line that names product ids (`src/tta/offers/planning.py`); a product-type line never gets one.
-- The substitutes route (`POST /v1/products/{id}/substitutes`) applies the substitution rule of §6 and judges each candidate by the buyer's own exclusion rule, confirmed-only included, as the buyer's offer does (task FIX-12b, `baa4e08`): the ward's list excludes what the ward's offer excludes, with the same reason code and sentence.
+- **Candidates:** the pairs Valio lists (249 pairs, catalog), then the products of the same 5-digit category, and nothing wider: a category number is opaque, and a shared prefix is a neighbouring shelf, not the same kind of product. Every candidate is re-checked for price and availability.
+- **The order of the gates** (`src/tta/offers/substitutes.py`), first decides first:
+  0. The allergen rule of §6. A candidate that fails is shown with its reason and can never be ordered (F-05).
+  1. The dietary claims. A candidate that loses one is a **last resort**: held back while a candidate that keeps them all can be ordered.
+  2. The same kind of product (our reading of product names, `src/tta/catalog/kinds.py`): another product type than the original, or a flavoured product for a plain one (and the reverse), is a last resort too. A pair Valio lists stays when only the type differs, after every candidate of the same type. Another use (made for coffee, whipping, cooking) and another flavour of an already flavoured product only order the candidates.
+  3. The formula (`src/tta/offers/formula.py`): six nutrients within 15% or 1 g (salt 0.25 g) and the same fat source; per 100 g is read with per 100 ml for drinks only. Tolerances are ours. It orders the candidates; it hides none.
+  4. Listed by Valio, pack size closest, verification status, price.
+- Each candidate carries one sentence that starts "Replaceable: …" or "Not a like-for-like replacement: …" with each reason (`replaceable`), the formula comparison (`formula`), `last_resort`, and what the buyer gives up (`gives_up`).
+- **Dietary claims** are 8 codes (`DIETARY_CLAIMS`): `FREE_FROM_LACTOSE`, `LOW_LACTOSE`, `FREE_FROM_GLUTEN`, `FREE_FROM_WHEAT`, `FREE_FROM_EGGS`, `FREE_FROM_SOY`, `VEGAN`, `VEGETARIAN`. Losing any other claim is named in `gives_up` and fires no rule.
+- **Confirmed like-for-like stock stands in before an unconfirmed product.** Where the formula matters (the request line's `keep_formula`, or the profile's `formula_matters`) and no formula-keeping substitute can be ordered, the product asked for (quantity not confirmed) is shown before a substitute that changes the formula, which is titled "Alternative: a substitute that does not keep the formula".
+- A substitute sold in another sales unit is converted by content (100 cartons of 1 L become 10 cases of 10 L) and rounded up to the lot step.
+- Substitutes are looked for only on a line that names product ids; a product-type line never gets one.
+- The substitutes route judges each candidate by the buyer's own exclusion rule, confirmed-only included, as the buyer's offer does.
 
 ---
 
 ## 6. Allergen rules
 
-Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_FROM` (group `nonAllergen`). `X99` is GS1's "Does not contain declaration obligatory allergens". A product with neither group has no statement; that is unknown, never safe. Code families (for example the cereals under `AW`) are in [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md).
+Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_FROM` (group `nonAllergen`). `X99` is GS1's "Does not contain declaration obligatory allergens". A product with neither group has no statement; that is unknown, never safe. A `nutritionalClaim` is never an allergen statement: lactose-free milk still contains milk. Code families (for example the cereals under `AW`) are in [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md).
 
 **Buyer exclusion rule**, for each excluded allergen and its sub-codes:
 
@@ -199,12 +241,14 @@ Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_
 |---|---|---|
 | `FREE_FROM` | passes | passes |
 | `CONTAINS` | rejected | rejected |
-| `MAY_CONTAIN` | to a human (dietitian) | to a human (dietitian) |
-| `UNDECLARED`, or no statement | to a human (dietitian) | passes, shown as unverified |
+| `MAY_CONTAIN` | to a person (dietitian) | to a person (dietitian) |
+| `UNDECLARED`, or no statement | to a person (dietitian) | passes the rule, shown as unverified, and still never the first option (§5) |
 
+- An exclusion with no strictness on the request and none in the profile reads `STRICT` (§3).
 - Conflicting statements on one product: the least safe one counts.
-- **The product's own ingredient list counts as a statement** (task FIX-12a, `9a1893d`). When `keyIngredients` (English, else Finnish) names an excluded allergen or a member of its family (English words in any case, Finnish forms at the start of a word) or says "may contain" it, while the declaration says `FREE_FROM`, `UNDECLARED` or nothing, the finding is `MAY_CONTAIN`: the product goes to a dietitian, under either strictness, with a sentence quoting both (found on `465793`, an almond drink declared free from tree nuts). A free-from wording ("lactose-free", "does not contain") is not a mention.
-- A "no gluten" exclusion (`AW`) and a product that declares oats (`GO`): to a human, whatever else it states.
+- **The product's own ingredient list counts as a statement.** When `keyIngredients` (English, else Finnish) names an excluded allergen or a member of its family, or says "may contain" it, while the declaration says `FREE_FROM`, `UNDECLARED` or nothing, the finding is `MAY_CONTAIN`: the product goes to a dietitian, under either strictness, with a sentence quoting both (found on `465793`, an almond drink declared free from tree nuts). A free-from wording is not a mention.
+- A "no gluten" exclusion (`AW`) and a product that declares oats (`GO`): to a person, whatever else it states.
+- **Evidence for the dietitian.** On an allergen doubt (P-04) the approval can carry what the manufacturer's web page says, from recorded pages in `fixtures/evidence/`, labelled as not Valio's data. A page can add a doubt and never removes one; it changes no status and no verdict (`docs/CONTEXTDEV.md`).
 
 **Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen that the original does not declare, and must not raise an allergen from `MAY_CONTAIN` to `CONTAINS`. This holds for every buyer, with or without exclusions.
 
@@ -212,47 +256,63 @@ Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_
 
 ## 7. Policy — what the agent may decide alone
 
-Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL` (a human with the named role decides) · `BLOCK` (cannot be ordered, even with approval). Every rule that fires is listed in the decision with its sentence; the most severe verdict wins. Structure, fact declarations and the policy hash come from Gabriela's `AIMO/policy/policy.yaml`.
+Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL` (a person with the named role decides) · `BLOCK` (cannot be ordered, even with approval). Every rule that fires is listed in the decision with its sentence; the most severe verdict wins. The rules are data (`src/tta/policy/rules.yaml`), except F-10, which is code (`src/tta/policy/human_approval.py`); the policy hash covers both and is written in every audit event. `GET /v1/authority` answers every rule below in plain words for the caller's buyer.
+
+**In all four shipped profiles the agent never orders alone**: `auto_order_enabled` is `false`, so every order is prepared by the agent and confirmed by a person (Valio Aimo, 14 Nov: "the final submition should always have the input from the user"). Ordering alone is a setting a buyer can switch on; what it then allows is F-10 below.
 
 ### Fixed rules — no profile can switch these off
-| Id | Rule | Verdict |
+The words are the rule's own sentence in `rules.yaml` (what `GET /v1/authority` answers).
+
+| Id | The rule, in its words | Verdict |
 |---|---|---|
-| F-01 | A line's quantity is not confirmed | `APPROVAL` (purchasing manager) |
-| F-02 | A line declares an excluded allergen | `BLOCK` |
-| F-03 | A fact a rule needs is missing | `APPROVAL` |
-| F-04 | At order time the option has expired, a cut-off has passed, or price or availability changed | `BLOCK`; at order placement the answer carries a fresh offer (§8) |
-| F-05 | A substitute adds an allergen the original does not declare, or raises one from may contain to contains | `BLOCK` |
-| F-06 | The caller is an agent on an approval route | refused (`not-authorised`) |
-| F-07 | A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met | `APPROVAL` (purchasing manager) |
-| F-08 | A substitute lacks a dietary claim the original carries (one of the 8 codes of §5, for example lactose-free) | `APPROVAL` (purchasing manager) |
-| F-09 | A line stands in for a recipe's own ingredient (`stands_in_for` set by the menu planner), so a person checks that the dish still works | `APPROVAL` (purchasing manager) |
+| F-01 | "A product whose quantity Valio Aimo does not confirm always goes to the purchasing manager." | `APPROVAL` (purchasing manager) |
+| F-02 | "A product that declares an allergen the buyer excludes can never be ordered, even with approval." | `BLOCK` |
+| F-03 | "When a fact a rule needs is missing, a human decides. Missing data never counts as good data." | `APPROVAL` (the role the missing fact names, else the purchasing manager) |
+| F-04 | "An option that has expired, whose order cut-off has passed, or whose price or availability changed since the offer cannot be ordered. A fresh offer is needed." | `BLOCK`; at order placement the answer carries a fresh offer (§8) |
+| F-05 | "A substitute that declares an allergen the original product does not can never be ordered, for any buyer." (also one that raises an allergen from may contain to contains) | `BLOCK` |
+| F-06 | "An agent can never approve an order, its own included: approval routes refuse agent tokens." Enforced by the approval routes, not by the engine; listed in `rules.yaml` under `access_rules` so the policy hash covers it | refused, 403 `not-authorised` |
+| F-07 | "A product whose price Valio Aimo does not confirm, or whose delivery date is ruled out, always goes to the purchasing manager. When the request gives a needed-by date, an option that does not verifiably meet it always goes to the purchasing manager." One rule judged in two places, so `rules.yaml` holds two entries with the id F-07, one for every line and one for the option as a whole; they agree on title, verdict and role, and the authority shows them as one | `APPROVAL` (purchasing manager) |
+| F-08 | "A substitute that lacks a nutritional claim of the product it replaces, for example lactose-free, always goes to the purchasing manager." It fires on the 8 dietary claims of §5 | `APPROVAL` (purchasing manager) |
+| F-09 | "A product type that recipe logic chose in place of a recipe's own ingredient always goes to the purchasing manager, who checks that the dish still works." | `APPROVAL` (purchasing manager) |
+| F-11 | "Where a request line says the formula matters, a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager." A profile with `formula_matters: true` (the bakery) makes it hold on every line. A profile or a request can add the check and never remove it | `APPROVAL` (purchasing manager) |
+| F-12 | "A substitute that is a last resort (it lacks a dietary claim of the product asked for, is flavoured where that product is not, or is another product type) always goes to the purchasing manager." | `APPROVAL` (purchasing manager) |
+
+### F-10 — the rule the buyer's setting drives
+F-10, "Every order needs human approval": "The agent prepares the order, a person confirms it." It is not marked fixed, because the profile setting `auto_order_enabled` switches it, and it is applied in two places so no path can forget it: when an option is judged and again when an order is placed.
+
+- **Setting off** (every shipped profile): an order that no other rule sends to a person goes to the purchasing manager under F-10. The decision reads "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): the purchasing manager confirms." When another rule already names a role, that role signs and F-10 is not added.
+- **Setting on** (the buyer's own choice): the agent orders alone only when no rule fires **and** every statement of every line is confirmed: price, quantity, delivery date, allergens and origin. One statement unknown or missing, and F-10 still sends the order to the purchasing manager and names it. The fixed rules hold either way. Checked by `tests/policy/test_ordering_alone.py`.
+- Rule P-00 of earlier versions is retired: it fired next to every other rule. There is no P-00.
 
 ### Buyer profile — set per buyer, one YAML file each
-| Setting | Meaning | Rule when crossed |
+| Setting | Meaning | Rule when crossed, in its words |
 |---|---|---|
-| `auto_order_enabled` | Whether the agent may place any order alone | P-00 `APPROVAL` |
-| `max_order_net_eur` | Spend limit per order without a human | P-01 `APPROVAL` (purchasing manager) |
-| `max_daily_net_eur` | Spend limit per day, this order included | P-02 `APPROVAL` (finance) |
-| `min_fill_ratio` | Share of the requested quantity that must be covered | P-03 `APPROVAL` (purchasing manager) |
-| `excluded_allergens`, `allergen_strictness` | §6 | P-04 `APPROVAL` (dietitian) for "to a human" cases |
-| `allergen_strictness_by_code` | Optional. The rule of one excluded allergen by its GS1 code (`{AP: STRICT}`), so an allergy can be `STRICT` while an ingredient kept out is `DECLARED_ONLY`. `allergen_strictness` is the rule of every excluded allergen it does not name. Each code must be in `excluded_allergens`. A request's `allergen_strictness` makes every allergen's rule stricter, never weaker | P-04, per allergen |
-| `substitution_without_approval` | `NONE` · `LISTED_BY_SUPPLIER` · `SAME_CATEGORY` | P-05 `APPROVAL` when a substitute is outside it |
-| `variable_weight` | `APPROVAL` or `AUTO_WITH_CEILING` | P-06 |
-| `deposits` | `APPROVAL` or `NOTE` (the total excludes deposits and says so) | P-07 (finance) |
+| `auto_order_enabled` | Whether the agent may place an order alone at all. `false` in all four profiles | F-10, above |
+| `max_order_net_eur` | Spend limit per order | P-01: "An order above €… before tax goes to the purchasing manager." |
+| `max_daily_net_eur` | Spend limit per day, this order included; waiting orders count | P-02: "When the day's orders, this one included, pass €… before tax, the order goes to finance." The approval says how much is ordered and how much is waiting |
+| `min_fill_ratio` | Share of the requested quantity that must be covered | P-03: "An option that covers less than …% of the requested quantity goes to the purchasing manager." |
+| `excluded_allergens`, `allergen_strictness`, `allergen_strictness_by_code` | §6. The by-code map lets one allergen be `STRICT` while another is `DECLARED_ONLY`; a request can only make a rule stricter | P-04: a product that does not rule out an excluded allergen goes to the dietitian (under `STRICT`: "A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian.") |
+| `substitution_without_approval` | `NONE` · `LISTED_BY_SUPPLIER` · `SAME_CATEGORY` | P-05: `NONE` "Every substitute goes to the purchasing manager."; `LISTED_BY_SUPPLIER` "A substitute that Valio Aimo does not list for the product goes to the purchasing manager."; `SAME_CATEGORY` "A substitute that Valio Aimo does not list for the product and that is not in the same product category goes to the purchasing manager." |
+| `variable_weight` | `APPROVAL` or `AUTO_WITH_CEILING` (the value keeps its old name; the total is an estimate, not a ceiling) | P-06: "A product sold by variable weight goes to the purchasing manager: its total is an estimate, because Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered." |
+| `deposits` | `APPROVAL` or `NOTE` (the total excludes deposits and says so) | P-07: "A product that carries a deposit goes to finance: deposits have no published price, so the total leaves them out." |
 | `require_confirmed` | Offer only fully confirmed options | applied when building the offer |
-| `standing_order_drift_ratio` | Tolerance, 0 to 1, for a standing order's renewal: a line's quantity or a product's unit price more than this share away from the median of its last 6 renewals (at least 3 needed to judge) | P-08 `APPROVAL` (purchasing manager). Not set, on a renewal with enough history: a missing fact (F-03) |
+| `standing_order_drift_ratio` | Tolerance for a standing order's renewal | P-08: "A renewal of a standing order whose quantity or unit price on a line differs by more than …% from the median of that line's last 6 renewals goes to the purchasing manager. With fewer than 3 past renewals the history is too short to judge, and the renewal says so." Not set, with enough history: a missing fact (F-03) |
+| `formula_matters` | The buyer's products are ingredients: the formula check holds on every line | F-11 (fixed, above) |
+| `max_preference_premium_ratio` | How much more than the cheapest confirmed option a preference may cost; at most 0.25 | P-09: "An option ranked by a preference (most reliable, lowest carbon, earliest) that costs more than …% above the cheapest confirmed option goes to the purchasing manager." Not set: P-09 never fires, and the offer still ranks the cheapest first above 25% (§5) |
 | `approver_roles` | Who holds `purchasing_manager`, `dietitian`, `finance` | — |
 
-**The values are illustrative and labelled as ours.** The mock has no customer model and Valio publishes no customer limits (booth Q7).
+**Every value is illustrative and ours, and labelled so** (`illustrative: true` in each file). The mock has no customer model and Valio publishes no customer limits.
 
-**P-04 and the ward.** `require_confirmed` is applied when the offer is built, before the policy runs: every product the allergen rule would send to a human is excluded as `ALLERGEN_NOT_STATED`. So P-04 never fires for `allergy-ward`, and no dietitian is asked for its orders. Its substitutes go to the purchasing manager through P-05 (substitution `NONE`). P-04 fires for a buyer with an exclusion and without confirmed-only: the hotel's request for 100 L of `469512` with milk excluded goes to the dietitian with P-04 alone (task S2).
-
-| Profile | `max_order_net_eur` | `max_daily_net_eur` | `min_fill_ratio` | Allergens | Substitution | Other |
+| Profile (customer) | Per order € | Per day € | Min fill | Allergens | Substitution | Other |
 |---|---|---|---|---|---|---|
-| `hotel-kitchen` | 750 | 3,000 | 0.9 | none | `SAME_CATEGORY` | variable weight and deposits → `APPROVAL`; drift tolerance 25% |
-| `allergy-ward` | 500 | 1,500 | 1.0 | `AM`, `AW`, `STRICT` | `NONE` | `require_confirmed` true; drift tolerance 10% |
+| `hotel-kitchen` (Harbourside Hotel) | 750 | 3,000 | 0.9 | none | `SAME_CATEGORY` | drift 25% |
+| `allergy-ward` (City Hospital, Ward 4) | 500 | 1,500 | 1.0 | `AM`, `AW`, `STRICT` | `NONE` | `require_confirmed` true; drift 10%; preference premium 10% |
+| `school-kitchen` (Kilo School) | 250 | 800 | 1.0 | `AN`, `AP`, `AS`, `STRICT` | `LISTED_BY_SUPPLIER` | drift 25% |
+| `bakery-cafe` (Kallio Bakery) | 300 | 1,000 | 1.0 | none | `NONE` | `formula_matters` true; drift 25%; preference premium 10%; the owner holds all three roles |
 
-**An order goes ahead without a human only when** no fixed rule fires and every profile limit holds: every claim confirmed, the quantity covered, no substitute outside the profile, spend within both limits.
+All four: `auto_order_enabled` false, variable weight and deposits → `APPROVAL`.
+
+**P-04 and the ward.** `require_confirmed` is applied when the offer is built, before the policy runs: every product the allergen rule would send to a person is excluded as `ALLERGEN_NOT_STATED` (5 products for the ward's 200 L of plant drink, recording). So P-04 does not fire for `allergy-ward`. P-04 fires for a buyer with an exclusion and without confirmed-only: the hotel's request for 100 L of `469512` with milk excluded gets "Alternative: allergen not ruled out" with P-04, to the dietitian.
 
 ---
 
@@ -262,82 +322,104 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 POST /v1/orders ─► re-check price and availability
       ├─ changed or expired ─► 409 offer-stale / offer-expired, fresh offer
       ├─ BLOCK              ─► 422 policy-blocked (audit event, no order)
-      ├─ AUTO               ─► ORDERED
+      ├─ AUTO               ─► ORDERED   (only with the buyer's setting on, F-10)
       └─ APPROVAL           ─► PENDING_APPROVAL ─► approve ─► re-check ─► ORDERED
                                                ├─ reject  ─► REJECTED
                                                └─ valid_until passes ─► EXPIRED
 ```
-- The approval names the roles it needs. It is complete when the approving humans hold all of them.
+- Order states (`OrderStatus`): `PENDING_APPROVAL`, `ORDERED`, `REJECTED`, `EXPIRED`. `placed_by` is `AGENT` or `HUMAN_APPROVAL`.
+- **With the shipped profiles every order follows the `APPROVAL` branch.** What a person reads: "Prepared: confirm to order. Waiting for the purchasing manager to confirm, by … (rule F-10: a person confirms every order)", then "Confirmed by <name> (<role>): ordered for € … net."
+- The approval names the roles it needs. It is complete when the approving people hold all of them.
 - An approver may pick another option of the same offer. The policy runs again on that option: `BLOCK` still blocks.
-- The daily spend counts orders in `ORDERED` and `PENDING_APPROVAL` for that profile, on the date of the data clock (§10). In replay that day never ends.
-- **At approval time** the re-check runs again. If it fails, the decision is refused (409) and the order keeps waiting: the approver can pick another option or reject, or it expires at its "order by" time. No fresh offer is built on this path, although the audit sentence says "A fresh offer is needed." (`AIMO/USE-CASES.md`, rank 10).
-- **`ORDERED` means recorded in our order book.** The mock has no order endpoint; the record holds everything a supplier order message would need, and says so. What an order commits Valio to is booth Q4.
+- The daily spend counts orders in `ORDERED` and `PENDING_APPROVAL` for that profile, on the date of the data clock (§10). In replay that day never ends, so repeated demos on the shared book add up until P-02 fires.
+- **At approval time** the re-check runs again. If it fails, the decision is refused (409) and the order keeps waiting: the approver can pick another option or reject, or it expires at its "order by" time (24 hours after it was created when the option has none). No fresh offer is built on this path.
+- **`ORDERED` means recorded in our order book.** The mock has no order endpoint, by design. Every order's `record_note` says: "Recorded in the gateway's order book. The Valio Aimo mock has no order endpoint; this record holds everything a supplier order message would need. It commits nobody. No payment is taken here: the buyer is assumed to be a Valio Aimo credit customer, invoiced after delivery for what is delivered." There is no payment step.
 - The order keeps the statements it relied on: each price with its `validTo`, each availability figure with `closingTime` and `availableDate`, the `timeNow` of the check.
+
+### `proof` — what is signed, and what is not
+Every offer and every order record that a REST route or an MCP tool answers carries `proof` (`src/tta/api/signing.py`): a detached JSON Web Signature, algorithm EdDSA over Ed25519, over the record's canonical JSON (the code cites RFC 8785) with `proof` removed. Fields: `type`, `algorithm`, `canonicalization`, `key_id`, `jws`, `jwks_path`, `demo_key`, `note`. The public key is at `/.well-known/jwks.json`.
+
+- **It says:** this gateway answered this record; a changed price, quantity, verdict or name no longer verifies.
+- **It does not say:** that Valio Aimo signed or confirmed anything. It is not a Verifiable Credential and not a payment mandate.
+- **The key:** `TTA_SIGNING_KEY` (the Ed25519 seed) when set; otherwise a demo key generated at start and gone at the next start. Then `demo_key` is true and the note reads "Signed with a demo key this gateway generated when it started; it is gone at the next start, so nothing is claimed about this signature beyond this run." `/healthz` says which.
+- **Not signed:** audit events (they are hash-chained, §9), the pages, products, search results. The proof is added to the answer; it is not stored and not in the trail.
 
 ---
 
 ## 9. Audit trail
 
-- **One event per step:** request received · request parsed · lookup performed · offer created · policy evaluated · order placed by agent · approval requested · approval decided · order confirmed, rejected, expired or blocked · standing order created · standing order renewed (with the drift found; subject `standing_order/<id>`).
-- **Every event has:** who (agent, human or system, with id and role), what, why (rule ids and the facts they read), the hash of the policy and profile in force, the previous event's hash, and **one readable sentence**, built from a template, never by a model. Example: "The agent could not place this order alone: the total of €1,980.77 is above the €750 limit of profile hotel-kitchen (P-01) and only 74.9% of the 1,000 litres is covered (P-03). Sent to the purchasing manager."
-- **Envelope:** CloudEvents 1.0 (`specversion`, `id`, `source`, `type`, `time`, `subject`, `data`). Stored append-only. `time` is the real UTC time, not the data clock (§10).
+- **Event types** (19, each prefixed `tta.v1.`): `request.received` · `request.parsed` · `lookup.performed` · `offer.created` · `policy.evaluated` · `order.placed_by_agent` · `approval.requested` · `approval.decided` · `order.confirmed` · `order.rejected` · `order.expired` · `order.blocked` · `order.not_placed` · `authorisation.refused` · `evidence.attached` · `standing_order.created` · `standing_order.renewed` · `suggestions.shown` · `suggestion.accepted`.
+- **Every event has:** who (agent, human or system, with id and role), what, why (rule ids and the facts they read), the hash of the policy and profile in force, the previous event's hash, and **one readable sentence**, built from a template, never by a model. Example (recording): "The agent cannot place this order alone: the total of €1,083.39 before tax is above the €750 limit per order of Harbourside Hotel (P-01) and only 43.5% of the requested quantity is covered, below the 90% minimum (covered: 435 of 1,000 L) (P-03). It needs the purchasing manager."
+- **Envelope:** stored as CloudEvents 1.0 (`specversion`, `id`, `source`, `type`, `time`, `subject`, `data`), append-only. `time` is the real UTC time, not the data clock (§10). `GET /v1/audit` answers a reader's view of each event: `id`, `type`, `time`, `actor`, `sentence`, `rule_ids`, `facts`, `hash`.
+- **Hash chain:** each event carries the previous event's hash and its own SHA-256 over its JSON with sorted keys. It shows a changed, removed, inserted or moved event. It does not show the newest events cut off, or a rewrite to the end by whoever can write the database, unless another party holds the head (event count and last hash, published at `/healthz`). Nothing compares a head held elsewhere yet.
 - **Two readers** (the brief: "a human-readable log … for both buyer and Valio Aimo"):
 
 | | Buyer | Valio Aimo (supplier) |
 |---|---|---|
-| Sees | Everything about its own requests: options, exclusions and reasons, rules fired, limits, approvers and notes | What was asked of their data, what was offered and ordered, the statements each order relied on, the agent's identity and whether it acted within its authority or with human approval |
-| Does not see | Other buyers | The buyer's limit values, allergen exclusions, approver names and notes |
+| Sees | Everything about its own requests: options, exclusions and reasons, rules fired, limits, approvers and notes | Every step and decision: what was asked of their data, what was offered and ordered, **every rule that fired** by id and title, whether it is fixed or set by the buyer, its outcome and the role that must sign, the logic ("the strictest outcome decides"), and the products considered and left out by reason |
+| Does not see | Other buyers | The buyer's name, limit amounts, the allergen codes and the products a rule about an excluded allergen fired on, approver names (the role stands for the name), notes and the buyer's own words. What is masked is said in the sentence ("the amount is not shown") |
+
+Valio Aimo's token reads this view and nothing else: no order, no customer (403).
 
 ---
 
 ## 10. Live, replay and the clock
 
-- `TTA_MODE=live`: calls the mock through one client that records every response, spaces calls at least one second apart, caches for 60 seconds, and stops at a call budget.
-- `TTA_MODE=replay`: answers from `fixtures/valio/` with the clock pinned to the capture's `timeNow`. The offer shows that it is a replay.
-- In live mode one lookup's price and availability come from one source. After a live failure, or with fewer than 10 calls left in the budget, the capture answers for 30 seconds and the offer says `replay`.
-- **Two clocks.** The *data clock* judges cut-offs, price validity, expiry and the day of the daily spend, and stamps offers, orders and approvals: in replay it is pinned (an order made in the demo reads 02:52:45 on 14 Nov), in live it is the later of this machine's time and Valio's last `timeNow`. Audit events and web evidence carry the *real* UTC time (decision T06-2), so in replay an order's time and its events' times differ. The order page does not explain this yet.
+- `TTA_MODE=replay` (the default, and what every figure in this file was measured in): answers from `fixtures/valio/2026-11-14-demo`, with the clock pinned to the recording's instant, Sat 14 Nov 2026 02:52:45 Helsinki time. The offer says `replay`.
+- **The demo clock.** `TTA_DEMO_CLOCK` (an instant with an offset) replaces the recording's instant as "now" in replay; the recorded prices and availability are not changed. It is ours: Valio Aimo said on 14 Nov that its test data is static, and at the recording's own instant many cut-offs have passed. The value used for the demo is Thu 12 Nov 2026 14:15 Helsinki time. It is honoured only in replay (in live mode it is ignored), and outside `dev` and `demo` the gateway does not start with it; `/healthz`, every offer (`time_basis: demo_setting`) and the pages say which clock is in force (`tests/e2e/test_demo_clock.py`).
+- `TTA_MODE=live`: calls the mock through one client that records every response, spaces calls at least one second apart, caches for 60 seconds, and stops at a call budget. One lookup's price and availability come from one source; after a live failure, or with fewer than 10 calls left in the budget, the recording answers for 30 seconds and the offer says `replay`. No live call was made in the evening build of 14 Nov.
+- **Two clocks.** The *data clock* judges cut-offs, price validity, expiry and the day of the daily spend, and stamps offers, orders and approvals. Audit events and evidence carry the *real* UTC time, so in replay an order's time and its events' times differ; the clock sentence of `/healthz` and of the pages says so ("The audit trail is stamped with the real time.").
 - Tests never call the live API.
-- Secrets come from the environment (`VALIO_AIMO_API_KEY`, `VALIO_AIMO_BASE_URL`, `GEMINI_API_KEY`). They are never logged, never written to a fixture, never sent to the model.
+- Secrets come from the environment (`VALIO_AIMO_API_KEY`, `VALIO_AIMO_BASE_URL`, `GEMINI_API_KEY`, `DATABASE_URL`, `CONTEXT_DEV_API_KEY`, `TTA_SIGNING_KEY`, `TTA_TOKENS`). They are never logged and never written to a fixture.
 
-## 11. The buyer agent (Gemini)
+## 11. Reading a request, and the buyer agent
 
-- **Parse:** free text → the typed request of §3, using structured output with the request's JSON Schema. The parser may choose a `product_type` only from the table's keys.
-- **Checked against the text:** before the typed request is built, the reading's quantity, unit, needed-by date, exclusions, confirmed-only and product ids are compared with the text (`src/tta/agent/textcheck.py`); a disagreement is asked once more, then refused as `invalid-request`. Each reading says who read it: the model, a recording, or a hand-written answer (task FIX-9).
-- **Run:** a function-calling loop over the gateway's own tools: read authority → get offer → place the order → report what happened and why. The gateway accepts only the option ranked 1 of the latest offer, and at most two offers per run. The gateway, not the model, decides whether the order goes through.
-- **The order of answering** (`src/tta/agent/fallback.py`, task FALLBACK-1): the model, when a key is set and it answers; else, when no key is set or the model is out of reach (a time-out, 408, 429, a 5xx, or a 401, 402 or 403 from Gemini, `NOT_AVAILABLE_TO_US` in `src/tta/agent/gemini.py`), the recording of that sentence for that profile; else the rule-based reader (`src/tta/agent/rules_reader.py`); else `supplier-unavailable`, naming what the rules could not read. A model that answered is never overridden. The rules read quantities in digits with a unit, product types of the table, product numbers, lactose-free and gluten-free, "no milk", strictness, named days and dates, "confirmed only", preference and label words; they never guess a quantity. A reading by the rules says "Read by fixed rules, not by a model", and the header `TTA-Reading-Source` is `rule-based`. A run follows the same order: with no recorded run, the rules read the text and make a fixed run (authority, offer, order of the option ranked 1), and its report opens by saying so. The typed request can always be posted directly.
-- **The model's schema** has `prefer` and `required_labels`; it leaves out `standing_order_id` and `stands_in_for`, which only the gateway's own services set. The parser refuses a label that is not a label code or has no word in the text, and a `prefer` other than `PRICE` with no word in the text.
-- **Finnish, Swedish and a photo (task T18, `812de0f`):** a request in Finnish or Swedish is read by the same rules; the Finnish sentences for scenarios 1 and 2 read to the same typed requests. A photo of an order list is read in two steps: the transcription is shown to the person, then the parser and text check read it. Their recordings, and the brief's own sentence (`8cd94c2`), are written by hand and labelled `hand-built`.
-- Text from the product file or the API reaches the model only as data, never as instructions.
+**The typed request of §3 is the interface.** An agent posts it to `POST /v1/offers` and no text is read at all. For a person's sentence there is `POST /v1/requests/parse`.
+
+- **The order of answering** (`src/tta/agent/fallback.py`), with no model key, which is the shipped configuration:
+  1. a **recorded reading** of exactly that sentence for that buyer profile, when `fixtures/agent/` holds one (11 recordings: 4 were recorded from `gemini-3.6-flash` on 14 Nov, 7 are written by hand and say `hand-built`; among them the brief's own sentence for the hotel);
+  2. else the **fixed-rules reader** (`src/tta/agent/rules_reader.py`): quantities in digits with a unit, product types of the table, product numbers, lactose-free and gluten-free, "no milk", strictness, named days and dates, "confirmed only", preference and label words, "for whipping / for cakes / for baking" (sets `keep_formula`), "the usual milk", "a milk substitute" (read as a plant drink, and the reading says so);
+  3. else **a question, not a guess**: `422 invalid-request` with `question` (what to answer), `not_read` (what was not read) and `read_by` (`rule-based`). Example (run in replay): "some stuff for the weekend" → `not_read`: "it gives a deadline the rules do not read ("weekend")", `question`: "By which day are the goods needed? Name a weekday or a date, for example "by Monday" or "by 20.11."."
+- **Every reading says who read it**, in the headers `TTA-Read-By` and `TTA-Reading-Source` (`rule-based`, `hand-built`, or the recorded model's name) and in a sentence on the pages.
+- **The rules never guess** a quantity, a unit, a date or an exclusion. `docs/READING-TABLE.md`, generated by a test, lists what is read and what is asked about.
+- **`POST /v1/agent/run`** with no key: a recorded run for that sentence and profile, else a fixed run made by the rules (authority → offer → order of the option ranked 1), and its report opens by saying so. The gateway, not the runner, decides whether the order goes through; with the shipped profiles it waits for a person.
+- **A photo** (`POST /v1/requests/read-image`) needs a model. With no key only the recorded demo photo is answered, from hand-written recordings. The upload control is no longer on the first page; the route stays.
+- **A model is an option a deployer may add.** With `GEMINI_API_KEY` set, the same parser asks Gemini first (structured output; a product type only from the table's keys), checks every reading against the text (`src/tta/agent/textcheck.py`: quantity, unit, date, exclusions, confirmed-only, product ids; a disagreement is asked once more, then refused), and falls back to the recording, then the rules, when the model cannot be reached. Text from the product file or the API reaches a model only as data, never as instructions. This path exists in the code and was **not run** in the evening build of 14 Nov: no key was set and no model was called. Even with a model, no price, quantity, allergen status or verdict comes from it.
 
 ## 12. Pages
 
+Pages exist only where `TTA_ENV` is `dev` or `demo`: they act as a demo identity chosen on the page, with no login.
+
 | Page | Shows |
 |---|---|
-| `/` | Paste a request, choose who is asking, run. Then: the parsed request, the offer (options with a mark per claim, the constraint checks, the exclusions with reasons, each line's reliability, carbon and labels, each option's comparison), the verdict, and the order or "sent for approval". A photo upload, a fourth example for the dietitian's approval (task T18), and a fifth, "100 litres of oat drink by Monday, most reliable delivery" (task SUST-1) |
-| `/approvals` | Pending approvals as cards: the options, why a human is needed, "order by" time, approve (with option choice) or reject with a note |
-| `/orders/{id}` | The order record and its audit trail, switchable between the buyer's and the supplier's view |
-| `/assumptions` | The assumptions and next steps page |
-| `/menu` | Choose dishes and servings, the kitchen's stock and the date; the plan per dish and ingredient (stand-ins marked), the request lines, the final offer's options and verdicts, and an order button. `?example=event` fills in the last-minute event (task MENU-1) |
-| `/standing-orders` | Load the demo standing order, see its history (synthetic rows marked), renew with this week's quantity; the drift sentence and the outcome (task STAND-1) |
-| `/kitchen` | "Your kitchen", in the menu: the browser's own buyer profile `my-kitchen`, set on a form and checked as a profile file is, with "My kitchen agent" and three approvers bound to it. REST and MCP never see it (task FEAT-1, `b91e135`) |
+| `/shop` | The shop page (static files over `/shop/api/*`): a customer, a request, the offer with what is confirmed and what is not, one "Confirm order" button, the approvals, the log as the buyer and as Valio Aimo see it, the clock strip. Not a chat. **Not seen rendered in a real browser by anyone in the evening build**; checked by driving its code against a local replay gateway |
+| `/` | Paste a request, choose who is asking, run; one example per demo scenario. Then the reading, the offer (options with a mark per statement, the constraint checks, the exclusions with reasons, each option's comparison), the verdict, and "Prepared: confirm to order" |
+| `/approvals` | Waiting approvals as cards: the options, why a person is needed, "order by" time, the evidence on an allergen doubt, approve (with option choice) or reject with a note |
+| `/orders/{id}` | The order record and its audit trail, switchable between the buyer's and Valio Aimo's view |
+| `/assumptions` | `docs/ASSUMPTIONS.md` as written |
+| `/menu` | Dishes and servings, the kitchen's stock and the date; the plan per dish and ingredient (stand-ins marked), the offer's options and verdicts |
+| `/standing-orders` | Load the demo standing order, see its history (synthetic rows marked), renew with this week's quantity; the drift sentence and the outcome |
+| `/kitchen` | The browser's own buyer profile `my-kitchen`, set on a form and checked as a profile file is. REST and MCP never see it |
 
-The first screen must show at a glance what is confirmed, what is not, and what was excluded and why.
+**Each browser has its own order book**: an in-memory store with its own audit trail, so one visitor's orders never count in another's daily spend. "Start again" empties it. REST and MCP keep the shared book.
 
-**Each browser has its own order book** (task FIX-10): an in-memory store with its own audit trail, so one visitor's orders never count in another's daily spend or appear on another's approvals. "Start again" empties it. REST and MCP keep the shared book.
+## 13. Acceptance — measured in replay
 
-## 13. Acceptance — the scenarios of PLAN §3
+Measured on Sat 14 Nov (evening) through `POST /v1/offers` and `POST /v1/orders` on the committed code, recording `2026-11-14-demo`, at the recording's own clock unless a row says "demo clock" (Thu 12 Nov 2026 14:15). The end-to-end tests are in `tests/e2e/`.
 
-Run in replay from the capture taken at the start of the build. Product ids are Friday's; if the capture differs, the scenario test picks the equivalent product and the difference is reported.
-
-| # | Input | Must hold |
+| # | Input | What holds |
 |---|---|---|
-| 1 | `hotel-kitchen`: "1,000 litres of lactose-free milk by Monday" | Option 1 has confirmed lines only. A `QUANTITY_NOT_CONFIRMED` option exists when such a product fits. `463203` is excluded as `PORTION_PACK`. Every exclusion has a reason. Verdict `APPROVAL` with the rules named. A human approves, the order becomes `ORDERED`, the audit trail has a sentence for every step |
-| 2 | `allergy-ward`: "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only" | Every product declaring milk or gluten is excluded as `ALLERGEN_DECLARED`. The chosen product states `FREE_FROM` for `AM` and `AW`. Verdict `AUTO`. The order is `ORDERED` with no approval, and the audit sentence says the agent acted within its authority |
-| 3 | Substitutes of `473609` | `471690` passes the allergen rule; in tonight's capture its cut-off has passed, so it cannot be ordered. `471881` and `464320` fail with `SUBSTITUTE_ADDS_ALLERGEN` (`AW`), and cannot be ordered. The hotel's offer: option 1 is 100 × `475224` for €174.00, `AUTO` |
-| Backup | `hotel-kitchen`: "30 kg beef chuck" | Lot step 3 kg respected; the total is a ceiling; verdict `APPROVAL` (variable weight) |
-| Guard | An agent token on `/v1/approvals/{id}/decision` | `not-authorised` |
-| Guard | The same `Idempotency-Key` twice | One order |
+| 1 | `hotel-kitchen`: 1,000 L of lactose-free milk by Mon 16 Nov | Option 1 "Best confirmed option (partial fill)": 384 × `469363` + 51 × `462775`, 435 of 1,000 L, €1,083.39 net; to the purchasing manager (P-01 the spend limit per order, P-03 the minimum fill). Option 2 "Alternative: quantity not confirmed": 1,000 × `464306`, €1,010.00 (F-01 the quantity is not confirmed, P-01). 17 products left out, each with a reason; `463203` as `PORTION_PACK`. The order waits; a person approves; the trail has a sentence for every step |
+| 2 | `allergy-ward`: 200 L of plant drink by Mon 16 Nov; no milk, no gluten, strict; confirmed only | 200 × `464013`, €402.00. 18 products excluded as `ALLERGEN_DECLARED`, 5 as `ALLERGEN_NOT_STATED`. Verdict `APPROVAL` under F-10 alone ("Prepared: confirm to order"); after the purchasing manager's approval: `ORDERED`, "Confirmed by Demo approver Jussi (purchasing manager): ordered for €402.00 net." It is ordered by the agent alone only with the buyer's setting on (`tests/policy/test_ordering_alone.py`) |
+| 3 | `hotel-kitchen`: 100 L of `473609` (quantity not confirmed) | Option 1, the substitute 100 × `475224`, €174.00 (F-10); option 2, the product asked for, €137.00 (F-01). **Demo clock:** option 1 is the product asked for, €137.00 (F-01); option 2 the substitute Valio lists, 10 cases of `471690`, €155.50 (F-01) |
+| 5 | `bakery-cafe`: 40 kg of crème fraîche `477055` | Option 1 the product asked for, quantity not confirmed, €214.40 (F-01); option 2 "Alternative: a substitute that does not keep the formula": 20 × `470260` (a tzatziki), €240.40 (F-11 the formula, P-05 every substitute). Same at both clocks |
+| Backup | `hotel-kitchen`: 30 kg beef chuck | "about €506.40 before tax", the total marked as an estimate; `APPROVAL` (P-06, sold by variable weight) |
+| Guard | An agent token on `/v1/approvals/{id}/decision` | 403 `not-authorised` (F-06), and the refusal is in the trail |
+| Guard | The same `Idempotency-Key` twice; no key; the same key for another option | One order; 400; 422 |
+| Guard | Valio Aimo's token on `GET /v1/customers` | 403 |
+
+Scenario 4 (suggestions from a customer's pattern) is measured on the function `suggestions_for` in `tests/suggestions/`, not on an offer of `POST /v1/offers` (§5, point 7).
 
 ## 14. Assumptions and next steps page
 
-`docs/ASSUMPTIONS.md`, shown at `/assumptions`: every "if no answer, we build" line of [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md); every illustrative value (profiles, product-type table, portion-pack threshold); what the mock does not tell us; the reason for each technical choice; what is out of scope; next steps toward production, among them a supplier order message in an open e-procurement format and real customer limits. Standing orders with a drift check are built (P-08, task STAND-1); a customer's real order history is the next step.
+`docs/ASSUMPTIONS.md`, shown at `/assumptions`: every value and reading that is ours (profiles, customers and their synthetic history, product-type table, tolerances, thresholds, the demo clock, limits); what the mock does not tell us; the reason for each technical choice; what is out of scope; next steps toward production, among them a supplier order message in an open e-procurement format, real customer limits and history, and a statement signed by Valio Aimo itself in place of the gateway's own signature.

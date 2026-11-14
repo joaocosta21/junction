@@ -1,78 +1,101 @@
 # Trusted Trade Agents
 
-A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and submit a proposed order for human approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
+- **What it is.** A gateway that makes a food-service wholesaler, Valio Aimo, readable by a buyer's purchasing agent: the agent looks up products, gets an offer at fixed prices, and prepares an order that a person confirms.
+- **Not a chatbot.** Valio's brief: "This is not about replacing today's e-commerce UI with a chatbot. It is about defining how a European food-service wholesaler can be safely and openly readable by autonomous agents". The product is a typed interface (REST with OpenAPI 3.1, and the Model Context Protocol) with rules, not a conversation.
+- **What an agent can trust.** Every offer line says, statement by statement (price, quantity, delivery date, allergens, origin), whether Valio's data confirms it; every product left out says why; every offer and order record is signed by the gateway.
+- **Who decides.** Fixed rules no buyer can switch off, plus each buyer's own limits. By default every order waits for a person; ordering alone is a buyer setting, off in all four demo customers.
+- **What is logged.** Every step goes to a hash-chained audit trail, in plain sentences, with one view for the buyer and one for Valio Aimo.
 
-**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; redeployed from commit `8163d5d` at about 13:00 on 14 Nov 2026, and `deploy/check.py` passed all 7 checks against it; `/menu`, `/standing-orders`, `/kitchen` and `/assumptions` answer 200 there). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
+Built at Junction 2026 for Valio Aimo's challenge "Trusted Trade Agents", against Valio Aimo's mock API. Where each judging criterion is answered, with the proof for each: [AIMO/COVERAGE.md](AIMO/COVERAGE.md).
+
+This page describes commit `c2106fe` (Sat 14 Nov 2026, evening), run locally in replay. The public link, https://joaocostared--trusted-trade-agents.us-east.modal.run, was last deployed from an earlier commit (`8163d5d`, by the build log) and **has not been redeployed with tonight's code**; it was not called for this page ([docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## The flow
 
 ```
-request ──► lookup ──► offer ──► policy ──► order ─┬─► pending human approval
-(typed, or    (catalog +   (options, a     (fixed rules  │   └─► approve / reject
- pasted text   live price   status per      + buyer      └─► refused (BLOCK)
- read by       and stock)   claim, every    profile)
- Gemini)                    exclusion                         every step ──► audit trail (buyer view, supplier view)
-                            with a reason)
+request ──► lookup ──► offer ──► rules ──► order prepared ──► a person confirms
+(typed, or   (catalog +  (options, a    (fixed rules   (recorded, waiting,   (or rejects; an agent's
+ a sentence   price and   status per     F-01 to F-12   signed by the          token cannot)
+ read by      stock)      statement,     + the buyer's  gateway)
+ fixed rules)             every          rules P-01
+                          exclusion      to P-09)          every step ──► audit trail (buyer's view, Valio Aimo's view)
+                          with a reason)
 ```
 
-Two runs in replay of the recorded capture (Saturday 14 Nov 2026, 02:52 server time):
-- **Hotel kitchen, "1,000 litres of lactose-free milk by Monday".** Option 1: three confirmed milks cover the 1,000 litres for €2,580.64 before tax. It is above the hotel's illustrative €750 limit per order, so it goes to the purchasing manager. Option 2: one cheaper milk at €1,010.00 whose stock Valio does not confirm, so a human must approve it whatever the price. 19 products are excluded, each with its reason.
-- **Allergy ward, "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only".** 200 soya drinks that state free-from milk and gluten, €402.00. Every claim is confirmed and the total is within the ward's limits. The proposal still waits for the purchasing manager (F-10).
+One run, measured offline on this commit, in replay of the recording (769 products, recorded Sat 14 Nov 2026 02:52 Helsinki), at the recording's clock:
 
-The model reads the text and picks an option. It never decides a price, a quantity, an allergen status or a verdict: deterministic code does, and the audit trail records which rule applied.
+- **Harbourside Hotel, the brief's own sentence: "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability."**
+  - Option 1, "Best confirmed option (partial fill)": two confirmed milks cover 435 L of the 1,000 L, €1,083.39 before tax. It goes to the purchasing manager under two of the hotel's rules: P-01 (an order above the hotel's €750 limit) and P-03 (an option that covers less than 90% of the quantity).
+  - Option 2, "Alternative: quantity not confirmed": one milk for the whole 1,000 L, €1,010.00, whose stock Valio does not confirm. Fixed rule F-01 sends it to the purchasing manager: a product whose quantity Valio Aimo does not confirm always goes to a person.
+  - The offer says that coffee milk was left out and how to ask for it. Valio Aimo, asked on 14 Nov whether a buyer who asks for milk accepts milk for coffee, answered "no be explicit".
+  - Placing option 1 answers `201` with the order in state `PENDING_APPROVAL`. Nothing is ordered until a person confirms.
+- In the recording no more lactose-free milk has confirmed stock, so 1,000 L cannot be covered with confirmed products. That is the scenario, not a fault: the agent offers what is confirmed, names the unconfirmed product as an alternative, and asks a person.
 
-### Added on Saturday afternoon (commits `de453e6`, `fa07e39`)
+The other demo scenarios (the allergy ward, a substitute, the customer's pattern, the formula, the dietitian) are in [AIMO/COVERAGE.md](AIMO/COVERAGE.md) and [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md), each with how it was checked.
 
-- **Delivery and sustainability comparison.** Every offer line shows delivery reliability, carbon footprint per kg and certificate labels, or "unknown". A request may set `prefer` (`PRICE`, the default, `EARLIEST`, `RELIABILITY` or `LOWER_CARBON`) and `required_labels` (for example `EU_ORGANIC_FARMING`). When the preference picks another product than price would, the offer also holds the `CHEAPEST_CONFIRMED` option and says what the difference buys. Example 5 on `/`: "100 litres of oat drink by Monday, most reliable delivery" orders `470863` at €140.00, €7.00 more than the cheapest confirmed `472145` (€133.00), for a delivery reliability of 100% instead of unknown.
-- **Standing orders with drift detection.** A standing order is a stored request renewed every N days. Rule P-08 sends a renewal to the purchasing manager when a line's quantity or unit price differs from the median of its last 6 renewals by more than the profile's tolerance (hotel kitchen 25%, ours). The demo history is six weeks made up for the demonstration and marked synthetic: the mock has no order history. Page `/standing-orders`.
-- **Recipe logic.** A menu (dishes × servings, minus the kitchen's stock) becomes one offer. An ingredient that cannot be had by the date is replaced by another product type that does the same job in the dish, and fixed rule F-09 sends every such stand-in to the purchasing manager. The recipe table is ours and illustrative. Page `/menu`.
-- **A rule-based reader.** When no model answers (no key, Gemini out of reach, or a 401, 402 or 403 from it) and the sentence has no recording, fixed rules read the common shapes of a request and the page says "Read by fixed rules, not by a model". They never guess a quantity.
+## Who reads a request
 
-## Run it in replay
+- A request arrives **typed** (`POST /v1/offers`, the MCP tool `get_offer`) or as a **sentence** (`POST /v1/requests/parse`, the pages).
+- A sentence is read by **fixed rules** (`src/tta/agent/rules_reader.py`): quantity and unit, product type or product number, claims such as lactose-free, excluded allergens, the day, "confirmed only", a preference. What the rules cannot read is not guessed: the answer is a question for the person (status 422, with `question`, `not_read`, `read_by`).
+- With no model key, a sentence the repository holds a recording for (11 files in `fixtures/agent/`, some recorded from a model on 14 Nov, some written by hand) is answered from that recording, and the answer says so. The brief's sentence above is one: its reading says `hand-built`.
+- The code also holds a reader that calls Google's Gemini. It runs only when the operator sets `GEMINI_API_KEY`. **No model was called in tonight's build or tests, and we do not enter Google's award.** To run with no model, start with `GEMINI_API_KEY=` empty. Note for whoever deploys: `deploy/modal_app.py` passes the key to the public link when the deploying machine has one.
+- Whoever reads, deterministic code decides every price, quantity, allergen status and verdict.
+
+## The four customers
+
+All four are ours and **synthetic**: names, people, limits and eight weeks of order history are made up for the demonstration and marked `synthetic` (`src/tta/customers/data/`, `src/tta/policy/profiles/`). The mock has no customers, limits or order history.
+
+| Customer | Limit per order / per day (before tax) | Its own rules | Who signs |
+|---|---|---|---|
+| Harbourside Hotel (`hotel-kitchen`) | €750 / €3,000 | 90% of the quantity covered; a substitute from the same category needs no extra approval | Hanna Laine (purchasing), Mikko Saari (finance), Leena Koski (dietitian) |
+| City Hospital, Ward 4 (`allergy-ward`) | €500 / €1,500 | No milk, no gluten, strict; confirmed data only; every substitute to a person | Jussi Nieminen, Anna Virta, Sari Lehto |
+| Kilo School (`school-kitchen`) | €250 / €800 | No tree nuts, peanuts or sesame, strict; only substitutes Valio Aimo lists | Päivi Korhonen, Tuomas Aho, Riikka Mäkelä |
+| Kallio Bakery (`bakery-cafe`) | €300 / €1,000 | The formula matters on every line; every substitute to a person | Marko Heikkinen, the owner, holds every role |
+
+## The rules, in short
+
+`GET /v1/authority` returns every rule in words for the caller's customer. The contract is [AIMO/SPEC.md](AIMO/SPEC.md).
+
+- **Fixed rules F-01 to F-12** hold whatever a buyer sets. Examples: F-01, a product whose quantity Valio Aimo does not confirm always goes to the purchasing manager; F-02, a product that declares an allergen the buyer excludes can never be ordered, even with approval; F-06, an agent can never approve an order, its own included; F-11, where the formula matters, a substitute whose formula differs or cannot be compared goes to the purchasing manager; F-12, a substitute that is a last resort goes to the purchasing manager.
+- **F-10, the agent prepares the order and a person confirms it**, is driven by the buyer's setting `auto_order_enabled`, off in all four profiles. Switched on, the agent orders alone only when no rule asks for a person and every statement of every line is confirmed. Valio Aimo, 14 Nov: "for now deactivate automatic order", and of ordering alone as a setting, "after and if you are 100% sure yes".
+- **The buyer's rules P-01 to P-09**: spend per order and per day, minimum cover, allergens to the dietitian, substitutes, products sold by weight, deposits, standing-order drift, and what a preference may cost.
+
+## Run it locally, in replay
 
 Python 3.13 is required. From the repository root:
 
 ```bash
 python3.13 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --factory tta.api:create_app
-# then open http://127.0.0.1:8000/
+GEMINI_API_KEY= TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --factory tta.api:create_app
+# then open http://127.0.0.1:8000/shop
 ```
 
-- **`TTA_ENV` must be set** to `dev` or `demo`. Unset means `prod`: the demo tokens and the pages are not loaded, and the app refuses to start without `TTA_TOKENS`.
-- Replay needs no Valio key and makes no call to the mock. Answers come from `fixtures/valio/2026-11-14-demo/`, with the clock pinned to that capture.
-- Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`, else from fixed rules (below). Four of the eleven were recorded from `gemini-3.6-flash` on 14 Nov 2026. Seven are written by hand and say `hand-built`: the agent's run of scenario 1; the reading and the run of the brief's own sentence ("I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.", hotel kitchen); the readings of the two Finnish sentences, and the transcription and reading of the demo photo (Gemini answered 503 and 504 when those were to be recorded, task T18). A sentence with no recording is read by fixed rules when it has a shape they know (a quantity in digits and a unit, a product type of the table or a product number, and words such as "lactose-free", "no milk", "strict", "by Monday", "confirmed only", "most reliable" or "organic"); anything else needs the key.
-- If your `.env` holds `GEMINI_API_KEY`, the parser and the agent call Gemini. When Gemini cannot be reached, a sentence that has a recording is answered from it, and the report says so in its first sentence. Gemini was slow on 14 Nov (29 s to read scenario 1), and a time-out can hold a sentence for about 90 s before the recording answers. For a quick demo, put `GEMINI_API_KEY=` before the command.
-- **Two kinds of order book.** On the pages, each browser has its own book in memory, with its own audit trail; it starts empty, is dropped after 2 idle hours, and **Start again** empties it. REST and MCP share one book in `var/tta.sqlite3`: there the day's spend adds up across runs, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start that book empty. With `DATABASE_URL` set, the shared book uses PostgreSQL instead, and SQLite when the database cannot be reached at start; `/healthz` then names the reason (`docs/AIVEN.md`).
-- Live data: set `VALIO_AIMO_API_KEY` in `.env` and start with `TTA_MODE=live`. When the mock cannot be reached, or fewer than 10 calls are left in the call budget, the recorded capture answers and the offer says `replay`.
+- **`TTA_ENV` must be `dev` or `demo`.** Unset means `prod`: no demonstration token, no page, and no start without `TTA_TOKENS`.
+- **Replay makes no outside call.** Prices and stock come from `fixtures/valio/2026-11-14-demo/`, and the clock is pinned to the recording's instant. `TTA_DEMO_CLOCK=2026-11-12T14:15:00+02:00` sets the demo clock instead (replay only; an instant we chose, since Valio's test data is static). `GET /healthz` says which clock is in force; the audit trail always keeps the real time.
+- **Two kinds of order book.** On the pages each browser has its own book in memory. REST and MCP share one book in `var/tta.sqlite3`, where the day's spend adds up across runs; set `TTA_DB_PATH` to a new file to start empty. With `DATABASE_URL` set the shared book uses PostgreSQL ([docs/AIVEN.md](docs/AIVEN.md)).
+- **Signing.** With no `TTA_SIGNING_KEY`, offers and orders are signed with a demo key generated at start, and every `proof` says so.
+
+A first call, with a demonstration token (public by design, listed in `src/tta/api/demo_tokens.yaml`; 15 identities):
+
+```bash
+curl -s http://127.0.0.1:8000/.well-known/api-catalog
+curl -s -H "Authorization: Bearer demo-agent-allergy-ward" http://127.0.0.1:8000/v1/authority
+```
 
 What is served:
 
 | Path | What | Who |
 |---|---|---|
-| `/` | Pages: paste a request or click one of five examples, see the offer, the verdict and the order; `/approvals`; `/orders/{id}` with both views of the audit trail; `/kitchen`; `/menu` (a menu becomes one order); `/standing-orders` (renew a standing order; drift goes to a human); `/assumptions`. Each browser has its own order book | `dev` and `demo` only, demo identity chosen on the page |
-| `/v1/...` | REST API, among it `GET /v1/menus/recipes`, `POST /v1/menus/plan`, `POST` and `GET /v1/standing-orders`, `GET /v1/standing-orders/{id}`, `POST /v1/standing-orders/{id}/renew` | Bearer token |
-| `/openapi.json`, `/docs` | Generated OpenAPI 3.1 and Swagger UI | Anyone |
-| `/v1/schemas` | JSON Schema (2020-12) of every model | Anyone |
-| `/mcp/` | MCP endpoint, Streamable HTTP, eight tools | Bearer token |
-| `/healthz` | Mode, data source, head of the audit chain, which settings are set (true or false only) | Anyone |
+| `/.well-known/api-catalog`, `/llms.txt` | Every way in, for an agent that knows only the address | Anyone |
+| `/openapi.json`, `/docs`, `/redoc` | Generated OpenAPI 3.1 | Anyone |
+| `/v1/schemas` | JSON Schema 2020-12 of 96 contract models | Anyone |
+| `/.well-known/jwks.json` | The public key behind every `proof` | Anyone |
+| `/healthz` | Mode, the clock in force, the store, the signing key, the head of the audit chain | Anyone |
+| `/v1/...` | REST: authority, product search, substitutes, offers, orders, approvals, audit, customers, menus, standing orders, reading a sentence | Bearer token |
+| `/mcp/` | The same service as 13 MCP tools; none approves an order | Bearer token |
+| `/shop`, `/`, `/approvals`, `/kitchen`, `/menu`, `/standing-orders`, `/assumptions` | Demonstration pages, an order book per browser | `dev` and `demo` only |
 
-Demo tokens are public by design and listed in `src/tta/api/demo_tokens.yaml`, for example `demo-agent-hotel-kitchen`, `demo-agent-allergy-ward`, `demo-approver-hotel-purchasing`, `demo-supplier-valio-aimo`. A first call:
-
-```bash
-curl -s -H "Authorization: Bearer demo-agent-allergy-ward" http://127.0.0.1:8000/v1/authority
-```
-
-The click-by-click demo, with the exact sentences on screen and a 90-second cut, is in [docs/DEMO.md](docs/DEMO.md). Deployment: [docs/DEPLOY.md](docs/DEPLOY.md).
-
-## Five ways to see it
-
-All five call the same service code, so a rule that holds on one holds on all. `$BASE` is `http://127.0.0.1:8000` or the live demo address.
-
-1. **The pages.** Open `$BASE/`, click an example or paste a request, and read the offer, the verdict and the order. Decide on `/approvals` as a demo approver. Each browser works in its own order book.
-2. **REST.** `GET $BASE/openapi.json` or `/docs`, with a demo token: `curl -s -H "Authorization: Bearer demo-agent-allergy-ward" $BASE/v1/authority`. The flow is `POST /v1/offers` → `POST /v1/orders` (with `Idempotency-Key`) → `GET /v1/orders/{id}`.
-3. **MCP.** `POST $BASE/mcp/` (Streamable HTTP, POST only) with the same bearer token: eight tools, from `get_authority` to `get_audit`. No tool approves an order.
-4. **The buyer agent.** `POST $BASE/v1/agent/run` with `{"text": "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"}` and the token `demo-agent-allergy-ward` (a recording is served only for the profile it was made for). The answer is the agent's run step by step: authority, offer, order. Without a Gemini key it runs from the recordings and says so.
-5. **The audit views.** `GET $BASE/v1/audit?order_id=<id>&reader=buyer` with the buyer's token, or `reader=supplier` with `demo-supplier-valio-aimo`, which hides the buyer's limits, exclusions, approver names and notes. On the pages, `/orders/{id}` shows both views and whether the chain verifies.
+The flow over REST: `GET /v1/authority` → `POST /v1/offers` → `POST /v1/orders` with an `Idempotency-Key` header → `GET /v1/orders/{id}` and `GET /v1/audit`. A person decides at `POST /v1/approvals/{id}/decision` with a person's token.
 
 ## Run the tests
 
@@ -81,63 +104,45 @@ All five call the same service code, so a rule that holds on one holds on all. `
 .venv/bin/ruff check src tests
 ```
 
-The tests never call the Valio API or Gemini: they run on the recorded captures and on fakes. `tests/e2e/` runs the demo scenarios over HTTP in replay, from the pasted sentence to the audit trail. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. Per-package counts and coverage are on the build board, `AIMO/build/STATUS.md`.
+The tests call no outside service: they run on the recordings and on fakes. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. The whole suite was last run in one piece by the build on commit `db4c035` (earlier this evening); on this commit each lane ran its own folders (`AIMO/build/replan/STATUS.md`).
+
+## Limits, and what is synthetic
+
+- **"Ordered" means recorded in this gateway's order book.** The mock has no order endpoint, by design; no order reaches Valio and the record commits nobody. No payment is taken.
+- **Synthetic, ours:** the four customers, their people, limits and order history; the recipe table; every threshold. Each is listed with its value in [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md).
+- **Valio Aimo's, not ours:** the product file (17,546 products), the reliability and carbon files, and the recorded price and availability answers. Replay holds 769 of the 17,546 products: a product outside the recording is excluded as "not in the recording", never as unavailable in Valio's name.
+- **Signed by the gateway, not by Valio Aimo.** A supplier's own signature on price, stock and origin is a next step ([docs/STANDARDS.md](docs/STANDARDS.md)).
+- **Limits per minute on the demonstration** (ours): one visitor 20 offers, 20 orders and 15 readings; one address 60 of each; all callers 240 of each. A buyer holds at most 20 standing orders, and nothing deletes one.
+- **Suggestions.** The functions that suggest a forgotten item, a trend, a cheaper product of the same formula and Valio Aimo's own related product are built and tested (`src/tta/suggestions/`); on this commit the offer route does not fill `Offer.suggestions` yet.
+- **Not run by anyone:** the pages in a real browser; a redeploy with tonight's code; the new SQL view for Valio against PostgreSQL; the Modal jobs; a third-party MCP host ([docs/AWARDS.md](docs/AWARDS.md), [docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## Datasets, and how to refresh them
 
 | What | Where | Refresh |
 |---|---|---|
-| Valio Aimo product file (17,546 products) and its JSON Schema | `valio_aimo_junction26_product_data.json`, `valio_aimo_junction26_product_data_schema.json` | Download with the API key (below) |
-| Delivery reliability and carbon footprint | `valio_aimo_junction26_delivery_reliability.csv`, `valio_aimo_junction26_carbon_footprint.csv` | Download with the API key (below) |
-| Recorded price and availability answers of the mock | `fixtures/valio/<capture>/` (`manifest.json` holds the server's `timeNow`) | `scripts/capture_valio.py` |
-| Recorded model answers for the demo sentences | `fixtures/agent/` | `.venv/bin/python -m tta.agent.record` (needs `GEMINI_API_KEY`) |
+| Valio Aimo product file (17,546 products) and its JSON Schema | `valio_aimo_junction26_product_data.json`, `valio_aimo_junction26_product_data_schema.json` | Download from Valio Aimo's challenge API with the key from the Junction challenge page |
+| Delivery reliability and carbon footprint | `valio_aimo_junction26_delivery_reliability.csv`, `valio_aimo_junction26_carbon_footprint.csv` | The same |
+| Recorded price and availability answers of the mock | `fixtures/valio/<capture>/` (`manifest.json` holds the server's `timeNow`) | `scripts/capture_valio.py` (calls the mock; not run tonight) |
+| Recorded manufacturer pages for allergen doubts | `fixtures/evidence/` (13 pages) | `scripts/record_evidence.py` ([docs/CONTEXTDEV.md](docs/CONTEXTDEV.md)) |
 
-Download the three data files to the repository root (the key is on the Junction challenge page; keep it in `.env`, which is gitignored):
+To use a new recording, give it a new name and start with `TTA_REPLAY_CAPTURE=<name>`: the tests read the committed recordings by name.
 
-```bash
-curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_product_data.json       https://junction26.valioaimo.fi/api/products/download
-curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_delivery_reliability.csv https://junction26.valioaimo.fi/api/delivery-reliability/download
-curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_carbon_footprint.csv     https://junction26.valioaimo.fi/api/carbon-footprint/download
-```
-
-Record a new replay capture, then point the app at it:
-
-```bash
-.venv/bin/python scripts/capture_valio.py --capture <new-name> --category-prefix 104 --category-prefix 18720 --with-listed-substitutes
-TTA_ENV=demo TTA_MODE=replay TTA_REPLAY_CAPTURE=<new-name> .venv/bin/python -m uvicorn --factory tta.api:create_app
-```
-
-Each chunk of up to 1,000 ids costs two calls to the mock (price and availability). The script does not count against the gateway's call budget. The tests read the committed captures by name, so give a new capture a new name.
-
-The datasets and recorded answers are Valio Aimo's synthetic data, not covered by this repository's licence. Whether they may stay in a public repository is an open question for Valio (`AIMO/BOOTH-QUESTIONS.md`, "Ask any Valio person").
+The datasets and recorded answers are Valio Aimo's synthetic data, not covered by this repository's licence. Whether they may stay in a public repository is a question for Valio.
 
 ## Read more
 
 | Document | What it holds |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The packages, the ports, and where each part of the brief lives |
-| [docs/STANDARDS.md](docs/STANDARDS.md) | Each open standard we use, checked against its specification, and the next steps toward production |
-| [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Every assumption, why, what would change it, and where it is in the code (also served at `/assumptions`) |
-| [docs/AWARDS.md](docs/AWARDS.md) | The Gemini, Modal and Context.dev write-ups, and Aiven for PostgreSQL |
-| [docs/DEMO.md](docs/DEMO.md), [docs/DEPLOY.md](docs/DEPLOY.md) | The demo script; deploying, checking and stopping the Modal app |
-| [docs/CONTEXTDEV.md](docs/CONTEXTDEV.md), [docs/AIVEN.md](docs/AIVEN.md) | Web evidence on the dietitian's approval card; the PostgreSQL order book and audit trail |
-| [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md) | What the gateway does, step by step, checked against the code |
-| [AIMO/USE-CASES.md](AIMO/USE-CASES.md) | Valio's six example scenarios and ours, run against the system, with verdicts |
-| [docs/PITCH.md](docs/PITCH.md) | Drafts for the pitch, the video and the submission form |
-| [AIMO/SPEC.md](AIMO/SPEC.md) | The build contract |
+| [AIMO/COVERAGE.md](AIMO/COVERAGE.md) | The brief's items and the judging criteria, each with what answers it and how it is checked |
+| [AIMO/SPEC.md](AIMO/SPEC.md) | The contract: interface, data shapes, states, rules |
+| [docs/STANDARDS.md](docs/STANDARDS.md) | Each open standard we use, where we depart from it, and the next steps toward production |
+| [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Every assumption and threshold, labelled ours, with its value and where it lives (also served at `/assumptions`) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The packages and the ports |
+| [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md) | What the gateway does, step by step, re-measured on this commit |
+| [docs/AWARDS.md](docs/AWARDS.md), [docs/CONTEXTDEV.md](docs/CONTEXTDEV.md), [docs/AIVEN.md](docs/AIVEN.md), [docs/DEPLOY.md](docs/DEPLOY.md) | The technology awards: what ran and what did not; deploying |
+| [docs/DEMO.md](docs/DEMO.md), [docs/PITCH.md](docs/PITCH.md) | The demo script and the pitch (rewritten after the scenarios are re-measured) |
 | [AIMO/CHALLENGE.md](AIMO/CHALLENGE.md) | The challenge and its judging criteria, verbatim |
-| [AIMO/FINDINGS.md](AIMO/FINDINGS.md) | Verified facts about the mock API and the data |
-| [AIMO/BOOTH-QUESTIONS.md](AIMO/BOOTH-QUESTIONS.md) | Questions for Valio's mentors, each with an example |
-
-## What is not done
-
-- The agent's run of scenario 1 is a hand-written recording (by plan). The Finnish and photo readings were not checked against Gemini live: Gemini answered 503 and 504 on 14 Nov, so their recordings are written by hand, and the demo photo is a rendered stand-in for a phone photo. On the pages, Finnish free text runs only while Gemini answers, and no MCP tool reads a photo (`AIMO/build/handback/T18.md`). A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
-- The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
-- A selling agent of Valio's own is not built.
-- `EARLIEST` and `LOWER_CARBON` change no choice in tonight's capture: every confirmed product arrives on Monday 16 Nov, and carbon is close to one value per category (`docs/ASSUMPTIONS.md`). Both are tested on hand-built prices and stock.
-- A preference can make the agent recommend a dearer product (10 L of `cream` ranked by reliability: €40.60 above the cheapest confirmed; `AIMO/build/handback/SUST-1.md`). A profile limit on that difference is not built.
-- No MCP tool for menus or standing orders; they are REST routes and pages. The recipe table has no vegetables, fruit or herbs.
-- The deployed app runs `8163d5d` (redeployed at about 13:00, 14 Nov): everything above, including Context.dev evidence, Aiven PostgreSQL, the photo and Finnish input, Your kitchen, and the four parts added on Saturday afternoon.
+| [AIMO/FINDINGS.md](AIMO/FINDINGS.md) | Facts about the mock API and the data, from the first days |
 
 ## Licence
 

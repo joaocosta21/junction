@@ -4,17 +4,30 @@ The gateway keeps its shared order book and its audit trail in an Aiven for Post
 
 This is a database swap with three consequences the SQLite file could not give. Each one has SQL below that shows it.
 
+## What ran, and what did not
+
+Checked against the code at commit `c2106fe`, offline. No call to the Aiven service was made tonight.
+
+- **Ran against the Aiven service, on the morning of Saturday 14 Nov** (commit `67f3b00`, by the earlier log; not repeated tonight): the store, the migrations, the triggers, the two views and the supplier role, through the tests of `tests/store_pg`; the figures of "The service and the connection" and "What it costs" come from that morning.
+- **Changed tonight, offline only:** Valio Aimo's view (`sql/003_reader_views.sql`) now shows every rule that fired and names a person by role. It is dropped and created again at every start. A setting, `TTA_DB_SCHEMA`, chooses the schema.
+- **Checked offline tonight:** `tests/audit/test_sql_view.py` (7 tests) compares the SQL file with the Python reader as text: the columns, the roles, the words. `tests/audit/test_pinned_hashes.py` (20 tests) pins the hashes of stored events, so a change to what is hashed fails a test before it can make the trail already in the database unverifiable.
+- **Not run: the new SQL was never executed by a database.** The tests that execute it are the live ones of `tests/store_pg` (116 tests in the folder; the live ones are skipped unless the run selects `-m live`). They must pass against the service before any deploy with `DATABASE_URL`: a view that fails to create fails the whole start-up, and the gateway then runs on SQLite with the reason in `/healthz`.
+- **Not run: the proof script against a database** (section 4). Only its dry run, which sends nothing.
+- **Not created: the supplier's login.** The role exists without a login; "Valio Aimo reads its own view" has been shown by a test login only.
+- **Not run: the witness** (section 5).
+
 ## The service and the connection
 
 | | |
 |---|---|
-| Service | Aiven for PostgreSQL, server 18.7 (`SHOW server_version`) |
+| Service | Aiven for PostgreSQL, server 18.7 (`SHOW server_version`, read on the morning of 14 Nov) |
 | Driver | psycopg 3.3.9 with its binary wheel, which bundles libpq 18. No system library is needed. |
 | TLS | As the service URI asks: Aiven's URI carries `sslmode=require`. A test checks that the store's session is encrypted (`pg_stat_ssl`); a probe of the service saw TLS 1.3. `require` encrypts the traffic but does not check the server's certificate. |
-| Schema | `tta` for the deployed gateway (`TTA_ENV=demo` or `prod`), `tta_dev` for a local run (`TTA_ENV=dev`). A laptop with the same URL never writes into the demo's trail, which cannot be cleaned afterwards. Tests use their own schemas `tta_test_<random>_<n>`, dropped after each test. |
+| Schema | The one `TTA_DB_SCHEMA` names, when it is set (a plain lower-case name of at most 41 characters; any other value is refused and the gateway falls back to SQLite, saying so). Otherwise `tta` for the deployed gateway (`TTA_ENV=demo` or `prod`) and `tta_dev` for a local run (`TTA_ENV=dev`), so a laptop with the same URL never writes into the demo's trail, which cannot be cleaned afterwards. An audit event cannot be removed, so a build that can no longer read an old trail starts a new one in a new schema and the old one stays as it is. Tests use their own schemas `tta_test_<random>_<n>`, dropped after each test. |
 | Secret | The URL is read through `tta.config` only, where the connection is opened. libpq's own error text names the server, and for a malformed URL it repeats the password. So a failed connection is logged by its error class alone and is not chained to the raised error (`tests/store_pg/test_unreachable.py`). |
 | Start-up | The store connects, creates its schema and runs the migrations of `src/tta/store/sql/` in one transaction under a lock, so two containers starting together take turns. Every migration is idempotent and runs at every start. |
 | Fallback | If the database cannot be reached or prepared at start-up, the gateway starts on SQLite, logs a warning and lists the reason in `/healthz`. It does not switch back by itself: that takes a restart. |
+| Which store is in use | `/healthz` says it in `store`: `kind` is `postgresql` or `sqlite`, with the reason. Never the address, the database name or a path. |
 
 Code: `src/tta/store/postgres.py` (the store), `src/tta/store/sql/` (statements and migrations), `src/tta/api/wiring.py` (`_order_book`: which store, and the fallback).
 
@@ -62,11 +75,11 @@ WHERE tgrelid = 'tta.audit_events'::regclass AND NOT tgisinternal;   -- 'A' = fi
 The two readers of SPEC §9 are views (`sql/003_reader_views.sql`):
 
 - **`audit_buyer`**: every field, with the buyer profile, so a buyer's query names its own profile. The gateway keeps one buyer from another: it checks who is asking.
-- **`audit_supplier`**: what Valio Aimo may see. It has no buyer profile, and it uses the supplier's sentence and facts, which the audit package builds from an allow-list. It shows an agent by kind and id only, and a human only as "A human at the buyer". It keeps only the rules about the supplier's own data or the caller's identity (F-01, F-03 to F-08).
+- **`audit_supplier`**: what Valio Aimo may see. It has no buyer profile, and it uses the supplier's sentence and facts, which the audit package builds from an allow-list: the buyer's limit amounts, its allergen exclusions and the products they concern are masked there. It shows every rule that fired, each id once, in the order they fired. It shows an agent by kind and id only, and a person by the approver role they hold ("The buyer's purchasing manager"), never by name or id; a person who holds no approver role reads "A human at the buyer". The view is dropped and created again at every start, because PostgreSQL refuses to replace a view whose columns changed; `sql/004` gives the grant again right after.
 
-Both views must show exactly what `tta.audit` shows the same reader. `tests/store_pg/test_reader_views.py` records the audit package's own two flows (`tests/audit/conftest.py`: the hotel order sent to a human, the ward order placed by the agent) through `AuditTrail` on PostgreSQL. It then compares every row of each view with `AuditTrail.view(...)`. It also runs the audit package's own redaction check on the supplier view: no limit value, no allergen exclusion, no approver name or note.
+Both views must show exactly what `tta.audit` shows the same reader. Offline, `tests/audit/test_sql_view.py` compares the SQL text with the reader. On a database (live only, not run since the view changed tonight), `tests/store_pg/test_reader_views.py` records the audit package's own two flows (`tests/audit/conftest.py`: the hotel order sent to a human, the ward order placed by the agent) through `AuditTrail` on PostgreSQL. It then compares every row of each view with `AuditTrail.view(...)`. It also runs the audit package's own redaction check on the supplier view: no limit value, no allergen exclusion, no approver name or note.
 
-`sql/004_supplier_role.sql` creates the role `tta_supplier`. It cannot log in, and it holds one privilege: `SELECT` on `tta.audit_supplier`. A view reads its tables with its owner's rights, so the role reads the projection and never the rows behind it. The supplier's own login is made a member of the role:
+`sql/004_supplier_role.sql` creates the role `<schema>_supplier` (`tta_supplier` for the schema `tta`). It cannot log in, and it holds one privilege: `SELECT` on `tta.audit_supplier`. A view reads its tables with its owner's rights, so the role reads the projection and never the rows behind it. The supplier's own login is made a member of the role. **This login has not been created on the service yet:**
 
 ```sql
 -- As the admin login, once:
@@ -79,7 +92,7 @@ SELECT * FROM tta.audit_buyer;    -- ERROR: permission denied for view audit_buy
 SELECT * FROM tta.orders;         -- ERROR: permission denied for table orders
 ```
 
-The test does exactly this with a login it creates and drops. It also checks that the role holds no grant but `SELECT` on `audit_supplier`.
+The live test does exactly this with a login it creates and drops. It also checks that the role holds no grant but `SELECT` on `audit_supplier`.
 
 Both readers on one order:
 
@@ -88,7 +101,30 @@ SELECT seq, sentence FROM tta.audit_buyer    WHERE order_id = '<order id>' ORDER
 SELECT seq, sentence FROM tta.audit_supplier WHERE order_id = '<order id>' ORDER BY seq;
 ```
 
+## 4. The proof in one command (built, not run against a database)
+
+`scripts/aiven_proof.py` connects with the supplier's own login, read from `SUPPLIER_DATABASE_URL`, and prints each statement before its result. `--dry-run` lists the statements and sends nothing; `--schema` names another schema than `tta`. The dry run, run offline tonight, lists 8 statements:
+
+| # | Statement | The database must |
+|---|---|---|
+| 1 | `SELECT current_user` | answer |
+| 2 | `SELECT seq, type, sentence FROM tta.audit_supplier ORDER BY seq DESC LIMIT 5` | answer |
+| 3 | `SELECT seq FROM tta.audit_events LIMIT 1` | refuse it |
+| 4 | `SELECT seq FROM tta.audit_buyer LIMIT 1` | refuse it |
+| 5 | `UPDATE tta.audit_events SET hash = hash WHERE false` | refuse it |
+| 6 | `DELETE FROM tta.audit_events WHERE false` | refuse it |
+| 7 | `SELECT count(*) AS events, max(seq) AS last_seq FROM tta.audit_supplier` | answer |
+| 8 | `SELECT seq, hash FROM tta.audit_supplier ORDER BY seq DESC LIMIT 1` | answer |
+
+Statements 5 and 6 are written `WHERE false`, so a database that did not refuse them would still change nothing. With the supplier's login the refusals are "permission denied"; the append-only triggers are what refuse the gateway's own login (section 2), and the script does not show that case. The script exits 0 when every statement did what the table says, 1 when one did not, 2 when nothing could be sent. It has 13 offline tests with a stand-in connection (`tests/store/test_aiven_proof.py`). The script does not create the supplier's login: that is the `CREATE ROLE` statement of section 3, run by hand. The commands are in `docs/DEPLOY.md`, "To run".
+
+## 5. A witness of the trail's head (built, not run)
+
+The hash chain shows a changed event in the middle. A trail cut at its end, or rewritten whole, still verifies by itself unless another party holds an earlier head. `deploy/witness.py` is that other party, in the supplier's seat: with the supplier's read-only login it reads the count, the last position and the last hash from `audit_supplier`, notes them, and at its next run checks that the head it noted is still in place. Its findings are: first run, same head, grown, shortened, rewritten. `deploy/modal_app.py` schedules it hourly on Modal only when `SUPPLIER_DATABASE_URL` is set on the deploying machine. That value has never been set, so the witness has never run.
+
 ## What it costs
+
+Measured on the morning of 14 Nov from the development machine; not re-measured tonight.
 
 Each statement is a round trip to the service. From the development machine that is 39 ms (median of 10 `SELECT 1`). Sent one by one, an offer with two options took 40 statements, 24 of them savepoint bookkeeping. To cut the waiting, the store holds back the commands that open and release blocks and sends them with the block's next statement in one pipeline. A block that runs no statement sends none. Two runs each, from the development machine, over HTTP in-process (`TestClient`):
 
@@ -106,8 +142,11 @@ From a container far from the service, each round trip costs more.
 2. Run the tests against the service: `.venv/bin/python -m pytest tests/store_pg -q -m live`. Each test creates its own schema and drops it, with its roles. The tests that need no service run without `-m live`: `.venv/bin/python -m pytest tests/store_pg tests/api/test_store_choice.py -q`.
 3. Run the gateway locally: `TTA_ENV=dev .venv/bin/uvicorn --factory tta.api:create_app`. It writes schema `tta_dev`. Run the queries above with `psql "$DATABASE_URL"`, with `tta_dev` in place of `tta`.
 
+Steps 2 and 3 send SQL to the service. Neither was run tonight.
+
 ## Limits and next steps
 
+- **The pages do not use it.** Every page, the shop included, keeps each browser's order book in memory. Only REST and MCP callers write to the shared book, and so to Aiven. A page that shows Valio Aimo's log of the shared book is not built.
 - **The gateway's login owns the tables** (above). Next: a gateway login with `INSERT` and `SELECT` on `audit_events` and no ownership. The admin login would then only run migrations. That needs a second URL in the settings.
 - **The server certificate is not checked** (`sslmode=require`). Next: `sslmode=verify-full` with the project's CA certificate from the Aiven console.
 - **Buyers are kept apart by the gateway, not by the database.** Next: a login per buyer, with row-level security on `audit_buyer` keyed on its profile.
