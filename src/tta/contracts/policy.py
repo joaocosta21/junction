@@ -37,7 +37,15 @@ class BuyerProfile(Contract):
     max_daily_net_eur: Money = Field(ge=0)
     min_fill_ratio: Ratio = Field(ge=0, le=1)
     excluded_allergens: tuple[str, ...] = ()
-    allergen_strictness: AllergenStrictness | None = None
+    allergen_strictness: AllergenStrictness | None = Field(
+        default=None,
+        description="The allergen rule for every excluded allergen that allergen_strictness_by_code does not name",
+    )
+    allergen_strictness_by_code: dict[str, AllergenStrictness] = Field(
+        default_factory=dict,
+        description="The allergen rule of one excluded allergen, by its GS1 code: STRICT for an allergy that must be "
+        "confirmed, DECLARED_ONLY for one kept out as an ingredient. Each code must also be in excluded_allergens",
+    )
     substitution_without_approval: SubstitutionScope
     variable_weight: VariableWeightRule
     deposits: DepositRule
@@ -54,7 +62,20 @@ class BuyerProfile(Contract):
     def _exclusions_need_a_strictness(self) -> BuyerProfile:
         if self.excluded_allergens and self.allergen_strictness is None:
             raise ValueError("a profile that excludes allergens must set allergen_strictness")
+        stray = [code for code in self.allergen_strictness_by_code if code not in self.excluded_allergens]
+        if stray:
+            raise ValueError(
+                f"allergen_strictness_by_code names allergens the profile does not exclude: {', '.join(stray)}"
+            )
         return self
+
+    def strictness_for(self, code: str) -> AllergenStrictness | None:
+        """The allergen rule this profile applies to one excluded allergen."""
+        return self.allergen_strictness_by_code.get(code, self.allergen_strictness)
+
+    def codes_under(self, strictness: AllergenStrictness) -> tuple[str, ...]:
+        """The excluded allergens this profile checks under one rule, in the profile's order."""
+        return tuple(code for code in self.excluded_allergens if self.strictness_for(code) is strictness)
 
 
 class PolicyContext(Contract):

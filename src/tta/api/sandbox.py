@@ -64,8 +64,8 @@ KITCHEN_DESCRIPTION = "Set up by the visitor on the page Your kitchen, in this b
 STARTING_POINTS = ("hotel-kitchen", "allergy-ward")  # the profile files a kitchen can start from a copy of
 KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest is the gateway's
     "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
-    "excluded_allergens", "allergen_strictness", "substitution_without_approval", "variable_weight", "deposits",
-    "require_confirmed", "standing_order_drift_ratio",
+    "excluded_allergens", "allergen_strictness", "allergen_strictness_by_code", "substitution_without_approval",
+    "variable_weight", "deposits", "require_confirmed", "standing_order_drift_ratio",
 )
 LIMIT_SETTINGS = ("max_order_net_eur", "max_daily_net_eur")
 MAX_LIMIT_EUR = Decimal(100_000)

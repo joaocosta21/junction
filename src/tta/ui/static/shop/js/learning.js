@@ -5,7 +5,7 @@
 // confirmed it, it narrows the request the gateway gets (for a brand: only products whose name carries the
 // brand). Turned off, it is no longer used. All of this is kept in this browser only.
 
-import { allergenName } from "./kitchens.js";
+import { ALLERGEN_RULES, allergenName, allergenRule } from "./kitchens.js";
 
 const lower = (s) => String(s || "").toLowerCase();
 
@@ -25,7 +25,10 @@ export function prepare(request, kitchen, mine) {
   const applied = [];
   const s = mine.settings;
   if (s.excluded_allergens?.length) {
-    applied.push({ tone: "info", text: `${s.allergen_strictness === "STRICT" ? "Strict" : "Declared"} allergen rule: ${s.excluded_allergens.map(allergenName).join(", ")}` });
+    for (const rule of ["STRICT", "DECLARED_ONLY"]) {
+      const codes = s.excluded_allergens.filter((code) => allergenRule(s, code) === rule);
+      if (codes.length) applied.push({ tone: "info", text: `${ALLERGEN_RULES[rule].name}: no ${codes.map(allergenName).join(", ").toLowerCase()}` });
+    }
   }
   if (s.require_confirmed) applied.push({ tone: "info", text: "Confirmed data only" });
   for (const rule of brandRules(mine.learned)) {

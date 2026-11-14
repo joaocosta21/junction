@@ -26,6 +26,29 @@ export const ALLERGENS = [
 ];
 export const allergenName = (code) => (ALLERGENS.find(([c]) => c === code) || [code, code])[1];
 
+// The two allergen rules of the gateway (P-04), in the words the shop uses.
+export const ALLERGEN_RULES = {
+  DECLARED_ONLY: { name: "Declared only", short: "declared only" },
+  STRICT: { name: "Strict", short: "strict" },
+};
+export const NEW_ALLERGEN_RULE = "STRICT"; // an allergen just added starts on the safer rule
+
+// The rule one excluded allergen is checked under: its own, else the kitchen's general one.
+export function allergenRule(settings, code) {
+  return settings.allergen_strictness_by_code?.[code] || settings.allergen_strictness || NEW_ALLERGEN_RULE;
+}
+
+// The allergen settings as the gateway takes them: every excluded allergen with its own rule, nothing else.
+export function withAllergenRules(settings) {
+  const excluded = settings.excluded_allergens || [];
+  const byCode = Object.fromEntries(excluded.map((code) => [code, allergenRule(settings, code)]));
+  return {
+    ...settings,
+    allergen_strictness: excluded.length ? settings.allergen_strictness || "DECLARED_ONLY" : null,
+    allergen_strictness_by_code: byCode,
+  };
+}
+
 const BASE_SETTINGS = {
   auto_order_enabled: true,
   variable_weight: "APPROVAL",
@@ -57,6 +80,7 @@ export const KITCHENS = [
       min_fill_ratio: 1,
       excluded_allergens: ["AN", "AP", "AS"],
       allergen_strictness: "DECLARED_ONLY",
+      allergen_strictness_by_code: { AN: "DECLARED_ONLY", AP: "DECLARED_ONLY", AS: "DECLARED_ONLY" },
       substitution_without_approval: "LISTED_BY_SUPPLIER",
       require_confirmed: false,
     },
@@ -94,6 +118,7 @@ export const KITCHENS = [
       min_fill_ratio: 1,
       excluded_allergens: ["AM", "AW"],
       allergen_strictness: "STRICT",
+      allergen_strictness_by_code: { AM: "STRICT", AW: "STRICT" },
       substitution_without_approval: "NONE",
       require_confirmed: true,
     },

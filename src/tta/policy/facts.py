@@ -99,6 +99,8 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.min_fill_ratio": lambda profile, _: profile.min_fill_ratio,
     "profile.excluded_allergens": lambda profile, _: tuple(profile.excluded_allergens),
     "profile.allergen_strictness": _allergen_strictness,
+    "profile.strict_allergens": lambda profile, _: profile.codes_under(AllergenStrictness.STRICT),
+    "profile.declared_only_allergens": lambda profile, _: profile.codes_under(AllergenStrictness.DECLARED_ONLY),
     "profile.substitution_without_approval": lambda profile, _: profile.substitution_without_approval.value,
     "profile.substitution_scopes_allowed": _scopes_allowed,
     "profile.variable_weight": lambda profile, _: profile.variable_weight.value,
@@ -271,9 +273,14 @@ def _allergen_gap(scope: OrderScope, line: OfferLine) -> str | None:
     skipped = [code for code in excluded if code not in covered]
     if skipped:
         return f"the allergen check does not cover {', '.join(skipped)}"
-    profile_is_strict = scope.profile.allergen_strictness is AllergenStrictness.STRICT
-    if profile_is_strict and check.strictness is not AllergenStrictness.STRICT:
-        return "the allergen check was not run under the profile's STRICT rule"
+    strict = AllergenStrictness.STRICT
+    weaker = [
+        finding.excluded_code for finding in check.findings
+        if scope.profile.strictness_for(finding.excluded_code) is strict
+        and (finding.strictness or check.strictness) is not strict
+    ]
+    if weaker:
+        return f"the allergen check was not run under the profile's STRICT rule for {', '.join(weaker)}"
     return None
 
 

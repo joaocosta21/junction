@@ -176,3 +176,18 @@ def test_starting_again_empties_only_that_kitchen(client: TestClient) -> None:
     assert _call(client, "GET", "/orders").json()
     assert _call(client, "POST", "/start-again").json() == {"ok": True}
     assert _call(client, "GET", "/orders").json() == []
+
+
+def test_a_kitchen_can_set_a_rule_per_allergen(client: TestClient) -> None:
+    answer = _set_up(
+        client,
+        excluded_allergens=["AP", "AS"],
+        allergen_strictness="DECLARED_ONLY",
+        allergen_strictness_by_code={"AP": "STRICT"},
+    )
+    assert answer.status_code == 200
+    profile = answer.json()["profile"]
+    assert profile["allergen_strictness_by_code"] == {"AP": "STRICT"}
+
+    stray = _set_up(client, excluded_allergens=["AS"], allergen_strictness_by_code={"AP": "STRICT"})
+    assert stray.status_code == 422

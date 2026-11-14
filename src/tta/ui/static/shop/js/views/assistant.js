@@ -2,7 +2,7 @@
 import { app, api, dataToday, deliveryOf, on, pendingApprovals, refresh, render, spendToday, toast } from "../core.js";
 import { clock, html, isoDay, longDate, money, num, shortDate, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
-import { ROLES, allergenName } from "../kitchens.js";
+import { ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { optionBlock, personFor, problemBox, rolesStillNeeded, ruleList, signerName, spinner } from "./parts.js";
@@ -322,7 +322,7 @@ function side() {
       <div class="meter ${share > 80 ? "hot" : ""}"><i data-w="${share}"></i></div>
       <div class="kv"><span>${money(spent)} of ${money(s.max_daily_net_eur)}</span><b>${Math.round(share)}%</b></div>
       <div class="kv"><span>Agent orders alone up to</span><b>${s.auto_order_enabled ? money(s.max_order_net_eur) : "never"}</b></div>
-      <div class="kv"><span>Allergens kept out</span><b>${s.excluded_allergens.length ? s.excluded_allergens.map(allergenName).join(", ") : "none"}</b></div>
+      <div class="kv"><span>Allergens kept out</span><b>${s.excluded_allergens.length ? s.excluded_allergens.map((code) => `${allergenName(code)}${allergenRule(s, code) === "STRICT" ? " (strict)" : ""}`).join(", ") : "none"}</b></div>
       <div class="kv"><span>Waiting for approval</span><b>${waiting.length ? html`<a href="#/approvals">${waiting.length}</a>` : "0"}</b></div>
     </div>
     <div class="card">

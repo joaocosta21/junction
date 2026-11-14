@@ -24,13 +24,14 @@ class AllergenFinding(Contract):
     matched_code: str | None = None  # the code the statement was made about, when it is not the excluded code
     outcome: AllergenOutcome
     sentence: str
+    strictness: AllergenStrictness | None = None  # the rule this allergen was checked under
 
 
 class AllergenCheck(Contract):
     """Result of the buyer exclusion rule for one product."""
 
     outcome: AllergenOutcome
-    strictness: AllergenStrictness | None = None
+    strictness: AllergenStrictness | None = None  # the strictest rule any excluded allergen was checked under
     findings: tuple[AllergenFinding, ...] = ()
     all_explicit: bool  # True when every excluded allergen has an explicit FREE_FROM or CONTAINS
 

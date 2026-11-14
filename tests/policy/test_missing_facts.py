@@ -101,7 +101,8 @@ def test_an_allergen_check_run_under_a_weaker_rule_than_the_profile_counts_as_mi
     decision = engine.evaluate(make_option((make_line(allergen_check=lenient),)), ward, make_context())
 
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-03",)
-    assert decision.fired[0].facts["reason"] == "the allergen check was not run under the profile's STRICT rule"
+    reason = decision.fired[0].facts["reason"]
+    assert reason == "the allergen check was not run under the profile's STRICT rule for AM, AW"
 
 
 def test_a_declared_allergen_still_blocks_when_part_of_the_check_is_missing(

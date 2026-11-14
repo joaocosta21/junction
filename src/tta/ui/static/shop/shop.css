@@ -480,6 +480,15 @@ select { height: 40px; border: 1px solid var(--line); border-radius: 6px; paddin
 .allergen input { accent-color: var(--navy); width: 16px; height: 16px; }
 .allergen.on { border-color: var(--navy); background: #f4f8fa; }
 .allergen code { font-size: 11px; color: var(--muted); margin-left: auto; }
+.sub-title { font-size: 17px; margin: 22px 0 8px; }
+.allergen-rules { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; }
+.allergen-rules li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; }
+.allergen-rules li + li { border-top: 1px solid var(--line); }
+.allergen-rules code { font-size: 11px; color: var(--muted); }
+.allergen-rules .seg button { padding: 6px 12px; font-size: 13px; }
+@media (max-width: 640px) {
+  .allergen-rules li { flex-wrap: wrap; }
+}
 .radio-cards { display: grid; gap: 8px; margin-top: 10px; }
 .radio-card { display: grid; grid-template-columns: 18px 1fr; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; }
 .radio-card.on { border-color: var(--navy); background: #f4f8fa; }

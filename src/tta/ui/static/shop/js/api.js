@@ -1,5 +1,7 @@
 // The shop's calls to the gateway. Each kitchen of the shop has an order book of its own (X-Shop-Kitchen).
 
+import { withAllergenRules } from "./kitchens.js";
+
 const BASE = "/shop/api";
 
 export class Refusal extends Error {
@@ -39,7 +41,7 @@ export function gateway(kitchen) {
   const q = encodeURIComponent;
   return {
     authority: () => call(kitchen, "GET", "/kitchen"),
-    setKitchen: (settings) => call(kitchen, "PUT", "/kitchen", settings),
+    setKitchen: (settings) => call(kitchen, "PUT", "/kitchen", withAllergenRules(settings)),
     read: (text) => call(kitchen, "POST", "/read", { text }),
     offer: (request) => call(kitchen, "POST", "/offers", request),
     order: (offerId, optionId, key) => call(kitchen, "POST", "/orders", { offer_id: offerId, option_id: optionId, key }),

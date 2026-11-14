@@ -3,7 +3,7 @@
 import { app, api, on, pushKitchen, refresh, render, toast } from "../core.js";
 import { html, money } from "../dom.js";
 import { icon } from "../icons.js";
-import { ALLERGENS, ROLES } from "../kitchens.js";
+import { ALLERGENS, ALLERGEN_RULES, NEW_ALLERGEN_RULE, ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { restore, confirm, dismiss } from "../learning.js";
 import { active, mine, resetKitchen, save } from "../store.js";
 import { personFor } from "./parts.js";
@@ -37,12 +37,26 @@ on("set", (el) => {
 
 on("allergen", (el) => {
   const d = ensureDraft();
+  const code = el.dataset.code;
+  const rules = { ...(d.settings.allergen_strictness_by_code || {}) };
   const set = new Set(d.settings.excluded_allergens);
-  if (el.checked) set.add(el.dataset.code);
-  else set.delete(el.dataset.code);
+  if (el.checked) {
+    set.add(code);
+    rules[code] = rules[code] || NEW_ALLERGEN_RULE;
+  } else {
+    set.delete(code);
+    delete rules[code];
+  }
   d.settings.excluded_allergens = ALLERGENS.map(([c]) => c).filter((c) => set.has(c));
-  if (d.settings.excluded_allergens.length && !d.settings.allergen_strictness) d.settings.allergen_strictness = "STRICT";
-  if (!d.settings.excluded_allergens.length) d.settings.allergen_strictness = null;
+  d.settings.allergen_strictness_by_code = rules;
+  d.settings.allergen_strictness = d.settings.excluded_allergens.length ? d.settings.allergen_strictness || "DECLARED_ONLY" : null;
+  message = null;
+  render();
+});
+
+on("allergen-rule", (el) => {
+  const d = ensureDraft();
+  d.settings.allergen_strictness_by_code = { ...(d.settings.allergen_strictness_by_code || {}), [el.dataset.code]: el.dataset.rule };
   message = null;
   render();
 });
@@ -112,6 +126,18 @@ function radioCards(key, value, choices) {
   )}</div>`;
 }
 
+function allergenRules(s) {
+  return html`<h3 class="sub-title">How strict, for each allergen</h3>
+    <ul class="allergen-rules">${s.excluded_allergens.map((code) => {
+      const current = allergenRule(s, code);
+      return html`<li><span><b>${allergenName(code)}</b> <code>${code}</code></span>
+        <span class="seg" role="radiogroup" aria-label="Rule for ${allergenName(code)}">${Object.entries(ALLERGEN_RULES).map(
+          ([value, r]) => html`<button type="button" role="radio" aria-checked="${current === value}" class="${current === value ? "on" : ""}" data-act="allergen-rule" data-code="${code}" data-rule="${value}">${r.name}</button>`
+        )}</span></li>`;
+    })}</ul>
+    <p class="small muted"><b>Declared only:</b> a product that says nothing about the allergen is offered, marked unverified. <b>Strict:</b> it goes to ${personFor("dietitian")} first. Either way, a product that contains it is never offered.</p>`;
+}
+
 const rule = (id) => html`<span class="rule-id rule">${id}</span>`;
 
 function learnedList() {
@@ -138,7 +164,6 @@ export function view() {
   const d = ensureDraft();
   const s = d.settings;
   const p = mine().prefs;
-  const strict = s.allergen_strictness;
   return html`
     <div class="page-head"><div><div class="crumbs">${k.name} · customer ${k.customerNo}</div><h1>Settings</h1><div class="sub">Filled in for a ${k.kind.toLowerCase()}. Change only what is different for you.</div></div></div>
     <div class="settings">
@@ -157,12 +182,7 @@ export function view() {
           <div class="allergens">${ALLERGENS.map(
             ([code, name]) => html`<label class="allergen ${s.excluded_allergens.includes(code) ? "on" : ""}"><input type="checkbox" data-change="allergen" data-code="${code}" ${s.excluded_allergens.includes(code) ? "checked" : ""}>${name}<code>${code}</code></label>`
           )}</div>
-          ${s.excluded_allergens.length
-            ? radioCards("allergen_strictness", strict, [
-                ["STRICT", "Strict", `Anything not clearly free of them goes to ${personFor("dietitian")} (dietitian) first.`],
-                ["DECLARED_ONLY", "Declared only", "Only products that declare them are kept out; missing data is shown as unverified."],
-              ])
-            : ""}
+          ${s.excluded_allergens.length ? allergenRules(s) : ""}
         </section>
 
         <section class="card" id="s-autonomy">
