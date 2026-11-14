@@ -81,7 +81,8 @@ profile is never a request field. The demonstration tokens are **public by desig
 customer model. `ORDERED` means recorded in this gateway's order book: the mock has no order endpoint, and
 the record commits nobody. Answers say whether their data is `live` or a `replay` of recorded responses.
 `POST /v1/requests/parse` says who read the text in two headers, `TTA-Read-By` and `TTA-Reading-Source`
-(`model`, `recording` or `hand-built`). The REST routes and MCP share one order book per buyer; the
+(`model`, `recording`, `hand-built`, or `rule-based` when fixed rules read it because no model answered).
+The REST routes and MCP share one order book per buyer; the
 demonstration pages keep each browser's orders in an order book of its own, which this API does not see.
 
 **Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a

@@ -49,13 +49,13 @@ READING_SOURCE_HEADER = "TTA-Reading-Source"
 READING_HEADERS = {
     READ_BY_HEADER: {
         "description": "The model id that read the text, or that the recording came from; `hand-built` for an "
-                       "answer a person wrote.",
+                       "answer a person wrote; `rule-based` when fixed rules read it because no model answered.",
         "schema": {"type": "string"},
     },
     READING_SOURCE_HEADER: {
         "description": "`model` (the model read it just now), `recording` (a recording of the model's earlier "
-                       "answer) or `hand-built`.",
-        "schema": {"type": "string", "enum": ["model", "recording", "hand-built"]},
+                       "answer), `hand-built`, or `rule-based` (fixed rules, when no model answered).",
+        "schema": {"type": "string", "enum": ["model", "recording", "hand-built", "rule-based"]},
     },
 }
 
