@@ -60,14 +60,14 @@ def test_the_demo_standing_order_starts_with_six_synthetic_weeks_at_the_captures
     assert len(events) == 1 and "6 past renewals made up for the demonstration" in events[0].data.sentence
 
 
-def test_renewed_at_the_usual_100_litres_the_agent_orders_alone(book, agent_hotel) -> None:
+def test_renewed_at_the_usual_100_litres_the_order_waits_for_approval(book, agent_hotel) -> None:
     load_demo(book.standing, agent_hotel, book.replay)
 
     outcome = _renew(book, agent_hotel)
 
     order = outcome.order
-    assert order is not None and order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.AGENT
-    assert order.decision.verdict is Verdict.AUTO and order.decision.fired == ()
+    assert order is not None and order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
+    assert order.decision.verdict is Verdict.APPROVAL and order.decision.rule_ids == ("F-10",)
     assert outcome.offer.request.standing_order_id == DEMO_STANDING_ORDER_ID
     drift = outcome.drift
     assert drift is not None and drift.judged and not any(check.over_tolerance for check in drift.checks)
@@ -126,7 +126,7 @@ def test_a_rejected_renewal_leaves_the_history_it_was_judged_on(book, agent_hote
     assert again.drift is not None
     quantity = again.drift.checks[0]
     assert (quantity.median, quantity.renewals) == (Decimal(100), 6)  # the rejected 290 L is not in it
-    assert again.order is not None and again.order.status is OrderStatus.ORDERED
+    assert again.order is not None and again.order.status is OrderStatus.PENDING_APPROVAL
 
 
 def test_a_new_standing_order_has_too_short_a_history_and_is_renewed_on_the_other_rules(book, agent_hotel) -> None:
@@ -134,7 +134,7 @@ def test_a_new_standing_order_has_too_short_a_history_and_is_renewed_on_the_othe
 
     outcome = book.standing.renew(agent_hotel, standing.standing_order_id, RenewStandingOrder())
 
-    assert outcome.order is not None and outcome.order.status is OrderStatus.ORDERED
+    assert outcome.order is not None and outcome.order.status is OrderStatus.PENDING_APPROVAL
     assert outcome.drift is not None and outcome.drift.judged is False
     assert "has too short a history to judge drift: 0 past renewals on record" in outcome.drift.sentence
     assert book.standing.list(agent_hotel) == (standing,)

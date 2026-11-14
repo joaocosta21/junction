@@ -102,8 +102,8 @@ def _stale(book, samples, people: People) -> Callable[[], Order]:
 
 
 CASES = (
-    Case("placed alone", _alone, (KEY_WRITE, ORDER_WRITE, EVENT_WRITE), ("order.placed_by_agent",),
-         status=OrderStatus.ORDERED),
+    Case("within profile limits", _alone, (KEY_WRITE, ORDER_WRITE, APPROVAL_WRITE, EVENT_WRITE),
+         ("approval.requested",), status=OrderStatus.PENDING_APPROVAL),
     Case("sent to a human", _to_a_human, (KEY_WRITE, ORDER_WRITE, APPROVAL_WRITE, EVENT_WRITE),
          ("approval.requested",), status=OrderStatus.PENDING_APPROVAL),
     Case("approved", _approved, (ORDER_WRITE, APPROVAL_WRITE, EVENT_WRITE, EVENT_WRITE),
@@ -195,7 +195,7 @@ def test_an_audit_event_that_cannot_be_written_stops_the_order_and_reaches_the_c
     book, samples, people: People, write_fault: type[Exception]
 ) -> None:
     offer = book.offer(samples.within_authority())
-    book.store.fail_write(3)  # the key, the order, then the audit event
+    book.store.fail_write(4)  # the key, the order, the approval, then the audit event
 
     with pytest.raises(write_fault):
         book.service.place_order(offer.offer_id, "opt_1", people.agent, KEY)

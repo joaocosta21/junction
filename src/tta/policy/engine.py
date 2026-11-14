@@ -22,6 +22,7 @@ from tta.policy.custom import custom_profile
 from tta.policy.errors import PolicyLoadError
 from tta.policy.facts import Missing, OrderScope, Reading, read_fact, read_profile_fact
 from tta.policy.hashing import policy_hash
+from tta.policy.human_approval import HUMAN_APPROVAL, require_human_approval
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
 from tta.policy.profiles import check_profile, load_profiles
 from tta.policy.rulebook import AccessRule, AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
@@ -57,7 +58,9 @@ class RulePolicyEngine:
 
     def __init__(self, rulebook: Rulebook, profiles: Iterable[BuyerProfile]) -> None:
         self._rulebook = rulebook
-        self._canonical_rules: JsonDict = rulebook.canonical()
+        self._canonical_rules: JsonDict = {
+            **rulebook.canonical(), "gateway_approval": HUMAN_APPROVAL.model_dump(mode="json"),
+        }
         self._profiles = {profile.profile_id: profile for profile in profiles}
         self._missing_fact_rule = next(rule for rule in rulebook.rules if rule.trigger is Trigger.MISSING_FACT)
 
@@ -113,14 +116,21 @@ class RulePolicyEngine:
                     gaps.extend(_Gap(name, _reason(read(name)), rule.id, line, line_index) for name in outcome.missing)
         every = [*findings, *self._missing_fact_findings(gaps)]
         in_file_order = sorted(every, key=lambda finding: finding.order)  # stable: line order is kept within a rule
-        return self._decision(in_file_order, scope)
+        return require_human_approval(self._decision(in_file_order, scope))
 
     def describe_authority(self, profile: BuyerProfile) -> Authority:
         read = partial(read_profile_fact, profile=profile, substitution_scopes=self._rulebook.substitution_scopes)
         entries: dict[str, list[RuleSpec]] = {}
         for rule in self._rulebook.rules:
             entries.setdefault(rule.id, []).append(rule)
-        rules = tuple(self._summary(found, read) for found in entries.values())
+        rules = (
+            RuleSummary(
+                rule_id=HUMAN_APPROVAL.rule_id, title=HUMAN_APPROVAL.title, fixed=HUMAN_APPROVAL.fixed,
+                verdict=HUMAN_APPROVAL.verdict, approver_role=HUMAN_APPROVAL.approver_role,
+                sentence=HUMAN_APPROVAL.sentence,
+            ),
+            *(self._summary(found, read) for found in entries.values()),
+        )
         section = self._rulebook.authority
         summary = [self._text(text, read) for text in section.summary if _holds(text, read)]
         summary.extend(rule.text for rule in self._rulebook.access_rules)

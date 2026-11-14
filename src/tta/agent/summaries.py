@@ -17,7 +17,7 @@ from tta.contracts.policy import Authority
 
 AUTHORITY_SENTENCES = 2  # the first two of the gateway's summary: who may order alone, and the limits
 _PROFILE_FIELDS = {
-    "profile_id", "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
+    "profile_id", "display_name", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
     "excluded_allergens", "allergen_strictness", "substitution_without_approval", "require_confirmed",
 }
 _OPTION_FIELDS = {"option_id", "kind", "rank", "title", "summary", "fill_ratio", "valid_until"}

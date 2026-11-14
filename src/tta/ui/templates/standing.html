@@ -2,11 +2,10 @@
 {% from "_marks.html" import mark %}
 {% block title %}Standing orders{% endblock %}
 {% block main %}
-<h1>Standing orders: renewed alone only while they look like the usual order</h1>
-<p class="lead">A kitchen's recurring order is renewed through the normal flow: an offer at fixed prices, then the
-order, within the agent's authority or sent to a human. Before the agent renews alone, rule P-08 compares this
-week's quantity and unit price on each line with the median of that line's last renewals. A renewal that drifts
-beyond the buyer's tolerance waits for the purchasing manager.</p>
+<h1>Standing orders</h1>
+<p class="lead">Each renewal produces an offer for human approval. Rule P-08 compares this week's quantity and
+unit price on each line with the median of that line's past renewals. A change beyond the buyer's tolerance is
+flagged for the purchasing manager.</p>
 
 <div class="banner banner-warn">
   <p><strong>The history marked synthetic is made up for the demonstration.</strong> The Valio Aimo mock has no
@@ -84,7 +83,7 @@ beyond the buyer's tolerance waits for the purchasing manager.</p>
       <label class="field-label" for="{{ standing.standing_order_id }}-{{ field }}">{{ line.text }} ({{ line.unit.value }})</label>
       <input type="text" inputmode="decimal" id="{{ standing.standing_order_id }}-{{ field }}" name="{{ field }}" value="{{ line.quantity|quantity }}">
       {% endfor %}
-      <p class="small">Try the usual 100, then 290: the agent orders the first alone and sends the second to a human.</p>
+      <p class="small">Try the usual 100, then 290: both renewals require approval, and the second highlights the change in quantity.</p>
     </fieldset>
     <button type="submit" class="primary">Renew</button>
   </form>

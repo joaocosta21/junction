@@ -333,7 +333,7 @@ def test_a_request_without_a_date_is_not_sent_to_a_human_for_that_reason_alone(
 
     decision = engine.evaluate(option, hotel, make_context())
 
-    assert decision.verdict is Verdict.AUTO and decision.fired == ()
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 @pytest.mark.parametrize("status", [None, ClaimStatus.UNKNOWN], ids=["absent", "unknown"])
@@ -343,7 +343,7 @@ def test_the_origin_claim_never_gates_an_order(
 ) -> None:
     option = make_option((make_line(origin_claim=status),))
 
-    assert engine.evaluate(option, hotel, make_context()).verdict is Verdict.AUTO
+    assert engine.evaluate(option, hotel, make_context()).verdict is Verdict.APPROVAL
 
 
 def test_allergens_gate_through_the_allergen_rule_so_declared_only_still_passes_a_product_without_a_statement(
@@ -355,4 +355,4 @@ def test_allergens_gate_through_the_allergen_rule_so_declared_only_still_passes_
     check = make_allergen_check({"AP": AllergenRelation.NOT_STATED}, strictness=AllergenStrictness.DECLARED_ONLY)
     line = make_line(allergen_check=check, allergens_claim=ClaimStatus.UNKNOWN)
 
-    assert engine.evaluate(make_option((line,)), hotel, make_context()).verdict is Verdict.AUTO
+    assert engine.evaluate(make_option((line,)), hotel, make_context()).verdict is Verdict.APPROVAL

@@ -33,14 +33,14 @@ def test_demo_script_scenarios_1_2_3_in_order_on_an_empty_database(
     assert (approved["status"], approved["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
 
     second = demo.run_agent("ward", texts.scenario_2)
-    assert second["order_status"] == OrderStatus.ORDERED
-    assert demo.get_order("ward", second["order_id"])["placed_by"] == PlacedBy.AGENT
+    assert second["order_status"] == OrderStatus.PENDING_APPROVAL
+    assert demo.get_order("ward", second["order_id"])["placed_by"] is None
 
     third = demo.offer("hotel", texts.scenario_3_request)
     substitute = third["options"][0]
-    assert (substitute["decision"]["verdict"], fired(substitute)) == (Verdict.AUTO, set())
+    assert (substitute["decision"]["verdict"], fired(substitute)) == (Verdict.APPROVAL, {"F-10"})
     order = demo.order("hotel", third)
-    assert (order["status"], order["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.AGENT)
+    assert (order["status"], order["placed_by"]) == (OrderStatus.PENDING_APPROVAL, None)
 
     assert _day_spend(demo, "hotel", money) == Decimal("2754.64")  # 2,580.64 + 174.00, under the €3,000 a day
     assert _day_spend(demo, "ward", money) == Decimal("402.00")
@@ -51,7 +51,7 @@ def test_demo_script_run_twice_on_one_database_changes_the_outcome_so_start_empt
 ) -> None:
     """The fourth scenario 2 of one replay day is above the ward's €1,500 a day: finance must approve (P-02)."""
     statuses = [demo.run_agent("ward", texts.scenario_2)["order_status"] for _ in range(4)]
-    assert statuses == [OrderStatus.ORDERED] * 3 + [OrderStatus.PENDING_APPROVAL]
+    assert statuses == [OrderStatus.PENDING_APPROVAL] * 4
     assert _day_spend(demo, "ward", money) > WARD_DAILY_LIMIT
 
     demo.run_agent("hotel", texts.scenario_1)

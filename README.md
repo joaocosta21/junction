@@ -1,14 +1,14 @@
 # Trusted Trade Agents
 
-A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and place an order within its own authority or send it to a human for approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
+A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and submit a proposed order for human approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
 
 **Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; redeployed from commit `8163d5d` at about 13:00 on 14 Nov 2026, and `deploy/check.py` passed all 7 checks against it; `/menu`, `/standing-orders`, `/kitchen` and `/assumptions` answer 200 there). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
 
 ## The flow
 
 ```
-request ──► lookup ──► offer ──► policy ──► order ─┬─► placed by the agent (AUTO)
-(typed, or    (catalog +   (options, a     (fixed rules  ├─► sent to a human (APPROVAL) ──► approve / reject
+request ──► lookup ──► offer ──► policy ──► order ─┬─► pending human approval
+(typed, or    (catalog +   (options, a     (fixed rules  │   └─► approve / reject
  pasted text   live price   status per      + buyer      └─► refused (BLOCK)
  read by       and stock)   claim, every    profile)
  Gemini)                    exclusion                         every step ──► audit trail (buyer view, supplier view)
@@ -17,7 +17,7 @@ request ──► lookup ──► offer ──► policy ──► order ─┬
 
 Two runs in replay of the recorded capture (Saturday 14 Nov 2026, 02:52 server time):
 - **Hotel kitchen, "1,000 litres of lactose-free milk by Monday".** Option 1: three confirmed milks cover the 1,000 litres for €2,580.64 before tax. It is above the hotel's illustrative €750 limit per order, so it goes to the purchasing manager. Option 2: one cheaper milk at €1,010.00 whose stock Valio does not confirm, so a human must approve it whatever the price. 19 products are excluded, each with its reason.
-- **Allergy ward, "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only".** 200 soya drinks that state free-from milk and gluten, €402.00. Every claim is confirmed and the total is within the ward's limits, so the agent places the order alone.
+- **Allergy ward, "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only".** 200 soya drinks that state free-from milk and gluten, €402.00. Every claim is confirmed and the total is within the ward's limits. The proposal still waits for the purchasing manager (F-10).
 
 The model reads the text and picks an option. It never decides a price, a quantity, an allergen status or a verdict: deterministic code does, and the audit trail records which rule applied.
 
@@ -135,7 +135,7 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
 - A selling agent of Valio's own is not built.
 - `EARLIEST` and `LOWER_CARBON` change no choice in tonight's capture: every confirmed product arrives on Monday 16 Nov, and carbon is close to one value per category (`docs/ASSUMPTIONS.md`). Both are tested on hand-built prices and stock.
-- A preference can make the agent order a dearer product alone (10 L of `cream` ranked by reliability: €40.60 above the cheapest confirmed, AUTO; `AIMO/build/handback/SUST-1.md`). A profile limit on that difference is not built.
+- A preference can make the agent recommend a dearer product (10 L of `cream` ranked by reliability: €40.60 above the cheapest confirmed; `AIMO/build/handback/SUST-1.md`). A profile limit on that difference is not built.
 - No MCP tool for menus or standing orders; they are REST routes and pages. The recipe table has no vegetables, fruit or herbs.
 - The deployed app runs `8163d5d` (redeployed at about 13:00, 14 Nov): everything above, including Context.dev evidence, Aiven PostgreSQL, the photo and Finnish input, Your kitchen, and the four parts added on Saturday afternoon.
 

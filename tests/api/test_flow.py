@@ -78,12 +78,12 @@ def test_scenario_1_goes_from_authority_to_an_approved_order_with_a_sentence_for
     assert view["chain"]["ok"] is True
 
 
-def test_scenario_2_ends_ordered_by_the_agent_with_no_approval(
+def test_scenario_2_waits_for_human_approval_even_with_confirmed_data(
     client: TestClient, auth: Auth, scenario_2: dict[str, Any], make_offer: Flow, place_order: Flow
 ) -> None:
     offer = make_offer(client, "agent_ward", scenario_2)
     chosen = offer["options"][0]
-    assert chosen["decision"]["verdict"] == "AUTO"
+    assert chosen["decision"]["verdict"] == "APPROVAL"
     assert all(
         finding["relation"] == "FREE_FROM"
         for line in chosen["lines"]
@@ -92,15 +92,17 @@ def test_scenario_2_ends_ordered_by_the_agent_with_no_approval(
 
     order = place_order(client, "agent_ward", offer, "scenario-2")
 
-    assert order["status"] == "ORDERED"
-    assert order["placed_by"] == "AGENT"
-    assert order["approval_id"] is None
-    assert client.get("/v1/approvals", headers=auth("ward_dietitian")).json() == []
+    assert order["status"] == "PENDING_APPROVAL"
+    assert order["placed_by"] is None
+    assert order["approval_id"]
+    pending = client.get("/v1/approvals", headers=auth("ward_purchasing")).json()
+    assert [(item["approval_id"], item["required_roles"]) for item in pending] == [
+        (order["approval_id"], ["purchasing_manager"]),
+    ]
     view = client.get("/v1/audit", params={"order_id": order["order_id"]}, headers=auth("agent_ward")).json()
-    placed = [event for event in view["events"] if event["type"] == "tta.v1.order.placed_by_agent"]
-    assert len(placed) == 1
-    assert "within its authority" in placed[0]["sentence"]
-    assert not [event for event in view["events"] if event["type"].startswith("tta.v1.approval.")]
+    events = [event["type"] for event in view["events"]]
+    assert events.count("tta.v1.approval.requested") == 1
+    assert "tta.v1.order.placed_by_agent" not in events
 
 
 def test_every_option_of_an_offer_gets_its_own_policy_event(

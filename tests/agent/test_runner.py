@@ -30,7 +30,7 @@ Turns = tuple[list[tuple[str, dict[str, Any]]], ...]
 # --- the scenarios, on the recorded model -----------------------------------------------------------------
 
 
-def test_scenario_2_reads_the_authority_gets_an_offer_and_orders_alone(
+def test_scenario_2_reads_the_authority_gets_an_offer_and_submits_it_for_approval(
     recorded_model: RecordedModel, make_parser: MakeParser, demo_clock: Clock, parts: Parts, agent_ward: Identity,
     texts: dict[str, str], shown_as: Callable[[str], str],
 ) -> None:
@@ -45,7 +45,7 @@ def test_scenario_2_reads_the_authority_gets_an_offer_and_orders_alone(
     assert (run.model, run.recorded, run.stopped_at_cap) == (shown_as(texts["scenario_2"]), True, False)
     assert run.text == texts["scenario_2"]
     order = parts.service.get_order(agent_ward, run.order_id)
-    assert run.order_status is OrderStatus.ORDERED and order.status is OrderStatus.ORDERED
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and order.status is OrderStatus.PENDING_APPROVAL
     assert order.status_sentence in run.report  # the report quotes the gateway's own sentence
     assert order.decision.sentence in run.report
     assert run.offer_id == order.offer_id
@@ -121,7 +121,7 @@ def test_several_calls_in_one_turn_are_each_a_step(
     run = runner.run_agent(REQUEST, agent_ward, parts.service)
 
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]
-    assert run.order_status is OrderStatus.ORDERED and run.stopped_at_cap is False
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and run.stopped_at_cap is False
     results = [step for step in model.turn_calls[1].history if step["type"] == "function_result"]
     assert [step["call_id"] for step in results] == ["call-1-1", "call-1-2"]  # each call gets its own result
 
@@ -138,7 +138,7 @@ def test_a_model_that_fails_after_the_order_does_not_lose_the_order(
     run = runner.run_agent(REQUEST, agent_ward, parts.service)
 
     order = parts.service.get_order(agent_ward, run.order_id)
-    assert run.order_status is OrderStatus.ORDERED and len(run.steps) == 3
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and len(run.steps) == 3
     assert order.status_sentence in run.report
     assert run.report.startswith("The language model stopped answering after 3 steps")  # what stopped it, first
     assert run.stopped_at_cap is False
@@ -219,12 +219,12 @@ def test_the_trace_is_a_summary_that_validates_as_the_contract_and_carries_what_
     assert (run.model, run.recorded) == ("scripted", False)
     authority, offer, order = run.steps
     assert authority.result["profile_id"] == "allergy-ward" and authority.result["max_order_net_eur"] == 500.0
-    assert authority.sentence and "allergy-ward" in authority.sentence
+    assert authority.sentence and "F-10" in authority.sentence
     option = offer.result["options"][0]
-    assert (option["option_id"], option["rank"], option["verdict"], option["net"]) == ("opt_1", 1, "AUTO", 402.0)
+    assert (option["option_id"], option["rank"], option["verdict"], option["net"]) == ("opt_1", 1, "APPROVAL", 402.0)
     assert option["lines"][0]["product_id"] == "464013" and option["lines"][0]["quantity"] == 200.0
     assert offer.sentence and offer.sentence.startswith(option["summary"])
-    assert order.result["status"] == "ORDERED" and order.result["order_id"] == run.order_id
+    assert order.result["status"] == "PENDING_APPROVAL" and order.result["order_id"] == run.order_id
     shown = [json.loads(step["result"][0]["text"]) for step in model.turn_calls[-1].history
              if step["type"] == "function_result"]
     assert shown == [step.result for step in run.steps]  # the trace holds exactly what the model was shown
@@ -270,7 +270,7 @@ def test_a_model_that_raises_anything_after_the_order_does_not_lose_the_order(
 
     run = runner.run_agent(REQUEST, agent_ward, parts.service)
 
-    assert run.order_status is OrderStatus.ORDERED and len(run.steps) == 3
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and len(run.steps) == 3
     assert run.report.startswith("The run ended after 3 steps: the language model's answer could not be used "
                                  "(ValueError)")
     assert parts.service.get_order(agent_ward, run.order_id).status_sentence in run.report
@@ -284,7 +284,7 @@ def test_a_gateway_that_fails_after_the_order_does_not_lose_the_order(
 
     run = runner.run_agent(REQUEST, agent_ward, Breaking(parts.service, "get_order"))
 
-    assert run.order_status is OrderStatus.ORDERED and len(run.steps) == 3
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and len(run.steps) == 3
     assert run.report.startswith("The run ended at step 4 (get_order): the gateway failed (RuntimeError)")
     assert "<html>" not in run.report
 
@@ -297,7 +297,7 @@ def test_an_order_placed_by_a_call_that_then_failed_is_read_back_where_the_gatew
     run = runner.run_agent(REQUEST, agent_ward, FindsItsOrders(parts.service, "place_order", after_it_ran=True))
 
     (order,) = parts.service.list_orders(agent_ward)
-    assert (run.order_id, run.order_status) == (order.order_id, OrderStatus.ORDERED)
+    assert (run.order_id, run.order_status) == (order.order_id, OrderStatus.PENDING_APPROVAL)
     assert run.report.startswith("The run ended at step 3 (place_order): the gateway failed (RuntimeError)")
 
 

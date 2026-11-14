@@ -27,7 +27,7 @@ version: 1.0.0
 
 verdicts:
   # Least to most severe. The most severe verdict of the rules that fire wins.
-  - AUTO        # the agent places the order
+  - AUTO        # base policy passes; the gateway still requires human approval (F-10)
   - APPROVAL    # a human with the named role decides
   - BLOCK       # cannot be ordered, even with approval
 
@@ -297,8 +297,8 @@ rules:
     message: "profile {profile.profile_id} does not let the agent place any order alone"
     authority:
       - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
-        text: "This profile lets the agent place an order alone when no other rule asks for a human."
-      - text: "This profile does not let the agent place any order alone: every order goes to the purchasing manager."
+        text: "Gateway rule F-10 requires a human even when this profile adds no approval requirement."
+      - text: "This profile requires the purchasing manager to approve every order."
     justification: "A buyer can keep a human on every order, for example while it gains trust in the agent."
 
   - id: P-01
@@ -465,10 +465,7 @@ decision_sentences:
 authority:
   note: "The limit values of this profile are illustrative: they are ours, chosen for the demonstration. The Valio Aimo mock has no customer limits."
   summary:
-    - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
-      text: "Profile {profile.profile_id}: the agent may place an order alone when no rule asks for a human."
-    - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
-      text: "Profile {profile.profile_id}: the agent may not place any order alone; every order goes to a human."
-    - text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
+    - text: "Every order needs human approval before it can be confirmed (F-10). The purchasing manager approves when no other approval role is required."
+    - text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

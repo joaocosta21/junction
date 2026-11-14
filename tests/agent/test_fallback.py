@@ -210,7 +210,7 @@ def test_when_gemini_does_not_answer_a_recorded_run_is_served_from_its_recording
     run = runner.run_agent(texts["scenario_2"], agent_ward, parts.service)
 
     order = parts.service.get_order(agent_ward, run.order_id)
-    assert run.order_status is OrderStatus.ORDERED
+    assert run.order_status is OrderStatus.PENDING_APPROVAL
     assert (run.model, run.recorded) == (shown_as(texts["scenario_2"]), True)  # the trace names the recording
     assert run.report.startswith(SERVED)
     assert order.status_sentence in run.report
@@ -226,7 +226,7 @@ def test_the_report_names_when_the_recording_was_made(
     run = runner.run_agent(WARD_TEXT, agent_ward, parts.service)
 
     assert run.report.startswith(SERVED + "a recording made on 14 Nov 2026 at 08:05 UTC. ")
-    assert (run.model, run.order_status) == ("recorded", OrderStatus.ORDERED)
+    assert (run.model, run.order_status) == ("recorded", OrderStatus.PENDING_APPROVAL)
 
 
 def test_a_run_whose_answers_a_person_wrote_is_said_to_be_so(
@@ -316,7 +316,7 @@ def test_with_a_key_set_and_gemini_down_the_gateway_serves_the_demonstration_fro
         parts.close()
 
     assert (request.lines[0].product_type, request.lines[0].quantity) == ("milk", 1000)
-    assert run.order_status is OrderStatus.ORDERED and run.report.startswith(SERVED)
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and run.report.startswith(SERVED)
     assert sum(1 for name in events if name.endswith("request.received")) == 1
     assert len(gemini_down.requests) == 2  # two tries for the first sentence; the second is not sent at all
     assert PROCESS_OUTAGE.is_open()
@@ -348,7 +348,7 @@ def test_once_gemini_did_not_answer_a_recorded_sentence_is_answered_at_once_with
 
     assert asked == 2 and len(fake.requests) == asked  # nothing more was sent
     assert reading.sentence == READ_FROM_THE_RECORDING
-    assert run.report.startswith(SERVED) and run.order_status is OrderStatus.ORDERED
+    assert run.report.startswith(SERVED) and run.order_status is OrderStatus.PENDING_APPROVAL
 
 
 def test_once_gemini_did_not_answer_a_sentence_with_no_recording_is_refused_at_once(
@@ -497,7 +497,7 @@ def test_when_gemini_does_not_answer_a_run_with_no_recording_is_made_by_the_rule
     assert run.report.startswith("Gemini did not answer; this run was read and made by fixed rules, not by a model.")
     assert (run.model, run.recorded) == ("rule-based", False)
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]
-    assert run.order_status in (OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL)
+    assert run.order_status is OrderStatus.PENDING_APPROVAL
 
 
 def test_a_run_neither_gemini_nor_the_rules_read_is_supplier_unavailable_and_records_nothing(

@@ -126,20 +126,6 @@ def evidence_reasons(evidence: tuple[Evidence, ...], option: OfferOption) -> tup
     )
 
 
-def placed_by_agent(
-    order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
-) -> Order:
-    """The order the agent placed alone: no rule asked for a human."""
-    return Order(
-        order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
-        agent_id=agent.id, status=OrderStatus.ORDERED, placed_by=PlacedBy.AGENT, option=check.option,
-        decision=check.decision, reliance=reliance_statements(check, offer.time_now), idempotency_key=idempotency_key,
-        created_at=now, updated_at=now,
-        status_sentence=wording.placed_alone(check.option.totals.net, offer.profile_id),
-        source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
-    )
-
-
 def awaiting_approval(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
     evidence: tuple[Evidence, ...] = (),
@@ -153,11 +139,14 @@ def awaiting_approval(
         required_roles=check.decision.required_roles, reasons=reasons, evidence=evidence, created_at=now,
         valid_until=decide_by(check.option, now),
     )
-    # The same record as an order placed alone, in the state of one that waits.
-    order = placed_by_agent(order_id, offer, check, agent, idempotency_key, now).model_copy(update={
-        "status": OrderStatus.PENDING_APPROVAL, "placed_by": None, "approval_id": approval.approval_id,
-        "status_sentence": wording.waiting(approval, check.decision),
-    })
+    order = Order(
+        order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
+        agent_id=agent.id, status=OrderStatus.PENDING_APPROVAL, placed_by=None, approval_id=approval.approval_id,
+        option=check.option, decision=check.decision, reliance=reliance_statements(check, offer.time_now),
+        idempotency_key=idempotency_key, created_at=now, updated_at=now,
+        status_sentence=wording.waiting(approval, check.decision),
+        source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
+    )
     return order, approval
 
 

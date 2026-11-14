@@ -70,10 +70,10 @@ TOOL_NAMES = (
 )
 INSTRUCTIONS = (
     "A food-service wholesaler made readable by a buyer's purchasing agent: look up products, get an offer at "
-    "fixed prices with the price and availability the supplier states now, and place the order within your "
-    "authority or send it to a human.\n"
-    "Flow: get_authority (what you may decide alone) -> get_offer (a typed request becomes options, each with "
-    "a policy verdict) -> place_order (AUTO: ordered; APPROVAL: waits for a human; BLOCK: refused) -> "
+    "fixed prices with the price and availability the supplier states now, and submit the option for human "
+    "approval.\n"
+    "Flow: get_authority (what requires approval) -> get_offer (a typed request becomes options, each with "
+    "a policy verdict) -> place_order (APPROVAL: waits for a human; BLOCK: refused) -> "
     "get_order and get_audit.\n"
     "You act as the identity of your bearer token; the buyer profile is never an argument. No tool approves "
     "an order: approval is for a human, outside this protocol.\n"
@@ -221,7 +221,7 @@ class GatewayTools:
 
         Each option says claim by claim (price, quantity, delivery date, allergens, origin) what the
         supplier's data confirms, checks everything you asked for, and carries the policy verdict for your
-        buyer profile: `AUTO` (you may order it alone), `APPROVAL` (ordering it sends it to a human) or
+        buyer profile: `APPROVAL` (submitting it sends it to a human) or
         `BLOCK` (it cannot be ordered). Everything that dropped out is listed with a reason. "Nothing fits"
         is an offer with no option and the reasons, not an error. Every call makes a new offer and records it
         in the audit trail. To order, give its `offer_id` and one `option_id` to place_order."""
@@ -231,10 +231,10 @@ class GatewayTools:
     def place_order(
         self, offer_id: OfferIdArgument, option_id: OptionIdArgument, idempotency_key: IdempotencyKeyArgument
     ) -> Order:
-        """Commit one option of an offer. One offer takes one order at a time.
+        """Submit one option of an offer for human approval. One offer takes one order at a time.
 
-        Price and availability are checked again, then the policy decides. `AUTO`: the order is `ORDERED`,
-        placed by you. `APPROVAL`: the order is `PENDING_APPROVAL` and waits for a human in each role it
+        Price and availability are checked again, then the policy decides. `APPROVAL`: the order is
+        `PENDING_APPROVAL` and waits for a human in each role it
         names; no tool here can approve it, read it later with get_order. `BLOCK`: the error `policy-blocked`
         and no order. When the price or the availability changed or ran out (`offer-stale`, `offer-expired`)
         nothing was ordered: ask for a new offer with get_offer. `ORDERED` means recorded in this gateway's

@@ -52,7 +52,7 @@ def test_the_same_key_twice_gives_the_same_order(
     listed = client.get("/v1/orders", headers=auth("agent_ward")).json()
     assert [order["order_id"] for order in listed] == [first["order_id"]]
     view = client.get("/v1/audit", params={"order_id": first["order_id"]}, headers=auth("agent_ward")).json()
-    assert [event["type"] for event in view["events"]].count("tta.v1.order.placed_by_agent") == 1
+    assert [event["type"] for event in view["events"]].count("tta.v1.approval.requested") == 1
 
 
 def test_a_second_order_on_an_offer_that_has_one_is_refused(

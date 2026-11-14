@@ -230,11 +230,13 @@ def test_a_rule_that_no_longer_holds_at_approval_time_is_not_asked_of_the_human(
     assert second.decision.rule_ids == ("P-02",)  # €700.00 more would pass €3,000 a day
     book.service.decide(first.approval_id, approver_purchasing, samples.reject())
 
-    order = book.service.decide(second.approval_id, approver_finance, samples.approve())
+    with pytest.raises(NotAuthorised):
+        book.service.decide(second.approval_id, approver_finance, samples.approve())
+    order = book.service.decide(second.approval_id, approver_purchasing, samples.approve())
 
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
-    assert order.decision.verdict is Verdict.AUTO and _approval(book, order).required_roles == ()
-    assert order.status_sentence == "Ordered for €700.00 net with approval by Finance (demo) (finance)."
+    assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (PURCHASING,)
+    assert "F-10" in order.status_sentence
 
 
 def test_only_the_roles_the_profile_lists_for_the_approver_are_signed(

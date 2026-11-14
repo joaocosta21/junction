@@ -56,5 +56,5 @@ def test_a_claim_that_is_not_dietary_is_named_and_changes_neither_rank_nor_verdi
     option = next(each for each in offer.options if each.kind is OptionKind.SUBSTITUTE)
     assert [(line.product_id, line.substitute.claims_lost) for line in option.lines] == [(BARISTA_OAT, ())]
     assert "FREE_FROM_PRESERVATIVES" in option.lines[0].substitute.gives_up
-    assert option.decision.verdict is Verdict.AUTO
+    assert option.decision.verdict is Verdict.APPROVAL
     assert "F-08" not in option.decision.rule_ids

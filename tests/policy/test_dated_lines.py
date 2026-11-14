@@ -66,7 +66,7 @@ def test_an_option_with_no_needed_by_check_is_unchanged(
 
     decision = engine.evaluate(option, hotel, make_context())
 
-    assert decision.verdict is Verdict.AUTO and decision.fired == ()
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 def test_on_an_option_with_no_needed_by_check_the_sentence_gives_the_price_as_the_only_reason(

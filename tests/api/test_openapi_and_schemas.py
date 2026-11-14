@@ -188,8 +188,8 @@ def test_the_examples_tell_the_two_scenarios(document: dict[str, Any]) -> None:
     audit = operations["get_audit"]["responses"]["200"]["content"]["application/json"]["examples"]
 
     assert offer.profile_id == "allergy-ward"
-    assert offer.options[0].decision is not None and offer.options[0].decision.verdict is Verdict.AUTO
-    assert order.status.value == "ORDERED" and order.placed_by is not None
+    assert offer.options[0].decision is not None and offer.options[0].decision.verdict is Verdict.APPROVAL
+    assert order.status.value == "PENDING_APPROVAL" and order.placed_by is None
     assert approvals and approvals[0]["profile_id"] == "hotel-kitchen"
     assert {"buyer", "supplier"} <= set(audit)
     assert audit["supplier"]["value"]["reader"] == "supplier"

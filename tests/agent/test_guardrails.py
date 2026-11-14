@@ -176,7 +176,7 @@ def test_after_an_order_the_run_orders_nothing_more_and_can_still_read_its_order
     assert [step.ok for step in run.steps] == [True, True, True, False, False, True]
     assert run.order_id in run.steps[3].result["detail"] and "One run places one order" in run.steps[3].result["detail"]
     assert "takes no arguments" in run.steps[4].result["detail"]
-    assert run.steps[5].arguments == {"order_id": run.order_id} and run.steps[5].result["status"] == "ORDERED"
+    assert run.steps[5].arguments == {"order_id": run.order_id} and run.steps[5].result["status"] == "PENDING_APPROVAL"
     assert len(parts.service.list_orders(agent_ward)) == 1
 
 
@@ -354,7 +354,7 @@ def test_a_stale_offer_is_replaced_by_the_fresh_offer_the_gateway_made_without_a
     assert refused["error"] == error.slug and refused["fresh_offer"]["options"][0]["option_id"] == "opt_1"
     assert "fresh offer" in run.steps[2].sentence
     assert run.steps[3].arguments["offer_id"] == refused["fresh_offer_id"] == run.offer_id
-    assert gateway.offers_asked == 1 and run.order_status is OrderStatus.ORDERED
+    assert gateway.offers_asked == 1 and run.order_status is OrderStatus.PENDING_APPROVAL
 
 
 @pytest.mark.parametrize("fresh_id", [None, "off_nobodyissued", "not an id!"])
@@ -405,4 +405,4 @@ def test_an_order_or_a_reading_of_it_the_gateway_refuses_is_a_failed_step_with_i
     if refused == "place_order":
         assert run.order_id is None and error.detail in run.report  # the gateway's own refusal is reported
     else:
-        assert run.order_status is OrderStatus.ORDERED  # the order stands; only reading it back was refused
+        assert run.order_status is OrderStatus.PENDING_APPROVAL  # the order stands; only reading it back was refused

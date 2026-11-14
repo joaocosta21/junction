@@ -149,14 +149,10 @@ def test_ward_order_within_every_limit_is_placed_by_the_agent_alone(
 
     decision = engine.evaluate(option, ward, make_context())
 
-    assert decision.verdict is Verdict.AUTO
-    assert decision.fired == ()
-    assert decision.required_roles == ()
-    assert decision.sentence == (
-        "The agent may place this order alone: the total of €428.00 before tax is within the €500 limit per "
-        "order, today's spend would be €428.00 of the €1,500 limit per day of profile allergy-ward, 100% of the "
-        "requested quantity is covered, and no rule asks for a human."
-    )
+    assert decision.verdict is Verdict.APPROVAL
+    assert decision.rule_ids == ("F-10",)
+    assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+    assert "F-10" in decision.sentence
 
 
 def test_the_same_ward_order_goes_to_finance_once_the_day_would_pass_1500(
@@ -187,7 +183,7 @@ def test_a_day_that_lands_exactly_on_the_limit_does_not_pass_it(
 
     decision = engine.evaluate(option, ward, make_context(day_committed="1072.00"))
 
-    assert decision.verdict is Verdict.AUTO
+    assert decision.verdict is Verdict.APPROVAL
 
 
 def test_the_most_severe_verdict_wins_and_every_fired_rule_is_listed(

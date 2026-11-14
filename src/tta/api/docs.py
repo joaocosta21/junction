@@ -63,8 +63,8 @@ on Valio Aimo's mock API.
 
 **What an agent can trust.** Every offer line states, claim by claim (price, quantity, delivery date,
 allergens, origin), whether the supplier's data confirms it. Every option carries the policy verdict
-(`AUTO`, `APPROVAL` or `BLOCK`) with the rules that fired, so the agent knows before ordering what it may
-do alone. No model decides a price, a quantity, an allergen status or a verdict.
+(`APPROVAL` or `BLOCK`) with the rules that fired. Every eligible order waits for an authorised human
+decision. No model decides a price, a quantity, an allergen status or a verdict.
 
 **Open formats.** OpenAPI 3.1 generated from the typed models (this document); JSON Schema of every model at
 `GET /v1/schemas`; errors as RFC 9457 problem details (`application/problem+json`) with one stable `type`

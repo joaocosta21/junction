@@ -1,5 +1,5 @@
 """Scenario 2 (SPEC section 13): the allergy ward asks for 200 litres of a milk substitute by Monday, with no milk,
-no gluten and confirmed data only. The autonomous path: the agent orders alone, within its authority.
+no gluten and confirmed data only. Even this fully confirmed option requires human approval.
 
 Tonight's capture differs from Friday's plan: the product chosen is `464013` (Alpro No Sugars Soya, €2.01), not
 `464056` (Alpro Barista Soya, €2.14). Both are confirmed and state `FREE_FROM` milk and gluten; the options take
@@ -17,7 +17,7 @@ MILK, GLUTEN = "AM", "AW"  # GS1 allergen codes (AIMO/docs/SCHEMA-AND-CODES.md)
 CHOSEN = "464013"
 SCENARIO_2_EVENTS = [
     "request.received", "request.parsed", "lookup.performed", "offer.created", "policy.evaluated",
-    "order.placed_by_agent",
+    "approval.requested", "approval.decided", "order.confirmed",
 ]
 
 
@@ -32,7 +32,7 @@ def _free_from(product: dict[str, Any]) -> set[str]:
     return {statement["code"] for statement in product["allergen_statements"] if statement["relation"] == "FREE_FROM"}
 
 
-def test_scenario_2_from_the_pasted_sentence_is_ordered_by_the_agent_alone(
+def test_scenario_2_from_the_pasted_sentence_requires_human_approval(
     demo: Any, texts: Any, money: Any, fired: Any, lines_of: Any, event_types: Any
 ) -> None:
     run = demo.run_agent("ward", texts.scenario_2)
@@ -45,20 +45,20 @@ def test_scenario_2_from_the_pasted_sentence_is_ordered_by_the_agent_alone(
     line = best["lines"][0]
     assert line["availability"]["state"] == AvailabilityState.CONFIRMED
     assert {claim["status"] for claim in line["claims"]} == {ClaimStatus.CONFIRMED}
-    assert best["decision"]["verdict"] == Verdict.AUTO
-    assert fired(best) == set()
+    assert best["decision"]["verdict"] == Verdict.APPROVAL
+    assert fired(best) == {"F-10"}
     assert {check["result"] for check in best["constraint_checks"]} == {"MET"}
 
     order = demo.get_order("ward", run["order_id"])
-    assert run["order_status"] == OrderStatus.ORDERED == order["status"]
-    assert order["placed_by"] == PlacedBy.AGENT
-    assert order["approval_id"] is None
-    assert demo.pending("ward:dietitian") == []
+    assert run["order_status"] == OrderStatus.PENDING_APPROVAL == order["status"]
+    assert order["placed_by"] is None
+    assert demo.approval_of("ward", order)["required_roles"] == ["purchasing_manager"]
+    approved = demo.approve_all_roles("ward", order, "Reviewed the proposed option.")
+    assert (approved["status"], approved["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
 
     trail = demo.audit("ward", order["order_id"])
     assert event_types(trail) == SCENARIO_2_EVENTS
     assert all(event["sentence"].strip() for event in trail["events"])
-    assert "within its authority" in trail["events"][-1]["sentence"]
     assert trail["chain"]["ok"] is True
 
 

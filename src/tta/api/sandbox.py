@@ -63,7 +63,7 @@ KITCHEN_NAME = "My kitchen"
 KITCHEN_DESCRIPTION = "Set up by the visitor on the page Your kitchen, in this browser's own demo order book."
 STARTING_POINTS = ("hotel-kitchen", "allergy-ward")  # the profile files a kitchen can start from a copy of
 KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest is the gateway's
-    "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
+    "display_name", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
     "excluded_allergens", "allergen_strictness", "substitution_without_approval", "variable_weight", "deposits",
     "require_confirmed", "standing_order_drift_ratio",
 )
@@ -95,6 +95,7 @@ _FIXED_PARTS: Mapping[str, Any] = {
     "profile_id": KITCHEN_PROFILE_ID,
     "description": KITCHEN_DESCRIPTION,
     "illustrative": True,
+    "auto_order_enabled": True,  # the gateway requires approval; the kitchen adds no extra P-00 signature
     "approver_roles": {role.value: [one.id for one in KITCHEN_APPROVERS if role in one.roles] for role in ApproverRole},
 }
 

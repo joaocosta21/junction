@@ -39,8 +39,8 @@ def test_the_order_page_shows_the_record_and_the_statements_it_relied_on(
     page = client.get(f"/orders/{order.order_id}").text
 
     assert order.order_id in page
-    assert "Ordered by the agent" in page
-    assert "The agent placed this order alone for €402.00 net" in page
+    assert "Waiting for approval" in page
+    assert "F-10" in page
     assert "The Valio Aimo mock has no order endpoint" in page  # what ORDERED means here
     assert "464013" in page and "€2.01" in page and "€402.00" in page
     statements = page[page.index('id="reliance"'):page.index('id="trail"')]

@@ -21,6 +21,7 @@ from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.orders.records import OrderTimeCheck
 from tta.orders.spend import day_committed_net_eur
+from tta.policy.human_approval import require_human_approval
 from tta.standing.history import standing_history
 
 # F-04 of src/tta/policy/rules.yaml: the option expired or changed before the order. Its facts say which.
@@ -83,7 +84,7 @@ class OrderTimeChecker:
             now=self._clock.now(), day_committed_net_eur=committed, at_order_time=True, revalidation=revalidation,
             standing_history=self._standing_history(attempt),
         )
-        decision = self._policy.evaluate(attempt.option, attempt.profile, context)
+        decision = require_human_approval(self._policy.evaluate(attempt.option, attempt.profile, context))
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
             revalidation=revalidation,

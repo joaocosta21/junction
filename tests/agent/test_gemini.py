@@ -489,7 +489,7 @@ def test_the_trace_of_a_run_on_the_gemini_model_never_contains_the_key(
     with caplog.at_level(logging.DEBUG):
         run = runner.run_agent(texts["scenario_2"], agent_ward, parts.service)
 
-    assert run.order_status is OrderStatus.ORDERED
+    assert run.order_status is OrderStatus.PENDING_APPROVAL
     assert (run.model, run.recorded) == (DEFAULT_MODEL, False)
     assert len(gemini.requests) == 5  # one to read the request, three turns with a call, one closing turn
     assert KEY not in run.model_dump_json()

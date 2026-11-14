@@ -87,7 +87,7 @@ def test_f05_follows_the_verdict_of_the_substitution_rule_and_lists_what_it_foun
 
     assert blocked.verdict is Verdict.BLOCK and blocked.rule_ids == ("F-05",)
     assert blocked.fired[0].facts["line.substitute_added_allergens"] == ["AW (may contain)"]
-    assert allowed.verdict is Verdict.AUTO
+    assert allowed.verdict is Verdict.APPROVAL
 
 
 def test_facts_about_a_substitute_are_missing_on_a_line_that_replaces_nothing(

@@ -16,14 +16,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api.sandbox import KITCHEN_AGENT as KITCHEN_IDENTITY
-from tta.contracts.common import OrderStatus, Verdict
+from tta.contracts.common import OrderStatus
 
 KITCHEN = "/kitchen"
 KITCHEN_AGENT = "agent:my-kitchen"
 KITCHEN_PURCHASING = "human:my-kitchen-purchasing"
 SCENARIO_1 = "1,000 litres of lactose-free milk by Monday"
-SETTINGS_SHOWN = ("P-00", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
-FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08")
+SETTINGS_SHOWN = ("P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
+FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-10")
 HASH = re.compile(r"sha256:[0-9a-f]{64}")
 PROBLEM = re.compile(r'id="problem">(.*?)</div>', re.DOTALL)
 
@@ -34,7 +34,7 @@ def _kitchen_form(client: TestClient, form_fields: Callable[..., Form], **change
     """The hotel kitchen's settings as the form sends them, with some changed."""
     form = {
         **form_fields(client, KITCHEN),
-        "display_name": "My kitchen", "auto_order_enabled": "yes", "max_order_net_eur": "750",
+        "display_name": "My kitchen", "max_order_net_eur": "750",
         "max_daily_net_eur": "3000", "min_fill_ratio": "90", "allergen_strictness": "",
         "substitution_without_approval": "SAME_CATEGORY", "variable_weight": "APPROVAL", "deposits": "APPROVAL",
     }
@@ -63,6 +63,7 @@ def test_the_page_shows_each_setting_with_its_rule_and_the_fixed_rules_below(cli
     assert page.status_code == 200
     for rule_id in (*SETTINGS_SHOWN, *FIXED_SHOWN):
         assert rule_id in page.text
+    assert 'name="auto_order_enabled"' not in page.text
     assert "whatever you set" in page.text.lower()
     assert 'value="AM"' in page.text and "Milk and its derivatives" in page.text  # GS1 codes with their names
     assert HASH.search(page.text)
@@ -157,18 +158,20 @@ def test_a_kitchen_starts_from_a_copy_of_the_allergy_ward(client: TestClient, fo
     assert "€500" in page and re.search(r'value="AM"[^>]*checked', page)
 
 
-def test_scenario_1_as_my_kitchen_is_ordered_alone_at_3000_and_goes_to_a_human_at_750(
+def test_scenario_1_as_my_kitchen_needs_approval_at_both_spend_limits(
     client: TestClient, form_fields: Callable[..., Form], run_text: Any, book: Any, only_order: Any,
 ) -> None:
     _save(client, form_fields, max_order_net_eur="3000")
-    alone = run_text(client, SCENARIO_1, who=KITCHEN_AGENT)
+    within_limit = run_text(client, SCENARIO_1, who=KITCHEN_AGENT)
     _save(client, form_fields, max_order_net_eur="750", max_daily_net_eur="10000")
     to_a_human = run_text(client, SCENARIO_1, who=KITCHEN_AGENT)
     hotel = run_text(client, SCENARIO_1)  # the hotel's own agent, in the same browser
 
     newest, first = _kitchen_orders(book, client)
-    assert alone.status_code == to_a_human.status_code == 200
-    assert (first.status, first.decision.verdict, first.profile_id) == (OrderStatus.ORDERED, Verdict.AUTO, "my-kitchen")
+    assert within_limit.status_code == to_a_human.status_code == 200
+    assert (first.status, first.decision.rule_ids, first.profile_id) == (
+        OrderStatus.PENDING_APPROVAL, ("F-10",), "my-kitchen",
+    )
     assert (newest.status, newest.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01",))
     assert only_order(client).decision.rule_ids == ("P-01",) and hotel.status_code == 200
     record = client.get(f"/orders/{first.order_id}").text

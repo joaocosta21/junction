@@ -115,7 +115,7 @@ def test_a_line_that_stands_in_for_nothing_never_fires_f09_and_is_no_missing_fac
         option = make_option((line,))
         decision = engine.evaluate(option, hotel, make_context())
 
-        assert decision.verdict is Verdict.AUTO and decision.rule_ids == ()
+        assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
         scope = OrderScope(option, hotel, make_context(), substitution_scopes={})
         assert read_fact("line.stands_in_for", scope, line) == ""
 
