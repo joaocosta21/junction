@@ -2,7 +2,7 @@
 
 A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and place an order within its own authority or send it to a human for approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
 
-**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; deployed from commit `237b37f` on 14 Nov 2026, a final redeploy is planned). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
+**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; deployed from commit `237b37f` on 14 Nov 2026, a final redeploy is planned). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it. <!-- check: deploy -->
 
 ## The flow
 
@@ -33,9 +33,9 @@ TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --factory tta.api:creat
 
 - **`TTA_ENV` must be set** to `dev` or `demo`. Unset means `prod`: the demo tokens and the pages are not loaded, and the app refuses to start without `TTA_TOKENS`.
 - Replay needs no Valio key and makes no call to the mock. Answers come from `fixtures/valio/2026-11-14-demo/`, with the clock pinned to that capture.
-- Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`. Four of the five were recorded from `gemini-3.6-flash` on 14 Nov 2026; the agent's run of scenario 1 is written by hand, and a run from it says `hand-built`. Sentences with no recording need the key.
+- Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`. Four of the eleven were recorded from `gemini-3.6-flash` on 14 Nov 2026. Seven are written by hand and say `hand-built`: the agent's run of scenario 1; the reading and the run of the brief's own sentence ("I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.", hotel kitchen); the readings of the two Finnish sentences, and the transcription and reading of the demo photo (Gemini answered 503 and 504 when those were to be recorded, task T18). Sentences with no recording need the key.
 - If your `.env` holds `GEMINI_API_KEY`, the parser and the agent call Gemini. When Gemini cannot be reached, a sentence that has a recording is answered from it, and the report says so in its first sentence. Gemini was slow on 14 Nov (29 s to read scenario 1), and a time-out can hold a sentence for about 90 s before the recording answers. For a quick demo, put `GEMINI_API_KEY=` before the command.
-- **Two kinds of order book.** On the pages, each browser has its own book in memory, with its own audit trail; it starts empty, is dropped after 2 idle hours, and **Start again** empties it. REST and MCP share one book in `var/tta.sqlite3`: there the day's spend adds up across runs, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start that book empty. With `DATABASE_URL` set, the shared book uses PostgreSQL instead (`docs/AIVEN.md`, not yet on the deployed app). <!-- check: S1 -->
+- **Two kinds of order book.** On the pages, each browser has its own book in memory, with its own audit trail; it starts empty, is dropped after 2 idle hours, and **Start again** empties it. REST and MCP share one book in `var/tta.sqlite3`: there the day's spend adds up across runs, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start that book empty. With `DATABASE_URL` set, the shared book uses PostgreSQL instead, and SQLite when the database cannot be reached at start; `/healthz` then names the reason (`docs/AIVEN.md`).
 - Live data: set `VALIO_AIMO_API_KEY` in `.env` and start with `TTA_MODE=live`. When the mock cannot be reached, or fewer than 10 calls are left in the call budget, the recorded capture answers and the offer says `replay`.
 
 What is served:
@@ -111,7 +111,7 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The packages, the ports, and where each part of the brief lives |
 | [docs/STANDARDS.md](docs/STANDARDS.md) | Each open standard we use, checked against its specification, and the next steps toward production |
 | [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Every assumption, why, what would change it, and where it is in the code (also served at `/assumptions`) |
-| [docs/AWARDS.md](docs/AWARDS.md) | The Gemini, Modal and Context.dev write-ups; Aiven being added |
+| [docs/AWARDS.md](docs/AWARDS.md) | The Gemini, Modal and Context.dev write-ups, and Aiven for PostgreSQL |
 | [docs/DEMO.md](docs/DEMO.md), [docs/DEPLOY.md](docs/DEPLOY.md) | The demo script; deploying, checking and stopping the Modal app |
 | [docs/CONTEXTDEV.md](docs/CONTEXTDEV.md), [docs/AIVEN.md](docs/AIVEN.md) | Web evidence on the dietitian's approval card; the PostgreSQL order book and audit trail |
 | [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md) | What the gateway does, step by step, checked against the code |
@@ -124,12 +124,11 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 
 ## What is not done
 
-- The agent's run of scenario 1 is a hand-written recording (by plan); the other four recordings come from Gemini. A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
+- The agent's run of scenario 1 is a hand-written recording (by plan). The Finnish and photo readings were not checked against Gemini live: Gemini answered 503 and 504 on 14 Nov, so their recordings are written by hand, and the demo photo is a rendered stand-in for a phone photo. On the pages, Finnish free text runs only while Gemini answers, and no MCP tool reads a photo (`AIMO/build/handback/T18.md`). A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
 - Delivery-time and sustainability comparison (an optional direction of the brief) is not built.
 - Standing orders, recipe planning and a selling agent of Valio's own are not built; standing orders with a drift check are a next step (`docs/ASSUMPTIONS.md`).
-- Context.dev evidence for the dietitian is built and wired (commits `7abb44e`, `f3286e1`), and Aiven PostgreSQL is committed (`67f3b00`); neither is on the deployed app until the final redeploy. <!-- check: S1 -->
-- Being added today, not yet committed: the ingredient list as an allergen statement and "not in the recording" in replay (FIX-12a); coverage per request line and the trade-off on the approval card (FIX-12b); a photo of an order list and orders in Finnish (T18); a "My kitchen" profile page (FEAT-1). <!-- check: FIX-12a, FIX-12b, T18, FEAT-1 -->
+- The deployed app runs a build from before the last commits of 14 Nov. Context.dev evidence (`7abb44e`, `f3286e1`), Aiven PostgreSQL (`67f3b00`), the ingredient list and "not in the recording" (FIX-12a, `9a1893d`), coverage per line and the trade-off on the approval card (FIX-12b, `baa4e08`), the photo and Finnish input (T18, `812de0f`) and Your kitchen (FEAT-1, `b91e135`) are committed and reach it at the final redeploy. <!-- check: deploy -->
 
 ## Licence
 

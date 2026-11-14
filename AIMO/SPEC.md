@@ -28,7 +28,7 @@ buyer's agent ──► gateway ──► Valio mock API (price, availability)
 | Python 3.13, FastAPI, Pydantic v2 | The team knows Python; FastAPI generates OpenAPI 3.1 from the typed models, so the published interface cannot drift from the code (15%) |
 | Code in `src/tta/`, tests in `tests/`, virtualenv `.venv`, `pip` | A root-level `aimo/` package would collide with `AIMO/` on macOS. `tta` = Trusted Trade Agents |
 | Server-rendered pages (Jinja2 and a little plain JavaScript) | No Node build step; one process to deploy |
-| SQLite through a small repository interface | No service to provision overnight. Since 14 Nov the shared order book and audit trail use Aiven PostgreSQL behind the same interface when `DATABASE_URL` is set, and fall back to SQLite when it cannot be reached at start (task S1, commit `67f3b00`, `docs/AIVEN.md`); not yet on the deployed app <!-- check: S1 --> |
+| SQLite through a small repository interface | No service to provision overnight. Since 14 Nov the shared order book and audit trail use Aiven PostgreSQL behind the same interface when `DATABASE_URL` is set, and fall back to SQLite when it cannot be reached at start, which `/healthz` then names (task S1, commits `67f3b00`, `7b93821`, `docs/AIVEN.md`) |
 | Gemini through the official SDK | Structured output turns the pasted request into the typed request; function calling drives the buyer agent |
 | **The model never decides a price, a quantity, an allergen status or a verdict** | Those come from deterministic code that can be tested and audited (20% controls) |
 | Policy as data (YAML): fixed rules plus one profile per buyer | The guardrails can be read and changed without touching code |
@@ -81,7 +81,7 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 | `POST /v1/approvals/{id}/decision` | approver | Approve (optionally choosing another option of the same offer) or reject | Core 3 |
 | `GET /v1/audit?order_id=&reader=buyer\|supplier` | agent, approver, supplier | The audit trail as one reader sees it | Audit trail |
 | `POST /v1/requests/parse` | agent | Free text → typed request (Gemini structured output). Two headers say who read it: `TTA-Read-By`, `TTA-Reading-Source` | 20% match |
-| `POST /v1/requests/read-image` | agent | A photo of an order list → Gemini's transcription → the same parser and text check. Being added (task T18) <!-- check: T18 --> | 20% match |
+| `POST /v1/requests/read-image` | agent | A photo of an order list → Gemini's transcription, returned to be shown → the same parser and text check (task T18, `812de0f`) | 20% match |
 | `POST /v1/agent/run` | demo | Runs the buyer agent on a pasted request and returns its tool-call trace | 30% |
 | `GET /v1/schemas` | anyone | JSON Schema of every model | 15% |
 | `GET /openapi.json`, `/docs` | anyone | Generated OpenAPI | 15% |
@@ -164,7 +164,7 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 4. Every option carries: its lines; totals (net, tax from `tax.taxRate`, gross; `excludes_deposits`; `is_ceiling` for variable weight); coverage (requested, covered, fill ratio); `valid_until` = the earliest price `validTo` and `closingTime` of its lines; **constraint checks** — one per thing the buyer asked for (product type, quantity, needed-by date, each claim, each allergen exclusion, pack), each `MET`, `NOT_MET` or `UNVERIFIED` with a sentence; and **the policy verdict for that option** (§7), so the agent knows before ordering what it may do alone.
 5. The offer records where its data came from (`live` or `replay`) and the `timeNow` it was built against.
 
-**Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recorded copy has no answer for the product; never presented as Valio's statement). Being added (task FIX-12a): until it lands, such a product reads as `NOT_DELIVERABLE`. <!-- check: FIX-12a -->
+**Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recorded copy has no answer for the product; never presented as Valio's statement; its price, quantity and delivery date read `UNKNOWN`; task FIX-12a, `9a1893d`).
 
 ### Substitutes
 - **Candidates:** the pairs Valio lists (250 pairs on 189 products) as a seed, then the same 5-digit category, then the same first 4 digits, then the same first 3. Every candidate is re-checked for price and availability.
@@ -172,7 +172,7 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 - Each result says in one sentence what the buyer gives up, from what the data shows: claims of the original it does not carry (every claim, dietary or not), another brand, not listed by Valio, another category, another pack size, a higher price, and a quantity Valio does not confirm. A lower price is not mentioned: it is not given up.
 - A substitute that lacks a **dietary** claim of the original (`claims_lost`) ranks after those that keep every one, and ordering it always needs a human (F-08). Dietary claims are 8 codes (`DIETARY_CLAIMS`, decided at T07-7): `FREE_FROM_LACTOSE`, `LOW_LACTOSE`, `FREE_FROM_GLUTEN`, `FREE_FROM_WHEAT`, `FREE_FROM_EGGS`, `FREE_FROM_SOY`, `VEGAN`, `VEGETARIAN`. Losing any other claim, for example `LOW_SODIUM_SALT` or `FREE_FROM_PRESERVATIVES`, is named in the sentence above and fires no rule.
 - Substitutes are looked for only on a line that names product ids (`src/tta/offers/planning.py`); a product-type line never gets one.
-- The substitutes route (`POST /v1/products/{id}/substitutes`) applies the substitution rule of §6, not the buyer's own exclusion rule, so it can call a product orderable that the buyer's offer excludes. Judging each candidate as the offer would is being added (task FIX-12b). <!-- check: FIX-12b -->
+- The substitutes route (`POST /v1/products/{id}/substitutes`) applies the substitution rule of §6 and judges each candidate by the buyer's own exclusion rule, confirmed-only included, as the buyer's offer does (task FIX-12b, `baa4e08`): the ward's list excludes what the ward's offer excludes, with the same reason code and sentence.
 
 ---
 
@@ -190,7 +190,7 @@ Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_
 | `UNDECLARED`, or no statement | to a human (dietitian) | passes, shown as unverified |
 
 - Conflicting statements on one product: the least safe one counts.
-- **The product's own ingredient list counts as a statement** (being added, task FIX-12a; until it lands, only the declaration counts). <!-- check: FIX-12a --> When `keyIngredients` names an excluded allergen (in capitals, as EU labelling requires, or by its usual words) or says "may contain" it, while the declaration says `FREE_FROM`, the product goes to a dietitian with a sentence quoting both (found on `465793`, an almond drink declared free from tree nuts).
+- **The product's own ingredient list counts as a statement** (task FIX-12a, `9a1893d`). When `keyIngredients` (English, else Finnish) names an excluded allergen or a member of its family (English words in any case, Finnish forms at the start of a word) or says "may contain" it, while the declaration says `FREE_FROM`, `UNDECLARED` or nothing, the finding is `MAY_CONTAIN`: the product goes to a dietitian, under either strictness, with a sentence quoting both (found on `465793`, an almond drink declared free from tree nuts). A free-from wording ("lactose-free", "does not contain") is not a mention.
 - A "no gluten" exclusion (`AW`) and a product that declares oats (`GO`): to a human, whatever else it states.
 
 **Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen that the original does not declare, and must not raise an allergen from `MAY_CONTAIN` to `CONTAINS`. This holds for every buyer, with or without exclusions.
@@ -289,18 +289,18 @@ POST /v1/orders ─► re-check price and availability
 - **Checked against the text:** before the typed request is built, the reading's quantity, unit, needed-by date, exclusions, confirmed-only and product ids are compared with the text (`src/tta/agent/textcheck.py`); a disagreement is asked once more, then refused as `invalid-request`. Each reading says who read it: the model, a recording, or a hand-written answer (task FIX-9).
 - **Run:** a function-calling loop over the gateway's own tools: read authority → get offer → place the order → report what happened and why. The gateway accepts only the option ranked 1 of the latest offer, and at most two offers per run. The gateway, not the model, decides whether the order goes through.
 - **Without a key:** the same loop runs on recorded model outputs for the demo scenarios, each served only for the profile it was recorded for, and the typed request can be posted directly.
-- **Being added (task T18):** Finnish sentences for scenarios 1 and 2, and a photo of an order list read in two steps (transcription shown to the person, then the parser and text check). <!-- check: T18 -->
+- **Finnish, Swedish and a photo (task T18, `812de0f`):** a request in Finnish or Swedish is read by the same rules; the Finnish sentences for scenarios 1 and 2 read to the same typed requests. A photo of an order list is read in two steps: the transcription is shown to the person, then the parser and text check read it. Their recordings, and the brief's own sentence (`8cd94c2`), are written by hand and labelled `hand-built`.
 - Text from the product file or the API reaches the model only as data, never as instructions.
 
 ## 12. Pages
 
 | Page | Shows |
 |---|---|
-| `/` | Paste a request, choose who is asking, run. Then: the parsed request, the offer (options with a mark per claim, the constraint checks, the exclusions with reasons), the verdict, and the order or "sent for approval". Being added (task T18): a photo upload and a fourth example for the dietitian's approval <!-- check: T18 --> |
+| `/` | Paste a request, choose who is asking, run. Then: the parsed request, the offer (options with a mark per claim, the constraint checks, the exclusions with reasons), the verdict, and the order or "sent for approval". A photo upload, and a fourth example for the dietitian's approval (task T18) |
 | `/approvals` | Pending approvals as cards: the options, why a human is needed, "order by" time, approve (with option choice) or reject with a note |
 | `/orders/{id}` | The order record and its audit trail, switchable between the buyer's and the supplier's view |
 | `/assumptions` | The assumptions and next steps page |
-| `/kitchen` | "My kitchen": the browser's own buyer profile, set on a form and validated like a profile file. Being added (task FEAT-1) <!-- check: FEAT-1 --> |
+| `/kitchen` | "Your kitchen", in the menu: the browser's own buyer profile `my-kitchen`, set on a form and checked as a profile file is, with "My kitchen agent" and three approvers bound to it. REST and MCP never see it (task FEAT-1, `b91e135`) |
 
 The first screen must show at a glance what is confirmed, what is not, and what was excluded and why.
 

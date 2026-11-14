@@ -70,13 +70,13 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
 | `availability/` | The six states; the status of each claim; sentences | functions | — |
 | `policy/` | Rules file, buyer profiles, deterministic engine, policy hash | `PolicyEngine` | — |
 | `offers/` | Candidates → options; ranking; combining; substitutes; re-check before an order | `OfferBuilder`, `OfferRevalidator` | `Catalog`, `ValioGateway`, `PolicyEngine`, `Clock` |
-| `store/` | SQLite repository; Aiven PostgreSQL repository with database triggers that refuse changes to audit events, buyer and supplier views and a read-only supplier role (task S1, committed, not yet deployed); SQLite when the database cannot be reached at start <!-- check: S1 --> | `Store` | — |
+| `store/` | SQLite repository; Aiven PostgreSQL repository with database triggers that refuse changes to audit events, buyer and supplier views and a read-only supplier role (task S1, `67f3b00`); SQLite when the database cannot be reached at start, and `/healthz` names the reason (`7b93821`) | `Store` | — |
 | `evidence/` | Context.dev Answers: one lookup per product, checked against its sources and the product's name and brand, stored once; recordings answer without a key (task S2) | `EvidenceFinder` (a protocol in `orders/service.py`) | `Catalog` |
 | `audit/` | Events, hash chain, sentences from templates, buyer and supplier views | `AuditSink` | `Store` |
 | `orders/` | Order-time check, approvals, expiry, idempotency, the day's spend, evidence on an approval | `OrderService` | `OfferRevalidator`, `PolicyEngine`, `Store`, `AuditSink`, `Clock`, `EvidenceFinder` |
 | `api/` | FastAPI app, REST routes, identity, limits (per browser on the pages, per address, overall), problem details, OpenAPI, MCP surface, fall-back from live to replay, one order book per browser (`sandbox.py`) | `GatewayService` (`service.Gateway`) | all of the above |
-| `agent/` | Gemini: request parser, a check of every reading against the text, readings labelled by who read them, buyer-agent loop; recorded answers when there is no key. Being added (task T18): photo transcription and Finnish input <!-- check: T18 --> | `RequestParser`, `AgentRunner` | `GatewayService` |
-| `ui/` | Server-rendered pages: request, approvals (with the evidence card), order and audit trail, assumptions. Being added (task FEAT-1): `/kitchen`, the browser's own buyer profile <!-- check: FEAT-1 --> | — | `GatewayService` |
+| `agent/` | Gemini: request parser, a check of every reading against the text, readings labelled by who read them, buyer-agent loop; a photo of an order list read in two visible steps (Gemini's transcription is shown, then the same parser and text check read it), and requests in Finnish or Swedish (task T18, `812de0f`); recorded answers when there is no key | `RequestParser`, `AgentRunner` | `GatewayService` |
+| `ui/` | Server-rendered pages: request (text or a photo), approvals (with the evidence card and, per line, the allergen finding and what a substitute gives up), order and audit trail, assumptions, and `/kitchen` ("Your kitchen", in the menu; task FEAT-1, `b91e135`), the browser's own buyer profile | — | `GatewayService` |
 
 ## Ports
 

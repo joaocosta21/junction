@@ -19,7 +19,7 @@ The demo of the Trusted Trade Agents gateway, click by click: three scenarios an
 - **Each browser has its own demo order book.** Every page says, in one line under the header: "Your own demo order book: nothing you do here is seen by other visitors, and it commits nobody." Each browser session of the pages gets its own in-memory order book (orders, approvals, audit trail), so one visitor's orders never count in another's day and never appear on another's approvals page. A new browser (or a private window) starts empty. The **Start again** button next to that line empties this browser's book and no other. The book lives in memory: a restart empties every book. At most 300 books are kept, and a book idle for 2 hours is dropped.
 - **Why an empty book matters:** the daily spend limit (P-02) counts the buyer's orders of the data clock's date. In replay that date never ends, so a second run in the same book changes the outcome: the fourth scenario 2 goes to finance, a second scenario 1 needs finance as well, and scenario 3 is ordered alone only while the hotel's day stays under €3,000. If an outcome differs from this script, press **Start again**. `tests/e2e/test_demo_script.py` shows the same on the shared book of the REST API.
 - **The REST API and MCP keep one shared order book**, the one of their tokens, in the database file. The pages do not show it, and it does not see the pages' books. To start that book from empty, delete the database file and restart (below).
-- **No Gemini key** (`GEMINI_API_KEY=` empty): scenarios 1 and 2 are then read and run from the recordings in `fixtures/agent/`. Both readings and scenario 2's run were recorded from `gemini-3.6-flash` on 14 Nov; scenario 1's run is still written by hand. The page names where the answers came from: "Run from answers written by hand, not by a model: no live model call." for scenario 1 and "Run from a recording of the model's earlier answers: no live model call." for scenario 2. With a key set, a run served from a recording because Gemini did not answer says "Gemini did not answer, so this run was served from …". With a key set, the buyer agent calls Gemini, and a slow model holds the page. If Gemini cannot be reached, a recorded sentence is answered from its recording, and the run's report says so.
+- **No Gemini key** (`GEMINI_API_KEY=` empty): scenarios 1 and 2 are then read and run from the recordings in `fixtures/agent/`. Both readings and scenario 2's run were recorded from `gemini-3.6-flash` on 14 Nov; scenario 1's run is still written by hand. So are, labelled `hand-built`, the reading and the run of the brief's own sentence ("I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.", hotel kitchen), the readings of the two Finnish sentences, and the transcription and reading of the demo photo (Gemini answered 503 and 504 when those were to be recorded, task T18). The page names where the answers came from: "Run from answers written by hand, not by a model: no live model call." for scenario 1 and "Run from a recording of the model's earlier answers: no live model call." for scenario 2. With a key set, a run served from a recording because Gemini did not answer says "Gemini did not answer, so this run was served from …". With a key set, the buyer agent calls Gemini, and a slow model holds the page. If Gemini cannot be reached, a recorded sentence is answered from its recording, and the run's report says so.
 
 ```sh
 rm -f var/demo.sqlite3
@@ -28,9 +28,9 @@ GEMINI_API_KEY= TTA_ENV=demo TTA_MODE=replay TTA_DB_PATH=var/demo.sqlite3 \
 ```
 Open `http://127.0.0.1:8000/`. `TTA_ENV=demo` is required: without it the app runs as `prod`, which has no demo tokens and does not start. Deleting `var/demo.sqlite3` empties the shared book of the REST API and MCP; the pages' books are in memory and start empty anyway.
 
-**Live mode** is `TTA_MODE=live` (the Valio key and base URL come from the environment). Every offer then says `live` or `replay`. If the mock cannot answer, the call budget runs low, or more than 6 looks a minute are asked for (2 from one visitor), the capture answers and the page shows the replay label.
+**Live mode** is `TTA_MODE=live` (the Valio key and base URL come from the environment). Every offer then says `live` or `replay`. If the mock cannot answer, the call budget runs low, or more than 6 looks a minute are asked for (2 from one address), the capture answers and the page shows the replay label.
 
-**Limits for one visitor** (one address, whichever demo token or browser it uses), per minute: 20 offers and substitute searches, 20 orders and approval decisions, 5 request readings and agent runs. Above that the answer is "Too many requests" with the time to wait. An example button still runs when the agent is held back by the limit on model calls: it says "The buyer agent could not run: Too many request readings and agent runs from one visitor…" and goes on with its typed request. Everyone behind one network address (the venue Wi-Fi, one laptop) shares these windows. To switch back to replay, restart with `TTA_MODE=replay` (on Modal, set the same variable; see `docs/DEPLOY.md`).
+**Limits**, per minute (`src/tta/api/limits.py`, illustrative): for one browser on the pages (by its own-book cookie), or one address on REST and MCP, 20 offers and substitute searches, 20 orders and approval decisions, 5 request readings and agent runs; for one address, all its browsers and callers together, 60, 60 and 15; for the whole app, 120, 120 and 30. At most 30 new own order books per address in 10 minutes. Above a limit the answer is "Too many requests" with the time to wait. An example button still runs when the agent is held back by the limit on model calls: it says "The buyer agent could not run: Too many request readings and agent runs from one visitor…" and goes on with its typed request. Everyone behind one network address (the venue Wi-Fi, one laptop) shares the per-address windows; each browser still has its own. To switch back to replay, restart with `TTA_MODE=replay` (on Modal, set the same variable; see `docs/DEPLOY.md`).
 
 **Who is asking.** Both buyer profiles are illustrative and ours. The page says so, and the mock has no customer limits.
 | Agent | May order alone up to | Also |
@@ -41,8 +41,8 @@ Open `http://127.0.0.1:8000/`. `TTA_ENV=demo` is required: without it the app ru
 ## Scenario 1: hotel kitchen, "1,000 litres of lactose-free milk by Monday"
 
 1. **Click** "Scenario 1 · hotel kitchen". The example brings its own agent, the hotel kitchen. The browser opens at the summary strip.
-   - Green **Confirmed**: "3 confirmed products cover the 1,000 L asked for, for €2,580.64 before tax."
-   - Yellow **Not confirmed**: "… (464306) for the 1,000 L asked for, €1,010.00 before tax. Valio does not confirm the quantity in stock, so a human must approve this option."
+   - Green **Every claim confirmed**: "3 confirmed products cover the 1,000 L asked for, for €2,580.64 before tax."
+   - Yellow **A claim not confirmed**: "… (464306) for the 1,000 L asked for, €1,010.00 before tax. Valio does not confirm the quantity in stock, so a human must approve this option."
    - Red **Excluded**: "19 products, each with its reason: 17 × Cut-off passed, 1 × Portion pack, 1 × Not deliverable."
    - **Outcome**: "? Sent for approval".
    *Scores on:* 30% (one flow from request to approval) · 15% (unknown stock and passed cut-offs are handled, not hidden).
@@ -59,8 +59,8 @@ Open `http://127.0.0.1:8000/`. `TTA_ENV=demo` is required: without it the app ru
 ## Scenario 2: allergy ward, "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
 
 1. **Go back to Request, click** "Scenario 2 · allergy ward". The example brings the allergy ward agent.
-   - **Confirmed**: "1 confirmed product covers the 200 L asked for, for €402.00 before tax."
-   - **Not confirmed**: "Nothing unconfirmed is offered."
+   - **Every claim confirmed**: "1 confirmed product covers the 200 L asked for, for €402.00 before tax."
+   - **A claim not confirmed**: "Nothing unconfirmed is offered."
    - **Excluded**: "41 products, each with its reason: 18 × Declares an excluded allergen, 12 × Cut-off passed, 6 × Not deliverable, 5 × Allergen not stated."
    - **Outcome**: "✓ Ordered by the agent".
    *Scores on:* 20% controls (the autonomous path).
@@ -71,11 +71,11 @@ Open `http://127.0.0.1:8000/`. `TTA_ENV=demo` is required: without it the app ru
 
 ## Scenario 3: substitutes, "100 litres of Oddlygood Barista oat drink, product 473609, by Monday"
 
-Asked by the hotel kitchen agent. The sentence has no recording, so the page uses the example's typed request and says so: "The buyer agent could not run: No GEMINI_API_KEY is set, so the gateway can read only the 3 recorded demonstration requests, and this is not one of them." · "Read from the typed request of this example, not from a model's reading." The substitutes are looked up once, when the request runs; reloading the result looks nothing up again.
+Asked by the hotel kitchen agent. The sentence has no recording, so the page uses the example's typed request and says so: "The buyer agent could not run: No GEMINI_API_KEY is set, so the gateway can read only the 7 recorded demonstration requests, and this is not one of them." · "Read from the typed request of this example, not from a model's reading." The substitutes are looked up once, when the request runs; reloading the result looks nothing up again.
 
 1. **Click** "Scenario 3 · substitutes".
-   - **Confirmed**: "Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT (475224) in place of Oddlygood® Barista oat drink 1 l UHT gluten free (473609): the 100 L asked for, for €174.00 before tax."
-   - **Not confirmed**: `473609` itself, €137.00, which needs a human (F-01).
+   - **Every claim confirmed**: "Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT (475224) in place of Oddlygood® Barista oat drink 1 l UHT gluten free (473609): the 100 L asked for, for €174.00 before tax."
+   - **A claim not confirmed**: `473609` itself, €137.00, which needs a human (F-01).
    - **Outcome**: "✓ Ordered by the agent".
 2. **Option 1 "? Substitute"** says what the buyer gives up: "it does not carry the original's nutritional claim FREE_FROM_PRESERVATIVES; the brand is Fazer Aito, not Oddlygood®; Valio does not list it as a substitute; it costs €0.37 more per L". The check reads "✕ Product asked for: not met". The verdict: "✓ The agent may order alone … today's spend would be €2,754.64 of the €3,000 limit per day". That holds only after scenario 1 has been run once. *Scores on:* 15% (substitution) · 20% (the profile allows substitutes of the same category).
 3. **"Substitutes, ranked"** under "Listed by Valio Aimo as substitutes: 3":
@@ -104,6 +104,8 @@ The REST answers are the record: the order is `PENDING_APPROVAL`. The pages do n
 ## Extra moments for the Q&A (typed requests, `/docs` or curl)
 
 - **Partial fill:** scenario 1 with `"quantity": 1500`. Option 1 is 384 + 51 + 698 = 1,133 L for €2,933.09: "3 confirmed products cover 1,133 L of the 1,500 L asked for (367 L missing)". The quantity check shows "NOT_MET", and P-01 and P-03 fire (75.5%, below the 90% minimum). The unconfirmed alternative is 1,500 × `464306`. *Scores on:* 15% (partial availability).
+- **The ingredient list is read:** the hotel kitchen asks for `465793` (Alpro Barista Almond drink) with tree nuts `AN` excluded, strict. The product declares tree nuts free from, but its ingredient list names almond, so it goes to the dietitian (P-04) with a sentence quoting both (task FIX-12a; question ALMOND-1).
+- **Cream is dairy cream:** as the hotel kitchen, a typed request for 10 L of product type `cream` picks `463797` Arla Pro Cooking cream 10%, €33.10, ordered by the agent alone. The 9 vegetable-fat blends of category 10401 are type `vegetable_cream` and are not offered for `cream` (task FIX-12a).
 - **An agent cannot approve:** `POST /v1/approvals/<approval_id>/decision` with `Authorization: Bearer demo-agent-hotel-kitchen` answers 403 `application/problem+json`, type `…/not-authorised`: "An agent cannot approve or reject an order (F-06). A human with the role asked for decides." The attempt is written to the audit trail (`authorisation.refused`).
 - **A retry places one order:** send the same `POST /v1/orders` twice with the same `Idempotency-Key`. The second answer is the first order. On the pages, a form sent twice (or re-sent after an error page) shows its first result: each form submission orders with one key of its own.
 - **Who read the text:** `POST /v1/requests/parse` answers the typed request with two headers, `TTA-Read-By` and `TTA-Reading-Source`. With no key, scenario 1's sentence answers `gemini-3.6-flash` and `recording`.

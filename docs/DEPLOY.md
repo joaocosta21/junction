@@ -121,18 +121,28 @@ If a check fails, read the logs with `.venv/bin/modal app logs trusted-trade-age
 - Modal bills per second only while a container runs. CPU and memory are charged on whichever is higher, the request or the actual use (Modal docs, "Resources").
 - At the listed prices ($0.0000131 per physical core per second, $0.00000222 per GiB per second, Modal pricing page), one running hour of this container (1 core, 1 GiB) costs about $0.055. Each idle tail of 10 minutes costs about $0.01. The Starter plan includes $30 of credits a month.
 - The call budget caps calls to the Valio mock at 120 (`TTA_VALIO_CALL_BUDGET` in `IMAGE_ENV`: the human approved 150 for the overnight run and 10 were used before the deployment). The count is kept on the Volume, so it holds across restarts and is separate from the count on a laptop. When fewer than 10 calls are left, the capture answers. Raising the budget means setting that variable in `IMAGE_ENV`, or deleting `valio_call_budget.json` from the Volume while no container runs.
-- Calls to Gemini are limited by the gateway's own ceiling of 30 model calls a minute (FIX-8).
+- Calls to Gemini are limited by the gateway's own limits on request readings and agent runs: 5 a minute per browser (or per address without the pages' cookie), 15 per address, 30 for the whole app (`src/tta/api/limits.py`).
 
 ## Per-visitor rate limits behind Modal
 
-`tta.api.limits.client_key_of` uses the direct peer as the visitor's key. Only when the peer is a private or loopback address does it use the first `X-Forwarded-For` address instead.
+The limits, per minute, in one process's memory (`src/tta/api/limits.py`, all illustrative):
+
+| Kind of call | Per visitor | Per address | Whole app |
+|---|---|---|---|
+| Offers and substitute searches | 20 | 60 | 120 |
+| Orders and approval decisions | 20 | 60 | 120 |
+| Request readings and agent runs | 5 | 15 | 30 |
+
+- **Who a visitor is.** On the pages, a browser, known by its own-book cookie. On REST and MCP, and for a browser without the cookie, its address. The per-address column counts all browsers and callers of one address together.
+- **Other limits.** At most 30 new own order books per address in 10 minutes (`src/tta/api/sandbox.py`). Live looks at the mock: 6 a minute for the whole app, 2 per address; above that the capture answers, labelled `replay` (`src/tta/api/fallback.py`). A token from the environment, outside the demo: 60 calls a minute per token.
+- **The address.** `tta.api.limits.client_key_of` keys on the direct peer; an IPv6 address counts by its /64. `X-Forwarded-For` is read only when `TTA_TRUSTED_PROXY_HOPS` is set (`src/tta/config.py`, default 0, at most 10): with N, the N-th entry from the right, the address the outermost trusted proxy saw. Entries a caller wrote further left are never read, and a header with fewer entries leaves the peer. `deploy/modal_app.py` does not set it, so on the deployed app after the final redeploy the header is never read. <!-- check: deploy -->
 
 - **What the app sees on Modal.** The Modal docs ("Web endpoints", section "Client IP address") say: "You can access the IP address of the client making the request. This can be used for geolocation, whitelists, blacklists, and rate limits." Their example reads `request.client.host`, which is the ASGI scope's `client`. In the Modal client's own runtime (`modal/_runtime/asgi.py`, `_add_forwarded_for_header`), a comment says Modal strips `X-Forwarded-For` from the scope. That comment sits in the code that proxies `@modal.web_server`, and it is the only place where the header is mentioned.
-- **So the rule will see each visitor, with nothing to change.** The peer is the visitor's own public address, which is neither private nor loopback, so `client_key_of` keys on it and never reads the header. This is inferred from the documentation and not observed. FIX-8's live check confirms it: set the limit to 2 and send three offers with `demo-agent-allergy-ward` from two phones on different networks. Each phone should get 201, 201, 429. That check spends live Valio calls.
-- **Shared addresses share a window.** Visitors behind one NAT, such as a venue Wi-Fi or a carrier-grade NAT, share one window of 60 calls a minute per demo identity. The global ceilings still apply to everyone together.
+- **So the rule will see each address, with nothing to change.** The peer is the visitor's own public address, and with no trusted proxy hop `client_key_of` keys on it and never reads the header. This is inferred from the documentation and not observed. FIX-8's live check confirms it: set the limit to 2 and send three offers with `demo-agent-allergy-ward` from two phones on different networks. Each phone should get 201, 201, 429. That check spends live Valio calls.
+- **Shared addresses share a window.** Visitors behind one NAT, such as a venue Wi-Fi or a carrier-grade NAT, share the per-address windows (60, 60 and 15 a minute). On the pages each browser also has its own window of 20, 20 and 5, so one browser cannot use up the address's share. The whole-app ceilings apply to everyone together.
 - **If an observation contradicts this:**
-  - If the peer turns out to be a private proxy address, the rule already falls back to `X-Forwarded-For`. That only helps if Modal sends the header.
-  - If the peer is one shared public address, nothing in the header can tell visitors apart unless Modal sets one. In that case the only change is the one FIX-8 names: in `client_key_of`, trust the first `X-Forwarded-For` address from any peer that is not a global address. That only helps if Modal sends the header, which its client source says it strips.
+  - If the peer turns out to be a proxy address that Modal puts in front of every visitor, set `TTA_TRUSTED_PROXY_HOPS` to the number of proxies that append to `X-Forwarded-For`. That only helps if Modal sends the header, which its client source says it strips.
+  - Without the header, the pages still tell browsers apart by their cookie; REST and MCP callers behind one address share its windows.
 
 ## The order book on the pages
 
@@ -142,7 +152,7 @@ Checked in the templates and not changed, because the pages are T12's:
 
 ## Known limits of this deployment
 
-- **One order book for every visitor.** The day's spend of each demo buyer adds up in one database (T12, question 1). At tonight's prices, scenario 2 (€402) is ordered by the agent alone three times in a day within the ward's illustrative €1,500 daily limit. From the fourth run it goes for approval. Scenario 1 and the hotel kitchen's €3,000 behave the same way. In live mode "today" is the real date. To start the judging day on an empty book, use the steps in "Start an empty order book" above.
+- **One order book for REST and MCP.** On the pages each browser has its own book in memory, but REST and MCP callers share one database, where the day's spend of each demo buyer adds up (T12, question 1). At tonight's prices, scenario 2 (€402) is ordered by the agent alone three times in a day within the ward's illustrative €1,500 daily limit. From the fourth run it goes for approval. Scenario 1 and the hotel kitchen's €3,000 behave the same way. In live mode "today" is the real date. To start the judging day on an empty book, use the steps in "Start an empty order book" above.
 - **SQLite copy.** Writes made in the last second before a crash can be lost, as can writes made around a redeploy.
 - **The call budget's lock on the Volume.** `CallBudget` locks its file with `fcntl.flock` in the data directory, which is on the Volume. Modal does not document file locks inside one container. If the lock fails, every live call is refused, the capture answers (`source: replay`) and the log says "could not be saved to valio_call_budget.json". The fix is a different data directory on local disk, at the cost of a budget that resets on every container start.
 - **Gemini.** With `GEMINI_API_KEY` set, a scenario click waits on the live model, and a whole run has no deadline (T10, T12). Modal answers a request for at most 150 s, then redirects (Modal docs, "Request timeouts").
@@ -153,7 +163,7 @@ Checked in the templates and not changed, because the pages are T12's:
 
 - Modal hosts the whole gateway (REST, MCP and the pages) behind one public HTTPS URL, deployed with one command from plain Python, with no Dockerfile or YAML.
 - The image is defined in code with pinned libraries. The code and data files are added at container start.
-- Secrets: only the three values the app reads go into a Modal Secret, built from the local configuration at deploy time. They are never in the image, the code or the repository.
+- Secrets: only the values the app reads go into a Modal Secret, built from the local configuration at deploy time: the Valio key and base URL and the Gemini key, and since `cf6681f` the database URL and the Context.dev key, which reach the deployed app at the final redeploy. <!-- check: deploy --> They are never in the image, the code or the repository.
 - A Modal Volume keeps the order book and audit trail (as a copy committed after each change), the Valio call budget and the recordings of live answers, across restarts and scale-to-zero.
 - Cost guard: one container, scale to zero, per-second billing, no GPU.
 - It cannot claim GPU work, an open model, Sandboxes, fine-tuning or a batch fan-out. The model runs on Google's Gemini API. By the brief's own bar this is a light use of Modal.

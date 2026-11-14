@@ -35,8 +35,8 @@ Stage pitch: 3 minutes, then 3 minutes of questions. Run in replay from an empty
 
 Each can replace a beat above; none is in the 3-minute plan yet.
 - **The dietitian's evidence card** (built and wired, S2). The hotel asks for 100 L of Elovena barista oat drink `469512` without milk. Valio's data says nothing about milk, so P-04 alone sends it to the dietitian, whose card shows the maker's page: *Maidoton*, milk-free, labelled as not Valio data. "The web informs the human who signs; it never makes the order go through." 20% controls.
-- **A photo of an order list, or an order in Finnish** (being added, T18). Gemini transcribes the photo, the transcription is shown, then the same parser and text check read it. 20% match. <!-- check: T18 -->
-- **"My kitchen"** (being added, FEAT-1). Raise the per-order limit to €3,000 and scenario 1 is ordered by the agent alone; set it back to €750 and it goes to the purchasing manager. The fixed rules stay on whatever is set. 20% controls, Core 3. <!-- check: FEAT-1 -->
+- **A photo of an order list, or an order in Finnish** (T18). Gemini transcribes the photo, the transcription is shown, then the same parser and text check read it. Not yet checked with Gemini live: the demo photo and the Finnish sentences answer from hand-built recordings, and the page says so. 20% match.
+- **"Your kitchen"** (`/kitchen`, in the menu; FEAT-1). As "My kitchen agent", raise the per-order limit to €3,000 and scenario 1 is ordered by the agent alone; set it back to €750 and it goes to the purchasing manager. The fixed rules stay on whatever is set. 20% controls, Core 3.
 
 ### Likely questions, and the short answer
 
@@ -87,7 +87,7 @@ Fields from the checklist in `CLAUDE.md`. Fields that need a person's details ar
 >
 > Every step is written as a CloudEvents event with one readable sentence, hash-chained, with one view for the buyer and one for Valio Aimo. When Valio's data says nothing about an excluded allergen, the dietitian who must sign sees what the manufacturer's own web page says, labelled as not Valio data. A Gemini agent reads the buyer's words into the typed request, every reading checked against the text, and drives the flow through the same functions; it never sets a price, a quantity or a verdict. Every assumption we made about the mock is listed with its reason on an assumptions page.
 
-**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards (the team decides): Google DeepMind — Best Use of Gemini API; Best Use of Modal; Context.dev (write-up in `docs/AWARDS.md`); Aiven, once its part is on the deployed app. <!-- check: S1 -->
+**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards (the team decides): Google DeepMind — Best Use of Gemini API; Best Use of Modal; Context.dev (write-up in `docs/AWARDS.md`); Aiven, once its part is on the deployed app. <!-- check: deploy -->
 
 **Technologies used** (draft): Python 3.13, FastAPI, Pydantic v2, Uvicorn, SQLite, Jinja2, httpx, PyYAML, Google Gemini API (`google-genai`, `gemini-3.6-flash`), Model Context Protocol (official Python SDK), Modal, Context.dev Answers API, Aiven for PostgreSQL (psycopg 3), OpenAPI 3.1, JSON Schema 2020-12, CloudEvents 1.0, RFC 9457 problem details, GS1 allergen code lists, pytest, ruff.
 
