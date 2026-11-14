@@ -1,0 +1,304 @@
+# AIMO guardrail policy — what the purchasing agent may do alone vs. what needs a human.
+#
+# Owner: Bio 2 (guardrails & audit). Draft for Fase 0; values marked TEAM: are open decisions.
+#
+# This file is DATA. The engine (Fase 1) only reads it — no rule is hard-coded.
+#   * Every rule is evaluated deterministically. No LLM decides a verdict, price or quantity.
+#   * Verdicts combine by severity: the most severe one wins.
+#   * If a fact a rule needs is missing, the rule does NOT silently pass: it yields `on_missing_fact`.
+#   * The SHA-256 of this file's canonical form is written into every audit event (see LOG-FORMAT.md),
+#     so "which rules were in force when this was approved" is always answerable.
+
+policy_id: aimo-default
+version: 0.1.0
+
+verdicts:
+  # Ordered from least to most severe. The most severe verdict across all fired rules wins.
+  - AUTO        # agent places the order on its own
+  - APPROVAL    # goes to a human with role `approver_role`
+  - BLOCK       # cannot be ordered, not even with approval
+
+defaults:
+  verdict_when_no_rule_fires: AUTO
+  on_missing_fact: APPROVAL   # missing ≠ good: never auto-order on data we don't have
+
+params:
+  auto_spend_cap_eur: 750          # TEAM: €750 → the canonical milk order (€1,010) escalates; €1,500 → it goes AUTO
+  daily_spend_cap_eur: 3000        # TEAM: rolling cap per customer per day, closes the "many small orders" hole
+  min_fill_ratio: 0.9              # partial fill below 90% of the requested quantity needs a human
+  sentinel_qty_threshold: 100      # above this many sales units, an unverifiable stock figure needs a human
+
+roles:
+  purchasing_manager: "Kitchen / purchasing manager — spend and substitution decisions"
+  dietitian: "Dietitian or clinical nutrition lead — allergen decisions"
+  finance: "Finance — incomplete totals and cumulative spend"
+
+allergen_policies:
+  # Declared by the buyer in every request. TEAM: proposal is that it is REQUIRED with no default.
+  REQUIRE_EXPLICIT_FREE_FROM: "Only products that explicitly state FREE_FROM (hospitals, schools)"
+  REJECT_CONTAINS_AND_MAY_CONTAIN: "Reject CONTAINS and MAY_CONTAIN; silent products allowed"
+  REJECT_CONTAINS_ONLY: "Reject CONTAINS; MAY_CONTAIN goes to a dietitian"
+
+approval:
+  # An approval is only valid while the price is.
+  expires_at: "min(price_valid_to, closing_time)"
+  # Every Terminal product reports closingTime 2026-11-12T15:00 (already past) while claiming
+  # delivery on 2026-11-16. We do not block on it: we fall back to price_valid_to and log a trust finding.
+  when_closing_time_contradicted: price_valid_to
+
+# ---------------------------------------------------------------------------
+# Facts: every value a rule may read, who provides it, and whether it exists yet.
+# The test checks that every rule only uses declared facts.
+#   source: bio1_catalog = AIMO/catalog_search.py candidate record (branch bio1)
+#           cs_price / cs_availability = gateway over POST /price and /availability
+#           request = buyer's request (agent intent parsing)
+#           engine = computed by the policy engine from the facts above
+#   status: exists = already produced today · todo = still needs to be added
+# ---------------------------------------------------------------------------
+facts:
+  # --- line level, from Bio 1's candidate record (names kept identical) ---
+  line.id:                     {type: string,  source: bio1_catalog, status: exists}
+  line.name:                   {type: string,  source: bio1_catalog, status: exists}
+  line.category:               {type: string,  source: bio1_catalog, status: exists}
+  line.sales_unit:             {type: string,  source: bio1_catalog, status: exists}
+  line.allowed_lot_size:       {type: number,  source: bio1_catalog, status: exists}
+  line.litres_per_sales_unit:  {type: number,  source: bio1_catalog, status: exists, nullable: true}
+  line.volume_source:          {type: enum, values: [catalog_volume, name_estimate, unknown], source: bio1_catalog, status: exists}
+  line.allergens:              {type: "map code→state", values: [CONTAINS, MAY_CONTAIN, FREE_FROM, SILENT], source: bio1_catalog, status: todo,
+                                note: "Four states. UNDECLARED (303 in catalog) → SILENT. Conflicting statements → least safe. Family-aware (AN, AW)."}
+  line.unspecified_allergen:   {type: bool,    source: bio1_catalog, status: todo, note: "X99 stated as CONTAINS or MAY_CONTAIN"}
+  line.variable_unit:          {type: bool,    source: bio1_catalog, status: todo, note: "synkkaData.variableUnit; 632 products true"}
+  line.has_deposits:           {type: bool,    source: bio1_catalog, status: todo, note: "deposits non-empty; 506 products"}
+  # --- line level, from the gateway (CS) ---
+  line.unit_price_ex_vat:      {type: number,  source: cs_price, status: todo, note: "catalogPrice.value"}
+  line.tax_rate:               {type: number,  source: cs_price, status: todo, note: "tax.taxRate — never the file vatCode"}
+  line.price_valid_to:         {type: datetime, source: cs_price, status: todo}
+  line.deliverable:            {type: bool,    source: cs_availability, status: todo, note: "scheduleLines non-empty — NOT salesBlock"}
+  line.available_amount_is_sentinel: {type: bool, source: cs_availability, status: todo, note: "999999 | 9999999999.0 | 666666666.0"}
+  line.closing_time_status:    {type: enum, values: [CONSISTENT, CONTRADICTED_BY_SOURCE, ABSENT], source: cs_availability, status: todo}
+  # --- line level, from the request / planner ---
+  line.qty_sales_units:        {type: number,  source: request, status: todo}
+  line.is_substitute:          {type: bool,    source: request, status: todo}
+  line.substitute_within_preferences: {type: bool, source: request, status: todo}
+  # --- order level ---
+  order.total_ex_vat:          {type: number,  source: engine, status: todo}
+  order.fill_ratio:            {type: number,  source: engine, status: todo, note: "delivered / requested quantity"}
+  order.day_spend_ex_vat:      {type: number,  source: engine, status: todo, note: "today's committed spend for this customer incl. this order"}
+  order.allergen_policy:       {type: enum, values: [REQUIRE_EXPLICIT_FREE_FROM, REJECT_CONTAINS_AND_MAY_CONTAIN, REJECT_CONTAINS_ONLY], source: request, status: todo}
+  order.constrained_allergens: {type: "list of codes", source: request, status: todo, note: "e.g. [AN] for a nut-free ward"}
+  order.quantity_in_litres:    {type: bool,    source: request, status: todo, note: "request is stated in litres (needs pack size)"}
+  # --- derived by the engine ---
+  line.constrained_allergen_states: {type: "list of states", source: engine, status: todo,
+                                     note: "state of each code in order.constrained_allergens on this line; absent code → SILENT"}
+  line.qty_is_lot_multiple:    {type: bool,    source: engine, status: todo, note: "qty_sales_units is a multiple of allowed_lot_size (0.01 = no constraint)"}
+
+# ---------------------------------------------------------------------------
+# Rules. `when` uses `all` / `any` lists of {fact, op, value}. Ops:
+#   eq, ne, gt, gte, lt, lte, in, not_in, is_true, is_false, contains_any, not_empty
+# `value` may reference a param: {param: name}.
+# `message` is the human-readable sentence written to the log; {placeholders} are facts or params.
+# ---------------------------------------------------------------------------
+rules:
+  - id: P-01
+    title: Order above the autonomous spend cap
+    scope: order
+    when:
+      all:
+        - {fact: order.total_ex_vat, op: gt, value: {param: auto_spend_cap_eur}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "Order total €{order.total_ex_vat} exceeds the €{params.auto_spend_cap_eur} autonomous spend cap."
+    justification: "Standard spend control; named in the brief as a guardrail example."
+
+  - id: P-02
+    title: Product contains a constrained allergen
+    scope: line
+    when:
+      all:
+        - {fact: order.constrained_allergens, op: not_empty}
+        - {fact: line.constrained_allergen_states, op: contains_any, value: [CONTAINS]}
+    verdict: BLOCK
+    message: "{line.name} contains an allergen the buyer excluded."
+    justification: "Defence in depth: matching should already exclude it; policy refuses even if it does not."
+
+  - id: P-03a
+    title: May contain a constrained allergen (strict policies)
+    scope: line
+    when:
+      all:
+        - {fact: order.constrained_allergens, op: not_empty}
+        - {fact: order.allergen_policy, op: in, value: [REQUIRE_EXPLICIT_FREE_FROM, REJECT_CONTAINS_AND_MAY_CONTAIN]}
+        - {fact: line.constrained_allergen_states, op: contains_any, value: [MAY_CONTAIN]}
+    verdict: BLOCK
+    message: "{line.name} may contain traces of an excluded allergen."
+    justification: "MAY_CONTAIN is undocumented in the schema but appears ~10,000 times; a two-value filter would treat it as safe."
+
+  - id: P-03b
+    title: May contain a constrained allergen (lenient policy)
+    scope: line
+    when:
+      all:
+        - {fact: order.constrained_allergens, op: not_empty}
+        - {fact: order.allergen_policy, op: eq, value: REJECT_CONTAINS_ONLY}
+        - {fact: line.constrained_allergen_states, op: contains_any, value: [MAY_CONTAIN]}
+    verdict: APPROVAL
+    approver_role: dietitian
+    message: "{line.name} may contain traces of an excluded allergen; a dietitian must confirm."
+    justification: "Buyer accepted trace risk, but a named person must own that decision."
+
+  - id: P-04
+    title: No allergen statement where explicit FREE_FROM is required
+    scope: line
+    when:
+      all:
+        - {fact: order.constrained_allergens, op: not_empty}
+        - {fact: order.allergen_policy, op: eq, value: REQUIRE_EXPLICIT_FREE_FROM}
+        - {fact: line.constrained_allergen_states, op: contains_any, value: [SILENT]}
+    verdict: BLOCK
+    message: "{line.name} has no allergen statement for an excluded allergen; absence of 'contains' is not proof of absence."
+    justification: "~59% of the catalog has no allergen statement at all."
+
+  - id: P-05
+    title: Unspecified allergen (X99) on an allergen-constrained order
+    scope: line
+    when:
+      all:
+        - {fact: order.constrained_allergens, op: not_empty}
+        - {fact: line.unspecified_allergen, op: is_true}
+    verdict: BLOCK
+    message: "{line.name} declares an unspecified allergen (X99), so no allergen can be certified absent."
+    justification: "X99 = 'other/unspecified' (121 CONTAINS in catalog); it cannot ground a safety claim."
+
+  - id: P-06
+    title: Variable-weight product
+    scope: line
+    when:
+      all:
+        - {fact: line.variable_unit, op: is_true}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} is sold by variable weight, so the final price cannot be fixed in advance."
+    justification: "632 products have variableUnit=true; a fixed-price commitment is impossible."
+
+  - id: P-07
+    title: Total incomplete because of deposits
+    scope: line
+    when:
+      all:
+        - {fact: line.has_deposits, op: is_true}
+    verdict: APPROVAL
+    approver_role: finance
+    message: "{line.name} carries a deposit with no published price, so the order total is incomplete."
+    justification: "506 products carry deposits; the 7 material codes resolve to no product and no price list exists."
+
+  - id: P-08
+    title: Substitute outside the buyer's preferences
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.substitute_within_preferences, op: is_false}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} replaces the requested product and falls outside the buyer's stated preferences."
+    justification: "Named in the brief: substitutions outside stated preferences need sign-off."
+
+  - id: P-09
+    title: Substitute within the buyer's preferences
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.substitute_within_preferences, op: is_true}
+    verdict: AUTO
+    message: "{line.name} replaces the requested product within the buyer's stated preferences."
+    justification: "This is the case we want automated; recorded so the log shows it was a deliberate decision."
+
+  - id: P-10
+    title: Partial fill below the minimum ratio
+    scope: order
+    when:
+      all:
+        - {fact: order.fill_ratio, op: lt, value: {param: min_fill_ratio}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "Only {order.fill_ratio} of the requested quantity can be supplied (minimum {params.min_fill_ratio})."
+    justification: "Robustness: partial availability must be a human decision below the threshold."
+
+  - id: P-11
+    title: Product cannot be delivered
+    scope: line
+    when:
+      all:
+        - {fact: line.deliverable, op: is_false}
+    verdict: BLOCK
+    message: "{line.name} has no delivery slot (empty scheduleLines)."
+    justification: "~14% of products return empty scheduleLines; salesBlock is never true and is not the signal."
+
+  - id: P-12
+    title: Cumulative daily spend above the rolling cap
+    scope: order
+    when:
+      all:
+        - {fact: order.day_spend_ex_vat, op: gt, value: {param: daily_spend_cap_eur}}
+    verdict: APPROVAL
+    approver_role: finance
+    message: "Today's spend would reach €{order.day_spend_ex_vat}, above the €{params.daily_spend_cap_eur} daily cap."
+    justification: "Prevents splitting one large order into many small ones under the per-order cap."
+
+  - id: P-13
+    title: Pack size estimated from the product name
+    scope: line
+    when:
+      all:
+        - {fact: order.quantity_in_litres, op: is_true}
+        - {fact: line.volume_source, op: eq, value: name_estimate}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "Litres per unit for {line.name} were estimated from its name, not stated in the catalog."
+    justification: "No field reliably gives litres for every product; a name parse is an estimate."
+
+  - id: P-14
+    title: Pack size unknown on a litre-based request
+    scope: line
+    when:
+      all:
+        - {fact: order.quantity_in_litres, op: is_true}
+        - {fact: line.volume_source, op: eq, value: unknown}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "Litres per unit for {line.name} are unknown, so the delivered volume cannot be verified."
+    justification: "Missing ≠ good: without pack size the agent cannot prove it meets the requested litres."
+
+  - id: P-15
+    title: Quantity is not a multiple of the allowed lot size
+    scope: line
+    when:
+      all:
+        - {fact: line.qty_is_lot_multiple, op: is_false}
+    verdict: BLOCK
+    message: "{line.qty_sales_units} {line.sales_unit} of {line.name} is not a multiple of its lot size {line.allowed_lot_size}."
+    justification: "674 products have real lot steps (incl. 1.5 and 1.8); a wrong multiple is an invalid order."
+
+  - id: P-16
+    title: Large quantity against an unverifiable stock figure
+    scope: line
+    when:
+      all:
+        - {fact: line.available_amount_is_sentinel, op: is_true}
+        - {fact: line.qty_sales_units, op: gt, value: {param: sentinel_qty_threshold}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "Stock for {line.name} is reported as a placeholder value, so {line.qty_sales_units} units cannot be confirmed."
+    justification: "availableAmount uses three sentinels (999999, 9999999999.0, 666666666.0)."
+
+# Not verdict rules — recorded as trust findings in the log (see LOG-FORMAT.md):
+trust_findings:
+  - code: CLOSING_TIME_CONTRADICTED
+    when: "line.closing_time_status == CONTRADICTED_BY_SOURCE"
+    effect: "approval expiry falls back to price_valid_to"
+    message: "Supplier cut-off for {line.name} is already past but delivery is still offered; using price validity instead."
+  - code: ALLERGEN_FAMILY_CONTRADICTION
+    when: "product states FREE_FROM a family (e.g. AN tree nuts) and CONTAINS/MAY_CONTAIN a member (e.g. SW walnut)"
+    effect: "the least safe state is used (44 products in the catalog)"
+    message: "{line.name} says it is free from tree nuts but may contain a specific nut; the stricter statement was used."
