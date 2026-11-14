@@ -1,5 +1,5 @@
 {
-  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. review_s3_s4: the sentences of the review of the whole diff of 14 Nov 2026 (AIMO/build/replan/REVIEW.md, findings S3 and S4). review_p: the sentences of the Python review of the same day (findings P1, P6 and P7). l1_3: the sentences of lane L1-3 (decisions B39 and B40, and the place that is not a use). A sentence that starts with [ward] is read for the allergy ward; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
+  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. review_s3_s4: the sentences of the review of the whole diff of 14 Nov 2026 (AIMO/build/replan/REVIEW.md, findings S3 and S4). review_p: the sentences of the Python review of the same day (findings P1, P6 and P7). l1_3: the sentences of lane L1-3 (decisions B39 and B40, and the place that is not a use). fix_r: the sentences of the checks of 15 Nov 2026 (AIMO/build/replan/REVIEW.md, rows C2-8 and C4-F9): a minus, a pack word, an amount of money, another language, a drink by the kilogram. A sentence that starts with [ward] is read for the allergy ward, one that starts with [school] for the school kitchen; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
   "brief": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.",
   "review_40": [
     "1,000 litres of milk by Monday",
@@ -92,6 +92,20 @@
     "1,250 kg of butter",
     "1,5 litres of cream",
     "0,5 l of cream"
+  ],
+  "fix_r": [
+    "-5 litres of milk",
+    "[school] -5 litres of milk",
+    "50 cartons of lactose-free milk",
+    "50 packs of lactose-free milk",
+    "12 cases of 464306",
+    "2 pallets of milk",
+    "1,000 litres of lactose-free milk by Monday, under €1,000",
+    "1,000 litres of lactose-free milk by Monday, max 1000 euros",
+    "1,000 litres of lactose-free milk by Monday with a budget of €1,000",
+    "Tarvitsen 500 litraa laktoositonta maitoa maanantaiksi",
+    "Jag behöver 500 liter laktosfri mjölk till måndag",
+    "5 KG of milk"
   ],
   "read_wrong": {}
 }

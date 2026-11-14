@@ -35,7 +35,12 @@ and read nothing else. Deterministic: no model, no network.
   ("no sugar"),
   two days, a day before today, two preferences, both "strict" and "declared only", and every wording of
   `tta.agent.asking` (a negation, a deadline in days or weeks, an allergen named outside an exclusion, a case,
-  a box or a portion).
+  a box, a carton, a pallet or a portion, an amount of money), and a number with a minus (`tta.agent.quantity`).
+- A quantity in packs, pieces or units is read as sales units, and a drink asked for by the kilogram is read by
+  weight: the reading says both (`tta.agent.measures`; review C2-8). Nothing about a unit is read without a word.
+- A text in Finnish or Swedish that the rules cannot read is answered as such: they read English only for now
+  (`tta.agent.language`). What they do read of the two languages (unit words, weekdays, exclusions, the type
+  table's own terms) is read as before.
 The answer has the model's shape, so the parser's text check and conversion run on it unchanged: `RuleModel`
 implements `AgentModel`. A text these rules cannot read is refused with `NotReadByRules` (`tta.agent.unread`),
 which names what they could not read and carries the question to ask the person: nothing is half-read.
@@ -53,12 +58,14 @@ from tta.agent.asking import (
     refuse_a_deadline_with_no_day,
     refuse_a_pack_of_unknown_size,
     refuse_an_allergen_left_unsaid,
+    refuse_an_amount_of_money,
     refuse_an_unread_deadline,
     refuse_negations,
     unknown_product_word,
 )
 from tta.agent.brands import NO_BRANDS, Brands
 from tta.agent.days import day_spans, named_dates
+from tta.agent.language import in_another_language
 from tta.agent.leftover import parts_per_line, refuse_an_order_taken_back, with_the_rest_settled
 from tta.agent.parts import NOT_A_TERM, Part, Text, part_of, with_lone_product_numbers
 from tta.agent.purpose import formula_matters
@@ -170,6 +177,17 @@ class RuleReader:
         self._reads_milk_substitute = any(entry.key == MILK_SUBSTITUTE_TYPE for entry in self._table)
 
     def proposal(self, text: str, today: date) -> JsonDict:
+        """The proposal for a text the rules read. Raises `NotReadByRules` otherwise: for a text in Finnish or
+        Swedish, the answer that the rules read English only (`tta.agent.language`), whatever stopped them."""
+        try:
+            return self._proposal(text, today)
+        except NotReadByRules as unread:
+            elsewhere = in_another_language(text)
+            if elsewhere is None:
+                raise
+            raise elsewhere from unread
+
+    def _proposal(self, text: str, today: date) -> JsonDict:
         seen = Text.of(text, today)
         excluded, excluding = exclusions(seen.words)
         _refuse_what_is_not_read(seen, excluding, milk_substitute=self._reads_milk_substitute)
@@ -256,7 +274,7 @@ class RuleReader:
             raise NotReadByRules(NO_PRODUCT.format(line=number), ASK_WHICH_PRODUCT.format(line=number))
         key, covered = next(iter(named.items()), (None, frozenset[int]()))
         digits, unit = part.quantity or ("", Unit.UNIT)
-        refuse_a_pack_of_unknown_size(number, digits, part.unit_word, numbered=bool(part.product_ids))
+        refuse_a_pack_of_unknown_size(number, digits, part.unit_word)
         _refuse_an_unknown_word_after(context, number, part, covered)
         folded = context.seen.folded
         return {
@@ -306,6 +324,7 @@ def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int], *, milk_subs
         raise NotReadByRules(A_SUBSTITUTE, ASK_WHICH_INSTEAD)
     refuse_an_order_taken_back(seen)
     asked = seen.asked(excluding)
+    refuse_an_amount_of_money(asked)  # before "no more than" is taken for an exclusion and "within" for a deadline
     refuse_negations(asked)
     refuse_an_unread_deadline(asked)
     refuse_a_changed_amount(without_usual(asked))  # "the same as usual" is not "the same again"

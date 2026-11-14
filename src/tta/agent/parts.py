@@ -4,7 +4,8 @@ Scores on the 20% "how precisely the agent matches what the buyer actually asked
 ("ja", "och"), commas, semicolons, sentence ends and new lines. A part with a quantity (digits followed by a unit
 word) is a line; any other part speaks for the whole request. Every number of a part is one of: its quantity, a
 6-digit product number, a date, or another number, and another number is never dropped: the reader asks about it
-wherever it stands ("Ward 4", "200 of them"). A digit inside a word is no number ("co2").
+wherever it stands ("Ward 4", "200 of them"). A digit inside a word is no number ("co2"). A number with a minus
+before it is asked about and never read as the number alone ("-5 litres", "minus 5 litres": `tta.agent.quantity`).
 """
 
 from __future__ import annotations
@@ -16,7 +17,14 @@ from datetime import date
 
 from tta.agent.asking import Seen
 from tta.agent.days import date_spans
-from tta.agent.quantity import refuse_a_split_number, small_unit
+from tta.agent.quantity import (
+    MINUS_SIGNS,
+    MINUS_WORDS,
+    TRUE_MINUS,
+    below_zero,
+    refuse_a_split_number,
+    small_unit,
+)
 from tta.agent.textcheck import DIGIT_RUN, SMALL_UNITS, WORD, id_tokens, unit_of
 from tta.agent.wording import Span
 from tta.contracts.common import Unit
@@ -89,6 +97,10 @@ def part_of(seen: Text, span: Span) -> Part:
             continue
         word = _word_after(seen, match.end(), span)
         unit = unit_of(word) if word is not None else None
+        minus = _minus_start(seen, match.start(), span)
+        if minus is not None:
+            in_a_unit = word if unit is not None or word in SMALL_UNITS else None
+            raise below_zero(seen.folded[minus:match.end()], match.group(), in_a_unit)
         if word in SMALL_UNITS:
             raise small_unit(match.group(), word)
         if unit is not None and word is not None:
@@ -112,6 +124,22 @@ def _word_after(seen: Text, end: int, span: Span) -> str | None:
     if index is None or seen.starts[index] >= span[1] or seen.folded[end:seen.starts[index]].strip():
         return None
     return seen.words[index]
+
+
+def _minus_start(seen: Text, start: int, span: Span) -> int | None:
+    """Where a minus before the digits starts, or `None`: a sign right before them ("-5"; the minus sign itself
+    also with a space, "− 5"), or the word "minus". A dash after a letter or a digit is a hyphen or a range
+    ("lactose-free", "10-12"); a dash followed by a space is a list mark ("- 5 litres of milk")."""
+    before = seen.folded[:start]
+    sign = None
+    if before.endswith(MINUS_SIGNS):
+        sign = start - 1
+    elif before.rstrip().endswith(TRUE_MINUS):
+        sign = len(before.rstrip()) - 1
+    if sign is not None and (sign == 0 or not before[sign - 1].isalnum()):
+        return sign
+    word = _word_before(seen, start, span)
+    return before.rindex(word) if word in MINUS_WORDS else None
 
 
 def _word_before(seen: Text, start: int, span: Span) -> str | None:

@@ -15,7 +15,9 @@ it holds:
 - a deadline that names no day ("within 3 days"), a date that is no date ("31 February"), a time of day, "next
   Friday" in doubt, more than one day, or a day before today;
 - an amount changed without its number ("twice", "per day", "the same again");
-- a number that can be read two ways ("1.250", "Ward 4 200 litres") or a quantity in a small unit ("5 dl").
+- a number that can be read two ways ("1.250", "Ward 4 200 litres"), a quantity in a small unit ("5 dl") or a
+  number with a minus ("-5 litres");
+- an amount of money ("under €1,000"): the typed request has no price limit, and one is never dropped.
 So an ambiguous number, "cancel" and an impossible date get the same question from a model as from the rules.
 
 After the model answered (`added_faults`), on top of the parser's text check, nothing may be added:
@@ -35,6 +37,7 @@ from typing import Protocol
 from tta.agent.asking import (
     refuse_a_changed_amount,
     refuse_a_day_that_cannot_be_read,
+    refuse_an_amount_of_money,
     refuse_an_unread_deadline,
     refuse_negations,
 )
@@ -96,6 +99,7 @@ def ask_whoever_reads(text: str, today: date) -> None:
     refuse_an_order_taken_back(seen)
     refuse_words_to_the_agent(seen.folded)
     asked = seen.asked(excluding)
+    refuse_an_amount_of_money(asked)
     refuse_negations(asked)
     refuse_an_unread_deadline(asked)
     refuse_a_changed_amount(without_usual(asked))

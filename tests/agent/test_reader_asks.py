@@ -336,14 +336,19 @@ def test_a_case_a_box_or_a_portion_is_asked_about_never_read_as_single_packs(
     assert "differs by product" in refused.why and "?" in refused.ask
 
 
-def test_a_case_of_a_product_named_by_its_number_and_a_carton_stay_sales_units(
+def test_a_case_of_a_product_named_by_its_number_and_a_carton_are_asked_about_too(
     rules_parser: ModelRequestParser, agent_hotel: Identity
 ) -> None:
-    numbered = rules_parser.parse_request("12 cases of 464306", agent_hotel).lines[0]
-    cartons = rules_parser.parse_request("30 cartons of oat drink", agent_hotel).lines[0]
+    """Both stayed sales units until the checks of 15 Nov 2026 (review C2-8). 464306 is sold by the piece, so 12
+    sales units of it are 12 one-litre cartons, not 12 cases; and 471690, an oat drink, by the case of ten, so 30
+    sales units of it are 30 cases (product file). `tests/agent/test_weak_readings.py` holds the rest."""
+    numbered = _refused(rules_parser, "12 cases of 464306", agent_hotel)
+    cartons = _refused(rules_parser, "30 cartons of oat drink", agent_hotel)
+    packs = rules_parser.parse_request("30 packs of oat drink", agent_hotel).lines[0]
 
-    assert (numbered.product_ids, numbered.quantity, numbered.unit) == (("464306",), 12, Unit.UNIT)
-    assert (cartons.product_type, cartons.quantity, cartons.unit) == ("plant_drink", 30, Unit.UNIT)
+    assert "how much a case holds differs by product" in numbered.why and "?" in numbered.ask
+    assert "how much a carton holds differs by product" in cartons.why and "?" in cartons.ask
+    assert (packs.product_type, packs.quantity, packs.unit) == ("plant_drink", 30, Unit.UNIT)
 
 
 # --- coffee milk (P2 2.5 item 7) ---------------------------------------------------------------------------

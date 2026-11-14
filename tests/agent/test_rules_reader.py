@@ -212,7 +212,8 @@ def test_gluten_free_is_both_the_claim_and_the_exclusion_the_text_check_holds(
         ("200 l of milk, cheapest, as soon as possible", "more than one preference"),
         ("200 l of oat drink, no milk, strict, declared only", "both strict and declared only"),
         ("2000000 l of milk", "at most 1,000,000"),
-        ("1000 litraa laktoositonta maitoa maanantaiksi", "no product type of the table"),
+        # Finnish: the rules read English only, and say so (review C2-8; `tta.agent.language`)
+        ("1000 litraa laktoositonta maitoa maanantaiksi", "it looks like Finnish"),
     ],
 )
 def test_a_text_it_cannot_read_fully_is_refused_naming_what(

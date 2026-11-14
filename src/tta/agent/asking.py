@@ -16,8 +16,15 @@ what was not read and the question to put; none of them changes a reading.
 - a word that names an allergen, or speaks of an allergy, outside an exclusion the rules read and outside the
   product's own name ("soy drink", "peanut butter");
 - a word right after the product type that the rules do not know ("milk chocolate");
-- a case, a box, a crate or a tray (how many packs it holds differs by product) unless the line names the product
-  by its number, and a portion (Valio's data gives no portion size).
+- a case, a box, a crate, a tray, a carton or a pallet (how much it holds differs by product), and a portion
+  (Valio's data gives no portion size). Since the checks of 15 Nov 2026 (review C2-8) a carton is asked about
+  too, and naming the product by its number no longer makes a container a sales unit: 464306 is sold by the
+  piece and 471690 by the case of ten (product file), so "12 cases of 464306" read as 12 sales units was 12
+  cartons, and "50 cartons of 471690" 50 cases. A quantity in packs, pieces or units is read as sales units, and
+  the reading says so (`tta.agent.measures`);
+- an amount of money ("under €1,000", "max 1000 euros", "a budget of 1000"): the typed request has no price
+  limit, so one written in the sentence cannot be applied, and it is never dropped. The answer says what does
+  apply: the totals of the options, and the buyer's own limits.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from tta.agent.days import date_spans, impossible_dates, is_month, named_dates, next_weekday_in_doubt
-from tta.agent.textcheck import ALLERGY_WORD, OUTER_PACK_WORDS, PORTION_WORDS, allergen_mentions
+from tta.agent.textcheck import ALLERGY_WORD, OUTER_PACK_WORDS, PORTION_WORDS, SPACES, allergen_mentions
 from tta.agent.unread import NotReadByRules
 from tta.agent.wording import Span, claims_in, labels_in, preferences_in
 
@@ -96,10 +103,22 @@ ASK_WHICH_PRODUCT = (
 )
 OUTER_PACK = "line {line} asks for {said}, and how much a {word} holds differs by product"
 PORTION = "line {line} asks for {said}, and how much a portion is differs by product: Valio's data gives no size"
-ASK_AMOUNT = "How many litres, kilograms or single packs is that? Write the quantity in one of those units."
-ASK_AMOUNT_OR_NUMBER = (
-    "How many litres, kilograms or single packs is that? Write the quantity in one of those units, or name the "
-    "product by its 6-digit number."
+ASK_AMOUNT = "How many litres, kilograms or packs is that? Write the quantity in one of those units."
+# An amount of money: a currency sign or word next to a number, or a number after "budget". "2 EUR pallets" is a
+# kind of pallet, not two euros.
+_AMOUNT = rf"\d+(?:[.,{SPACES}]\d+)*"
+_CURRENCY_SIGNS = "€$£"
+_CURRENCY_WORDS = r"(?:eur|euros?|euroa|euron|usd|dollars?|gbp|sek|kr|kronor)"
+_MONEY = re.compile(
+    rf"[{_CURRENCY_SIGNS}]\s?{_AMOUNT}|\b{_CURRENCY_WORDS}\s?{_AMOUNT}"
+    rf"|{_AMOUNT}\s?(?:[{_CURRENCY_SIGNS}]|{_CURRENCY_WORDS}\b(?![\s-]*pallet))"
+    rf"|\bbudget(?:\s+(?:of|is|limit|cap|max|maximum|about|around|at|most|up|to|under|below))*\s*[:=]?\s*{_AMOUNT}"
+)
+MONEY = 'it gives an amount of money ("{said}"), and a price limit in the sentence is not applied yet'
+ASK_WITHOUT_MONEY = (
+    "Can you send it again without the amount of money? Every option of the offer states its total before tax, and "
+    "unless the request prefers something else each takes the cheapest products that cover the quantity. The limits "
+    "that are applied are the buyer's settings: above the limit per order or per day, a person approves."
 )
 
 
@@ -241,11 +260,19 @@ def unknown_product_word(line: int, known: str, word: str) -> NotReadByRules:
                           ASK_WHICH_PRODUCT.format(said=said, known=known))
 
 
-def refuse_a_pack_of_unknown_size(line: int, digits: str, unit_word: str | None, *, numbered: bool) -> None:
-    """A case, a box, a crate or a tray of a product not named by its number, and a portion of anything."""
+def refuse_a_pack_of_unknown_size(line: int, digits: str, unit_word: str | None) -> None:
+    """A case, a box, a crate, a tray, a carton or a pallet, and a portion: of a product type or of a product
+    named by its number alike."""
     said = f"{digits} {unit_word}"
     if unit_word in PORTION_WORDS:
         raise NotReadByRules(PORTION.format(line=line, said=said), ASK_AMOUNT)
-    if unit_word in OUTER_PACK_WORDS and not numbered:
+    if unit_word in OUTER_PACK_WORDS:
         singular = unit_word.removesuffix("es" if unit_word.endswith("xes") else "s")
-        raise NotReadByRules(OUTER_PACK.format(line=line, said=said, word=singular), ASK_AMOUNT_OR_NUMBER)
+        raise NotReadByRules(OUTER_PACK.format(line=line, said=said, word=singular), ASK_AMOUNT)
+
+
+def refuse_an_amount_of_money(seen: Seen) -> None:
+    """ "Under €1,000", "max 1000 euros", "a budget of 1000": a price limit the typed request cannot carry."""
+    found = _MONEY.search(seen.folded)
+    if found is not None:
+        raise NotReadByRules(MONEY.format(said=" ".join(found.group().split())), ASK_WITHOUT_MONEY)

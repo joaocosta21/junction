@@ -7,6 +7,9 @@ person in one sentence each, in this order:
 - for a reading of the fixed rules, how a comma in a quantity was read: '"1,250" is read as 1250 (a comma before
   three digits groups thousands here); for 1.25 write "1.25".', or as a decimal comma ("1,5" is 1.5)
   (`tta.agent.quantity`);
+- '"50 packs" is read as 50 sales units. A sales unit is the pack Valio Aimo sells a product in: …' when a line is
+  in sales units and the words say its quantity with a pack word, and '5 kg of milk is read by weight, as
+  kilograms and not as litres. …' when a line asks for a drink by the kilogram (`tta.agent.measures`);
 - '"before friday" is read as: by Thursday 19 November.' when the day follows "before" (`tta.agent.days`);
 - 'The brand "Arla" is required.' when a line's name terms hold a brand of the catalog (`tta.agent.brands`);
 - 'Cream "for whipping" is read as whipping cream.' when a use narrowed the product type (`tta.agent.variants`);
@@ -26,6 +29,7 @@ from collections.abc import Sequence
 from tta.agent.brands import NO_BRANDS, Brands
 from tta.agent.days import before_days
 from tta.agent.labels import reading_sentence
+from tta.agent.measures import by_weight_notes, sales_unit_notes
 from tta.agent.model import AnswerSource
 from tta.agent.purpose import formula_uses
 from tta.agent.quantity import comma_note, comma_readings
@@ -93,8 +97,8 @@ def _before_note(request: PurchaseRequest, text: str) -> str | None:
 
 def _notes(request: PurchaseRequest, text: str, brands: Brands, *, by_rules: bool) -> Sequence[str]:
     # How a comma was read is the fixed rules' own choice (`tta.agent.quantity`): a model's reading does not say it.
-    notes = [*(_comma_notes(request, text) if by_rules else ()), _before_note(request, text),
-             _brand_note(request, brands),
+    notes = [*(_comma_notes(request, text) if by_rules else ()), *sales_unit_notes(request, text),
+             *by_weight_notes(request), _before_note(request, text), _brand_note(request, brands),
              *_variant_notes(request, text), _formula_note(request, text)]
     if MILK_SUBSTITUTE.search(text.casefold()) and any(
         line.product_type == MILK_SUBSTITUTE_TYPE for line in request.lines

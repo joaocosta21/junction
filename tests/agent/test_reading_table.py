@@ -9,8 +9,9 @@ disagree. To write it again after a change to the reader, and then judge every r
 The sentences: the brief's own; every example a page offers (`tta.ui.examples`, and the shop's
 `ui/static/shop/js/kitchens.js`, both read here and owned by other lanes), each for its own customer and compared
 with the typed request the example carries; the review's 40 hard sentences, A5's R01 to R15, the sentences of the
-review of the whole diff (S3, S4) and of lane L1-3 (`reading_table_sentences.json`). No model is called: the
-reader is `RuleModel` behind the parser, at the clock of
+review of the whole diff (S3, S4), of lane L1-3 and of the checks of 15 Nov 2026 (lane FIX-R: a minus, a pack word,
+an amount of money, another language, a drink by the kilogram) (`reading_table_sentences.json`). No model is
+called: the reader is `RuleModel` behind the parser, at the clock of
 the recording (`fixtures/valio/2026-11-14-demo`).
 """
 
@@ -42,8 +43,8 @@ DOCUMENT = REPO_ROOT / "docs" / "READING-TABLE.md"
 SENTENCES = Path(__file__).with_name("reading_table_sentences.json")
 KITCHENS_JS = REPO_ROOT / "src" / "tta" / "ui" / "static" / "shop" / "js" / "kitchens.js"
 WRITE = "TTA_WRITE_READING_TABLE"
-HOTEL, WARD = "hotel-kitchen", "allergy-ward"
-WARD_MARK = "[ward] "
+HOTEL, WARD, SCHOOL = "hotel-kitchen", "allergy-ward", "school-kitchen"
+MARKS = {"[ward] ": WARD, "[school] ": SCHOOL}  # how a sentence of the file names its customer; none: the hotel
 SAME, NO_EXAMPLE = "same", ""
 
 Json = dict[str, Any]
@@ -131,7 +132,7 @@ def shop_examples() -> list[tuple[str, str, PurchaseRequest]]:
 
 def rows() -> list[Row]:
     """Every sentence once per customer, in the order: the brief, the pages, the shop, the review, A5, the review
-    of the whole diff (S3 and S4), lane L1-3."""
+    of the whole diff (S3 and S4), lane L1-3, the checks of 15 Nov (lane FIX-R)."""
     data = json.loads(SENTENCES.read_text(encoding="utf-8"))
     listed: list[Row] = [Row(HOTEL, data["brief"], ("the brief",))]
     listed += [Row(example.agent_id.removeprefix("agent:"), example.text, (f"page example {example.key}",),
@@ -140,10 +141,10 @@ def rows() -> list[Row]:
                for customer, text, request in shop_examples()]
     for name, label in (("review_40", "review {n}"), ("a5", "A5 R{n:02d}"), ("review_s3_s4", "review S3/S4 {n}"),
                         ("review_p", "review P {n}"),
-                        ("l1_3", "L1-3 {n}")):
+                        ("l1_3", "L1-3 {n}"), ("fix_r", "FIX-R {n}")):
         for number, raw in enumerate(data[name], start=1):
-            profile = WARD if raw.startswith(WARD_MARK) else HOTEL
-            listed.append(Row(profile, raw.removeprefix(WARD_MARK), (label.format(n=number),)))
+            mark = next((mark for mark in MARKS if raw.startswith(mark)), "")
+            listed.append(Row(MARKS.get(mark, HOTEL), raw.removeprefix(mark), (label.format(n=number),)))
     merged: dict[tuple[str, str], Row] = {}
     for row in listed:
         key = (row.profile, row.text)
@@ -221,7 +222,7 @@ def outcome(row: Row, parser: ModelRequestParser, rule_of: Callable[[str], Aller
 
 # --- the document -----------------------------------------------------------------------------------------
 
-CUSTOMERS = {HOTEL: "hotel", WARD: "ward", "school-kitchen": "school", "bakery-cafe": "bakery"}
+CUSTOMERS = {HOTEL: "hotel", WARD: "ward", SCHOOL: "school", "bakery-cafe": "bakery"}
 HEAD = """\
 # What the fixed rules read
 
@@ -340,6 +341,19 @@ def test_the_review_and_a5_sentences_are_all_in_the_table(outcomes: list[Outcome
     assert sum(source.startswith("review ") and source.removeprefix("review ").isdigit() for source in sources) == 40
     assert sum(source.startswith("A5 R") for source in sources) == 15
     assert sum(source.startswith("review S3/S4 ") for source in sources) == 13
+
+
+def test_the_sentences_of_the_checks_of_15_nov_are_in_the_table_asked_about_or_said(outcomes: list[Outcome]) -> None:
+    """Lane FIX-R (review C2-8, C4-F9): of its twelve sentences ten are asked about; the two that are read say in
+    the reading how their unit was taken."""
+    ours = [item for item in outcomes if any(source.startswith("FIX-R ") for source in item.row.sources)]
+    read = {item.row.text: item.says for item in ours if item.read is not None}
+
+    assert len(ours) == 12 and sum(item.read is None for item in ours) == 10
+    assert [item.row.profile for item in ours if item.row.text == "-5 litres of milk"] == [HOTEL, SCHOOL]
+    assert set(read) == {"50 packs of lactose-free milk", "5 KG of milk"}
+    assert read["50 packs of lactose-free milk"].startswith('"50 packs" is read as 50 sales units.')
+    assert read["5 KG of milk"].startswith("5 kg of milk is read by weight")
 
 
 def test_no_row_is_judged_read_wrong(outcomes: list[Outcome]) -> None:

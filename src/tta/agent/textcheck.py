@@ -51,7 +51,8 @@ _UNIT_WORDS: Mapping[Unit, frozenset[str]] = {
         "unit", "units", "piece", "pieces", "pc", "pcs", "pack", "packs", "package", "packages", "packet",
         "packets", "carton", "cartons", "case", "cases", "box", "boxes", "bottle", "bottles", "can", "cans",
         "tin", "tins", "jar", "jars", "bag", "bags", "tray", "trays", "crate", "crates", "bucket", "buckets",
-        "tub", "tubs", "sack", "sacks", "portion", "portions", "kpl", "pkt", "kappale", "kappaletta",
+        "tub", "tubs", "sack", "sacks", "pallet", "pallets", "portion", "portions", "kpl", "pkt", "kappale",
+        "kappaletta",
         "pakkaus", "pakkausta", "pakkauksia", "laatikko", "laatikkoa", "pullo", "pulloa", "purkki", "purkkia",
         "pussi", "pussia", "rasia", "rasiaa", "tölkki", "tölkkiä", "kartonki", "kartonkia", "säkki", "säkkiä",
         "ämpäri", "ämpäriä", "annos", "annosta", "styck", "stycken", "förpackning", "förpackningar", "flaska",
@@ -59,9 +60,10 @@ _UNIT_WORDS: Mapping[Unit, frozenset[str]] = {
     }),
 }
 
-# Unit words the rule-based reader asks about instead of reading (replan A2b M1 and L2, A5 #5). A small unit is
-# offered as its conversion; a case, a box, a crate or a tray holds a number of packs that differs by product; a
-# portion has no size in Valio's data.
+# Unit words the rule-based reader asks about instead of reading (replan A2b M1 and L2, A5 #5; review C2-8). A small
+# unit is offered as its conversion; a case, a box, a crate, a tray, a carton or a pallet holds an amount that
+# differs by product, and is not a sales unit for sure (of the 17,546 products of the product file 8,005 have the
+# sales unit `KI` and 5,607 `ST`; counted on 15 Nov 2026); a portion has no size in Valio's data.
 SMALL_UNITS: Mapping[str, tuple[Unit, int]] = {
     **{word: (Unit.L, 10) for word in ("dl", "desilitra", "desilitraa", "deciliter", "decilitre")},
     **{word: (Unit.L, 100) for word in ("cl", "senttilitra", "senttilitraa", "centiliter", "centilitre")},
@@ -69,8 +71,9 @@ SMALL_UNITS: Mapping[str, tuple[Unit, int]] = {
                                          "milliliters", "millilitres")},
     **{word: (Unit.KG, 1000) for word in ("g", "gr", "gram", "grams", "gramme", "grammes", "gramma", "grammaa")},
 }
-OUTER_PACK_WORDS = frozenset({"case", "cases", "box", "boxes", "crate", "crates", "tray", "trays", "laatikko",
-                              "laatikkoa", "låda", "lådor"})
+OUTER_PACK_WORDS = frozenset({"case", "cases", "box", "boxes", "crate", "crates", "tray", "trays", "carton",
+                              "cartons", "pallet", "pallets", "laatikko", "laatikkoa", "låda", "lådor", "kartonki",
+                              "kartonkia", "kartong", "kartonger"})
 PORTION_WORDS = frozenset({"portion", "portions", "annos", "annosta"})
 
 _SMALL_NUMBERS = {

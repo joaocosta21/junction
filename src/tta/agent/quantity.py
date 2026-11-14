@@ -13,6 +13,10 @@ guessed. Measured in replay on 14 Nov 2026 (the review's runs): "0.100 l" was re
 - Digits joined by a space right after a word that is not a plain order word ("Ward 4 200 litres") may be two
   numbers, and are asked about. A group of "000" can only be thousands ("milk 1 000 l").
 - A small unit (dl, cl, ml, g) is not read: the question offers its conversion to litres or kilograms.
+- A number with a minus is never read as the number without it (review C4-F9: "-5 litres of milk" was read as 5
+  litres): a sign right before the digits ("-5"; the minus sign itself also with a space, "− 5"), or the word
+  "minus". A dash after a letter or a digit is a hyphen or a range ("lactose-free", "10-12"), and a dash followed
+  by a space is a list mark ("- 5 litres of milk"): neither is a minus.
 """
 
 from __future__ import annotations
@@ -46,9 +50,22 @@ COMMA_IS_DECIMAL = '"{run}" is read as {value} (a comma before one or two digits
 SMALL_UNIT = 'it gives a quantity in "{word}", a unit the rules do not read ("{said}")'
 ASK_CONVERTED = '"{said}" is {converted} {unit}. Is that the quantity? Then write "{converted} {unit}".'
 ASK_LARGER_UNIT = "What is the quantity in litres, kilograms or packs?"
+# A hyphen, the minus sign, an en dash and a figure dash typed for one.
+MINUS_SIGNS = ("-", "\u2212", "\u2013", "\u2012")
+TRUE_MINUS = "\u2212"  # nobody marks a list with the minus sign: it is a minus with a space after it too
+MINUS_WORDS = frozenset({"minus", "negative", "miinus"})
+BELOW_ZERO = 'it gives a number with a minus sign ("{said}"), and a quantity to order is above zero'
+NOTHING_TAKEN_BACK = (
+    "Nothing was ordered: the rules only read what is needed now, never a return or a change to an earlier order."
+)
+ASK_ABOVE_ZERO = 'Is {plain} meant? Then write "{plain}" without the minus sign. ' + NOTHING_TAKEN_BACK
+ASK_WHAT_IS_BELOW_ZERO = (
+    'What does "{said}" stand for? Write each quantity above zero with its unit, for example 200 litres. '
+    + NOTHING_TAKEN_BACK
+)
 
 
-def _plain(value: Decimal) -> str:
+def plain(value: Decimal) -> str:
     """The number without trailing zeros and never with an exponent: 0.100 is "0.1", 1000 stays "1000"."""
     return f"{value.normalize():f}"
 
@@ -71,7 +88,7 @@ def quantity(digits: str, line: int) -> Decimal:
         value = Decimal(f"{''.join(groups[:-1])}.{groups[-1]}")
     else:
         raise NotReadByRules(UNREADABLE_NUMBER.format(line=line, run=digits), ASK_PLAIN_DIGITS)
-    value = Decimal(_plain(value))
+    value = Decimal(plain(value))
     exponent = value.as_tuple().exponent
     places = -exponent if isinstance(exponent, int) and exponent < 0 else 0
     if not Decimal(0) < value <= MAX_QUANTITY or places > MAX_QUANTITY_DECIMALS:
@@ -81,7 +98,7 @@ def quantity(digits: str, line: int) -> Decimal:
 
 
 def _two_readings(digits: str, groups: list[str], line: int) -> NotReadByRules:
-    thousands, decimal = int("".join(groups)), _plain(Decimal(f"{groups[0]}.{groups[1]}"))
+    thousands, decimal = int("".join(groups)), plain(Decimal(f"{groups[0]}.{groups[1]}"))
     ask = ASK_WHICH_READING.format(
         thousands=thousands, decimal=decimal, plain=thousands, comma=decimal.replace(".", ",")
     )
@@ -108,9 +125,9 @@ def comma_readings(text: str) -> list[tuple[str, Decimal, bool]]:
 def comma_note(run: str, value: Decimal, thousands: bool) -> str:
     """The sentence that says how a comma was read (review finding P6): never silently."""
     if not thousands:
-        return COMMA_IS_DECIMAL.format(run=run, value=_plain(value))
-    decimal = _plain(Decimal(run.replace(",", ".")))
-    return COMMA_IS_THOUSANDS.format(run=run, value=_plain(value), decimal=decimal)
+        return COMMA_IS_DECIMAL.format(run=run, value=plain(value))
+    decimal = plain(Decimal(run.replace(",", ".")))
+    return COMMA_IS_THOUSANDS.format(run=run, value=plain(value), decimal=decimal)
 
 
 def refuse_a_split_number(run: str, word_before: str | None, plain_words: frozenset[str]) -> None:
@@ -135,5 +152,15 @@ def small_unit(digits: str, word: str) -> NotReadByRules:
         converted = quantity(digits, 1) / per_larger
     except NotReadByRules:
         return NotReadByRules(SMALL_UNIT.format(word=word, said=said), ASK_LARGER_UNIT)
-    ask = ASK_CONVERTED.format(said=said, converted=_plain(converted), unit=UNIT_NAMES[unit])
+    ask = ASK_CONVERTED.format(said=said, converted=plain(converted), unit=UNIT_NAMES[unit])
     return NotReadByRules(SMALL_UNIT.format(word=word, said=said), ask)
+
+
+def below_zero(said: str, digits: str, unit_word: str | None) -> NotReadByRules:
+    """The question for "-5 litres": the number is not read without its minus. `said` is the minus and the number
+    as written; `unit_word` the unit word after the digits, if any."""
+    said = " ".join(said.split())
+    if unit_word is None:
+        return NotReadByRules(BELOW_ZERO.format(said=said), ASK_WHAT_IS_BELOW_ZERO.format(said=said))
+    said = f"{said} {unit_word}"
+    return NotReadByRules(BELOW_ZERO.format(said=said), ASK_ABOVE_ZERO.format(plain=f"{digits} {unit_word}"))
