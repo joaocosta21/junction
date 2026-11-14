@@ -35,7 +35,7 @@ from tta.policy.claims import (
     needed_by_result,
     unconfirmed_reasons,
 )
-from tta.policy.text import format_datetime, join_words, unique
+from tta.policy.text import format_datetime, join_words, plain_name, unique
 
 
 @dataclass(frozen=True)
@@ -249,9 +249,9 @@ def _claim(claim: ClaimName) -> Callable[[OrderScope, OfferLine], Reading]:
     return read
 
 
-def _unconfirmed_reason(_: OrderScope, line: OfferLine) -> Reading:
+def _unconfirmed_reason(scope: OrderScope, line: OfferLine) -> Reading:
     """Why the line cannot be ordered without a human under rule F-07, as one clause."""
-    reasons = unconfirmed_reasons(line)
+    reasons = unconfirmed_reasons(line, dated=needed_by_result(scope.option) is not None)
     return join_words(reasons) if reasons else Missing("nothing says why")
 
 
@@ -306,7 +306,7 @@ def _substitute_original(_: OrderScope, line: OfferLine) -> Reading:
     if substitute is None:
         return Missing("the line replaces no product")
     if substitute.original_name:
-        return f"{substitute.original_name} ({substitute.original_id})"
+        return f"{plain_name(substitute.original_name)} ({substitute.original_id})"
     return substitute.original_id
 
 
@@ -331,6 +331,16 @@ def _substitute_added_allergens(_: OrderScope, line: OfferLine) -> Reading:
     return tuple(f"{statement.code} ({RELATION_WORDS[statement.relation]})" for statement in added)
 
 
+def _substitute_claims_lost(_: OrderScope, line: OfferLine) -> Reading:
+    """The nutritional claims of the original that the substitute does not carry, as the offer lists them.
+
+    They are codes from the product file (FREE_FROM_LACTOSE), so they are neutralised like a name.
+    """
+    if line.substitute is None:
+        return ()
+    return tuple(plain_name(claim) for claim in line.substitute.claims_lost)
+
+
 def _variable_weight(_: OrderScope, line: OfferLine) -> Reading:
     # variableUnit is absent on 3,068 of the 17,546 catalog products (AIMO/FINDINGS.md section 4).
     if line.variable_weight is None:
@@ -340,7 +350,7 @@ def _variable_weight(_: OrderScope, line: OfferLine) -> Reading:
 
 LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.product_id": lambda _, line: line.product_id,
-    "line.name": lambda _, line: line.name,
+    "line.name": lambda _, line: plain_name(line.name),
     "line.quantity": lambda _, line: line.quantity,
     "line.availability_state": lambda _, line: line.availability.state.value,
     "line.quantity_confirmed": _quantity_confirmed,
@@ -355,6 +365,7 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.substitute_scope": _substitute_scope,
     "line.substitute_adds_allergen": _substitute_adds_allergen,
     "line.substitute_added_allergens": _substitute_added_allergens,
+    "line.substitute_claims_lost": _substitute_claims_lost,
     "line.variable_weight": _variable_weight,
     "line.has_deposits": lambda _, line: line.has_deposits,
 }

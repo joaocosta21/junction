@@ -25,7 +25,7 @@ from tta.contracts.errors import NotAuthorised
 from tta.contracts.policy import BuyerProfile
 from tta.policy import PROFILES_DIR, RULES_PATH, PolicyLoadError, RulePolicyEngine, load_profile, load_profiles
 
-FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07"})
+FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08"})
 
 
 def test_the_two_shipped_profiles_load(engine: RulePolicyEngine) -> None:
@@ -82,8 +82,9 @@ def test_an_unknown_profile_is_not_authorised(engine: RulePolicyEngine) -> None:
         {"fixed_rules": {"F-04": False, "F-05": False}},
         {"F-06": False},
         {"switched_off": ["f-07"]},
+        {"substitutes": {"F-08": False}},
     ],
-    ids=["top-level key", "nested key", "list item", "lower-case value", "two rules", "access rule", "F-07"],
+    ids=["top-level key", "nested key", "list item", "lower-case value", "two rules", "access rule", "F-07", "F-08"],
 )
 def test_a_profile_that_touches_a_fixed_rule_is_rejected_at_load(
     attempt: dict[str, Any], profile_data: Callable[[str], dict[str, Any]], write_yaml: Callable[[str, Any], Path],
@@ -257,7 +258,7 @@ def test_the_most_permissive_profile_cannot_order_alone_past_a_needed_by_date(
     assert decision.rule_ids == ("F-07",) and decision.verdict is Verdict.APPROVAL and decision.fired[0].fixed
 
 
-@pytest.mark.parametrize("case", ["F-01", "F-02", "F-03", "F-04", "F-05", "F-07"])
+@pytest.mark.parametrize("case", ["F-01", "F-02", "F-03", "F-04", "F-05", "F-07", "F-08"])
 def test_the_most_permissive_profile_cannot_switch_off_a_fixed_rule(
     case: str, engine: RulePolicyEngine, permissive: BuyerProfile, make_line: Callable, make_option: Callable,
     make_context: Callable, make_allergen_check: Callable, make_substitute: Callable, make_revalidation: Callable,
@@ -274,6 +275,8 @@ def test_the_most_permissive_profile_cannot_switch_off_a_fixed_rule(
         context = {"at_order_time": True, "revalidation": make_revalidation(ok=False, changed_price=True)}
     elif case == "F-07":
         line["price_claim"] = ClaimStatus.UNKNOWN
+    elif case == "F-08":
+        line["substitute"] = make_substitute(claims_lost=("FREE_FROM_LACTOSE",))
     else:
         line["substitute"] = make_substitute(added=(("AW", AllergenRelation.CONTAINS),))
 

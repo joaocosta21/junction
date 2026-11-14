@@ -19,6 +19,7 @@ SPEC_RULES = {
     "F-04": (True, Verdict.BLOCK, None),
     "F-05": (True, Verdict.BLOCK, None),
     "F-07": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
+    "F-08": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-00": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-01": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-02": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
@@ -34,7 +35,7 @@ SPEC_RULES = {
 # it checks. F-03 names no role of its own: the role comes from the fact that is missing.
 FIXED_VERDICTS = {
     "F-01": Verdict.APPROVAL, "F-02": Verdict.BLOCK, "F-03": Verdict.APPROVAL, "F-04": Verdict.BLOCK,
-    "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL,
+    "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL, "F-08": Verdict.APPROVAL,
 }
 OTHER_VERDICT = {Verdict.APPROVAL: Verdict.BLOCK, Verdict.BLOCK: Verdict.APPROVAL}
 
@@ -52,7 +53,7 @@ def test_the_shipped_rules_are_exactly_those_of_the_spec() -> None:
     assert {rule.id: (rule.fixed, rule.verdict, rule.approver_role) for rule in rulebook.rules} == SPEC_RULES
     assert list(dict.fromkeys(rule.id for rule in rulebook.rules)) == sorted(SPEC_RULES)
     assert [rule.id for rule in rulebook.access_rules] == ["F-06"]
-    assert rulebook.fixed_rule_ids == frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07"})
+    assert rulebook.fixed_rule_ids == frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08"})
 
 
 def test_f07_is_one_rule_judged_on_each_line_and_on_the_option() -> None:
@@ -339,6 +340,7 @@ def test_a_rules_file_that_changes_the_verdict_of_a_fixed_rule_is_rejected(
         ("F-01", "finance", "purchasing_manager"),
         ("F-01", "dietitian", "purchasing_manager"),
         ("F-07", "finance", "purchasing_manager"),
+        ("F-08", "dietitian", "purchasing_manager"),
         ("F-02", "dietitian", "none"),
         ("F-01", None, "purchasing_manager"),
     ],

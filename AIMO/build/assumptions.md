@@ -154,3 +154,12 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Totals are sums of the rounded lines; tax is net × `taxRate` per line.
 - Substitute candidates: the listed pairs plus the three category tiers, 999 at most, one price and one availability call. "Passes" is about the allergen rules; "orderable" adds price and availability.
 - Re-check before an order: any price difference, a new price validity, a new state and a new cut-off are changes; stock is a change only when it no longer covers the order (question T07-4).
+
+## Policy and substitutes after review (FIX-5)
+- New fixed rule F-08: a substitute that lacks a dietary claim the original carries always goes to the purchasing manager, also when Valio lists it and whatever the profile's substitution setting.
+- Which claims count is our list of dietary claims (question T07-7); other claims are named in the "what the buyer gives up" sentence only.
+- F-05 covers a substitute that adds an allergen and one that raises it from "may contain" to "contains"; the policy cannot tell the two apart, so its sentence names both.
+- Product names from the product file are neutralised before they enter a rule sentence (quotation marks become apostrophes, control characters a space, at most 120 characters); 29 catalog names carry a double quotation mark and 7 a line break.
+- On a dated option, a line whose delivery-date claim is unknown also fires F-07.
+- A pending order is expired at the instant of its "order by" time, not after it.
+- The supplier sees rules F-07 and F-08 with their meaning, as it sees F-01 and F-05: they are about its own data.

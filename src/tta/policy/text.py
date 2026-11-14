@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
@@ -10,6 +11,12 @@ from tta.contracts.common import round_money
 
 PERCENT = Decimal(100)
 PERCENT_STEP = Decimal("0.1")  # a ratio prints with at most one decimal: 74.9%
+NAME_MAX_CHARACTERS = 120  # of a product name inside a rule sentence
+CUT_MARK = "…"
+# Every mark a reader could take for the end of a quotation: each becomes an apostrophe.
+DOUBLE_QUOTES = '"“”„‟«»＂'
+_TO_APOSTROPHE = str.maketrans(dict.fromkeys(DOUBLE_QUOTES, "'"))
+_NOT_SHOWN = "C"  # Unicode categories Cc (control) and Cf (format: bidirectional overrides, zero width), Cs, Co, Cn
 
 
 def format_number(value: Decimal) -> str:
@@ -36,6 +43,24 @@ def format_ratio(value: Decimal) -> str:
     """
     percent = (value * PERCENT).quantize(PERCENT_STEP, rounding=ROUND_DOWN)
     return f"{format_number(percent)}%"
+
+
+def plain_name(name: str) -> str:
+    """A name from the supplier's product file as it may stand in a rule sentence: data, never a statement.
+
+    A double quotation mark, ASCII or typographic, becomes an apostrophe, so a name cannot close a quotation.
+    A control or format character (a line break, a bidirectional override, a zero-width character) becomes a
+    space, so a name stays on one line and hides nothing. At most `NAME_MAX_CHARACTERS` characters; a longer
+    name ends in "…". The audit trail quotes rule sentences as written, so this is done where a name is read.
+    """
+    shown = "".join(
+        " " if unicodedata.category(character).startswith(_NOT_SHOWN) else character
+        for character in name.translate(_TO_APOSTROPHE)
+    )
+    one_line = " ".join(shown.split())
+    if len(one_line) <= NAME_MAX_CHARACTERS:
+        return one_line
+    return one_line[: NAME_MAX_CHARACTERS - len(CUT_MARK)].rstrip() + CUT_MARK
 
 
 def format_datetime(value: datetime) -> str:

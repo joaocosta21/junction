@@ -204,7 +204,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | F-02 | A line declares an excluded allergen | `BLOCK` |
 | F-03 | A fact a rule needs is missing | `APPROVAL` |
 | F-04 | At order time the option has expired, a cut-off has passed, or price or availability changed | `BLOCK`, with a fresh offer |
-| F-05 | A substitute adds an allergen the original does not declare | `BLOCK` |
+| F-05 | A substitute adds an allergen the original does not declare, or raises one from may contain to contains | `BLOCK` |
 | F-06 | The caller is an agent on an approval route | refused (`not-authorised`) |
 | F-07 | A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met | `APPROVAL` (purchasing manager) |
 | F-08 | A substitute lacks a nutritional claim the original carries (for example lactose-free) | `APPROVAL` (purchasing manager) |

@@ -16,8 +16,10 @@ SUPPLIER_RULE_MEANINGS = {
     "F-01": "a line's quantity is not confirmed",
     "F-03": "a fact a rule needs is missing",
     "F-04": "the offer expired, a cut-off passed, or price or availability changed",
-    "F-05": "a substitute adds an allergen the original does not declare",
+    "F-05": "a substitute adds an allergen the original does not declare, or raises one to contains",
     "F-06": "an agent cannot approve an order",
+    "F-07": "a price is not confirmed, a delivery date is ruled out, or a needed-by date is not verifiably met",
+    "F-08": "a substitute lacks a nutritional claim the original carries",
 }
 AGENT_ON_APPROVAL_ROUTE = "F-06"
 REDACTED_HUMAN = Actor(kind=ActorKind.HUMAN, id="buyer-human", display_name="A human at the buyer")

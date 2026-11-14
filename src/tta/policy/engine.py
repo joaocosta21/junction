@@ -23,7 +23,7 @@ from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
 from tta.policy.profiles import load_profiles
 from tta.policy.rulebook import AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
 from tta.policy.sentences import format_fact, render, to_json
-from tta.policy.text import as_sentence, join_words, unique
+from tta.policy.text import as_sentence, join_words, plain_name, unique
 
 Lookup = Callable[[str], Reading]
 
@@ -135,8 +135,9 @@ class RulePolicyEngine:
             first = group[0]
             needed_by = list(dict.fromkeys(gap.rule_id for gap in group))
             spec = self._rulebook.facts[first.fact]
+            of_line = f" of {plain_name(first.line.name)} ({first.line.product_id})" if first.line else ""
             words = {
-                "missing.what": spec.label + (f" of {first.line.name} ({first.line.product_id})" if first.line else ""),
+                "missing.what": spec.label + of_line,
                 "missing.reason": first.reason,
                 "missing.needed_by": f"{'rule' if len(needed_by) == 1 else 'rules'} {join_words(needed_by)}",
             }

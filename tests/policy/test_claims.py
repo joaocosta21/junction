@@ -175,6 +175,7 @@ def test_f07_sends_a_line_whose_price_is_not_confirmed_to_the_purchasing_manager
     assert f07.facts == {
         "line.price_claim": status.value,
         "line.delivery_date_claim": "CONFIRMED",
+        "option.needed_by_check": "MET",
         "line.name": "Arla Café milk 1 L UHT",
         "line.product_id": "463380",
         "line.unconfirmed_reason": "the price is not confirmed by Valio Aimo",

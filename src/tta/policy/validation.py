@@ -55,6 +55,7 @@ FIXED_RULES: Mapping[str, FixedRule] = MappingProxyType({
     "F-04": FixedRule(Verdict.BLOCK, None, (Scope.ORDER,)),
     "F-05": FixedRule(Verdict.BLOCK, None, (Scope.LINE,)),
     "F-07": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE, Scope.ORDER)),
+    "F-08": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
 })
 NO_ROLE = "none"  # how a rule without an approver role reads in a load error
 MISSING_FACT_PLACEHOLDERS = frozenset({"missing.what", "missing.reason", "missing.needed_by"})

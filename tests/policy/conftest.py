@@ -115,8 +115,10 @@ def make_allergen_check() -> Callable[..., AllergenCheck]:
 @pytest.fixture(scope="session")
 def make_substitute() -> Callable[..., SubstituteInfo]:
     def build(
-        *, listed: bool = True, category_distance: int = 0, added: Sequence[tuple[str, AllergenRelation]] = ()
+        *, listed: bool = True, category_distance: int = 0, added: Sequence[tuple[str, AllergenRelation]] = (),
+        claims_lost: Sequence[str] = (),
     ) -> SubstituteInfo:
+        """A stand-in for 473609. `claims_lost`: nutritional claims of the original that it does not carry."""
         return SubstituteInfo(
             original_id="473609",
             original_name="Oddlygood Barista oat drink",
@@ -127,6 +129,7 @@ def make_substitute() -> Callable[..., SubstituteInfo]:
                 added=tuple(AllergenStatement(code=code, relation=relation) for code, relation in added),
                 sentence="Adds an allergen the original does not declare." if added else "Adds no allergen.",
             ),
+            claims_lost=tuple(claims_lost),
             gives_up="A different brand.",
         )
 

@@ -217,7 +217,8 @@ def test_a_blocked_order_says_why_and_that_nothing_was_ordered(trail: AuditTrail
     )
     assert event.data.supplier_sentence == (
         "The buyer's rules blocked the order of option opt_3 of offer off_2. Nothing was ordered. "
-        "Fixed rule that applied: F-05 (a substitute adds an allergen the original does not declare)."
+        "Fixed rule that applied: F-05 (a substitute adds an allergen the original does not declare, or raises one to "
+        "contains)."
     )
     assert event.subject == "offer/off_2"
 

@@ -29,6 +29,7 @@ CLAIM_WORDS: Mapping[ClaimName, str] = {
 }
 PRICE_NOT_CONFIRMED = "the price is not confirmed by Valio Aimo"
 DELIVERY_DATE_RULED_OUT = "the delivery date is ruled out"
+DELIVERY_DATE_NOT_CONFIRMED = "the delivery date is not confirmed by Valio Aimo"
 NEEDED_BY_WORDS: Mapping[CheckResult, str] = {
     CheckResult.NOT_MET: "is not met",
     CheckResult.UNVERIFIED: "cannot be verified",
@@ -41,14 +42,21 @@ def claim_status(line: OfferLine, claim: ClaimName) -> ClaimStatus | None:
     return max(statuses, key=_CLAIM_STATUSES.index, default=None)
 
 
-def unconfirmed_reasons(line: OfferLine) -> tuple[str, ...]:
-    """Why rule F-07 holds for a line, one clause per reason; empty when it does not."""
+def unconfirmed_reasons(line: OfferLine, *, dated: bool) -> tuple[str, ...]:
+    """Why rule F-07 holds for a line, one clause per reason; empty when it does not.
+
+    `dated`: the option carries a needed-by check. Only then does a delivery date that is UNKNOWN count: with
+    no date asked for there is none to confirm (SPEC section 4).
+    """
     reasons: list[str] = []
     price = claim_status(line, ClaimName.PRICE)
     if price is not None and price is not ClaimStatus.CONFIRMED:
         reasons.append(PRICE_NOT_CONFIRMED)
-    if claim_status(line, ClaimName.DELIVERY_DATE) is ClaimStatus.RULED_OUT:
+    delivery_date = claim_status(line, ClaimName.DELIVERY_DATE)
+    if delivery_date is ClaimStatus.RULED_OUT:
         reasons.append(DELIVERY_DATE_RULED_OUT)
+    elif dated and delivery_date is ClaimStatus.UNKNOWN:
+        reasons.append(DELIVERY_DATE_NOT_CONFIRMED)
     return tuple(reasons)
 
 

@@ -6,6 +6,8 @@ from collections.abc import Callable
 
 import pytest
 
+from tta.allergens import check_substitute
+from tta.contracts.allergen import AllergenStatement
 from tta.contracts.common import (
     AllergenOutcome,
     AllergenRelation,
@@ -23,6 +25,7 @@ from tta.contracts.policy import BuyerProfile, FiredRule, PolicyContext, PolicyD
 from tta.policy import RulePolicyEngine
 
 NOT_CONFIRMED_STATES = [state for state in AvailabilityState if state is not AvailabilityState.CONFIRMED]
+F05_TITLE = "A substitute adds an allergen the original does not declare, or raises one from may contain to contains"
 
 
 def _fired(decision: PolicyDecision, rule_id: str) -> FiredRule:
@@ -184,10 +187,35 @@ def test_f05_blocks_a_substitute_that_adds_an_allergen(
     assert decision.verdict is Verdict.BLOCK and decision.rule_ids == ("F-05",)
     f05 = _fired(decision, "F-05")
     assert f05.fixed and f05.product_id == "471881"
+    assert f05.title == F05_TITLE
     assert f05.sentence == (
         "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) but adds an allergen "
-        "the original does not declare: AW (contains)."
+        "the original does not declare, or raises one from may contain to contains: AW (contains)."
     )
+
+
+def test_f05_says_nothing_untrue_about_a_substitute_that_only_raises_a_level(
+    engine: RulePolicyEngine, hotel: BuyerProfile, make_line: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext], make_substitute: Callable,
+) -> None:
+    """Both products declare tree nuts; the original says "may contain", the substitute "contains" (SPEC section 6)."""
+    original = (AllergenStatement(code="AN", relation=AllergenRelation.MAY_CONTAIN),)
+    stand_in = (AllergenStatement(code="AN", relation=AllergenRelation.CONTAINS),)
+    raised = check_substitute(original, stand_in)
+    substitute = make_substitute().model_copy(update={"allergen_check": raised})
+    option = make_option((make_line("471881", "Oat drink gluten-free", substitute=substitute),))
+
+    decision = engine.evaluate(option, hotel, make_context())
+
+    assert not raised.passes and "raises 1 allergen from may contain to contains" in raised.sentence
+    assert decision.verdict is Verdict.BLOCK and decision.rule_ids == ("F-05",)
+    f05 = _fired(decision, "F-05")
+    assert f05.title == F05_TITLE
+    assert f05.sentence == (
+        "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) but adds an allergen "
+        "the original does not declare, or raises one from may contain to contains: AN (contains)."
+    )
+    assert f05.facts["line.substitute_added_allergens"] == ["AN (contains)"]
 
 
 def test_f05_is_silent_for_a_substitute_that_adds_no_allergen(
