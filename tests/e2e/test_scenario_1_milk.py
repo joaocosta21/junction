@@ -4,7 +4,11 @@ Milk for coffee is a product type of its own since 14 Nov (Valio Aimo: "no be ex
 longer fills the request. Two confirmed milks cover 435 of the 1,000 litres: option 1 is a partial fill, 43.5%,
 and goes to a person for the per-order limit and the minimum fill (P-01, P-03). The alternative is 1,000 litres
 of a milk whose quantity Valio Aimo does not confirm. Asking for 1,500 litres changes only what is missing.
-Measured at the recording's own clock (Saturday 14 Nov 2026, 02:52 Helsinki time).
+Measured at the recording's own clock (Saturday 14 Nov 2026, 02:52 Helsinki time) and, in the tests that take
+`both`, at the demo clock too (Thursday 12 Nov 2026, 14:15): the options, totals and rules are the same at both;
+only the products left out differ (17 against 2: at the demo clock no cut-off has passed).
+
+Scenario 1 of docs/DEMO.md. Scores on the 30% end-to-end flow, the 15% partial availability and the 20% log.
 """
 
 from __future__ import annotations
@@ -21,8 +25,13 @@ UNCONFIRMED_MILK = "464306"  # the cheapest lactose-free milk; Valio does not co
 APPROVER_NOTE = "Checked with the kitchen."
 SCENARIO_1_EVENTS = [
     "request.received", "request.parsed", "lookup.performed", "offer.created",
-    "policy.evaluated", "policy.evaluated", "approval.requested", "approval.decided", "order.confirmed",
+    "policy.evaluated", "policy.evaluated", "suggestions.shown", "approval.requested", "approval.decided",
+    "order.confirmed",
 ]
+LEFT_OUT = {  # products left out with a reason, by clock (measured over the recording's 26 lactose-free milks)
+    "recording": {"CUTOFF_PASSED": 15, "PORTION_PACK": 1, "NOT_DELIVERABLE": 1},
+    "demo": {"PORTION_PACK": 1, "NOT_DELIVERABLE": 1},
+}
 
 
 def _option(offer: dict[str, Any], kind: OptionKind) -> dict[str, Any]:
@@ -143,3 +152,49 @@ def test_scenario_1_partial_fill_typed_request_for_more_than_the_confirmed_stock
     trail = demo.audit("hotel", order["order_id"])
     assert event_types(trail)[-3:] == ["approval.requested", "approval.decided", "order.confirmed"]
     assert all(event["sentence"].strip() for event in trail["events"])
+
+
+def test_scenario_1_the_briefs_own_sentence_is_read_as_the_typed_request(both: Any, texts: Any) -> None:
+    """ "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on
+    price and availability." The second sentence adds nothing to look up: price and availability are the default."""
+    read = both.parse("hotel", texts.brief)
+    short = both.parse("hotel", texts.scenario_1)
+    typed = texts.milk(1000)["lines"][0]
+
+    assert read["needed_by"] == short["needed_by"] == texts.monday
+    for name in ("product_type", "required_claims", "quantity", "unit"):
+        assert read["lines"][0][name] == short["lines"][0][name] == typed[name], name
+    assert len(read["lines"]) == 1 and not read["lines"][0]["exclude_allergens"]
+
+
+def test_scenario_1_at_both_clocks_request_offer_order_a_person_confirms_and_the_two_views_of_the_log(
+    both: Any, texts: Any, money: Any, fired: Any, lines_of: Any, event_types: Any, two_views: Any
+) -> None:
+    run = both.run_agent("hotel", texts.scenario_1)
+    offer = both.get_offer("hotel", run["offer_id"])
+    _assert_scenario_1_offer(offer, money, fired, lines_of)
+    left_out: dict[str, int] = {}
+    for exclusion in offer["excluded"]:
+        left_out[exclusion["reason"]] = left_out.get(exclusion["reason"], 0) + 1
+    assert left_out == LEFT_OUT[both.clock]
+    assert offer["time_basis"] == ("recording" if both.clock == "recording" else "demo_setting")
+
+    order = both.get_order("hotel", run["order_id"])
+    assert (order["status"], order["placed_by"]) == (OrderStatus.PENDING_APPROVAL, None)
+    assert order["decision"]["required_roles"] == ["purchasing_manager"]
+    assert both.decide("hotel", order["approval_id"]).status_code == 403  # the agent cannot confirm its own order
+
+    decided = both.confirm("hotel", order, APPROVER_NOTE)
+    assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
+    assert decided["status_sentence"] == (
+        "Ordered for €1,083.39 net with approval by Demo approver Hanna (purchasing manager): rules P-01 and P-03 "
+        "asked for a human and were accepted."
+    )
+
+    own, valio = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=APPROVER_NOTE)
+    assert event_types(own)[:7] == SCENARIO_1_EVENTS[:7]
+    assert event_types(own)[-2:] == ["approval.decided", "order.confirmed"]
+    assert "authorisation.refused" in event_types(own)
+    created = next(event for event in valio["events"] if event["type"].endswith("offer.created"))
+    assert "Left out for a reason in Valio Aimo's own data" in created["sentence"]
+    assert "464440" in created["sentence"]  # the one that cannot be delivered, named to Valio Aimo by its id

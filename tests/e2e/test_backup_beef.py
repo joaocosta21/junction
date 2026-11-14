@@ -18,7 +18,7 @@ BEEF = "466988"  # Well Beef chuck roll, 109 kg confirmed, €16.88 per kg
 LOT_STEP_KG = Decimal(3)
 BEEF_EVENTS = [
     "request.received", "request.parsed", "lookup.performed", "offer.created", "policy.evaluated",
-    "approval.requested", "approval.decided", "order.confirmed",
+    "suggestions.shown", "approval.requested", "approval.decided", "order.confirmed",
 ]
 
 

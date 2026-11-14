@@ -7,10 +7,16 @@ empty database: in replay the data clock is pinned, so the day's spend of one da
 Tests check what the gateway decides (products, quantities, totals, verdicts, rules, statuses, audit events),
 never the words of a model's reading: the recordings may be replaced by real Gemini answers.
 Every helper is a fixture, because test modules cannot import from one another (`--import-mode=importlib`).
+
+Two apps: `demo` is the gateway at the recording's own clock (Saturday 14 Nov 2026 02:52 Helsinki time), with
+`Settings.for_tests()` as it stands; `both` is the gateway as it is shipped for the demo (the customers' standing
+orders loaded at start), once at the recording's clock and once at the demo clock (Thursday 12 Nov 2026 14:15,
+`TTA_DEMO_CLOCK`), so a scenario of docs/DEMO.md is checked at the two clocks.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -29,9 +35,19 @@ CAPTURE = "2026-11-14-demo"  # tonight's capture, Saturday 14 Nov 2026 02:52 ser
 MONDAY = "2026-11-16"
 EVENT_PREFIX = "tta.v1."
 # The demonstration tokens of src/tta/api/demo_tokens.yaml. They are public by design.
+DEMO_CLOCK = "2026-11-12T14:15:00+02:00"  # Thursday 12 Nov 2026 14:15 Helsinki time: the clock the demo is shown at
+RECORDING, THURSDAY = "recording", "demo"  # the two clocks of the `both` fixture
 TOKENS = {
     "hotel": "demo-agent-hotel-kitchen",
     "ward": "demo-agent-allergy-ward",
+    "school": "demo-agent-school-kitchen",
+    "bakery": "demo-agent-bakery-cafe",
+    "school:purchasing_manager": "demo-approver-school-purchasing",
+    "school:finance": "demo-approver-school-finance",
+    "school:dietitian": "demo-approver-school-dietitian",
+    "bakery:purchasing_manager": "demo-approver-bakery-owner",  # the owner holds every role of the bakery (B27)
+    "bakery:finance": "demo-approver-bakery-owner",
+    "bakery:dietitian": "demo-approver-bakery-owner",
     "hotel:purchasing_manager": "demo-approver-hotel-purchasing",
     "hotel:finance": "demo-approver-hotel-finance",
     "hotel:dietitian": "demo-approver-hotel-dietitian",
@@ -41,11 +57,41 @@ TOKENS = {
     "supplier": "demo-supplier-valio-aimo",
 }
 
+# The people of src/tta/api/demo_tokens.yaml, as the buyer's view of the log names them.
+APPROVERS = {
+    "hotel:purchasing_manager": "Demo approver Hanna", "hotel:finance": "Demo approver Mikko",
+    "hotel:dietitian": "Demo approver Leena", "ward:purchasing_manager": "Demo approver Jussi",
+    "ward:finance": "Demo approver Anna", "ward:dietitian": "Demo approver Sari",
+    "school:purchasing_manager": "Demo approver Päivi", "school:finance": "Demo approver Tuomas",
+    "school:dietitian": "Demo approver Riikka", "bakery:purchasing_manager": "Demo approver Marko",
+    "bakery:finance": "Demo approver Marko", "bakery:dietitian": "Demo approver Marko",
+}
+# What Valio Aimo's view of a buyer's log never shows: a limit amount of any profile (src/tta/policy/profiles/),
+# a customer's or a person's name, a profile id. A limit is printed without cents ("€750"), a total with them.
+LIMIT_AMOUNTS = ("€750", "€3,000", "€500", "€1,500", "€250", "€800", "€300", "€1,000")
+NAMES = (
+    "Harbourside", "City Hospital", "Kilo School", "Kallio", "hotel-kitchen", "allergy-ward", "school-kitchen",
+    "bakery-cafe", "Hanna", "Mikko", "Leena", "Jussi", "Anna", "Sari", "Päivi", "Tuomas", "Riikka", "Marko",
+)
+# A GS1 allergen code as a word of its own, or an allergen named with its code as the buyer's view writes it.
+ALLERGEN_CODE = re.compile(r"\b(AM|AW|AN|AP|AS|SA)\b|tree nuts|peanuts|sesame|excluding allergen")
+
 # The sentences of the demo. The first two have a recording in fixtures/agent/; the others are sent typed.
 SCENARIO_1_TEXT = "1,000 litres of lactose-free milk by Monday"
 SCENARIO_2_TEXT = "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
 SCENARIO_3_TEXT = "100 litres of Oddlygood Barista oat drink, product 473609, by Monday"
 BACKUP_TEXT = "30 kg beef chuck"
+# The brief's own sentence (AIMO/CHALLENGE.md). The fixed-rules reader reads it as scenario 1's typed request.
+BRIEF_TEXT = (
+    "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on "
+    "price and availability."
+)
+# The other sentences of docs/DEMO.md, as the first page offers them (src/tta/ui/examples.py).
+DIETITIAN_TEXT = "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk, strict rule"
+ALMOND_TEXT = "20 litres of almond drink by Monday"
+PATTERN_TEXT = "100 litres of lactose-free milk by Monday"
+FORMULA_CHANGED_TEXT = "40 kg of Valio crème fraîche, product 477055, by Monday, for baking"
+FORMULA_KEPT_TEXT = "100 litres of whipping cream by Monday, for cakes"
 
 
 def milk_request(litres: int) -> dict[str, Any]:
@@ -69,7 +115,37 @@ SCENARIO_2_REQUEST = {
 }
 SCENARIO_3_REQUEST = {
     "needed_by": MONDAY,
-    "lines": [{"text": SCENARIO_3_TEXT, "product_ids": ["473609"], "quantity": 100, "unit": "L"}],
+    "lines": [{
+        "text": SCENARIO_3_TEXT, "product_type": "plant_drink", "product_ids": ["473609"], "quantity": 100,
+        "unit": "L",
+    }],
+}
+DIETITIAN_REQUEST = {
+    "needed_by": MONDAY,
+    "lines": [{
+        "text": DIETITIAN_TEXT, "product_type": "plant_drink", "product_ids": ["469512"], "quantity": 100,
+        "unit": "L", "exclude_allergens": ["AM"], "allergen_strictness": "STRICT",
+    }],
+}
+# The school's profile excludes tree nuts, peanuts and sesame under the strict rule: the request names none.
+ALMOND_REQUEST = {
+    "needed_by": MONDAY,
+    "lines": [{
+        "text": ALMOND_TEXT, "product_type": "plant_drink", "name_terms": ["almond"], "quantity": 20, "unit": "L",
+    }],
+}
+FORMULA_CHANGED_REQUEST = {
+    "needed_by": MONDAY,
+    "lines": [{
+        "text": FORMULA_CHANGED_TEXT, "product_ids": ["477055"], "quantity": 40, "unit": "KG", "keep_formula": True,
+    }],
+}
+FORMULA_KEPT_REQUEST = {
+    "needed_by": MONDAY,
+    "lines": [{
+        "text": FORMULA_KEPT_TEXT, "product_type": "cream", "name_terms": ["whipping"], "quantity": 100,
+        "unit": "L", "keep_formula": True,
+    }],
 }
 
 
@@ -82,8 +158,9 @@ def beef_request(kilos: int) -> dict[str, Any]:
 class Demo:
     """The gateway's REST interface as the demo uses it. Every call asserts its status and returns the JSON."""
 
-    def __init__(self, client: TestClient) -> None:
+    def __init__(self, client: TestClient, clock: str = RECORDING) -> None:
         self.client = client
+        self.clock = clock  # RECORDING or THURSDAY: which of the two clocks this gateway judges deadlines against
         self._keys = 0
 
     @staticmethod
@@ -144,6 +221,31 @@ class Demo:
             decided = self._json(self.decide(f"{buyer}:{role}", approval["approval_id"], note=note), 200)
         return decided
 
+    def approval_for(self, approver: str, order: dict[str, Any]) -> dict[str, Any]:
+        """The pending approval of an order as one approver ("hotel:dietitian") finds it in the queue."""
+        found = [approval for approval in self.pending(approver) if approval["approval_id"] == order["approval_id"]]
+        assert len(found) == 1, self.pending(approver)
+        return found[0]
+
+    def confirm(self, buyer: str, order: dict[str, Any], note: str, option_id: str | None = None) -> dict[str, Any]:
+        """Each role the order asks for approves it, with a note; `option_id` takes another option of the offer."""
+        decided: dict[str, Any] = {}
+        for role in order["decision"]["required_roles"]:
+            body = {"decision": "APPROVE", "note": note, **({} if option_id is None else {"option_id": option_id})}
+            answer = self.client.post(
+                f"/v1/approvals/{order['approval_id']}/decision", json=body, headers=self.headers(f"{buyer}:{role}")
+            )
+            decided = self._json(answer, 200)
+        return decided
+
+    def offer_audit(self, who: str, offer_id: str) -> dict[str, Any]:
+        return self._json(self.client.get(f"/v1/audit?offer_id={offer_id}", headers=self.headers(who)), 200)
+
+    def shop(self, kitchen: str, method: str, path: str, status: int = 200, **kwargs: Any) -> Any:
+        """One call of the shop page (`/shop/api`), on this client's own demo book for that customer."""
+        headers = {"X-Shop-Request": "1", "X-Shop-Kitchen": kitchen}
+        return self._json(self.client.request(method, "/shop/api" + path, headers=headers, **kwargs), status)
+
     def audit(self, who: str, order_id: str, reader: str | None = None) -> dict[str, Any]:
         query = f"order_id={order_id}" + ("" if reader is None else f"&reader={reader}")
         return self._json(self.client.get(f"/v1/audit?{query}", headers=self.headers(who)), 200)
@@ -183,6 +285,75 @@ def demo(demo_settings: Settings, catalog: ProductCatalog) -> Iterator[Demo]:
         assert health["surfaces"] == {"mcp": True, "pages": True}, health
         assert (health["mode"], health["source"]) == ("replay", "replay"), health
         yield Demo(client)
+
+
+@pytest.fixture(params=[RECORDING, THURSDAY])
+def both(request: pytest.FixtureRequest, tmp_path: Path, catalog: ProductCatalog) -> Iterator[Demo]:
+    """The gateway as it is shipped for the demo, at each of the two clocks in turn, on its own empty database.
+
+    The customers' standing orders are loaded at start, as in the shipped settings (`Settings.for_tests()` leaves
+    them out). `both.clock` says which clock is in force; a test pins a figure per clock only where they differ.
+    """
+    clock = {} if request.param == RECORDING else {"tta_demo_clock": DEMO_CLOCK}
+    settings = Settings.for_tests(
+        tta_data_dir=tmp_path / "var", tta_env="demo", tta_replay_capture=CAPTURE,
+        tta_customer_standing_orders=True, **clock,
+    )
+    assert not settings.has_gemini_key and not settings.has_valio_key
+    app = create_app(settings, parts=build_parts(settings, catalog=catalog))
+    with TestClient(app) as client:
+        health = client.get("/healthz").json()
+        assert (health["mode"], health["source"]) == ("replay", "replay"), health
+        assert health["clock"]["demo_clock_set"] is (request.param == THURSDAY), health
+        yield Demo(client, request.param)
+
+
+@pytest.fixture(scope="session")
+def two_views() -> Any:
+    """Check the log of a decided order as the buyer and as Valio Aimo read it, and hand both back.
+
+    The trail verifies for both readers and holds the same events; the buyer's view names the person who decided
+    and carries the note; Valio Aimo's view shows every rule that fired and never a limit amount, an excluded
+    allergen, a name or the note.
+    """
+
+    def check(demo: Demo, buyer: str, order: dict[str, Any], *, decided_by: str, note: str) -> tuple[Any, Any]:
+        own = demo.audit(buyer, order["order_id"])
+        valio = demo.audit("supplier", order["order_id"])
+        assert (own["reader"], valio["reader"]) == ("buyer", "supplier")
+        assert own["chain"]["ok"] is True and valio["chain"]["ok"] is True
+        kinds = [event["type"] for event in own["events"]]
+        assert kinds == [event["type"] for event in valio["events"]]
+        assert all(event["sentence"].strip() for view in (own, valio) for event in view["events"])
+
+        read = " ".join(event["sentence"] for event in own["events"])
+        assert APPROVERS[decided_by] in own["events"][-1]["sentence"], own["events"][-1]["sentence"]
+        assert note in read
+
+        shown = " ".join(event["sentence"] for event in valio["events"])
+        for rule in order["decision"]["fired"]:
+            assert rule["rule_id"] in shown, rule["rule_id"]
+        for amount in LIMIT_AMOUNTS:
+            assert not re.search(re.escape(amount) + r"(?![\d,]|\.\d)", shown), amount
+        for private in (*NAMES, note):
+            assert private not in shown, private
+        assert not ALLERGEN_CODE.search(shown), ALLERGEN_CODE.search(shown)
+        return own, valio
+
+    return check
+
+
+@pytest.fixture(scope="session")
+def option_of() -> Any:
+    """The one option of an offer that holds a product, whatever its place."""
+
+    def find(offer: dict[str, Any], product_id: str) -> dict[str, Any]:
+        found = [option for option in offer["options"]
+                 if any(line["product_id"] == product_id for line in option["lines"])]
+        assert len(found) == 1, [[line["product_id"] for line in option["lines"]] for option in offer["options"]]
+        return found[0]
+
+    return find
 
 
 @pytest.fixture(scope="session")
@@ -233,8 +404,18 @@ def texts() -> Any:
         scenario_3 = SCENARIO_3_TEXT
         backup = BACKUP_TEXT
         monday = MONDAY
+        brief = BRIEF_TEXT
+        dietitian = DIETITIAN_TEXT
+        almond = ALMOND_TEXT
+        pattern = PATTERN_TEXT
+        formula_changed = FORMULA_CHANGED_TEXT
+        formula_kept = FORMULA_KEPT_TEXT
         scenario_2_request = SCENARIO_2_REQUEST
         scenario_3_request = SCENARIO_3_REQUEST
+        dietitian_request = DIETITIAN_REQUEST
+        almond_request = ALMOND_REQUEST
+        formula_changed_request = FORMULA_CHANGED_REQUEST
+        formula_kept_request = FORMULA_KEPT_REQUEST
 
         @staticmethod
         def milk(litres: int) -> dict[str, Any]:

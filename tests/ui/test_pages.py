@@ -34,8 +34,10 @@ def test_the_first_page_has_the_examples_the_demo_agents_and_a_run_button(client
     assert "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only" in page
     assert "473609" in page
     assert "469512" in page  # the dietitian's example (task T18): an oat drink with no milk statement
+    assert "20 litres of almond drink by Monday" in page  # the school's: the manufacturer's page adds a doubt
+    assert "477055" in page  # the bakery's crème fraîche: no substitute keeps the formula (rule F-11)
     assert "most reliable delivery" in page  # the preference's example (task SUST-1): it changes the choice
-    assert page.count('name="example"') == 6  # the bakery's waits for the bakery's demo agent
+    assert page.count('name="example"') == 9  # the demo set of docs/DEMO.md, then the reserve
     assert "Hotel kitchen agent (demo)" in page and "Allergy ward agent (demo)" in page
     assert 'name="who"' in page and 'maxlength="2000"' in page
     assert ">Run<" in page
@@ -126,9 +128,9 @@ def test_the_pages_need_the_demonstration_identities(client: TestClient) -> None
 
 # --- one button per demo scenario, each with its customer (P2 W2, R9) -----------------------------------------
 
-DEMO_ORDER = (  # PLAN section 5, then the reserve
+DEMO_ORDER = (  # docs/DEMO.md, then the reserve
     "1 · Harbourside Hotel", "2 · City Hospital, Ward 4", "3 · Harbourside Hotel", "4 · Harbourside Hotel",
-    "Reserve · Harbourside Hotel",
+    "4 · Kilo School", "5 · Harbourside Hotel", "6 · Kallio Bakery", "Reserve · Harbourside Hotel",
 )
 
 
@@ -139,22 +141,29 @@ def test_the_first_page_shows_the_demo_scenarios_in_demo_order_each_with_its_cus
 
     places = [examples.index(heading) for heading in DEMO_ORDER]
     assert places == sorted(places)
-    assert examples.count("Reserve · ") == 2
-    assert 'href="/standing-orders"' in examples  # scenario 4 goes on there: the standing order at 290 L
+    assert examples.count("Reserve · ") == 1 and examples.count("6 · Kallio Bakery") == 2
+    assert 'href="/standing-orders"' in examples  # scenario 5 goes on there: the standing order at 290 L
     assert "ordered alone" not in examples.lower() and "orders alone" not in examples.lower()
 
 
-def test_an_example_whose_customer_has_no_demo_agent_here_is_not_shown(
-    client: TestClient, form_fields: Callable[..., Any]
+def test_the_schools_and_the_bakerys_examples_run_as_their_own_customers(
+    client: TestClient, run_example: Post, only_order: Callable[..., Any]
 ) -> None:
-    """The bakery's example (scenario 5) needs the bakery's demo agent, which another task adds."""
-    bakery = next(example for example in EXAMPLES if example.key == "formula")
-    page = client.get("/").text
+    """Scenario 4's second sentence and scenario 6 belong to the school and the bakery: each runs as its own demo
+    agent, under its own customer's rules, and waits for a person."""
+    by_key = {example.key: example for example in EXAMPLES}
+    assert (by_key["almond"].agent_id, by_key["almond"].step) == ("agent:school-kitchen", 4)
+    assert (by_key["formula-changed"].agent_id, by_key["formula-changed"].step) == ("agent:bakery-cafe", 6)
+    assert (by_key["formula"].agent_id, by_key["formula"].step) == ("agent:bakery-cafe", 6)
 
-    assert bakery.agent_id == "agent:bakery-cafe" and bakery.step == 5
-    assert 'value="formula"' not in page and "Kallio Bakery" not in page
-    refused = client.post("/run", data={**form_fields(client), "example": "formula"})
-    assert refused.status_code == 422 and "No such example" in refused.text
+    assert run_example(client, "almond").status_code == 200
+    almond = only_order(client, "agent:school-kitchen")
+    assert [line.product_id for line in almond.option.lines] == ["465793"] and almond.placed_by is None
+    assert "P-04" in almond.decision.rule_ids  # the school excludes tree nuts: the dietitian decides
+
+    assert run_example(client, "formula-changed").status_code == 200
+    creme = only_order(client, "agent:bakery-cafe")
+    assert [line.product_id for line in creme.option.lines] == ["477055"] and creme.placed_by is None
 
 
 def test_the_customers_pattern_asks_for_the_hotels_usual_100_litres(
@@ -173,7 +182,8 @@ def test_the_examples_work_in_any_order_in_one_browser(
     client: TestClient, run_example: Post, orders: Callable[..., Any], direction: str
 ) -> None:
     """A4 H2: one pass over the examples stays under the hotel's €3,000 a day, so none asks finance (P-02)."""
-    keys = ("scenario-1", "scenario-2", "scenario-3", "pattern", "scenario-5", "scenario-4")
+    keys = ("scenario-1", "scenario-2", "scenario-3", "scenario-4", "almond", "pattern", "formula-changed",
+            "formula", "scenario-5")
     for key in keys if direction == "demo order" else reversed(keys):
         assert run_example(client, key).status_code == 200, key
 
