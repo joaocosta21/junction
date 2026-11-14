@@ -36,7 +36,16 @@ from tta.api.hooks import SurfaceContext
 from tta.api.sandbox import KITCHEN_IDENTITIES
 from tta.config import REPO_ROOT
 from tta.contracts.errors import TtaError
-from tta.ui import approvals_page, kitchen_page, menu_page, order_page, request_page, security, standing_page
+from tta.ui import (
+    approvals_page,
+    kitchen_page,
+    menu_page,
+    order_page,
+    request_page,
+    security,
+    shop_api,
+    standing_page,
+)
 from tta.ui.markdown import render as render_markdown
 from tta.ui.run import Problem
 from tta.ui.security import BookCookie, SecurityHeaders
@@ -125,6 +134,7 @@ def create_surface(context: SurfaceContext) -> FastAPI:
     kitchen_page.add_routes(app, site)
     menu_page.add_routes(app, site)  # task MENU-1
     standing_page.add_routes(app, site)  # task STAND-1
+    shop_api.add_routes(app, site, str(STATIC_DIR / "shop" / "index.html"))  # the shop page and its JSON routes
 
     @app.get("/assumptions", response_class=HTMLResponse)
     def assumptions(request: Request) -> HTMLResponse:
