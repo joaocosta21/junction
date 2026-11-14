@@ -260,7 +260,8 @@ def order_not_placed(actor: Actor, context: AuditContext, scope: Scope) -> str:
     else:
         changes = "".join(f" {ended(change.sentence)}" for change in revalidation.changes)
         reason = f"price or availability changed since the offer was made.{changes}"
-    return f"The order of {scope.option_of_offer_label} was not placed: {reason} A fresh offer is needed."
+    label = scope.option_of_offer_label
+    return f"The order of {label} was not placed: {reason} The buyer's agent can ask for a fresh offer."
 
 
 def agent_refused(scope: Scope) -> str:

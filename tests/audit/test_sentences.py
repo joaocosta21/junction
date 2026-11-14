@@ -231,7 +231,8 @@ def test_an_order_not_placed_because_the_price_changed(trail: AuditTrail, sample
 
     expected = (
         "The order of option opt_1 of offer off_1 was not placed: price or availability changed since the offer "
-        "was made. The price of 463380 changed from €2.65 to €2.80. A fresh offer is needed."
+        "was made. The price of 463380 changed from €2.65 to €2.80. "
+        "The buyer's agent can ask for a fresh offer."
     )
     assert event.data.sentence == expected
     assert event.data.supplier_sentence == expected
@@ -245,7 +246,7 @@ def test_an_order_not_placed_because_the_offer_expired(trail: AuditTrail, sample
 
     assert event.data.sentence == (
         "The order of option opt_1 of offer off_1 was not placed: the offer is no longer valid, because its "
-        '"order by" time, a price validity or a cut-off has passed. A fresh offer is needed.'
+        '"order by" time, a price validity or a cut-off has passed. The buyer\'s agent can ask for a fresh offer.'
     )
 
 
