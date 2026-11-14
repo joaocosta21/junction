@@ -1,16 +1,20 @@
-"""Limits on what one caller can send and how often (tasks T09 and FIX-8; security review of the layers below).
+"""Limits on what one caller can send and how often (tasks T09, FIX-8, FIX-10 and FIX-11).
 
 Scores on the 30% "working end-to-end demo" (the public demo keeps working under a room full of people) and
 on the 15% "credible path toward production": the audit trail is append-only, the supplier's API has a call
 budget and the model is paid per call, so no caller may fill the one or spend the others, and one visitor of
 the demo may not lock out the rest.
 
-Three layers, each a sliding window of one minute, in memory, for one process:
+Four layers, each a sliding window of one minute, in memory, for one process:
     one caller       a token from the environment; where the tokens are the public demonstration tokens, one
-                     visitor (its address, whichever token it sends), with a window per kind of call
-                     (`VISITOR_WINDOWS`), each well under its ceiling
+                     visitor, with a window per kind of call (`VISITOR_WINDOWS`), each well under its ceiling.
+                     On the pages a visitor is a browser, known by the own-book cookie the pages give it; a
+                     browser without one, and every REST and MCP call, is its address, whichever token it sends
+    one address      the demonstration only: every browser and caller behind one address together, at most
+                     half of each ceiling (`ADDRESS_CAPS`). A room on one Wi-Fi shares one public address, and
+                     a new cookie buys a new browser window, so this is what holds rotating cookies back
     all callers      a ceiling per kind of call (`GLOBAL_CEILINGS`)
-    the supplier     live looks at price and availability, overall and per visitor (used by the fall-back)
+    the supplier     live looks at price and availability, overall and per address (used by the fall-back)
 
 The values are ours and illustrative, like the buyer profiles: the mock publishes no rate limit
 (AIMO/docs/API.md section 2).
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import ipaddress
 import math
+import re
 import threading
 import time
 from collections import deque
@@ -30,9 +35,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
 
+from starlette.requests import cookie_parser
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from tta.api.errors import BodyTooLarge, body_too_large_problem, problem_response, status_problem
+from tta.api.headers import is_api_path
 from tta.contracts.common import Identity
 from tta.contracts.errors import RateLimited
 
@@ -53,11 +60,16 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = SECONDS_PER_MINUTE
 MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE = 120
 MAX_ORDERS_AND_DECISIONS_PER_MINUTE = 120
 MAX_MODEL_CALLS_PER_MINUTE = 30
-# One visitor of the public demonstration, whichever of the public tokens it sends (task FIX-10). Each is at
-# most a quarter of its ceiling, so one address cannot lock the others out.
+# One visitor of the public demonstration, whichever of the public tokens it sends (task FIX-10): a browser
+# of the pages, or an address. Each is at most a quarter of its ceiling.
 MAX_LOOKUPS_PER_VISITOR_PER_MINUTE = 20
 MAX_ORDERS_PER_VISITOR_PER_MINUTE = 20
 MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE = 5
+# Every browser and caller behind one address together (task FIX-11): half of each ceiling, so one address
+# rotating cookies leaves the other half to everybody else, and a room of a dozen reviewers each runs a scenario.
+MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE = 60
+MAX_ORDERS_PER_ADDRESS_PER_MINUTE = 60
+MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE = 15
 # One look is a price call and an availability call. At this rate the default call budget of 150 lasts
 # twelve minutes of a full room; above it the fall-back answers from the capture and says so.
 MAX_LIVE_LOOKS_PER_MINUTE = 6
@@ -67,8 +79,15 @@ RATE_LIMITED = (
     "Too many requests that reach the supplier or write to the audit trail: at most {calls} in "
     "{window} seconds for one caller. Try again in {wait} seconds."
 )
+BROWSER_LIMITED = (
+    "Too many {kind} from this browser: at most {calls} in {window} seconds. Try again in {wait} seconds."
+)
 VISITOR_LIMITED = (
-    "Too many {kind} from one visitor: at most {calls} in {window} seconds. Try again in {wait} seconds."
+    "Too many {kind} from one address: at most {calls} in {window} seconds. Try again in {wait} seconds."
+)
+ADDRESS_LIMITED = (
+    "Too many {kind} from one address for all its browsers and callers together: at most {calls} in "
+    "{window} seconds. Try again in {wait} seconds."
 )
 CEILING_REACHED = (
     "This gateway takes at most {calls} {kind} in {window} seconds from all callers together, and that "
@@ -81,6 +100,13 @@ MAX_ADDRESS_CHARACTERS = 64  # the longest text read as an address; an IPv6 addr
 MAX_FORWARDED_BYTES = 4096  # of X-Forwarded-For, over all its lines: more is not read
 IPV6_VISITOR_PREFIX = 64
 KEYED_SCOPES = ("http", "websocket")
+# The pages' own-book cookie: `tta.ui.security.BOOK_COOKIE`, with its `HOST_PREFIX` over HTTPS. The HTTPS name
+# is read first. The key is the pages' form of `secrets.token_urlsafe(32)`; anything else is no browser.
+BOOK_COOKIE_NAMES = ("__Host-tta_book", "tta_book")
+BOOK_KEY = re.compile(r"^[A-Za-z0-9_-]{43}$")
+COOKIE_HEADER = b"cookie"
+MAX_COOKIE_BYTES = 8192  # of the Cookie header, over all its lines: more is not read
+MCP_ROOT = "/mcp"  # `tta.api.app.MCP_PATH`, where the MCP surface is mounted
 
 
 @dataclass(frozen=True)
@@ -108,6 +134,11 @@ VISITOR_WINDOWS: Mapping[CallKind, int] = MappingProxyType({
     CallKind.LOOKUP: MAX_LOOKUPS_PER_VISITOR_PER_MINUTE,
     CallKind.ORDER: MAX_ORDERS_PER_VISITOR_PER_MINUTE,
     CallKind.MODEL: MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE,
+})
+ADDRESS_CAPS: Mapping[CallKind, int] = MappingProxyType({
+    CallKind.LOOKUP: MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE,
+    CallKind.ORDER: MAX_ORDERS_PER_ADDRESS_PER_MINUTE,
+    CallKind.MODEL: MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE,
 })
 
 
@@ -193,20 +224,27 @@ class RateLimiter:
 # --- who is at the other end ----------------------------------------------------------------------------
 
 _client_key: ContextVar[str] = ContextVar("tta_client_key", default=UNKNOWN_CLIENT)
+_browser_key: ContextVar[str | None] = ContextVar("tta_browser_key", default=None)
 
 
 def current_client_key() -> str:
-    """The client key of the request being served; `UNKNOWN_CLIENT` outside a request."""
+    """The client key (the address) of the request being served; `UNKNOWN_CLIENT` outside a request."""
     return _client_key.get()
 
 
+def current_browser_key() -> str | None:
+    """The own-book cookie of the page request being served; `None` for REST, MCP and a browser without one."""
+    return _browser_key.get()
+
+
 @contextmanager
-def as_client(key: str) -> Iterator[None]:
-    """Serve what runs inside the block as this client."""
-    token = _client_key.set(key)
+def as_client(key: str, *, browser: str | None = None) -> Iterator[None]:
+    """Serve what runs inside the block as this client (an address) and, on a page, this browser."""
+    token, browser_token = _client_key.set(key), _browser_key.set(browser)
     try:
         yield
     finally:
+        _browser_key.reset(browser_token)
         _client_key.reset(token)
 
 
@@ -253,9 +291,25 @@ def client_key_of(scope: Scope, *, trusted_proxy_hops: int = 0) -> str:
     return str(address)
 
 
+def is_page_path(path: str) -> bool:
+    """True for a path the pages serve: anything outside the API (`/v1`) and the MCP surface (`/mcp`)."""
+    return not is_api_path(path) and path != MCP_ROOT and not path.startswith(MCP_ROOT + "/")
+
+
+def browser_key_of(scope: Scope) -> str | None:
+    """The browser of a page request: the key of its own-book cookie as the pages make it, else `None`. A REST
+    or MCP request is never a browser, whatever cookie it carries. Bounded before it is parsed."""
+    if not is_page_path(scope.get("path", "")):
+        return None
+    lines = [value for name, value in scope.get("headers", ()) if name == COOKIE_HEADER]
+    cookies = cookie_parser(b"; ".join(lines)[:MAX_COOKIE_BYTES].decode("latin-1"))
+    return next((cookies[name] for name in BOOK_COOKIE_NAMES if BOOK_KEY.fullmatch(cookies.get(name, ""))), None)
+
+
 class ClientKeyMiddleware:
-    """Puts the client key of each request into a context variable, where the service's limits read it:
-    the REST routes, the MCP tools and the pages are all counted per visitor without passing it along."""
+    """Puts the client key of each request, and on a page its browser, into context variables, where the
+    service's limits read them: the REST routes, the MCP tools and the pages are all counted per visitor
+    without passing it along."""
 
     def __init__(self, app: ASGIApp, *, trusted_proxy_hops: int = 0) -> None:
         self._app = app
@@ -265,7 +319,7 @@ class ClientKeyMiddleware:
         if scope["type"] not in KEYED_SCOPES:
             await self._app(scope, receive, send)
             return
-        with as_client(client_key_of(scope, trusted_proxy_hops=self._hops)):
+        with as_client(client_key_of(scope, trusted_proxy_hops=self._hops), browser=browser_key_of(scope)):
             await self._app(scope, receive, send)
 
 
@@ -274,8 +328,10 @@ class CallLimits:
 
     One window for the caller and one ceiling per kind of call for all callers together. A token from the
     environment is one caller, counted by its identity. Where the tokens are the public demonstration tokens
-    (`per_visitor`), anyone may send any of them, so the caller is the visitor's address alone, with one
-    window per kind of call (`VISITOR_WINDOWS`): one address with every token cannot reach a ceiling.
+    (`per_visitor`), anyone may send any of them, so the caller is the visitor: on the pages its browser, else
+    its address alone, with one window per kind of call (`VISITOR_WINDOWS`). Every call of the demonstration
+    is also counted for its address (`ADDRESS_CAPS`): one address with every token and any number of cookies
+    cannot reach a ceiling.
     """
 
     def __init__(
@@ -284,6 +340,7 @@ class CallLimits:
         *,
         per_visitor: bool,
         visitor_windows: Mapping[CallKind, RateLimit] | None = None,
+        address_caps: Mapping[CallKind, int] | None = None,
         ceilings: Mapping[CallKind, int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -292,22 +349,36 @@ class CallLimits:
         self._visitor_windows = dict(visitor_windows if visitor_windows is not None else {
             kind: RateLimit(calls=calls, window_seconds=SECONDS_PER_MINUTE) for kind, calls in VISITOR_WINDOWS.items()
         })
+        self._address_caps = dict(ADDRESS_CAPS if address_caps is None else address_caps)
         self._ceilings = dict(GLOBAL_CEILINGS if ceilings is None else ceilings)
         self._limiter = RateLimiter(per_caller, monotonic=monotonic)
 
     def check(self, identity: Identity, kind: CallKind) -> None:
-        """Count one call, or raise `RateLimited` (with the seconds to wait) and count it nowhere."""
+        """Count one call, or raise `RateLimited` (with the seconds to wait) and count it nowhere. The refusal
+        says which window was full: the browser's or address's own, the address's cap, or the whole app's."""
         ceiling = RateLimit(calls=self._ceilings[kind], window_seconds=SECONDS_PER_MINUTE)
         self._limiter.check_all((
-            self._callers_window(identity, kind),
-            Counted(f"all {kind.name}", ceiling, CEILING_REACHED.replace("{kind}", kind.value)),
+            *self._callers_windows(identity, kind),
+            Counted(f"all {kind.name}", ceiling, _naming(CEILING_REACHED, kind)),
         ))
 
-    def _callers_window(self, identity: Identity, kind: CallKind) -> Counted:
+    def _callers_windows(self, identity: Identity, kind: CallKind) -> tuple[Counted, ...]:
+        """The caller's own window first: when two are full alike, the refusal names the caller's own."""
         if not self._per_visitor:
-            return Counted(f"caller {identity.id}", self._per_caller)
-        refusal = VISITOR_LIMITED.replace("{kind}", kind.value)
-        return Counted(f"visitor {kind.name} {current_client_key()}", self._visitor_windows[kind], refusal)
+            return (Counted(f"caller {identity.id}", self._per_caller),)
+        address, browser = current_client_key(), current_browser_key()
+        cap = RateLimit(calls=self._address_caps[kind], window_seconds=SECONDS_PER_MINUTE)
+        of_address = Counted(f"address {kind.name} {address}", cap, _naming(ADDRESS_LIMITED, kind))
+        if browser is None:
+            own = Counted(f"visitor {kind.name} {address}", self._visitor_windows[kind], _naming(VISITOR_LIMITED, kind))
+        else:
+            own = Counted(f"browser {kind.name} {browser}", self._visitor_windows[kind], _naming(BROWSER_LIMITED, kind))
+        return own, of_address
+
+
+def _naming(refusal: str, kind: CallKind) -> str:
+    """The refusal with the kind of call written in; the numbers are written in when it is raised."""
+    return refusal.replace("{kind}", kind.value)
 
 
 def call_limits(per_visitor: bool, rate_limit: RateLimit | None = None) -> CallLimits:

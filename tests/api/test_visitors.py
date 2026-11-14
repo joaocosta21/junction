@@ -169,7 +169,8 @@ def test_with_shared_demo_tokens_each_visitor_has_its_own_window_per_kind_of_cal
         limits.check(agent_hotel, CallKind.LOOKUP)  # the same token, another visitor: not locked out
 
     assert refused.value.extensions["retry_after_seconds"] == 60
-    assert "2 in 60 seconds" in refused.value.detail and "one visitor" in refused.value.detail
+    # Without a browser (REST, MCP, or a page request with no own-book cookie) the visitor is its address.
+    assert "2 in 60 seconds" in refused.value.detail and "from one address:" in refused.value.detail
     assert VISITOR_A not in refused.value.detail and agent_hotel.id not in refused.value.detail
 
 
@@ -189,7 +190,7 @@ def test_one_address_with_both_agent_tokens_cannot_reach_a_ceiling_and_a_second_
         limits.check(agent_hotel, kind)
 
     assert accepted == VISITOR_WINDOWS[kind] < GLOBAL_CEILINGS[kind]
-    assert "one visitor" in refused.value.detail and "all callers together" not in refused.value.detail
+    assert "from one address:" in refused.value.detail and "all callers together" not in refused.value.detail
 
 
 def test_a_token_from_the_environment_is_counted_by_identity_wherever_it_calls_from(agent_hotel: Identity) -> None:

@@ -254,3 +254,9 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - The agent may order only the top option of the latest offer, and makes at most two offers per run; on a stale offer it uses the fresh one the gateway built.
 - A recording is served only to the buyer profile it was recorded for. A recorded `needed_by` is re-resolved when the recording was made on another day. "Today" is the date in Europe/Helsinki.
 - The prompts were edited after the recordings were made; the recordings still pass every check.
+
+## Rate limits for a room on one Wi-Fi (FIX-11)
+- On the pages a visitor is a browser (its own-book cookie): 20 lookups, 20 orders and decisions and 5 model runs a minute per browser. REST and MCP are counted by address.
+- Every address, all its browsers and callers together, is capped at half of each global ceiling: 60 lookups, 60 orders and decisions, 15 model runs a minute. Global ceilings: 120, 120, 30.
+- At most 30 new demo order books per address in 10 minutes, so one address cannot push the other visitors' books out of the 300.
+- Live supplier looks stay keyed on the address: a room shares 2 a minute (6 for the whole app); above that the recorded capture answers, labelled replay.

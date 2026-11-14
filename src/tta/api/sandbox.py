@@ -8,11 +8,14 @@ ward's day for everybody, and one visitor's orders showed on another's approvals
 A sandbox is an order book of its own: an in-memory SQLite store, an audit trail, an offer service and an
 order book, over the parts every visitor shares (the catalog, the supplier gateway with its fall-back and call
 budget, the policy, the limits, the request parser and the buyer agent). The limits are keyed by the
-visitor's address, so a new browser buys no new window. The REST API and MCP keep the shared book of their
-tokens. Nothing in a sandbox survives a restart, and it commits nobody.
+browser and capped per address (`tta.api.limits`, task FIX-11). The REST API and MCP keep the shared book of
+their tokens. Nothing in a sandbox survives a restart, and it commits nobody.
 
 At most `MAX_SANDBOXES` are kept; above that the one used least recently is dropped, and so is one idle for
-`SANDBOX_IDLE_SECONDS`. A dropped book is closed: a visitor who comes back starts from an empty one.
+`SANDBOX_IDLE_SECONDS`. A dropped book is closed: a visitor who comes back starts from an empty one. One
+address opens at most `MAX_NEW_BOOKS_PER_ADDRESS` new books in `NEW_BOOKS_WINDOW_MINUTES` (task FIX-11): a
+room on one Wi-Fi opens one each, and one address sending a new cookie with every form cannot push the other
+visitors' books out of the `MAX_SANDBOXES`.
 """
 
 from __future__ import annotations
@@ -23,12 +26,21 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from tta.api.limits import SECONDS_PER_MINUTE, Counted, RateLimit, RateLimiter, current_client_key
 from tta.api.service import Gateway
 from tta.contracts.ports import AuditSink
 from tta.store import SqliteStore
 
 MAX_SANDBOXES = 300
 SANDBOX_IDLE_SECONDS = 2 * 60 * 60
+MAX_NEW_BOOKS_PER_ADDRESS = 30
+NEW_BOOKS_WINDOW_MINUTES = 10
+NEW_BOOKS_WINDOW_SECONDS = NEW_BOOKS_WINDOW_MINUTES * 60
+NEW_BOOKS_PER_ADDRESS = RateLimit(calls=MAX_NEW_BOOKS_PER_ADDRESS, window_seconds=NEW_BOOKS_WINDOW_SECONDS)
+NEW_BOOKS_LIMITED = (
+    "Too many new demo order books from one address: at most {calls} in {minutes} minutes, so that one "
+    "address cannot push out the books of other visitors. Try again in {wait} seconds."
+)
 
 
 @dataclass(frozen=True, eq=False)  # one book is one object: compared and hashed by identity
@@ -47,7 +59,8 @@ class Sandboxes:
     """The sandboxes of this process by key (a browser session's cookie), least recently used first.
 
     `find` and `blank` are for reading: a visitor with no book of its own reads the blank one, which nothing
-    is ever written to. `open` is for writing: it builds the visitor's book on its first use. Thread-safe.
+    is ever written to. `open` is for writing: it builds the visitor's book on its first use, counted for the
+    address of the request being served (`new_books`). Thread-safe.
     """
 
     def __init__(
@@ -56,12 +69,17 @@ class Sandboxes:
         *,
         capacity: int = MAX_SANDBOXES,
         idle_seconds: float = SANDBOX_IDLE_SECONDS,
+        new_books: RateLimit = NEW_BOOKS_PER_ADDRESS,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._build = build
         self._capacity = capacity
         self._idle_seconds = idle_seconds
         self._monotonic = monotonic
+        minutes = f"{new_books.window_seconds / SECONDS_PER_MINUTE:g}"
+        self._new_books = new_books
+        self._new_books_refusal = NEW_BOOKS_LIMITED.replace("{minutes}", minutes)
+        self._opened = RateLimiter(new_books, monotonic=monotonic)
         self._lock = threading.Lock()
         self._books: OrderedDict[str, tuple[Sandbox, float]] = OrderedDict()  # key -> (book, last used)
         self._blank: Sandbox | None = None
@@ -79,12 +97,16 @@ class Sandboxes:
             return self._touch(key)
 
     def open(self, key: str) -> Sandbox:
-        """The book of this key, built empty when it has none. The book used least recently goes first."""
+        """The book of this key, built empty when it has none. The book used least recently goes first.
+        Raises `RateLimited` (with the seconds to wait) when the address has opened its new books: nothing is
+        built and no book is dropped."""
         with self._lock:
             self._drop_idle()
             book = self._touch(key)
             if book is not None:
                 return book
+            address = Counted(f"new books {current_client_key()}", self._new_books, self._new_books_refusal)
+            self._opened.check_all((address,))
             book = self._build()
             self._books[key] = (book, self._monotonic())
             while len(self._books) > self._capacity:
