@@ -243,6 +243,11 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
             return body
         return answer(request, lambda one: one.service.create_offer(KITCHEN_AGENT, body), needs_settings=True)
 
+    @app.get(API + "/offers/{offer_id}")
+    def one_offer(request: Request, offer_id: str) -> Response:
+        """An offer of this book, as it was made: the approvals page reads its options to offer the safe one (R6)."""
+        return answer(request, lambda one: one.service.get_offer(KITCHEN_AGENT, offer_id))
+
     @app.post(API + "/orders")
     async def order(request: Request) -> Response:
         body = await _body(request, OrderBody)

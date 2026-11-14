@@ -21,12 +21,66 @@ export function stockLine(a) {
   }
 }
 
+// ---- a substitute: what it gives up, in numbers (R5; P10-formula.md F3, F8) ----------------------------------
+
+const NUTRIENTS = { fat: "Fat", saturated_fat: "Saturated fat", protein: "Protein", carbohydrate: "Carbohydrate", sugars: "Sugars", salt: "Salt" };
+const BASIS = { G: "Per 100 g", ML: "Per 100 ml" };
+// Whether the substitute keeps the formula: `formula.outcome` (tta.contracts.product.FormulaOutcome) as a tag.
+const FORMULA_TAGS = {
+  SAME_PRODUCT_OTHER_PACK: ["ok", "Same product, other pack"],
+  SAME_BRAND: ["ok", "Keeps the formula"],
+  OTHER_BRAND: ["ok", "Keeps the formula, other brand"],
+  DIFFERENT: ["stop", "Different formula"],
+  NOT_KNOWN: ["wait", "Formula cannot be compared"],
+};
+const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
+// Two columns of numbers: the product asked for and the substitute, for each nutrient whose figures differ, with
+// those outside our tolerance marked. Every figure is the gateway's (`formula.differences`).
+function formulaTable(formula) {
+  const rows = formula?.differences || [];
+  if (!rows.length) return "";
+  const basis = BASIS[formula.basis] || "Per 100 g or 100 ml";
+  return html`<table class="formula">
+    <thead><tr><th scope="col">${basis}</th><th scope="col" class="num">Asked for</th><th scope="col" class="num">This product</th></tr></thead>
+    <tbody>${rows.map((d) => html`<tr class="${d.within_tolerance ? "" : "off"}"><th scope="row">${NUTRIENTS[d.nutrient] || plain(d.nutrient)}</th><td class="num">${num(d.original)} g</td><td class="num">${num(d.other)} g${d.within_tolerance ? "" : html` <span class="tag stop">outside our tolerance</span>`}</td></tr>`)}</tbody>
+  </table>
+  <p class="tiny muted">Only the nutrients whose figures differ are listed.</p>`;
+}
+
+// "Last resort": the substitute lacks a dietary claim of the product asked for, and no substitute that keeps it
+// can be supplied, so a person decides (B7, as João clarified it on 14 Nov 2026).
+function lastResort(s) {
+  const claims = (s.claims_lost || []).map((c) => `“${plain(c).toLowerCase()}”`);
+  const what = !claims.length ? "a dietary claim of the product asked for"
+    : `${listed(claims)}, ${claims.length > 1 ? "claims" : "a claim"} of the product asked for`;
+  return `Last resort: it does not carry ${what}, and no substitute that keeps ${claims.length > 1 ? "them" : "it"} can be supplied. A person decides.`;
+}
+
+// A substitute line: what it stands in for, whether it keeps the formula, "Last resort", and what it gives up as the
+// gateway wrote it. `sentence`: the gives-up sentence; `table`: the two columns of numbers.
+export function substituteNote(line, { sentence = true, table = true } = {}) {
+  const s = line.substitute;
+  if (!s) return "";
+  const tag = FORMULA_TAGS[s.formula?.outcome];
+  const formula = s.formula?.sentence || "";
+  const extra = formula && !String(s.gives_up || "").includes(formula.replace(/\.$/, "")) ? ` ${plain(formula)}` : "";
+  return html`<div class="subst">
+    <div class="subst-head"><span class="tag info">Substitute</span>${s.last_resort ? html`<span class="tag stop">Last resort</span>` : ""}${tag ? html`<span class="tag ${tag[0]}">${tag[1]}</span>` : ""}<span class="small">in place of ${s.original_name || "the product asked for"} (${s.original_id})</span></div>
+    ${sentence ? html`<p class="small">${s.last_resort ? html`<b>${lastResort(s)}</b> ` : ""}${plain(s.gives_up)}${extra}</p>` : ""}
+    ${table ? formulaTable(s.formula) : ""}
+  </div>`;
+}
+
+// A substitute line always says what it gives up, with its numbers: in short answers too, since the formula is what
+// a bakery decides on (Valio Aimo, 14 Nov 2026: "for cakes ... the formula ... can make a difference").
 export function productLine(line, compact = false) {
   const u = unit(line.sales_unit);
+  const note = substituteNote(line);
   if (compact) {
     return html`<div class="pline">
       <div class="thumb">${tile(line)}</div>
-      <div><div class="pname">${line.name}</div><div class="pid">${num(line.quantity)} ${u} × ${money(line.unit_net_price)}</div></div>
+      <div><div class="pname">${line.name}</div><div class="pid">${num(line.quantity)} ${u} × ${money(line.unit_net_price)}</div>${note}</div>
       <div class="pprice"><b>${money(line.net)}</b></div>
     </div>`;
   }
@@ -36,6 +90,7 @@ export function productLine(line, compact = false) {
       <div class="pname">${line.name}</div>
       <div class="pid">${line.product_id} · ${titleCase(line.vendor_name || "")}</div>
       ${stockLine(line.availability)}
+      ${note}
     </div>
     <div class="pprice"><b>${money(line.net)}</b><span>${num(line.quantity)} ${u} × ${money(line.unit_net_price)}</span></div>
   </div>`;
@@ -102,7 +157,10 @@ export function rolesStillNeeded(approval) {
 const NOBODY = /^No\s/;
 export const hasPerson = (role) => Boolean(active().people[role]) && !NOBODY.test(active().people[role]);
 
-const roleWord = (role) => (ROLES[role] || role).toLowerCase();
+export const roleWord = (role) => (ROLES[role] || role).toLowerCase();
+// The gateway's own answer when the page signs for such a role (tta.ui.shop_api, NOBODY_HOLDS): said up front, so
+// no button is offered that the gateway would refuse.
+export const nobodyHolds = (role) => `Nobody at ${active().name} holds the role ${roleWord(role)}, so nobody there can sign for it.`;
 // "Hanna Laine, Harbourside Hotel" is how the trail names a signer (signerName): the page shows the person.
 function personOf(decision, role) {
   const signed = String(decision.approver_name || "").trim();
@@ -123,8 +181,6 @@ export function confirmedBy(approval) {
   }
   return [...byName];
 }
-
-const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
 // One line under the signers: who has confirmed, and who is still awaited, in names and roles.
 export function progress(approval) {

@@ -14,6 +14,16 @@ function allergensText(profile) {
   return codes.map((code) => `${allergenName(code)}${allergenRule(profile, code) === "STRICT" ? " (strict)" : ""}`).join(", ");
 }
 
+// The formula rule (F-11) and the preference rule (P-09), as the gateway applies them to this customer now.
+function formulaText(profile) {
+  return profile.formula_matters ? "on every line: a substitute that changes it goes to a person" : "where the request says so";
+}
+
+function premiumText(profile) {
+  const ratio = profile.max_preference_premium_ratio;
+  return ratio === null || ratio === undefined ? "no limit of its own" : `up to ${Math.round(Number(ratio) * 100)}% above the cheapest, then a person`;
+}
+
 function rulesCard() {
   const authority = app.data.authority;
   const p = authority?.profile;
@@ -38,6 +48,8 @@ function rulesCard() {
     <div class="kv"><span>Limit per order</span><b>${money(p.max_order_net_eur)}</b></div>
     <div class="kv"><span>Agent orders alone</span><b>${p.auto_order_enabled ? "when all is confirmed" : "never: you confirm"}</b></div>
     <div class="kv"><span>Allergens kept out</span><b>${allergensText(p)}</b></div>
+    <div class="kv"><span>The formula matters <span class="rule-id">F-11</span></span><b>${formulaText(p)}</b></div>
+    <div class="kv"><span>A preference may cost <span class="rule-id">P-09</span></span><b>${premiumText(p)}</b></div>
     ${waitingRow}
     <p class="small muted">As the gateway applies them to this customer's orders now.${authority.note ? html` ${plain(authority.note)}` : ""}</p>
   </div>`;

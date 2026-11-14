@@ -58,7 +58,7 @@ def test_scenario_2_is_run_by_the_agent_and_ordered_by_it_alone(
     order = only_order(agent_client, "agent:allergy-ward")
 
     assert AGENT_STEPS in page
-    assert "Sent for approval" in page
+    assert "Prepared: confirm to order" in page
     assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
 
 
@@ -70,7 +70,7 @@ def test_scenario_3_has_no_recording_so_the_fixed_rules_read_and_run_it(
 
     assert AGENT_STEPS in page and "read and made by fixed rules, not by a model" in page
     assert "The buyer agent could not run" not in page
-    assert "Sent for approval" in page
+    assert "Prepared: confirm to order" in page
     assert only_order(agent_client).status is OrderStatus.PENDING_APPROVAL
 
 

@@ -10,16 +10,19 @@ the gateway alone, and against fakes of the parser and the runner.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Iterator
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+import tta.ui
 from tta.api import create_app, hooks
 from tta.api.wiring import Parts, build_parts
 from tta.catalog import ProductCatalog
@@ -43,6 +46,10 @@ TYPED_FREE_TEXT = PurchaseRequest(
 )
 HOSTILE_NAME = ' <script>alert("name")</script>'
 RENAMED = ("469363", "464306", "463203", "464013")  # a confirmed line, the alternative, an exclusion, scenario 2
+
+# The shop page's settings of its four customers: a JSON block between two markers in kitchens.js.
+SHOP_JS = Path(tta.ui.__file__).parent / "static" / "shop" / "js"
+SHOP_SETTINGS_BLOCK = re.compile(r"/\* profile-settings:start \*/(.*?)/\* profile-settings:end \*/", re.DOTALL)
 
 Form = dict[str, str]
 Post = Callable[..., Any]
@@ -320,3 +327,12 @@ def only_order(orders: Callable[..., tuple[Any, ...]]) -> Callable[..., Any]:
         return found[0]
 
     return read
+
+
+@pytest.fixture(scope="session")
+def shop_profile_settings() -> dict[str, dict[str, Any]]:
+    """What the shop page sends the gateway for each customer, keyed by customer id (kitchens.js, read as JSON)."""
+    found = SHOP_SETTINGS_BLOCK.search((SHOP_JS / "kitchens.js").read_text(encoding="utf-8"))
+    assert found is not None, "kitchens.js holds no profile-settings block"
+    settings: dict[str, dict[str, Any]] = json.loads(found.group(1))
+    return settings

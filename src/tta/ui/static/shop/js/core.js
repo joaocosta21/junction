@@ -35,8 +35,17 @@ const PUSH_RETRY_MS = 600;
 const OFFER_CHANGED = /offer-(expired|stale)$/;
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
-// A 409 that is not about the offer: the book lost this kitchen's settings (a restart, an idle book dropped).
-export const rulesLost = (error) => error?.status === 409 && !OFFER_CHANGED.test(String(error.problem?.type || ""));
+// The gateway's 409 for a book whose settings never arrived (tta.ui.shop_api): GET /kitchen, a reading, an offer
+// and an order all answer it rather than apply another customer's rules.
+const NOT_RECEIVED = "settings-not-received";
+
+// A 409 that is not about the offer: the book lost this kitchen's settings, or never had them (a restart, an idle
+// book dropped). The answer to either is to send the settings again.
+export const rulesLost = (error) => {
+  if (error?.status !== 409) return false;
+  const type = String(error.problem?.type || "");
+  return type === NOT_RECEIVED || !OFFER_CHANGED.test(type);
+};
 
 // The book's answer is this kitchen's settings, not a book that started again from the defaults ("My kitchen").
 const isThisKitchens = (authority) => Boolean(authority?.profile) && authority.profile.display_name === mine().settings.display_name;

@@ -1,8 +1,9 @@
 """The page "Your kitchen": the buyer sets what its own agent may decide alone (task FEAT-1).
 
 Scores on Core 3 of the brief, "what the agent may decide on its own, and what must go to a human for sign-off",
-on the 20% "autonomy and controls" and on the 30% demo. Each setting is shown with the rule it drives (F-10 and
-P-01 to P-08), in this kitchen's own values, and below the form the fixed rules F-01 to F-08 that hold whatever is set.
+on the 20% "autonomy and controls" and on the 30% demo. Each setting is shown with the rule it drives (F-10, P-01 to
+P-09, and F-11, which `formula_matters` widens to every line but never narrows), in this kitchen's own values, and
+below the form the fixed rules that hold whatever is set.
 
 The settings are checked exactly as a profile file is (`tta.api.sandbox.kitchen_profile`): a value out of range,
 an exclusion without a strictness, a setting that names a fixed rule or that the page does not have is refused,
@@ -36,17 +37,19 @@ START_FROM_PATH = f"{KITCHEN_PATH}/start-from"
 TEMPLATE = "kitchen.html"
 SEE_OTHER = 303
 FORM_ONLY = ("csrf",)  # fields of the form that are not settings
-CHECKBOXES = ("auto_order_enabled", "require_confirmed")  # a box left unticked is not sent at all
+CHECKBOXES = ("auto_order_enabled", "require_confirmed", "formula_matters")  # a box left unticked is not sent at all
 LISTS = ("excluded_allergens",)
 PERCENT_SETTING = "min_fill_ratio"  # a ratio in the profile, a percentage on the page
 DRIFT_SETTING = "standing_order_drift_ratio"  # a ratio too; left empty it is not set (task STAND-1, rule P-08)
-PERCENT_SETTINGS = (PERCENT_SETTING, DRIFT_SETTING)
-OPTIONAL_SETTINGS = ("allergen_strictness", DRIFT_SETTING)  # an empty field leaves the setting unset
+PREMIUM_SETTING = "max_preference_premium_ratio"  # a ratio too; left empty the profile sets no limit (rule P-09)
+PERCENT_SETTINGS = (PERCENT_SETTING, DRIFT_SETTING, PREMIUM_SETTING)
+OPTIONAL_SETTINGS = ("allergen_strictness", DRIFT_SETTING, PREMIUM_SETTING)  # an empty field leaves it unset
 PERCENT = Decimal(100)
 SETTING_RULES = {  # the rule each setting drives (rules.yaml; F-10 is tta.policy.human_approval)
     "auto_order_enabled": "F-10", "max_order_net_eur": "P-01", "max_daily_net_eur": "P-02",
     "min_fill_ratio": "P-03", "excluded_allergens": "P-04", "substitution_without_approval": "P-05",
-    "variable_weight": "P-06", "deposits": "P-07", DRIFT_SETTING: "P-08",
+    "variable_weight": "P-06", "deposits": "P-07", DRIFT_SETTING: "P-08", PREMIUM_SETTING: "P-09",
+    "formula_matters": "F-11",
 }
 NO_SUCH_START = ("Not a starting point", "Start from a copy of one of the two demo profiles. Nothing was changed.")
 NOT_A_PERCENTAGE = "{name}: write a share from 0 to 100 percent"
@@ -87,6 +90,11 @@ def _plain(value: Decimal) -> str:
     return f"{value.normalize():f}"
 
 
+def _percent(ratio: Decimal | None) -> str:
+    """A ratio as the percentage the form shows; empty when it is not set."""
+    return _plain(ratio * PERCENT) if ratio is not None else ""
+
+
 def _shown(profile: BuyerProfile) -> dict[str, Any]:
     """The form's values for a profile: what the page shows in each field."""
     return {
@@ -95,7 +103,9 @@ def _shown(profile: BuyerProfile) -> dict[str, Any]:
         "max_order_net_eur": _plain(profile.max_order_net_eur),
         "max_daily_net_eur": _plain(profile.max_daily_net_eur),
         PERCENT_SETTING: _plain(profile.min_fill_ratio * PERCENT),
-        DRIFT_SETTING: _plain(drift * PERCENT) if (drift := profile.standing_order_drift_ratio) is not None else "",
+        DRIFT_SETTING: _percent(profile.standing_order_drift_ratio),
+        PREMIUM_SETTING: _percent(profile.max_preference_premium_ratio),
+        "formula_matters": profile.formula_matters,
         "excluded_allergens": frozenset(profile.excluded_allergens),
         "allergen_strictness": profile.allergen_strictness.value if profile.allergen_strictness else "",
         "substitution_without_approval": profile.substitution_without_approval.value,

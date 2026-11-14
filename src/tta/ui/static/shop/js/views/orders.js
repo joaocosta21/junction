@@ -6,6 +6,7 @@ import { active } from "../store.js";
 import { plain } from "../words.js";
 import { netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag } from "./parts.js";
 import { trailView } from "./trail.js";
+import { SYNTHETIC } from "../kitchens.js";
 
 const trail = { orderId: null, reader: "buyer", data: null, problem: null, loading: false };
 
@@ -76,14 +77,15 @@ function detail(order) {
     </div>`;
 }
 
+// Every row of the typed-in history says what it is, also at phone width where the status column is hidden.
 function pastOrders() {
   const k = active();
-  return html`<p class="section-label">Earlier orders · demo history</p>
+  return html`<p class="section-label">Earlier orders · synthetic history</p>
     <div class="card"><table class="table"><thead><tr><th>Delivery</th><th>Products</th><th class="num">Total</th><th class="hide-s">Status</th></tr></thead><tbody>
     ${k.history.map(
-      (h) => html`<tr><td class="nowrap">${shortDate(h.date)}</td><td>${h.lines.map((l) => html`<div>${l[0]} <span class="muted">× ${l[1]} ${l[2]}</span></div>`)}</td><td class="num">${money(h.lines.reduce((s, l) => s + l[3], 0))}</td><td class="hide-s"><span class="tag">Delivered</span></td></tr>`
+      (h) => html`<tr><td class="nowrap">${shortDate(h.date)}</td><td>${h.lines.map((l) => html`<div>${l[0]} <span class="muted">× ${l[1]} ${l[2]}</span></div>`)}<div class="tiny muted">${SYNTHETIC}</div></td><td class="num">${money(h.lines.reduce((s, l) => s + l[3], 0))}</td><td class="hide-s"><span class="tag">Delivered</span></td></tr>`
     )}
-    </tbody></table><p class="small muted">Made-up history for the demo: it is what the agent's "learned" notes refer to.</p></div>`;
+    </tbody></table><p class="small muted">These past orders were made up for the demonstration and are dated before the demo clock: they are what the agent's "learned" notes refer to.</p></div>`;
 }
 
 export function view() {

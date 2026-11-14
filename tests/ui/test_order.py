@@ -47,7 +47,7 @@ def test_the_order_page_shows_the_record_and_the_statements_it_relied_on(
     page = client.get(f"/orders/{order.order_id}").text
 
     assert order.order_id in page
-    assert "Sent for approval" in page  # the page's own headline; the gateway's sentence is L3's wording
+    assert "Prepared: confirm to order" in page  # the page's own headline; the gateway's sentence is L3's wording
     assert "F-10" in page
     assert "The Valio Aimo mock has no order endpoint" in page  # what ORDERED means here
     assert "464013" in page and "€2.01" in page and "€402.00" in page

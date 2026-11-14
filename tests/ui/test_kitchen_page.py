@@ -22,8 +22,8 @@ KITCHEN = "/kitchen"
 KITCHEN_AGENT = "agent:my-kitchen"
 KITCHEN_PURCHASING = "human:my-kitchen-purchasing"
 SCENARIO_1 = "1,000 litres of lactose-free milk by Monday"
-SETTINGS_SHOWN = ("F-10", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
-FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08")
+SETTINGS_SHOWN = ("F-10", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08", "P-09")
+FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09", "F-11")
 HASH = re.compile(r"sha256:[0-9a-f]{64}")
 PROBLEM = re.compile(r'id="problem">(.*?)</div>', re.DOTALL)
 
@@ -198,7 +198,8 @@ def test_ordering_alone_is_the_visitors_own_choice_and_starts_switched_off(
     newest, first = _kitchen_orders(book, client)
     assert saved.status_code == 303 and 'name="auto_order_enabled" value="yes" checked' in ticked
     assert (first.status, first.placed_by, first.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, None, ("F-10",))
-    assert "Sent for approval" in waiting_page.text and "Ordered by the agent" not in waiting_page.text
+    # Only F-10 holds it back: the agent prepared it, one confirmation places it (P8 F1)
+    assert "Prepared: confirm to order" in waiting_page.text and "Ordered by the agent" not in waiting_page.text
     assert (newest.status, newest.placed_by, newest.decision.fired) == (OrderStatus.ORDERED, PlacedBy.AGENT, ())
     assert "Ordered by the agent" in alone_page.text
     assert newest.option.totals.net == first.option.totals.net == Decimal("1083.39")  # the same option both times
@@ -263,3 +264,37 @@ def test_a_drift_tolerance_above_100_percent_is_refused_by_name(
 
     assert refused.status_code == 422
     assert "standing_order_drift_ratio: write a share from 0 to 100 percent" in _problem(refused.text)
+
+
+# --- the formula (rule F-11) and what a preference may cost (rule P-09), L3-2's two settings ----------------------
+
+
+def test_the_formula_and_a_preferences_premium_are_set_on_the_page_with_their_rules(
+    client: TestClient, form_fields: Callable[..., Form], book: Callable[[TestClient], Any]
+) -> None:
+    page = client.get(KITCHEN).text
+    assert 'name="formula_matters" value="yes">' in page  # unticked: only where a request says the formula matters
+    assert 'name="max_preference_premium_ratio" value=""' in page  # the hotel's copy sets no limit of its own
+
+    assert _save(client, form_fields, formula_matters="yes", max_preference_premium_ratio="10").status_code == 303
+    page = client.get(KITCHEN).text
+
+    profile = book(client).kitchen.profile
+    assert (profile.formula_matters, profile.max_preference_premium_ratio) == (True, Decimal("0.1"))
+    assert 'name="formula_matters" value="yes" checked' in page
+    assert 'name="max_preference_premium_ratio" value="10"' in page
+    assert "uses its products as ingredients, so the formula matters on every line" in page  # F-11, this kitchen
+    assert "more than 10% above the cheapest confirmed option" in page  # P-09 with this kitchen's value
+
+    assert _save(client, form_fields, max_preference_premium_ratio="").status_code == 303
+    profile = book(client).kitchen.profile
+    assert (profile.formula_matters, profile.max_preference_premium_ratio) == (False, None)
+
+
+def test_a_preferences_premium_above_the_offers_own_25_percent_is_refused_by_name(
+    client: TestClient, form_fields: Callable[..., Form]
+) -> None:
+    refused = _save(client, form_fields, max_preference_premium_ratio="30")
+
+    assert refused.status_code == 422
+    assert "max_preference_premium_ratio" in _problem(refused.text)

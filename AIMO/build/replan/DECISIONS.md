@@ -18,7 +18,7 @@ Last updated: Sat 14 Nov, about 19:00.
 
 | # | Decision | Reason | Where |
 |---|---|---|---|
-| B1 | A flavoured product does not replace a plain one (the nutty-vanilla barista drink is not a substitute for a plain barista oat drink) | A kitchen making coffee does not want vanilla and nut in every cup; "nutty" also raises an allergen question | L2a-R, running |
+| B1 | A flavoured product does not replace a plain one, even when Valio lists the pair (4 of Valio's 249 pairs, e.g. coffee milk → vanilla coffee milk). Another flavour of an already flavoured product (strawberry → mango yoghurt) stays and is said | A kitchen making coffee does not want vanilla and nut in every cup; "nutty" also raises an allergen question | L2a-R, done |
 | B2 | A substitute must be the same product type; a pair Valio lists across types stays, ranked last | Coffee milk ranked first as a substitute for whole milk | L2a-R |
 | B3 | Same use ranks first (barista for barista) but does not exclude | A drinking oat drink still works in a pinch | L2a-R |
 | B4 | Per 100 g and per 100 ml are comparable for drinks (your decision), not for solids | About 3% apart for liquids | L2a-R |
@@ -33,7 +33,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | B13 | Valio's view shows a rule about an excluded allergen without the allergen and without the product | The product plus Valio's own data would reveal the allergen | L3b |
 | B14 | Valio's view shows a required claim such as `FREE_FROM_PEANUTS` | Decision D1 of the proposal; it does hint at an exclusion | L3b |
 | B15 | The reader asks about "1.000 litres" (1,000 or 1?), about cases and portions, and about anything it cannot read; with no model an unread text is a question (422), not "service unavailable" | Asking beats guessing; it is the only reader a judge meets | L1 |
-| B16 | Scenario 3 (oat-drink substitute) is shown at the default clock unless B1 to B4 fix it at the demo clock too | At the demo clock it offered the nutty-vanilla drink | E1 decides after L2a-R |
+| B16 | Scenario 3 (oat-drink substitute) can be shown at either clock: after B1 to B4 the demo clock offers Valio's own listed substitute `471690` (€155.50), the default clock a barista oat drink (€174.00) | Both are defensible answers | E1 |
 | B17 | The whole suite is run once per wave, not after every lane | Lanes change the same tree at the same time; each lane's own tests are run before its commit | Orchestrator |
 | B18 | No push, although fetch and outside calls are now approved | You approved fetch, deployment and the award services; a push was never mentioned | Orchestrator |
 | B19 | The bakery's limit becomes €300 per order and €1,000 per day (was €50 and €400, the shop page's values) | €50 is below any wholesale order: its usual 40 L of whipping cream is about €230, so every order would cite the spend limit | L3-2, wave 2 |
@@ -47,6 +47,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | B27 | The bakery's owner also decides allergen questions (the bakery gets a dietitian role held by the owner) | A bakery-café has no dietitian; without this a bakery order with an allergen doubt could never be completed | L4-2 |
 | B28 | Orders waiting for a person still count toward the day's spend limit, and the approval says how much is ordered and how much is waiting | PLAN decision 9; a limit that waiting orders can slip under is no limit | L4a |
 | B29 | A buyer holds at most 20 standing orders here, and nothing deletes one. On the public link the shared hotel and ward books can fill up and stay full until the data is wiped | Bounds a flood found by the security review; a delete route is not built | L4a |
+| B30 | "Leave the line out" on the dietitian's card rejects the whole order, and the card says so | The interface cannot drop one line of an order | U3 |
 
 ## C. Questions for the team (domain)
 
@@ -55,10 +56,13 @@ Last updated: Sat 14 Nov, about 19:00.
 | C1 | Are the formula tolerances right (six nutrients within 15% or 1 g, salt 0.25 g, same fat source)? A biomedical member should sign them and the fat-source word list | As in P10 |
 | C2 | `VEGETARIAN` as a claim a substitute must keep hides a pair Valio itself lists (Arla whipping cream for Valio's, because Arla does not declare it on cream). Keep it in the gate? | Kept |
 | C3 | A brand word before the product ("Arla milk") is dropped silently by the reader. Ask about it, or add a brand field? | Dropped, as before |
+| C4 | Savoury flavours (garlic, smoke, herbs, cheese) are read only through the word "flavoured". Extend the list? | Not extended |
+| C5 | With no like-for-like candidate, the last-resort list for a coffee milk includes sour milks. Should another product type never be offered, even as a last resort for a person? | Offered as last resort |
 
 ## D. Questions for Valio's mentors (booth shape: context → what we did → what we got → is that expected?)
 
 | # | Question |
 |---|---|
 | D1 | Of your 249 listed substitute pairs in the product file, our formula comparison finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (figures from the whole catalog, before the per-100-ml change). Are listed substitutes meant to keep the formula, or only to be "close enough to offer"? |
+| D3 | Is "Delight" (`471690`, fat 1.5 g against 3 g) meant as the like-for-like replacement for the barista oat drink `473609`? Our formula check calls it a different formula; it ranks first only because you list it |
 | D2 | Your view of the buyer's log now shows every rule that fired, with the buyer's limit amounts and allergens masked. Is the decision without the buyer's private values what you meant by "all the steps and decisions"? |

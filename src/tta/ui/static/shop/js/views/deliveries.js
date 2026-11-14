@@ -2,6 +2,7 @@
 import { app, dataToday, deliveryOf, on, refresh, render } from "../core.js";
 import { html, isoDay, longDate, money, monthName, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
+import { SYNTHETIC } from "../kitchens.js";
 import { active } from "../store.js";
 import { netTotal, statusTag } from "./parts.js";
 
@@ -51,7 +52,7 @@ function calendar(days) {
   return html`<div class="card">
     <div class="card-title"><button class="icon-btn" data-act="month" data-step="-1" aria-label="Previous month">${icon("left")}</button><h3>${monthName(first)}</h3><button class="icon-btn" data-act="month" data-step="1" aria-label="Next month">${icon("right")}</button></div>
     <table class="cal"><thead><tr>${["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => html`<th>${d}</th>`)}</tr></thead><tbody>${weeks}</tbody></table>
-    <div class="legend"><span><i class="m-ok"></i>Ordered</span><span><i class="m-wait"></i>Waiting for approval</span><span><i class="m-past"></i>Delivered (demo history)</span><span>No deliveries on Sundays</span></div>
+    <div class="legend"><span><i class="m-ok"></i>Ordered</span><span><i class="m-wait"></i>Waiting for approval</span><span><i class="m-past"></i>Delivered (synthetic history, made up for the demonstration)</span><span>No deliveries on Sundays</span></div>
   </div>`;
 }
 
@@ -65,7 +66,7 @@ function dayPanel(days) {
       ? html`<ul class="side-list">${entries.map((e) =>
           e.live
             ? html`<li><span><a href="#/orders/${e.live.order_id}"><b>${e.live.option.lines.map((l) => l.name).join(", ")}</b></a><br>${statusTag(e.live)} <span class="small muted">${netTotal(e.live.option.totals)}</span></span></li>`
-            : html`<li><span><b>${e.past.lines.map((l) => l[0]).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">${money(e.past.lines.reduce((s, l) => s + l[3], 0))} · demo history</span></span></li>`
+            : html`<li><span><b>${e.past.lines.map((l) => l[0]).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">${money(e.past.lines.reduce((s, l) => s + l[3], 0))} · ${SYNTHETIC}</span></span></li>`
         )}</ul>`
       : html`<p class="small muted">No delivery on this day yet. Write a purchase request for something "by ${shortDate(key)}".</p>`}
   </div>`;

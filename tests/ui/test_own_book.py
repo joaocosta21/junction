@@ -55,7 +55,7 @@ def test_every_browser_has_its_own_scenario_2_approval_rules(
     local_orders = orders(client, "agent:allergy-ward")
     assert all(order.status is OrderStatus.PENDING_APPROVAL for order in local_orders)
     assert sum("P-02" in order.decision.rule_ids for order in local_orders) == 1
-    assert "Sent for approval" in page and "F-10" in page
+    assert "Prepared: confirm to order" in page and "F-10" in page
 
 
 def test_every_page_says_the_book_is_the_visitors_own_and_offers_to_start_again(

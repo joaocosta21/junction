@@ -96,7 +96,7 @@ def test_scenario_2_is_sent_for_human_approval(
     page = run_example(client, "scenario-2").text
     order = only_order(client, "agent:allergy-ward")
 
-    assert "Sent for approval" in page
+    assert "Prepared: confirm to order" in page
     assert "A human must approve" in page
     assert "Declares an excluded allergen" in page
     assert "Allergens: confirmed" in page and "free from milk (AM)" in page
@@ -176,7 +176,7 @@ def test_free_text_is_read_by_the_parser_when_there_is_one(
     assert parser.texts == [fakes.FREE_TEXT]
     assert "read by the request parser" in page
     assert "plant_drink" in page and "80 L" in page
-    assert "Sent for approval" in page
+    assert "Prepared: confirm to order" in page
 
 
 def test_what_the_parser_cannot_read_is_said_and_nothing_is_ordered(
@@ -207,7 +207,7 @@ def test_the_buyer_agent_runs_the_request_when_there_is_one_and_its_steps_are_sh
     assert positions == sorted(positions)
     assert "fake-model-1" in page and "recorded" in page
     assert "<b>from the model</b>" not in page
-    assert "Sent for approval" in page and order.status is OrderStatus.PENDING_APPROVAL
+    assert "Prepared: confirm to order" in page and order.status is OrderStatus.PENDING_APPROVAL
 
 
 def test_an_example_still_runs_when_the_model_behind_the_agent_cannot_be_reached(
@@ -219,7 +219,7 @@ def test_an_example_still_runs_when_the_model_behind_the_agent_cannot_be_reached
 
     assert "The model behind the buyer agent cannot be reached right now." in page
     assert "typed request of this example" in page
-    assert "Sent for approval" in page
+    assert "Prepared: confirm to order" in page
     assert only_order(client, "agent:allergy-ward").status is OrderStatus.PENDING_APPROVAL
 
 
@@ -258,7 +258,7 @@ def test_a_result_can_be_reloaded_and_does_not_order_again(
     again = client.get(str(first.url))
 
     assert "?offer=off_" in str(first.url)
-    assert again.status_code == 200 and "Sent for approval" in again.text
+    assert again.status_code == 200 and "Prepared: confirm to order" in again.text
     only_order(client, "agent:allergy-ward")
 
 
@@ -314,7 +314,7 @@ def test_the_summary_sorts_options_by_what_the_data_confirms_not_by_their_kind(
     # The substitute rests on confirmed stock; the product asked for is the one Valio does not confirm.
     assert "475224" in confirmed and "Valio does not confirm" not in confirmed
     assert "Valio does not confirm the quantity in stock" in unconfirmed and "475224" not in unconfirmed
-    assert "Sent for approval" in page[page.index('id="glance-outcome"'):page.index('id="request"')]
+    assert "Prepared: confirm to order" in page[page.index('id="glance-outcome"'):page.index('id="request"')]
 
 
 def test_an_agent_that_stops_without_an_offer_is_shown_with_its_report_and_its_steps(

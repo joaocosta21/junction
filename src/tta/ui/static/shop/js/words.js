@@ -1,7 +1,6 @@
 // The gateway's sentences in the words a buyer reads: no codes, no field names, no profile ids.
 // The gateway is being reworded at its source; this keeps the page readable meanwhile, and touches only
 // tokens a person would not say. Numbers, amounts, dates and rule ids with their words stay as they are.
-import { unit } from "./dom.js";
 import { ALLERGENS } from "./kitchens.js";
 import { active } from "./store.js";
 
@@ -21,12 +20,8 @@ const SPELLED = (token) => token.toLowerCase().replaceAll("_", " ");
 const CEILING = /The total is a ceiling: a product is sold by (?:variable )?weight, so the invoice can be lower, never higher\./g;
 const ESTIMATE = "The total is an estimate: a product is sold by weight, and Valio Aimo invoices the weight delivered.";
 
-// A quantity in Valio Aimo's sales-unit code, "384 ST of 469363", in the shop's word: "384 pcs of 469363".
-const SALES_UNIT = /\b(\d[\d,.]*) (ST|KPL|KI|KG|PAK|PS|RS|PLO)\b/g;
-
 const REWRITES = [
   [CEILING, () => ESTIMATE],
-  [SALES_UNIT, (_, n, code) => `${n} ${unit(code)}`],
   [ALLERGEN_LIST, (_, verb, gap, list) => `${verb}${gap}${list.replace(ONE_CODE, (code) => CODES.get(code).toLowerCase())}`],
   [/\bFREE_FROM_([A-Z_]+)\b/g, (_, what) => `${SPELLED(what)} free`],
   [/\bDECLARED_ONLY\b/g, () => "declared only"],
@@ -34,7 +29,6 @@ const REWRITES = [
   [/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g, (token) => SPELLED(token)],
   [/\b(?:option )?opt_(\d+)\b/g, (_, n) => `option ${n}`],
   [/\b[a-z]+(?:_[a-z]+)+\b/g, (token) => SPELLED(token)],
-  [/ \(replay\)/gi, () => ""], // "a recorded copy of Valio Aimo's data (replay)" says it twice
   [/\bin replay\b/gi, () => "with recorded data"],
   [/\breplay\b/gi, () => "recorded data"],
   [/\bfill ratio\b/gi, () => "share of the quantity covered"],

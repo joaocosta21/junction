@@ -1,6 +1,7 @@
 // The four demo customers of the shop. Names, addresses, customer numbers and past orders are made up for
-// the demonstration. The `settings` block is what the gateway enforces for each kitchen (its buyer profile);
-// everything else here lives only in this browser.
+// the demonstration (the people are those of src/tta/customers/data/). `PROFILE_SETTINGS` is what the gateway
+// enforces for each customer (its buyer profile); everything else here lives only in this browser. Past orders
+// (`history`) are synthetic and dated before the demo clock, Thursday 12 Nov 2026.
 
 export const ROLES = {
   purchasing_manager: "Purchasing manager",
@@ -24,6 +25,9 @@ export const ALLERGENS = [
   ["NL", "Lupin"],
   ["AU", "Sulphites"],
 ];
+// How every row of a customer's past orders is labelled wherever it is shown (P1-customers.md C7).
+export const SYNTHETIC = "Synthetic: made up for the demonstration";
+
 export const allergenName = (code) => (ALLERGENS.find(([c]) => c === code) || [code, code])[1];
 
 // The two allergen rules of the gateway (P-04), in the words the shop uses.
@@ -49,12 +53,81 @@ export function withAllergenRules(settings) {
   };
 }
 
-const BASE_SETTINGS = {
-  auto_order_enabled: false,
-  variable_weight: "APPROVAL",
-  deposits: "APPROVAL",
-  standing_order_drift_ratio: 0.25,
-};
+// What the page sends the gateway for each customer (PUT /shop/api/kitchen), keyed by the customer id: the values
+// of that customer's buyer profile file in src/tta/policy/profiles/, already in the shape the gateway takes
+// (withAllergenRules leaves them as they are). tests/ui/test_shop_customers.py reads this block as JSON and checks
+// it against those files, so the two cannot drift: change a value in both, and keep the block JSON (quoted keys,
+// no comment inside, no trailing comma). It goes once the gateway lists its customers itself.
+export const PROFILE_SETTINGS = /* profile-settings:start */ {
+  "school-kitchen": {
+    "display_name": "Kilo School",
+    "auto_order_enabled": false,
+    "max_order_net_eur": 250,
+    "max_daily_net_eur": 800,
+    "min_fill_ratio": 1,
+    "excluded_allergens": ["AN", "AP", "AS"],
+    "allergen_strictness": "STRICT",
+    "allergen_strictness_by_code": { "AN": "STRICT", "AP": "STRICT", "AS": "STRICT" },
+    "substitution_without_approval": "LISTED_BY_SUPPLIER",
+    "variable_weight": "APPROVAL",
+    "deposits": "APPROVAL",
+    "require_confirmed": false,
+    "standing_order_drift_ratio": 0.25,
+    "formula_matters": false,
+    "max_preference_premium_ratio": null
+  },
+  "allergy-ward": {
+    "display_name": "City Hospital, Ward 4",
+    "auto_order_enabled": false,
+    "max_order_net_eur": 500,
+    "max_daily_net_eur": 1500,
+    "min_fill_ratio": 1,
+    "excluded_allergens": ["AM", "AW"],
+    "allergen_strictness": "STRICT",
+    "allergen_strictness_by_code": { "AM": "STRICT", "AW": "STRICT" },
+    "substitution_without_approval": "NONE",
+    "variable_weight": "APPROVAL",
+    "deposits": "APPROVAL",
+    "require_confirmed": true,
+    "standing_order_drift_ratio": 0.1,
+    "formula_matters": false,
+    "max_preference_premium_ratio": 0.1
+  },
+  "hotel-kitchen": {
+    "display_name": "Harbourside Hotel",
+    "auto_order_enabled": false,
+    "max_order_net_eur": 750,
+    "max_daily_net_eur": 3000,
+    "min_fill_ratio": 0.9,
+    "excluded_allergens": [],
+    "allergen_strictness": null,
+    "allergen_strictness_by_code": {},
+    "substitution_without_approval": "SAME_CATEGORY",
+    "variable_weight": "APPROVAL",
+    "deposits": "APPROVAL",
+    "require_confirmed": false,
+    "standing_order_drift_ratio": 0.25,
+    "formula_matters": false,
+    "max_preference_premium_ratio": null
+  },
+  "bakery-cafe": {
+    "display_name": "Kallio Bakery",
+    "auto_order_enabled": false,
+    "max_order_net_eur": 300,
+    "max_daily_net_eur": 1000,
+    "min_fill_ratio": 1,
+    "excluded_allergens": [],
+    "allergen_strictness": null,
+    "allergen_strictness_by_code": {},
+    "substitution_without_approval": "NONE",
+    "variable_weight": "APPROVAL",
+    "deposits": "APPROVAL",
+    "require_confirmed": false,
+    "standing_order_drift_ratio": 0.25,
+    "formula_matters": true,
+    "max_preference_premium_ratio": 0.1
+  }
+} /* profile-settings:end */;
 
 const milk1000 = {
   needed_by: "2026-11-16",
@@ -72,25 +145,15 @@ export const KITCHENS = [
     person: { name: "Päivi Korhonen", title: "Kitchen manager", roles: ["purchasing_manager"] },
     people: { purchasing_manager: "Päivi Korhonen", finance: "Tuomas Aho", dietitian: "Riikka Mäkelä" },
     deliveryDays: "Mon–Fri",
-    settings: {
-      ...BASE_SETTINGS,
-      display_name: "Kilo School",
-      max_order_net_eur: 250,
-      max_daily_net_eur: 800,
-      min_fill_ratio: 1,
-      excluded_allergens: ["AN", "AP", "AS"],
-      allergen_strictness: "DECLARED_ONLY",
-      allergen_strictness_by_code: { AN: "DECLARED_ONLY", AP: "DECLARED_ONLY", AS: "DECLARED_ONLY" },
-      substitution_without_approval: "LISTED_BY_SUPPLIER",
-      require_confirmed: false,
-    },
+    customerId: "school-kitchen",
+    settings: PROFILE_SETTINGS["school-kitchen"],
     prefs: { short: false, alternatives: true, explain: false },
     examples: [
       { text: "40 litres of lactose-free milk by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "40 litres of lactose-free milk by Monday", product_type: "milk", required_claims: ["FREE_FROM_LACTOSE"], quantity: 40, unit: "L" }] } },
       { text: "20 kg of natural yoghurt by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "20 kg of natural yoghurt by Monday", product_type: "yoghurt", name_terms: ["natural"], quantity: 20, unit: "KG" }] } },
     ],
     learned: [
-      { id: "school-nuts", kind: "note", title: "The whole school is nut-free", detail: "Tree nuts, peanuts and sesame are kept out of every order. Special diets of single pupils are handled by the dietitian, not here.", basis: "Set by the kitchen manager", state: "confirmed", count: 0 },
+      { id: "school-nuts", kind: "note", title: "The whole school is nut-free", detail: "Tree nuts, peanuts and sesame are kept out of every order, under the strict rule: a product that says nothing about them goes to the dietitian first. Special diets of single pupils are handled by the dietitian, not here.", basis: "Set by the kitchen manager", state: "confirmed", count: 0 },
       { id: "school-monday", kind: "pattern", title: "Dairy arrives on Mondays", detail: "Milk and yoghurt have been delivered on each of the last four Mondays.", basis: "From your past orders", state: "assumed", count: 0 },
     ],
     history: [
@@ -110,18 +173,8 @@ export const KITCHENS = [
     person: { name: "Jussi Nieminen", title: "Ward purchasing", roles: ["purchasing_manager"] },
     people: { purchasing_manager: "Jussi Nieminen", finance: "Anna Virta", dietitian: "Sari Lehto" },
     deliveryDays: "Mon–Sat",
-    settings: {
-      ...BASE_SETTINGS,
-      display_name: "City Hospital, Ward 4",
-      max_order_net_eur: 500,
-      max_daily_net_eur: 1500,
-      min_fill_ratio: 1,
-      excluded_allergens: ["AM", "AW"],
-      allergen_strictness: "STRICT",
-      allergen_strictness_by_code: { AM: "STRICT", AW: "STRICT" },
-      substitution_without_approval: "NONE",
-      require_confirmed: true,
-    },
+    customerId: "allergy-ward",
+    settings: PROFILE_SETTINGS["allergy-ward"],
     prefs: { short: false, alternatives: false, explain: false },
     examples: [
       {
@@ -150,17 +203,8 @@ export const KITCHENS = [
     person: { name: "Hanna Laine", title: "Purchasing manager", roles: ["purchasing_manager"] },
     people: { purchasing_manager: "Hanna Laine", finance: "Mikko Saari", dietitian: "Leena Koski" },
     deliveryDays: "Mon–Sat",
-    settings: {
-      ...BASE_SETTINGS,
-      display_name: "Harbourside Hotel",
-      max_order_net_eur: 750,
-      max_daily_net_eur: 3000,
-      min_fill_ratio: 0.9,
-      excluded_allergens: [],
-      allergen_strictness: null,
-      substitution_without_approval: "SAME_CATEGORY",
-      require_confirmed: false,
-    },
+    customerId: "hotel-kitchen",
+    settings: PROFILE_SETTINGS["hotel-kitchen"],
     prefs: { short: false, alternatives: true, explain: false },
     examples: [
       { text: "1,000 litres of lactose-free milk by Monday", request: milk1000 },
@@ -173,8 +217,8 @@ export const KITCHENS = [
       { id: "hotel-price", kind: "note", title: "Price comes first", detail: "Mixing brands in one order is fine for this kitchen.", basis: "Assumed for hotel kitchens", state: "assumed", count: 0 },
     ],
     history: [
-      { date: "2026-11-13", lines: [["Arla Semi skimmed milkdrink 1 L lactose free", 300, "pcs", 744.0]] },
       { date: "2026-11-11", lines: [["Arla Pro Cooking cream 10% 1 L", 30, "pcs", 99.3], ["Valio butter 500 g", 20, "pcs", 98.0]] },
+      { date: "2026-11-10", lines: [["Arla Semi skimmed milkdrink 1 L lactose free", 300, "pcs", 744.0]] },
       { date: "2026-11-06", lines: [["Arla Semi skimmed milkdrink 1 L lactose free", 280, "pcs", 694.4]] },
     ],
   },
@@ -188,17 +232,8 @@ export const KITCHENS = [
     person: { name: "Marko Heikkinen", title: "Owner", roles: ["purchasing_manager", "finance"] },
     people: { purchasing_manager: "Marko Heikkinen", finance: "Marko Heikkinen", dietitian: "No dietitian named" },
     deliveryDays: "Mon–Sat",
-    settings: {
-      ...BASE_SETTINGS,
-      display_name: "Kallio Bakery",
-      max_order_net_eur: 50,
-      max_daily_net_eur: 400,
-      min_fill_ratio: 1,
-      excluded_allergens: [],
-      allergen_strictness: null,
-      substitution_without_approval: "SAME_CATEGORY",
-      require_confirmed: false,
-    },
+    customerId: "bakery-cafe",
+    settings: PROFILE_SETTINGS["bakery-cafe"],
     prefs: { short: true, alternatives: true, explain: false },
     examples: [
       { text: "10 litres of whipping cream by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "10 litres of whipping cream by Monday", product_type: "cream", name_terms: ["whipping"], quantity: 10, unit: "L" }] } },
@@ -208,8 +243,8 @@ export const KITCHENS = [
       { id: "bakery-brand", kind: "brand", brand: "Valio", scope: ["milk", "cream", "butter", "quark", "yoghurt", "sour_milk"], title: "Keep Valio for dairy", detail: "Bakeries usually keep one dairy brand: another brand's fat and protein content changes how doughs and creams behave. Until you confirm it, the agent only flags other brands and does not filter them out.", basis: "Assumed for bakeries", state: "assumed", count: 0 },
     ],
     history: [
-      { date: "2026-11-13", lines: [["Valio whipping cream 1 l lactose free", 12, "pcs", 41.4], ["Valio milk 1 l", 20, "pcs", 18.6]] },
       { date: "2026-11-11", lines: [["Valio whipping cream 1 l lactose free", 10, "pcs", 34.5]] },
+      { date: "2026-11-09", lines: [["Valio whipping cream 1 l lactose free", 12, "pcs", 41.4], ["Valio milk 1 l", 20, "pcs", 18.6]] },
       { date: "2026-11-06", lines: [["Valio whipping cream 1 l lactose free", 12, "pcs", 41.4], ["Valio butter 500 g", 10, "pcs", 49.0]] },
     ],
   },

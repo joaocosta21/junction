@@ -9,7 +9,7 @@ import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
-import { confirmedBy as confirmedOn, netTotal, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner } from "./parts.js";
+import { confirmedBy as confirmedOn, hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
 import { side } from "./side.js";
 import { openInterface, typedRequest } from "./typed.js";
@@ -306,6 +306,14 @@ function verdictBox(turn, option) {
     return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button}</div></div></div>`;
   }
   const needed = d.required_roles || [];
+  // A role nobody of this customer holds (the bakery names no dietitian): no button the gateway would refuse later.
+  const unheld = needed.filter((r) => !hasPerson(r));
+  if (unheld.length) {
+    return html`<div class="verdict stop">${icon("stop")}<div><b>Nobody here can confirm this option</b>
+      <p>${unheld.map(nobodyHolds).join(" ")} ${why(d.sentence)}</p>
+      <p class="small">Nothing is ordered. Choose another option below, or ask again without it.</p>
+    </div></div>`;
+  }
   const others = needed.filter((r) => !active().person.roles.includes(r));
   const after = !others.length ? "" : others.length === needed.length ? `Your confirmation sends it to ${names(others)}, who signs it.` : `After you confirm, it also needs ${names(others)}.`;
   return html`<div class="verdict wait">${icon("clock")}<div><b>Prepared: confirm to order</b>
@@ -330,7 +338,7 @@ function others(turn, chosen) {
   const locked = Boolean(turn.order) || Boolean(turn.superseded);
   return html`<div class="others"><h4>Alternative products</h4>${rest.map(
     (o) => html`<div class="other">
-      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}<div class="small muted">${plain(o.summary)}</div></div>
+      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}<div class="small muted">${plain(o.summary)}</div>${o.lines.map((l) => substituteNote(l, { table: false }))}</div>
       ${verdictTag(o)}
       ${locked || o.decision?.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="choose" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
     </div>`

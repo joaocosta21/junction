@@ -85,6 +85,16 @@ one rule, shown next to it with your values. The fixed rules below hold whatever
     <legend>Substitutes the agent may order without a human</legend>
     {{ choices("substitution_without_approval", substitution_labels) }}
     {{ rule_note("substitution_without_approval") }}
+    <label><input type="checkbox" name="formula_matters" value="yes"{% if form.formula_matters %} checked{% endif %}> The formula matters on every line: the products are ingredients</label>
+    <p class="small">A substitute whose figures (fat, saturated fat, protein, carbohydrate, sugars, salt) or fat source differ from the original's beyond our tolerance, or cannot be compared, then goes to a person. Off: only where a request says the formula matters. The rule is fixed, so this can add lines it checks and never remove one.</p>
+    {{ rule_note("formula_matters") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>What a preference may cost</legend>
+    <label class="field-label" for="max_preference_premium_ratio">How much more than the cheapest confirmed option an option ranked by a preference (most reliable, lowest carbon, earliest) may cost before it goes to a person, percent (0 to 25; empty: no limit of this kitchen's own)</label>
+    <input type="text" inputmode="decimal" id="max_preference_premium_ratio" name="max_preference_premium_ratio" value="{{ form.max_preference_premium_ratio }}">
+    {{ rule_note("max_preference_premium_ratio") }}
   </fieldset>
 
   <fieldset>

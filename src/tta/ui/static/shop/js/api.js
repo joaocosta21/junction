@@ -44,6 +44,7 @@ export function gateway(kitchen) {
     setKitchen: (settings) => call(kitchen, "PUT", "/kitchen", withAllergenRules(settings)),
     read: (text) => call(kitchen, "POST", "/read", { text }),
     offer: (request) => call(kitchen, "POST", "/offers", request),
+    getOffer: (id) => call(kitchen, "GET", `/offers/${q(id)}`),
     order: (offerId, optionId, key) => call(kitchen, "POST", "/orders", { offer_id: offerId, option_id: optionId, key }),
     orders: () => call(kitchen, "GET", "/orders"),
     getOrder: (id) => call(kitchen, "GET", `/orders/${q(id)}`),

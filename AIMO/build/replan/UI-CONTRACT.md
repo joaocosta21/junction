@@ -146,6 +146,14 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 - `/mcp/` with a foreign `Origin`: 403. `Location` on the 201 of an offer and an order. `POST /v1/orders` without a key: 400.
 - Rate-limit refusals now name 15 (browser), 60 (address) and 240 (all callers) for request readings.
 
+### L2a-R — is a product replaceable
+- `candidates[].gives_up` and `lines[].substitute.gives_up` begin with the verdict: "Replaceable: same type, same use, not flavoured, same formula within tolerance." · "Replaceable as far as the data shows: … the formula cannot be compared." · "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured." (other reasons: "another product type (coffee milk, not milk)", "not made for coffee, as the product asked for is", "a different formula (fat 1.5 g, not 3 g)").
+- `notes[]`: "12 candidates that are not the same kind of product (11 flavoured where the original is not, or the reverse and 1 of another product type) are held back as a last resort: 4 of the same kind can be ordered."
+- `lines[].substitute.last_resort` is also true for a flavoured or other-type stand-in.
+
+### U3 — done on the pages
+The page's customer values equal the profile files (`tests/ui/test_shop_customers.py`); `GET /shop/api/offers/{offer_id}`; the substitute note with its table; the dietitian's three choices; F-11 and P-09 rows in "rules in force"; the old kitchen page's two new settings. Left: the suggestions box and the customers route (after L4-2d), the menu label "Cannot be sourced", a real-browser check at 390 px.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

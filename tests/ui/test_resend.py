@@ -58,7 +58,7 @@ def test_a_run_that_breaks_after_the_agents_order_shows_the_order_and_a_resend_s
     placed = orders(client, "agent:allergy-ward")
     assert runner.runs == 1 and len(placed) == 1 and placed[0].status is OrderStatus.PENDING_APPROVAL
     assert first.status_code == again.status_code == 200 and first.url == again.url
-    assert "Sent for approval" in again.text and "stopped on an error (ValueError)" in again.text
+    assert "Prepared: confirm to order" in again.text and "stopped on an error (ValueError)" in again.text
     assert "Raw response" not in again.text
 
 

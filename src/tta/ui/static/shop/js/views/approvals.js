@@ -6,6 +6,7 @@ import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
 import { hasPerson, netTotal, optionBlock, personFor, problemBox, progress, rolesStillNeeded, signerName, signers } from "./parts.js";
+import { DIETITIAN, allergenQuestion, asksTheDietitian } from "./question.js";
 
 // Only a plain web address becomes a link: never javascript:, data: or anything else a page could carry.
 const WEB_LINK = /^https?:\/\//i;
@@ -49,6 +50,24 @@ function evidenceBlock(approval) {
 
 const notes = {};
 const busy = new Set();
+// The offer of each approval that asks the dietitian, read once: its first option is the safe product. `null`: it
+// could not be read, so only the option proposed can be decided.
+const offers = new Map();
+
+async function readOffer(offerId) {
+  offers.set(offerId, undefined);
+  try {
+    offers.set(offerId, await api().getOffer(offerId));
+  } catch {
+    offers.set(offerId, null);
+  }
+  render();
+}
+
+function offerOf(approval) {
+  if (!offers.has(approval.offer_id)) readOffer(approval.offer_id);
+  return offers.get(approval.offer_id);
+}
 // The roles signed from this page, per approval: their button goes the moment the gateway accepts the signature,
 // before the approvals are read again. It only ever hides a button; what is still awaited is the gateway's record.
 const signedHere = new Map();
@@ -58,13 +77,15 @@ const afterDecision = (order, awaited) =>
     : order.status === "REJECTED" ? "Rejected. Nothing was ordered."
     : awaited ? `Signed. Still awaited: ${awaited}.` : "Signed. Waiting for the gateway to complete it.";
 
+// `data-option`: another option of the offer (the safe product); `data-say`: the note when none was written, so the
+// audit trail says which of the dietitian's three choices was taken.
 async function decide(el, decision) {
-  const { id, role } = el.dataset;
+  const { id, role, option, say } = el.dataset;
   busy.add(id);
   render();
   let said = null;
   try {
-    const order = await api().decide(id, role, decision, notes[id] || "", signerName(role));
+    const order = await api().decide(id, role, decision, notes[id] || say || "", signerName(role), option);
     delete notes[id];
     signedHere.set(id, new Set([...(signedHere.get(id) || []), role]));
     await refresh(); // the approval as the gateway has it now: who has confirmed, who is still awaited
@@ -93,9 +114,14 @@ function card(approval) {
   const needed = stillNeeded(approval);
   const k = active();
   const off = busy.has(approval.approval_id) ? "disabled" : "";
+  // An allergen question goes to the dietitian as three choices; the other roles still needed keep their buttons.
+  const question = asksTheDietitian(approval, order, needed);
+  const others = question ? needed.filter((r) => r !== DIETITIAN) : needed;
+  const rejecter = others.find(hasPerson); // only a role still needed may reject, and only one somebody holds
   return html`<article class="card">
     <div class="appr-head">
       <div class="t">
+        ${option ? html`<div class="small muted">${plain(option.title)}</div>` : ""}
         <b>${option ? plain(option.summary) : `Order ${approval.order_id}`}</b>
         <div class="small muted">Asked by your agent · order ${approval.order_id}${approval.valid_until ? html` · decide by <b>${cutoff(approval.valid_until)}</b>, then it expires` : ""}</div>
       </div>
@@ -104,6 +130,7 @@ function card(approval) {
     ${evidenceBlock(approval)}
     <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${plain(r)}</span></li>`)}</ul>
     ${option ? optionBlock(option, true) : ""}
+    ${question ? allergenQuestion(approval, order, offerOf(approval), off) : ""}
     <div class="decide">
       ${signers(approval)}
       ${progress(approval)}
@@ -112,12 +139,12 @@ function card(approval) {
         <input type="text" id="note-${approval.approval_id}" data-input="note" data-id="${approval.approval_id}" placeholder="Note for the audit trail (optional)" value="${notes[approval.approval_id] || ""}">
       </div>
       <div class="row">
-        ${needed.filter(hasPerson).map((role) => {
+        ${others.filter(hasPerson).map((role) => {
           const name = personFor(role);
           const isMe = k.person.roles.includes(role);
           return html`<button class="btn small ${isMe ? "" : "line"}" data-act="approve" data-id="${approval.approval_id}" data-role="${role}" ${off}>Approve as ${name.split(" ")[0]} · ${(ROLES[role] || role).toLowerCase()}</button>`;
         })}
-        <button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${needed.find(hasPerson) || "purchasing_manager"}" ${off}>Reject</button>
+        ${rejecter ? html`<button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${rejecter}" ${off}>Reject</button>` : ""}
         <a class="link quiet" href="#/orders/${approval.order_id}">Details</a>
       </div>
     </div>

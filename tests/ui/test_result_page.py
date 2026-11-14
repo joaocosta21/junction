@@ -142,7 +142,7 @@ def test_a_result_finds_its_order_beyond_the_newest_hundred_and_says_its_run_is_
 
     page = client.get("/", params={"offer": first.offer_id}).text
 
-    assert "No order has been placed" not in page and "Sent for approval" in page
+    assert "No order has been placed" not in page and "Prepared: confirm to order" in page
     assert NO_LONGER_KNOWN in page
 
 

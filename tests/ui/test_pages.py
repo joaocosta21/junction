@@ -165,7 +165,7 @@ def test_the_customers_pattern_asks_for_the_hotels_usual_100_litres(
     order = only_order(client)
 
     assert [(line.product_id, line.quantity) for line in order.option.lines] == [("469363", 100)]
-    assert order.option.totals.net == 248 and "Sent for approval" in page
+    assert order.option.totals.net == 248 and "Prepared: confirm to order" in page
 
 
 @pytest.mark.parametrize("direction", ["demo order", "reversed"])

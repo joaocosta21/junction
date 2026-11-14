@@ -1,7 +1,8 @@
 """The last line of a result: what happened to the request, in a headline and one sentence.
 
 Scores on the 30% "request -> lookup -> order/approval flow" and the 20% "what the agent can decide alone,
-what needs human sign-off": the page ends on "Ordered by the agent" or "Sent for approval", with the
+what needs human sign-off": the page ends on "Ordered by the agent", "Prepared: confirm to order" (only F-10 holds
+the order back: the agent prepared it and one confirmation places it, P8 F1) or "Sent for approval", with the
 gateway's own sentence for why. Nothing is decided here.
 """
 
@@ -19,6 +20,8 @@ from tta.ui.view import BAD, OK, WARN, words
 ORDERED_BY_AGENT = "Ordered by the agent"
 ORDERED_WITH_APPROVAL = "Ordered with human approval"
 SENT_FOR_APPROVAL = "Sent for approval"
+PREPARED = "Prepared: confirm to order"  # the gateway's own opening (tta.policy.human_approval.PREPARED)
+PREPARED_RULE = "F-10"  # the rule that only asks a person to confirm
 REJECTED = "Rejected by a human"
 EXPIRED = "Expired before a human decided"
 NOT_ORDERED = "No order was placed"
@@ -51,6 +54,16 @@ def _roles(roles: Sequence[ApproverRole]) -> str:
     return " and ".join(ROLE_NAMES.get(role, words(role)) for role in roles)
 
 
+def _only_prepared(order: Order) -> bool:
+    """Only F-10 holds the order back: no other rule asked for a person."""
+    return tuple(rule.rule_id for rule in order.decision.fired) == (PREPARED_RULE,)
+
+
+def _without_opening(sentence: str) -> str:
+    """The gateway's sentence without the opening the headline already says."""
+    return sentence.removeprefix(f"{PREPARED}.").strip() or sentence
+
+
 def outcome_of_order(order: Order, approval: Approval | None = None) -> Outcome:
     """The headline for an order's state, with the gateway's sentence for it. `approval`: the waiting order's
     approval, which says who has signed already and who is still needed."""
@@ -60,6 +73,8 @@ def outcome_of_order(order: Order, approval: Approval | None = None) -> Outcome:
     if order.status is OrderStatus.PENDING_APPROVAL and approval is not None and approval.roles_obtained:
         signed, missing = _roles(approval.roles_obtained), _roles(approval.roles_missing)
         return Outcome(PARTLY_APPROVED.format(signed=signed, missing=missing), WARN, order.status_sentence)
+    if order.status is OrderStatus.PENDING_APPROVAL and _only_prepared(order):
+        return Outcome(PREPARED, WARN, _without_opening(order.status_sentence))
     headline, tone = _HEADLINES.get(order.status, (NOT_ORDERED, BAD))
     return Outcome(headline, tone, order.status_sentence)
 

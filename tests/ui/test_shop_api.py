@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 import tta.ui
 from tta.contracts.errors import InvalidRequest
+from tta.ui.shop_api import SHOP_KITCHENS
 
 API = "/shop/api"
 CREAM = {  # 10 L of whipping cream by Monday: some €30-60 in the recordings
@@ -25,8 +26,8 @@ CREAM = {  # 10 L of whipping cream by Monday: some €30-60 in the recordings
 BAKERY = {
     "display_name": "Kallio Bakery",
     "auto_order_enabled": False,
-    "max_order_net_eur": 50,
-    "max_daily_net_eur": 400,
+    "max_order_net_eur": 300,
+    "max_daily_net_eur": 1000,
     "min_fill_ratio": 1,
     "excluded_allergens": [],
     "allergen_strictness": "DECLARED_ONLY",
@@ -39,15 +40,16 @@ BAKERY = {
 
 MONDAY = "2026-11-16"
 KITCHENS_JS = Path(tta.ui.__file__).parent / "static" / "shop" / "js" / "kitchens.js"
-# What the shop page sends for each of its four customers: `BASE_SETTINGS` and the customer's `settings` block of
-# kitchens.js, as `withAllergenRules` shapes them. Copied here by hand: the page is JavaScript and no test runs it.
+# What the shop page sends for each of its four customers: the `PROFILE_SETTINGS` block of kitchens.js, which
+# equals the profile files (tests/ui/test_shop_customers.py). Copied here by hand, so a change to the page shows up
+# as a moved pin: `test_the_settings_copied_here_are_those_the_page_sends` holds the two together.
 _BASE = {"auto_order_enabled": False, "variable_weight": "APPROVAL", "deposits": "APPROVAL",
-         "standing_order_drift_ratio": 0.25}
+         "standing_order_drift_ratio": 0.25, "formula_matters": False, "max_preference_premium_ratio": None}
 SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
     "school": {
         **_BASE, "display_name": "Kilo School", "max_order_net_eur": 250, "max_daily_net_eur": 800,
-        "min_fill_ratio": 1, "excluded_allergens": ["AN", "AP", "AS"], "allergen_strictness": "DECLARED_ONLY",
-        "allergen_strictness_by_code": {"AN": "DECLARED_ONLY", "AP": "DECLARED_ONLY", "AS": "DECLARED_ONLY"},
+        "min_fill_ratio": 1, "excluded_allergens": ["AN", "AP", "AS"], "allergen_strictness": "STRICT",
+        "allergen_strictness_by_code": {"AN": "STRICT", "AP": "STRICT", "AS": "STRICT"},
         "substitution_without_approval": "LISTED_BY_SUPPLIER", "require_confirmed": False,
     },
     "ward": {
@@ -55,6 +57,7 @@ SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
         "min_fill_ratio": 1, "excluded_allergens": ["AM", "AW"], "allergen_strictness": "STRICT",
         "allergen_strictness_by_code": {"AM": "STRICT", "AW": "STRICT"},
         "substitution_without_approval": "NONE", "require_confirmed": True,
+        "standing_order_drift_ratio": 0.1, "max_preference_premium_ratio": 0.1,
     },
     "hotel": {
         **_BASE, "display_name": "Harbourside Hotel", "max_order_net_eur": 750, "max_daily_net_eur": 3000,
@@ -63,10 +66,10 @@ SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
         "require_confirmed": False,
     },
     "bakery": {
-        **_BASE, "display_name": "Kallio Bakery", "max_order_net_eur": 50, "max_daily_net_eur": 400,
+        **_BASE, "display_name": "Kallio Bakery", "max_order_net_eur": 300, "max_daily_net_eur": 1000,
         "min_fill_ratio": 1, "excluded_allergens": [], "allergen_strictness": None,
-        "allergen_strictness_by_code": {}, "substitution_without_approval": "SAME_CATEGORY",
-        "require_confirmed": False,
+        "allergen_strictness_by_code": {}, "substitution_without_approval": "NONE",
+        "require_confirmed": False, "formula_matters": True, "max_preference_premium_ratio": 0.1,
     },
 }
 # One of each customer's own example buttons: an order inside that customer's limits, with every statement
@@ -256,12 +259,19 @@ def _order_example(client: TestClient, kitchen: str, key: str) -> dict[str, Any]
     return placed.json()
 
 
-def test_the_shop_page_ships_with_ordering_alone_and_sending_alone_switched_off() -> None:
+def test_the_shop_page_ships_with_ordering_alone_and_sending_alone_switched_off(
+    shop_profile_settings: dict[str, dict[str, Any]],
+) -> None:
     script = KITCHENS_JS.read_text(encoding="utf-8")
 
-    assert "auto_order_enabled: false" in script and "auto_order_enabled: true" not in script
+    assert all(settings["auto_order_enabled"] is False for settings in shop_profile_settings.values())
+    assert '"auto_order_enabled": true' not in script and "auto_order_enabled: true" not in script
     assert "autoSend: true" not in script
     assert all(settings["auto_order_enabled"] is False for settings in SHOP_CUSTOMERS.values())
+
+
+def test_the_settings_copied_here_are_those_the_page_sends(shop_profile_settings: dict[str, dict[str, Any]]) -> None:
+    assert {SHOP_KITCHENS[short]: settings for short, settings in SHOP_CUSTOMERS.items()} == shop_profile_settings
 
 
 @pytest.mark.parametrize("kitchen", sorted(SHOP_CUSTOMERS))
@@ -429,3 +439,17 @@ def test_a_readers_question_reaches_the_page_with_its_lists_and_objects(
     assert problem["detail"] == "How much milk, and by when?"
     assert problem["missing"] == ["quantity", "needed_by"]
     assert problem["question"] == {"text": "How much milk, and by when?", "fields": ["quantity", "needed_by"]}
+
+
+def test_an_offer_reads_back_in_its_own_book_and_in_no_other(client: TestClient) -> None:
+    """The approvals page reads the offer of a waiting order to offer its first option, the safe product (R6)."""
+    _set_up(client)
+    made = _call(client, "POST", "/offers", json=CREAM).json()
+
+    again = _call(client, "GET", f"/offers/{made['offer_id']}")
+
+    assert again.status_code == 200
+    assert [option["option_id"] for option in again.json()["options"]] == [o["option_id"] for o in made["options"]]
+    _call(client, "PUT", "/kitchen", "school", json=SHOP_CUSTOMERS["school"])
+    elsewhere = _call(client, "GET", f"/offers/{made['offer_id']}", "school")
+    assert elsewhere.status_code == 404 and elsewhere.headers["content-type"].startswith("application/problem+json")

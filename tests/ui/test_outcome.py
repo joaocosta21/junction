@@ -16,8 +16,10 @@ OFFER = SimpleNamespace(options=("an option",))
 EMPTY_OFFER = SimpleNamespace(options=())
 
 
-def _order(status: OrderStatus, placed_by: PlacedBy | None = None) -> Any:
-    return SimpleNamespace(status=status, placed_by=placed_by, status_sentence="What the gateway says.")
+def _order(status: OrderStatus, placed_by: PlacedBy | None = None, fired: tuple[str, ...] = ("P-01",)) -> Any:
+    decision = SimpleNamespace(fired=tuple(SimpleNamespace(rule_id=rule_id) for rule_id in fired))
+    sentence = "What the gateway says."
+    return SimpleNamespace(status=status, placed_by=placed_by, decision=decision, status_sentence=sentence)
 
 
 def _record(**fields: Any) -> RunRecord:
@@ -36,6 +38,30 @@ def test_an_order_has_a_headline_for_each_state_and_the_gateways_sentence(order:
 
     assert (outcome.headline, outcome.tone, outcome.sentence) == (headline, tone, "What the gateway says.")
     assert outcome_of_run(OFFER, order, None) == outcome
+
+
+@pytest.mark.parametrize(("fired", "headline"), [
+    (("F-10",), "Prepared: confirm to order"),
+    (("P-01", "P-03"), "Sent for approval"),
+    (("P-04",), "Sent for approval"),
+])
+def test_an_order_only_f10_holds_back_is_prepared_and_waits_for_one_confirmation(
+    fired: tuple[str, ...], headline: str
+) -> None:
+    """P8 F1: the agent prepared it and no other rule asked for a person, so the headline says so."""
+    order = _order(OrderStatus.PENDING_APPROVAL, fired=fired)
+    order.status_sentence = (
+        "Prepared: confirm to order. Waiting for the purchasing manager to confirm, by Sunday 15 November 2026 at "
+        "17:00 (UTC+02:00) (rule F-10: a person confirms every order)."
+    )
+
+    outcome = outcome_of_order(order)
+
+    assert (outcome.headline, outcome.tone) == (headline, "warn")
+    if headline.startswith("Prepared"):  # the opening is the headline, said once
+        assert outcome.sentence.startswith("Waiting for the purchasing manager to confirm")
+    else:
+        assert outcome.sentence == order.status_sentence
 
 
 def test_an_order_the_gateway_refused_is_said_with_its_reason() -> None:
