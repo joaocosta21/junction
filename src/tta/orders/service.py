@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import threading
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
@@ -45,6 +46,32 @@ class EvidenceFinder(Protocol):
     def for_approval(self, option: OfferOption, decision: PolicyDecision) -> tuple[Evidence, ...]: ...
 
 
+@dataclass(frozen=True)
+class _Asked:
+    """What one call of `place_order` asks for."""
+
+    offer_id: str
+    option_id: str
+    identity: Identity
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class _Checked:
+    """An offer as the book held it when its option passed the order-time check, before anything is written."""
+
+    offer: Offer
+    attempt: Attempt
+    check: OrderTimeCheck
+
+
+def _asks_the_same(decision: PolicyDecision, other: PolicyDecision) -> bool:
+    """Two decisions with the same verdict, the same rules fired and the same roles asked for."""
+    return (decision.verdict, decision.rule_ids, decision.required_roles) == (
+        other.verdict, other.rule_ids, other.required_roles
+    )
+
+
 class OrderBookService:
     """Implements the `OrderService` port over the `Store`, `PolicyEngine`, `OfferRevalidator`, `AuditSink`
     and `Clock` ports. The clock is the data clock (server time, pinned in replay): it dates orders, decides
@@ -64,6 +91,7 @@ class OrderBookService:
         # One writer at a time in this process, and every record is read again inside the lock, so two callers
         # cannot erase each other's change or both pass a limit. The lock is held across the supplier call and
         # protects one process only; the store's `atomic()` keeps what is written consistent beyond that.
+        # It is not held while the web is asked for evidence: see `place_order`.
         self._lock = threading.Lock()
 
     # --- placing an order -----------------------------------------------------------------------------
@@ -74,27 +102,69 @@ class OrderBookService:
             raise NotAuthorised(wording.ONLY_AN_AGENT_ORDERS)
         if IDEMPOTENCY_KEY_FORM.fullmatch(idempotency_key) is None:
             raise InvalidRequest(wording.KEY_NOT_VALID if idempotency_key.strip() else wording.KEY_REQUIRED)
+        asked = _Asked(offer_id, option_id, identity, idempotency_key)
         with self._lock:
-            first = self._first_order(idempotency_key, identity, offer_id, option_id)
-            if first is not None:
-                return first
-            offer, option = self._offered(offer_id, option_id, identity)
-            self._require_no_order_yet(offer)
-            profile = self._policy.get_profile(offer.profile_id)
-            agent = access.actor_of(identity)
-            check = self._checker.check(Attempt(agent, profile, offer.offer_id, option))
-            order_id, now = records.new_order_id(), self._clock.now()
-            if check.decision.verdict is Verdict.AUTO:
-                order = records.placed_by_agent(order_id, offer, check, identity, idempotency_key, now)
-                self._write.placed_alone(order, check, agent)
-                return order
-            # The web is asked before the unit of work opens: no outside call sits inside a store transaction.
-            evidence = self._evidence.for_approval(check.option, check.decision) if self._evidence else ()
-            order, approval = records.awaiting_approval(
-                order_id, offer, check, identity, idempotency_key, now, evidence=evidence
-            )
-            self._write.sent_to_a_human(order, approval, check, agent)
+            checked = self._checked_for_placing(asked)
+            if isinstance(checked, Order):
+                return checked
+            if self._evidence is None or checked.check.decision.verdict is Verdict.AUTO:
+                return self._record(asked, checked, ())
+        # The web is asked with the lock released: a lookup can take up to 40 seconds, and the book's reads and
+        # decisions do not wait for it. No outside call sits inside a store transaction either.
+        evidence = self._evidence.for_approval(checked.check.option, checked.check.decision)
+        with self._lock:
+            return self._place_after_lookup(asked, checked, evidence)
+
+    def _checked_for_placing(self, asked: _Asked) -> Order | _Checked:
+        """The order this key already placed, or the offer as the book holds it now with its order-time check.
+        Called with the lock held. Raises as `place_order` does."""
+        first = self._first_order(asked.idempotency_key, asked.identity, asked.offer_id, asked.option_id)
+        if first is not None:
+            return first
+        offer, attempt = self._attempt(asked)
+        return _Checked(offer, attempt, self._checker.check(attempt))
+
+    def _attempt(self, asked: _Asked) -> tuple[Offer, Attempt]:
+        """The caller's offer, free to be ordered, and who orders which option of it under which profile."""
+        offer, option = self._offered(asked.offer_id, asked.option_id, asked.identity)
+        self._require_no_order_yet(offer)
+        profile = self._policy.get_profile(offer.profile_id)
+        return offer, Attempt(access.actor_of(asked.identity), profile, offer.offer_id, option)
+
+    def _place_after_lookup(self, asked: _Asked, before: _Checked, evidence: tuple[Evidence, ...]) -> Order:
+        """Write the order once the evidence is in, with the lock held again. Everything the first check rested
+        on is read again: the key (another request may have used it meanwhile), the offer, that it has no order
+        yet, the profile, the "order by" time, the day's spend and the standing order's history. When any of them
+        changed, the order-time check is run again, and the order is written on that check. The evidence is kept
+        when the new check asks for the same rules; otherwise it is looked up for the new decision, this once with
+        the lock held, so that an approval never carries evidence sought for another decision."""
+        first = self._first_order(asked.idempotency_key, asked.identity, asked.offer_id, asked.option_id)
+        if first is not None:
+            return first
+        offer, attempt = self._attempt(asked)
+        unchanged = (offer, attempt) == (before.offer, before.attempt)
+        if unchanged and self._checker.still_holds(attempt, before.check):
+            return self._record(asked, before, evidence)
+        again = _Checked(offer, attempt, self._checker.check(attempt))
+        if again.check.decision.verdict is Verdict.AUTO:
+            return self._record(asked, again, ())
+        if not _asks_the_same(again.check.decision, before.check.decision):
+            evidence = self._evidence.for_approval(again.check.option, again.check.decision)
+        return self._record(asked, again, evidence)
+
+    def _record(self, asked: _Asked, checked: _Checked, evidence: tuple[Evidence, ...]) -> Order:
+        """Write the order the check allows: placed by the agent alone, or waiting for a person with its approval."""
+        offer, check, agent = checked.offer, checked.check, checked.attempt.actor
+        order_id, now = records.new_order_id(), self._clock.now()
+        if check.decision.verdict is Verdict.AUTO:
+            order = records.placed_by_agent(order_id, offer, check, asked.identity, asked.idempotency_key, now)
+            self._write.placed_alone(order, check, agent)
             return order
+        order, approval = records.awaiting_approval(
+            order_id, offer, check, asked.identity, asked.idempotency_key, now, evidence=evidence
+        )
+        self._write.sent_to_a_human(order, approval, check, agent)
+        return order
 
     def _first_order(self, key: str, identity: Identity, offer_id: str, option_id: str) -> Order | None:
         """The order this agent's key already placed. A key reused for another offer or option is refused."""

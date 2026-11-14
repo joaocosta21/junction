@@ -104,15 +104,17 @@ def let_a_named_role_sign(
     """The decision on an order that already waits for a person, when F-10 is the only rule left.
 
     An approval asked of finance because of the day's spend may find, when finance decides, that the spend rule
-    no longer holds. F-10 then asks for a person, and the role the approval names is one: it completes the
-    approval it was asked for. The purchasing manager, F-10's own role, can complete it too.
+    no longer holds. F-10 then asks for one person, and a signer who holds a role the approval names is one: that
+    one signature completes the approval, however many roles the approval named. So the decision asks for the
+    named roles this signer holds, and for no other. The purchasing manager, F-10's own role, can complete it too.
     Unchanged when another rule fired, when the signer holds a role the decision asks for anyway, or when the
     signer holds none of the roles the approval names."""
     if decision.rule_ids != (HUMAN_APPROVAL.rule_id,) or set(signer_roles) & set(decision.required_roles):
         return decision
-    if not set(signer_roles) & set(named_roles):
+    signing = tuple(role for role in named_roles if role in signer_roles)
+    if not signing:
         return decision
-    return decision.model_copy(update={"required_roles": tuple(named_roles), "sentence": NAMED_ROLES_SENTENCE})
+    return decision.model_copy(update={"required_roles": signing, "sentence": NAMED_ROLES_SENTENCE})
 
 
 def authority_summary(profile: BuyerProfile) -> RuleSummary:

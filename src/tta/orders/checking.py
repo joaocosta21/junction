@@ -20,7 +20,7 @@ from tta.contracts.ports import AuditSink, Clock, OfferRevalidator, PolicyEngine
 from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.orders.records import OrderTimeCheck
-from tta.orders.spend import day_spend
+from tta.orders.spend import DaySpend, day_spend
 from tta.policy.human_approval import require_human_approval
 from tta.standing.history import standing_history
 
@@ -76,14 +76,10 @@ class OrderTimeChecker:
     def _look(self, attempt: Attempt) -> OrderTimeCheck:
         """The fresh look at Valio's data, the day's spend and the policy's answer. Writes nothing."""
         revalidation = self._revalidator.revalidate(attempt.option)
-        day = day_spend(
-            self._store, self._clock, attempt.profile.profile_id,
-            excluding_order_id=attempt.order.order_id if attempt.order is not None else None,
-        )
+        day, standing = self._day(attempt), self._standing_history(attempt)
         context = PolicyContext(
             now=self._clock.now(), day_committed_net_eur=day.committed, day_waiting_net_eur=day.waiting,
-            at_order_time=True, revalidation=revalidation,
-            standing_history=self._standing_history(attempt),
+            at_order_time=True, revalidation=revalidation, standing_history=standing,
         )
         # F-10 is applied by the engine already; applying it again here means no policy engine, a test's own
         # included, can let an order through alone while the buyer's setting is off.
@@ -92,7 +88,23 @@ class OrderTimeChecker:
         )
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
-            revalidation=revalidation, day=day,
+            revalidation=revalidation, day=day, standing=standing,
+        )
+
+    def still_holds(self, attempt: Attempt, check: OrderTimeCheck) -> bool:
+        """Whether a check made a moment ago, with the order book's lock released since, still rests on what the
+        book holds now: the option's "order by" time has not passed, and the day's spend and the standing order's
+        history are the ones the policy judged on. Asks the supplier nothing and writes nothing. False means: run
+        the check again."""
+        deadline = check.option.valid_until
+        if deadline is not None and deadline <= self._clock.now():
+            return False
+        return self._day(attempt) == check.day and self._standing_history(attempt) == check.standing
+
+    def _day(self, attempt: Attempt) -> DaySpend:
+        return day_spend(
+            self._store, self._clock, attempt.profile.profile_id,
+            excluding_order_id=attempt.order.order_id if attempt.order is not None else None,
         )
 
     def _standing_history(self, attempt: Attempt) -> StandingHistory | None:

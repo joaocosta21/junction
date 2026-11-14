@@ -452,3 +452,26 @@ def test_an_approval_whose_order_is_not_in_the_book_is_not_found(
 
     with pytest.raises(NotFound):
         book.service.decide(orphan.approval_id, approver_purchasing, samples.approve())
+
+
+def test_when_only_f10_is_left_one_of_two_named_roles_completes_the_approval(
+    book, samples, agent_hotel: Identity, approver_finance: Identity
+) -> None:
+    """Review finding P9. The approval names the purchasing manager (P-01) and finance (P-02). Finance approves
+    the small option instead: no limit holds for it, only F-10 is left, and one signature of a role the approval
+    names completes it. Before, both named roles still had to sign."""
+    big, small = samples.above_daily_limit("opt_1"), samples.within_authority("opt_2")
+    pending = _pending(book, samples, agent_hotel, big, small)
+    assert _approval(book, pending).required_roles == (PURCHASING, FINANCE)
+
+    order = book.service.decide(pending.approval_id, approver_finance, samples.approve(option_id="opt_2"))
+
+    approval = _approval(book, order)
+    assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
+    assert order.decision.rule_ids == ("F-10",) and order.decision.required_roles == (FINANCE,)
+    assert approval.status is ApprovalStatus.APPROVED and approval.roles_missing == ()
+    assert order.decision.sentence == (
+        "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): a role this "
+        "approval already names confirms."
+    )
+    assert order.status_sentence == "Confirmed by Finance (demo) (finance): ordered for €265.00 net."

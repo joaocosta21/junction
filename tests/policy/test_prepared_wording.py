@@ -77,6 +77,24 @@ def test_a_role_the_approval_already_names_reads_that_it_confirms(
     )
 
 
+def test_of_two_roles_the_approval_names_the_one_who_signs_completes_it(
+    engine: RulePolicyEngine, hotel: BuyerProfile, plain_order: OfferOption,
+    make_context: Callable[..., PolicyContext],
+) -> None:
+    """Review finding P9: one signature of a person F-10 accepts completes the approval, not one of every role
+    the approval named."""
+    decision = engine.evaluate(plain_order, hotel, make_context())
+    named = (ApproverRole.PURCHASING_MANAGER, ApproverRole.FINANCE)
+
+    by_finance = let_a_named_role_sign(decision, named, (ApproverRole.FINANCE,))
+    by_purchasing = let_a_named_role_sign(decision, named, (ApproverRole.PURCHASING_MANAGER,))
+    by_dietitian = let_a_named_role_sign(decision, named, (ApproverRole.DIETITIAN,))
+
+    assert by_finance.required_roles == (ApproverRole.FINANCE,)
+    assert by_purchasing.required_roles == (ApproverRole.PURCHASING_MANAGER,)  # F-10's own role: unchanged
+    assert by_dietitian.required_roles == (ApproverRole.PURCHASING_MANAGER,)  # not named: still refused
+
+
 def test_the_authority_says_the_agent_prepares_and_a_person_confirms(
     engine: RulePolicyEngine, hotel: BuyerProfile,
 ) -> None:

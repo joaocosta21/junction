@@ -7,7 +7,7 @@ keeps the statements the order relied on and says that the mock has no order end
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -32,6 +32,7 @@ from tta.contracts.order import (
     RelianceStatement,
 )
 from tta.contracts.policy import PolicyDecision
+from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.policy.human_approval import let_a_named_role_sign
 
@@ -67,6 +68,7 @@ class OrderTimeCheck:
     decision: PolicyDecision
     revalidation: RevalidationResult
     day: DaySpend | None = None  # the day's spend the policy judged on, this order left out
+    standing: StandingHistory | None = None  # the history rule P-08 judged on; None when nothing is renewed
 
 
 def new_order_id() -> str:
@@ -104,15 +106,13 @@ def is_overdue(order: Order, approval: Approval | None, now: datetime) -> bool:
 def signed_by_a_named_role(
     check: OrderTimeCheck, approval: Approval, signer_roles: tuple[ApproverRole, ...]
 ) -> OrderTimeCheck:
-    """The check as it holds for this signer: when F-10 is the only rule left at decision time, a role the
-    approval already names completes it (`tta.policy.human_approval.let_a_named_role_sign`)."""
+    """The check as it holds for this signer: when F-10 is the only rule left at decision time, one signature of
+    a role the approval already names completes it, whatever other roles the approval named
+    (`tta.policy.human_approval.let_a_named_role_sign`)."""
     decision = let_a_named_role_sign(check.decision, approval.required_roles, signer_roles)
     if decision is check.decision:
         return check
-    return OrderTimeCheck(
-        option=check.option.model_copy(update={"decision": decision}), decision=decision,
-        revalidation=check.revalidation, day=check.day,
-    )
+    return replace(check, option=check.option.model_copy(update={"decision": decision}), decision=decision)
 
 
 def roles_still_needed(approval: Approval, check: OrderTimeCheck) -> tuple[ApproverRole, ...]:
