@@ -37,9 +37,9 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-9 | Agent: proposals checked against the text, no lost order, readings labelled, outage remembered | T10 | done | 294 agent tests, 99% coverage; all nine findings fixed |
 | FIX-10 | Pages and API: a private sandbox per browser, per-visitor limits by kind, honest labels, no double order | T09 T12 | done | all 14 findings fixed; whole suite 2,475 tests |
 | FIX-11 | Rate limits for a room on one Wi-Fi: per browser on the pages, a cap per address | FIX-10 | done | 42 new tests; twelve browsers on one address all run scenario 2 |
-| FIX-12a | Say only what the data says: not in the recording, ingredient lists, cream | T07 T03 | running | |
-| FIX-12b | Coverage per line, substitutes judged like the offer, earliest date, trade-off on the approval card | T07 T12 | running | |
-| FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | running | |
+| FIX-12a | Say only what the data says: not in the recording, ingredient lists, cream | T07 T03 | done | 9a1893d; 868 tests in its packages; 18 (AM+AW) and 7 (AN) declaration/ingredient conflicts over the whole catalog go to a dietitian; ALMOND-1 widened |
+| FIX-12b | Coverage per line, substitutes judged like the offer, earliest date, trade-off on the approval card | T07 T12 | done | baa4e08; P-03 names the short line; substitutes route applies the buyer's own rule |
+| FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | done | b91e135; 54 new tests; `/kitchen` in the menu; profile checked as a file is; in force only in that browser's book |
 | DOCS-2 | Documents say what the code does | — | done | 8 documents aligned; 26 marks wait on S1, T18, FIX-12a, FIX-12b, FEAT-1 |
 
 ## Log
@@ -96,3 +96,6 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
+- 10:54 FIX-12a done and committed (9a1893d); 10:53 FIX-12b (baa4e08).
+- 10:58 FEAT-1 done: tests, lint, scope and the key files read; committed (b91e135). Nav link added by the orchestrator. ALMOND-1 widened in the booth files (71f13f4).
+- 11:05 second booth copy of 71f13f4 on port 8001 (replay, no keys): 1,000 L milk and the almond drink checked on it.
