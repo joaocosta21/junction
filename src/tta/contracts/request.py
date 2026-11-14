@@ -62,6 +62,11 @@ class RequestLine(Contract):
         default=(), max_length=MAX_TERMS,
         description="Certificate labels (packagingMarkedLabel codes, e.g. EU_ORGANIC_FARMING) every product must carry",
     )
+    stands_in_for: Term | None = Field(
+        default=None,
+        description="The product type of a recipe this line replaces, set by the menu planner when recipe logic "
+        "chose another ingredient (rule F-09: such a line goes to a human). It can only add a check",
+    )
     allergen_strictness: AllergenStrictness | None = Field(
         default=None,
         description="Required when there is any exclusion and the profile sets none. There is no default.",
