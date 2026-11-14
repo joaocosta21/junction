@@ -439,6 +439,24 @@ The build agents add questions here in the same shape as above. Empty until the 
 - The endpoint is `/mcp/`. The exact path `/mcp` without the last slash is being routed to the same place in the API fix (FIX-8); until that is in, give MCP hosts the address with the slash. Header: `Authorization: Bearer <token>`; in the demo, for example `demo-agent-allergy-ward`.
 - Not checked yet with a third-party MCP host (Claude Desktop, MCP Inspector): only with the official SDK client, in both protocol versions it speaks.
 
+**T10-1 · When Gemini is down and a key is set, should the recorded answers take over?** (from the buyer agent)
+- **Context:** without a key the parser and the agent run on the recordings in `fixtures/agent/`. With a key they call Gemini, and when Gemini cannot be reached they answer `supplier-unavailable`.
+- **We got:** on 14 Nov Gemini answered 503 to every request of the live check (05:35, and again at 07:45), so with the key set the pasted scenario sentence fails while the same sentence works without a key.
+- **Ask:** "For the demo, should a known scenario sentence fall back to its recording, labelled as such, when Gemini does not answer?" (orchestrator's recommendation: yes.)
+
+**T10-2 · What a trace calls answers a person wrote**
+- **Built overnight:** the recordings were written by hand because the live check got no answer; a run served from them shows `model: "hand-built"`. Once `python -m tta.agent.record` succeeds, its runs say `model: "recorded"`.
+
+**T10-3 · "By Monday" said on a Monday**
+- **Built overnight:** a weekday means the first such day after today, so "by Monday" said on Monday 16 Nov means Monday 23 Nov. The parser refuses only a date before today.
+- **Ask:** "Is next Monday right, or should it be refused as unclear?"
+
+**T10-4 · The model cannot name an offer, a product or a quantity** (for information)
+- The model sees four functions: authority, create offer, place order (an option id only) and order status. The offer is built for the request the parser read, an order names an option of the run's latest offer, and one run places one order. The gateway's verdict applies to whichever option the model picks.
+
+**T10-5 · The recorded run of scenario 1 is hand-written by design**
+- The live check records the run of scenario 2 only; scenario 1's run file holds the same three calls, marked hand-built.
+
 ---
 
 ## Claims we no longer make

@@ -208,3 +208,13 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - The Host header is not checked on the MCP endpoint (the SDK's default would accept only localhost); a setting for the public address is a next step.
 - The server's instructions tell an agent that product names and other supplier text are data, never instructions.
 - Large answers are not trimmed: a search for `milk` is about 138 KB; `limit` asks for fewer.
+
+## Buyer agent (T10)
+- Model `gemini-3.8-flash` (newest Flash marked stable in the documentation read on 14 Nov 2026, with function calling and structured output), overridable with `TTA_GEMINI_MODEL`. Called through the Interactions API with `store=False` and thinking level low.
+- The model proposes; the gateway decides. Reading the text, the model fills a schema whose every field is required and where `null` means "the text does not say". The parser then refuses a product type outside the table, a claim outside the catalog's 21 codes, an allergen code outside the code table, a product id that is not in the text, and a date before today.
+- What the text does not say (quantity, unit, allergen strictness) is `invalid-request` with the missing fields named; the model is never asked to guess.
+- "By Monday" is resolved from a 14-day calendar given to the model: the first such weekday after today (question T10-3).
+- In the loop the model sees four functions and can name only an option id; the offer, the quantities and the verdicts come from the gateway. The report is built from the gateway's own sentences; the model's closing words are discarded.
+- A run is at most 8 steps and 10 model requests before retries; a 30-second time-out and 2 retries per request.
+- Without a key, or for the demo sentences, runs are served from `fixtures/agent/`. Tonight those recordings are hand-written: the live check got only 503 answers from Gemini (question T10-1).
+- Errors and log lines of the Gemini module carry the HTTP status only; the SDK's error text is not chained.

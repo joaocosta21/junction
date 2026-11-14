@@ -1,0 +1,35 @@
+{
+  "kind": "run",
+  "text": "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only",
+  "model": "hand-built",
+  "source": "hand-built",
+  "note": "Written by hand, not by a model: the live check of 14 Nov 2026 got HTTP 503 from the Gemini API on both of its two attempts and was stopped (AIMO/build/AGENT-RULES.md, rule 10). `.venv/bin/python -m tta.agent.record` replaces this file with the model's own answer.",
+  "turns": [
+    {
+      "calls": [
+        {
+          "name": "get_authority",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "create_offer",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "place_order",
+          "arguments": {
+            "option_id": "opt_1"
+          }
+        }
+      ]
+    }
+  ]
+}
