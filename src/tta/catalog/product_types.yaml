@@ -1,0 +1,227 @@
+# Product types: what a buyer can ask for by a key instead of by words (SPEC section 3, step 2).
+#
+# This table is ours, not Valio's. The product file has 349 five-digit category codes and no category
+# names, so each entry was derived by reading the English product names inside the categories. Every
+# figure is a count over the whole catalog (17,546 products) made on 14 Nov 2026; a test recounts
+# `products` on every run. The table covers the demo scenarios and the commonest food-service types;
+# it is not a complete taxonomy.
+#
+# A product is of a type when all of these hold:
+#   categories   its category is one of these codes
+#   name_terms   (when given) a word of its English name starts with one of these terms,
+#                or its Finnish name contains one
+#   claims       (when given) it carries every one of these nutritionalClaim codes
+# `products` is how many products that selects and `derived_from` says how the entry was derived.
+#
+# A claim is never an allergen statement: a request for lactose-free milk is type `milk` plus the
+# claim FREE_FROM_LACTOSE, and all 35 such products still declare milk as an allergen.
+
+milk:
+  categories: ["10400"]
+  products: 91
+  derived_from: >-
+    Category 10400 holds 91 products and "milk" starts a word in 88 of their English names. The
+    other three are a sour milk (469457), a coffee drink (469266) and a soy yoghurt (472516).
+    No name term is set, so that the type is the whole category.
+
+cream:
+  categories: ["10401"]
+  products: 53
+  derived_from: >-
+    Category 10401 holds 53 products; "cream" starts a word in 46 of their English names
+    (cooking and whipping cream).
+
+plant_drink:
+  categories: ["10402"]
+  name_terms: ["drink", "juoma", "ikaffe"]
+  products: 51
+  derived_from: >-
+    Category 10402 holds 66 products: oat, soya and coconut drinks, and also 13 coconut milks for
+    cooking, 2 iced coffees and 1 oat cooking base. The name terms keep the 51 drinks: "drink" or
+    "juoma" is in 49 names, and "ikaffe" keeps the two Oatly iKaffe oat drinks (468319, 473485)
+    whose names say neither.
+
+yoghurt:
+  categories: ["10412"]
+  products: 150
+  derived_from: >-
+    Category 10412 holds 150 products; "yoghurt" starts a word in 113 of their English names.
+
+quark:
+  categories: ["10430"]
+  products: 49
+  derived_from: >-
+    Category 10430 holds 49 products; "quark" starts a word in 42 of their English names.
+
+butter:
+  categories: ["10500"]
+  products: 20
+  derived_from: >-
+    Category 10500 holds 20 products; "butter" starts a word in 19 of their English names.
+    Spreads and margarine (10515 to 10518) are not included.
+
+cheese:
+  categories: ["10600", "10602", "10603"]
+  products: 295
+  derived_from: >-
+    Categories 10600 (blocks, 129), 10602 (slices, 89) and 10603 (grated and cottage, 77) hold 295
+    products; "cheese" starts a word in 121 of their English names and most others name the cheese
+    (gouda, edam, emmental, cheddar). Blue, cream, feta and other speciality categories (1063x,
+    1064x) are not included.
+
+eggs:
+  categories: ["10590", "10592"]
+  products: 30
+  derived_from: >-
+    Categories 10590 (shell eggs, 9) and 10592 (liquid and cooked egg products, 21) hold 30
+    products; "egg" starts a word in 28 of their English names.
+
+olive_oil:
+  categories: ["10531"]
+  products: 45
+  derived_from: >-
+    Category 10531 holds 45 products; "olive" starts a word in 42 of their English names.
+
+bread:
+  categories: ["10900", "10901"]
+  products: 118
+  derived_from: >-
+    Categories 10900 (rye and dark bread, 47) and 10901 (wheat, oat and toast bread, 71) hold 118
+    products; "bread" starts a word in 95 of their English names. Frozen and bake-off bread (41760)
+    is not included.
+
+sausage:
+  categories: ["17200"]
+  products: 99
+  derived_from: >-
+    Category 17200 holds 99 products; "sausage" starts a word in 49 of their English names and the
+    others are named by kind (bratwurst, kabanossi, grill sausages).
+
+ham:
+  categories: ["17203"]
+  products: 82
+  derived_from: >-
+    Category 17203 holds 82 products; "ham" starts a word in 54 of their English names. The others
+    are cured pork cold cuts of the same kind (prosciutto, serrano, mortadella).
+
+fresh_fish:
+  categories: ["18701"]
+  products: 81
+  derived_from: >-
+    Category 18701 holds 81 products: fresh fish, whole and as fillets (salmon, rainbow trout,
+    perch, cod). "fillet" starts a word in 48 of their English names.
+
+pork:
+  categories: ["18710"]
+  products: 106
+  derived_from: >-
+    Category 18710 holds 106 products; "pork" starts a word in 99 of their English names.
+
+beef:
+  categories: ["18720"]
+  products: 149
+  derived_from: >-
+    Category 18720 holds 149 products; "beef" starts a word in 131 of their English names.
+
+beef_chuck:
+  categories: ["18720"]
+  name_terms: ["chuck", "etuselkä"]
+  products: 7
+  derived_from: >-
+    The 7 products of category 18720 (fresh beef, 149 products) whose English name has a word
+    starting with "chuck" or whose Finnish name contains "etuselkä", the Finnish word for the cut.
+    All 7 are sold by the kilogram.
+
+minced_meat:
+  categories: ["18760"]
+  products: 18
+  derived_from: >-
+    Category 18760 holds 18 products; "minced" starts a word in 14 of their English names (beef,
+    pork and mixed mince, and one burger patty).
+
+chicken:
+  categories: ["18750"]
+  name_terms: ["chicken", "kana", "broiler"]
+  products: 97
+  derived_from: >-
+    Category 18750 (fresh poultry) holds 107 products. The name terms keep the 97 chicken products
+    and leave out the 10 turkey products ("kalkkuna").
+
+rice:
+  categories: ["21340"]
+  products: 66
+  derived_from: >-
+    Category 21340 holds 66 products; "rice" starts a word in 61 of their English names.
+
+pasta:
+  categories: ["21380"]
+  products: 140
+  derived_from: >-
+    Category 21380 holds 140 products; "pasta" starts a word in 79 of their English names and the
+    others are named by shape (penne, fusilli, spaghetti, macaroni).
+
+flour:
+  categories: ["21300", "21310"]
+  name_terms: ["flour", "jauho"]
+  products: 82
+  derived_from: >-
+    Categories 21300 (wheat flour, 28) and 21310 (other flours, 59) hold 87 products. The name
+    terms keep the 82 flours and breadcrumb flours and leave out 5 others (spelt kernels, tapioca
+    pearls, potato fibre, xanthan gum).
+
+sugar:
+  categories: ["22100"]
+  products: 40
+  derived_from: >-
+    Category 22100 holds 40 products; "sugar" starts a word in 36 of their English names.
+
+coffee:
+  categories: ["22300", "22410"]
+  products: 153
+  derived_from: >-
+    Categories 22300 (ground coffee, 109) and 22410 (coffee beans, 44) hold 153 products; "coffee"
+    starts a word in 147 of their English names. Instant coffee (22412) and coffee drinks (22413)
+    are not included.
+
+tea:
+  categories: ["22530", "22531"]
+  products: 129
+  derived_from: >-
+    Categories 22530 (tea bags, 106) and 22531 (loose tea, 23) hold 129 products; "tea" starts a
+    word in 91 of their English names. Iced tea drinks (22532) are not included.
+
+juice:
+  categories: ["21403"]
+  products: 94
+  derived_from: >-
+    Category 21403 holds 94 products; "juice" starts a word in 83 of their English names. Juice
+    drinks (21400) and concentrates (21401) are not included.
+
+soft_drink:
+  categories: ["22700"]
+  products: 157
+  derived_from: >-
+    Category 22700 holds 157 products: soft drinks, lemonades and colas. "drink" starts a word in
+    73 of their English names.
+
+mineral_water:
+  categories: ["22706"]
+  products: 63
+  derived_from: >-
+    Category 22706 holds 63 products: mineral and vitamin waters. "water" starts a word in 41 of
+    their English names.
+
+french_fries:
+  categories: ["41751"]
+  name_terms: ["fries", "frites", "ranskanperuna"]
+  products: 36
+  derived_from: >-
+    Category 41751 (frozen potato products) holds 78 products. The name terms keep the 36 french
+    fries and leave out wedges, rösti, croquettes, mash and gratins.
+
+ice_cream:
+  categories: ["41800", "41801", "41820"]
+  products: 372
+  derived_from: >-
+    Categories 41800 (sticks and cones, 124), 41801 (home packs, 109) and 41820 (scoop ice cream
+    and sorbet, 139) hold 372 products; "ice cream" is in 311 of their English names.

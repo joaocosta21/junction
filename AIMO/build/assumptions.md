@@ -59,3 +59,17 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Times in sentences keep the offset they carry; quantities are in sales units; money is net of tax.
 - SQLite 3.38 or later is needed. SQLite itself does not refuse an update of an audit row; the code exposes no update or delete (the PostgreSQL store adds a database trigger).
 - The policy hash is written `sha256:<hex>`; event hashes are bare hex.
+
+## Catalog (T02)
+- The product-type table is ours: 29 keys, categories inferred from the English names in each category, counts over the whole catalog. It is not a complete taxonomy.
+- `milk` is the whole of category 10400 (91 products; three are not milk). Lactose-free milk is `milk` plus claim `FREE_FROM_LACTOSE`: exactly 35 products.
+- `plant_drink` is category 10402 narrowed by name terms to 51 of 66 (coconut milks for cooking, iced coffees and a cooking base are left out).
+- Name terms match the English name at the start of a word, or the Finnish name anywhere (terms under 4 letters must start a word). English matches are listed first. Accents are not folded.
+- Search without a product type keeps the category with most matches and every category with at least half as many.
+- Pack size: live price ratio first (using the file's own figure when the two prices are consistent with it), then the unit-conversion row, then the name. A weight is never turned into litres or the other way round. A product sold by `KG` is 1 kg per sales unit.
+- With no price, the product file gives a pack size for 15,179 of 17,546 products; 2,367 are unknown and drop out of a litre or kg request with `PACK_SIZE_UNKNOWN`.
+- Portion pack: a sales unit holding more than one inner unit of 5 cl or 50 g or less (744 catalog products). Our threshold (question T02-3).
+- Lot step: `allowedLotSize` 0.01 is read as "no step set": countable units are ordered whole, kilogram products keep 0.01 kg, the 674 real steps are used as given (question T02-1).
+- Origin placeholders `zy`, `xs`, `zz` (195 products) load as no origin.
+- Listed substitutes are Valio's pairs as listed, in one direction.
+- The catalog needs all three data files at start-up; a missing or malformed one stops the start rather than serving a partial catalog.

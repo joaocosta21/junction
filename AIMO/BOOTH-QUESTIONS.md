@@ -263,6 +263,22 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "We read 'free from gluten cereals' with 'contains wheat' as gluten-free wheat starch, and 'free from tree nuts' with 'contains almonds' as a data error. Is that expected, or did we get something wrong?"
 - **If no answer, we build:** two statements, the least safe counts: with the family excluded, a declared member rejects the product (oats go to a dietitian).
 
+**T02-1 · Is an `allowedLotSize` of 0.01 "no step"?** (from the catalog package; whole catalog)
+- **Context:** `allowedLotSize` is 0.01 on 16,872 of 17,546 products, including 16,476 of the 16,478 not sold by the kilogram (cartons, cases, bags, bottles). A real step (1.5, 3.0 …) is on 674 products, 672 of them sold by the kilogram.
+- **We did:** rounded every quantity up to the product's step.
+- **We got:** for a countable sales unit a 0.01 step allows a fraction of a case. In our captures (a sample of 1,745 ids) no `availableAmount` has a fraction.
+- **Example to show:** `463038`, "Valio Eila semi skimmed milk drink 10 l novobox lactose free", sales unit `KI` (a case of two 10-litre boxes), lot 0.01: 250 litres is 12.5 cases.
+- **Ask:** "We read 0.01 as 'no step set' and order whole cartons and cases, so 13 cases here. Is that expected, or did we get something wrong?"
+- **If no answer, we build:** whole units for every sales unit except `KG`; kilogram products with 0.01 keep 0.01 kg steps; a real step is used as given.
+
+**T02-2 · What does `comparisonPrice` divide by?** (sample of 1,321 captured price lines)
+- **Context:** no field states the litres or kilograms in one sales unit. We derive it as `catalogPrice ÷ comparisonPrice`.
+- **We did:** compared that ratio with the product file (`unitConversions`, else the size in the name).
+- **We got:** the ratio is rounded because both prices have two decimals (8.75 ÷ 0.88 = 9.943 for a 10-litre box). The file's figure fits on 186 of 190 litre lines and 481 of 513 kg lines. Where it does not, the comparison price seems to use another weight than `netWeight`.
+- **Example to show:** `460396` "Valio skimmed milk 10 l novobox": ratio 9.943, file says 10 litres. `466382` "Filos feta cubes in brine 2kg": `netWeight` 3.39 kg, ratio 2.0.
+- **Ask:** "We take `comparisonPrice` to be `catalogPrice` divided by the content of one sales unit (drained weight where there is one), rounded to cents. Is that expected, or did we get something wrong?"
+- **If no answer, we build:** the file's figure when it is consistent with the two prices (10 litres, not 9.943), otherwise the ratio.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
@@ -297,6 +313,16 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Context:** in replay the data clock is pinned to the capture's `timeNow`, so every audit event of a demo run would carry the same time, the human's approval included.
 - **Built overnight:** the audit trail is stamped with the real time; the pinned clock is used only for cut-offs and price validity. The offer still records the data time it was built against.
 - **Ask:** "Is real time on the audit trail what you expect to see in the demo?"
+
+**T02-3 · Is 50 g the right limit for a portion pack?** (from the catalog package; whole catalog)
+- **Context:** a request in litres or kg leaves out single-serve packs: an inner unit of 5 cl or 50 g or less.
+- **We got:** 744 of 17,546 products are portion packs by this rule. `463203` (100 × 2 cl milk) is one, as intended — but so are `468798` "6x Meira black peppercorn mill 49g" and `465619` "Findus Fishfinger ca 360x28g".
+- **Ask:** "Keep 50 g, lower it, or apply the rule only to drinks and spreads?"
+- **Built overnight:** the limit as written. The exclusion is shown with its reason, and `pack: ANY` on the request turns it off.
+
+**T02-4 · The `milk` product type is the whole of category 10400** (noted by the orchestrator)
+- **Context:** the product-type table is ours (29 types, derived from the names in each category). `milk` is category 10400: 91 products, of which 88 are milk; the other three are a sour milk, a coffee drink and a soy yoghurt. Lactose-free milk = `milk` + claim `FREE_FROM_LACTOSE` = 35 products, among them lactose-free sour milks (`477050`, `476957`).
+- **Ask:** "Should a request for 'milk' leave out sour milk and coffee drinks?" Tonight none of them is the cheapest option, so the demo is not affected.
 
 ---
 
