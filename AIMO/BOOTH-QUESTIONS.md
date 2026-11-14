@@ -337,6 +337,23 @@ The build agents add questions here in the same shape as above. Empty until the 
 **T05-3 · Demo approvers** (settled by the orchestrator, for information)
 - Every role now has a demo person on both profiles: hotel — purchasing manager, finance, dietitian; ward — dietitian, purchasing manager, finance. Without that, an approval needing a role nobody holds could never complete. Names and ids are placeholders in the two profile files.
 
+**T08-1 · A price changes while an order waits for approval** (from the orders package)
+- **Built overnight:** the approver gets `offer-stale` (or `offer-expired`), one "order not placed" event is written, and the order keeps waiting. The approver can still pick another option or reject; otherwise the order expires at its "order by" time. Until then it counts in the day's spend.
+- **Ask:** "Should a failed re-check close the order at once instead?"
+
+**T08-2 · An approval does not carry over to another option**
+- **Built overnight:** when an approver picks another option of the same offer, the approval starts again on that option: earlier approvals were for something else. They stay in the audit trail.
+- **Example to show:** finance approves option 1 (€3,180.00); the purchasing manager then picks option 2 (€3,445.00); the order waits for finance again.
+- **Ask:** "Agreed?"
+
+**T08-3 · A refused attempt names the caller in the target's trail**
+- **Built overnight:** every refused attempt to decide an approval is recorded with the approval it was aimed at. If the ward's dietitian tries to decide a hotel approval, the hotel's trail shows that person's demo name and role.
+- **Ask:** "Should the trail of the targeted buyer say only 'an approver of another buyer'?"
+
+**T08-4 · No separate "policy evaluated" event at order time**
+- **Built overnight:** the outcome event (placed by agent, approval requested, blocked, not placed) carries the policy decision, the facts it read and the policy hash. A separate "policy evaluated" event is written when the offer is built.
+- **Ask:** "Is one event per outcome what we want on the timeline?"
+
 ---
 
 ## Claims we no longer make

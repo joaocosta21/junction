@@ -90,3 +90,17 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - A profile file cannot name a rule or carry a setting outside the profile contract: it has no way to switch off a fixed rule.
 - Gabriela's rules for not-deliverable products, estimated pack sizes and lot steps are not carried over: the offer excludes those products before the policy runs.
 - All limit values are illustrative. Demo approvers exist for every role on both profiles.
+
+## Orders and approvals (T08)
+- Every order passes one check just before it is placed or approved: a fresh look at price and availability, then the policy with the order-time flag set. It is the only place the policy is called for an order.
+- Stale or expired is read from rule F-04's facts: expired when the option's time or a validity has passed, stale otherwise.
+- Idempotency keys are scoped to the agent. A key is bound only when an order is created; the same key with another offer or option is `invalid-request`.
+- Only an agent places an order. Reads are limited to the caller's own buyer; the supplier reads no order through this service.
+- Who may decide: an approver of the same buyer, who holds a role still missing and is listed under that role in the buyer profile's `approver_roles`. An agent on the approval route is refused (F-06) and the attempt is recorded.
+- Every approval, not only the last, re-checks and re-evaluates at order time; the roles required are those of that evaluation.
+- Choosing another option starts the approval again on that option (question T08-2). A failed re-check at approval leaves the order waiting (question T08-1).
+- Expiry: strictly after the option's `valid_until`, applied when the order is next read, listed or decided. No `valid_until`, no expiry.
+- The day's spend counts orders in `ORDERED` and `PENDING_APPROVAL` created on the data clock's date. In replay every order carries the capture's time, so all of them are "today".
+- An order completed by a human is recorded as placed with human approval, even when the policy would ask for nobody at that moment.
+- Writes are serialised by one lock in the process, held during the fresh check. State is saved first, then the audit event; there is no transaction across the two, and two gateway processes on one database are not protected (next step: a unit of work in the store).
+- Deciding an approval that is already closed is `invalid-request` (there is no conflict type).
