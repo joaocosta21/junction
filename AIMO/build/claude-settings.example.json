@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(/**)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/pip *)",
+      "Bash(.venv/bin/pytest *)",
+      "Bash(.venv/bin/uvicorn *)",
+      "Bash(.venv/bin/modal *)",
+      "Bash(python3 *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(git merge *)",
+      "Bash(git fetch *)",
+      "Bash(curl http://127.0.0.1*)",
+      "Bash(curl http://localhost*)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:modal.com)",
+      "WebFetch(domain:modelcontextprotocol.io)",
+      "WebFetch(domain:fastapi.tiangolo.com)",
+      "WebFetch(domain:docs.pydantic.dev)",
+      "WebFetch(domain:cloudevents.io)",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": [
+      "Bash(git push *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean *)",
+      "Read(./.env)"
+    ]
+  }
+}

@@ -1,192 +1,299 @@
-# AIMO — Merged build plan (~15h, 3 people tonight + 1 from Saturday)
+# AIMO — build plan (Saturday 14 Nov → Sunday 15 Nov 10:00)
 
-Merge of the team plan (realistic schedule, right priorities) and the deep analysis plan (data traps, contract design, tech-award stacking). **The team schedule wins on timing; the analysis wins on what to avoid and what to monetise.**
-
-Supersedes [PLAN-30H-SUPERSEDED.md](PLAN-30H-SUPERSEDED.md), which was scoped for 30h and is ~2× over-budget.
+Rewritten on Saturday 14 Nov after the API retest and a re-read of the problem statement. **Earlier versions treated the mock's behaviour as faults to expose ("traps", a "contradiction detector"). That was the wrong frame; see §1.** Supersedes [PLAN-30H-SUPERSEDED.md](PLAN-30H-SUPERSEDED.md).
 
 ---
 
-## 0. Why this shape
+## 0. The score, and what we build for each point
 
-**Prize:** €4,000 / €2,000 / €1,000, est. 25–40 teams, **published rubric**. See [CHALLENGE.md](CHALLENGE.md).
+Criteria are verbatim from the Junction platform ([CHALLENGE.md](CHALLENGE.md)). Prizes €4,000 / €2,000 / €1,000.
 
-**We chose this challenge** because nothing in its rubric requires domain knowledge we lack (unlike AstraZeneca's Finnish health system), it has the largest named cash pool of any challenge we reviewed, and **45% of the score — 30% working demo + 15% openness/documentation — is available to disciplined execution alone.**
+**The field: 105 teams registered for this challenge (published 14 Nov), the largest at the event, for three paid places.** Most will build the milk request as a happy-path flow. Judges will have little time per team, so the offer screen must show in its first seconds what the others miss: what is confirmed, what is not, and what was excluded and why.
 
-| Weight | Criterion | What we build for it |
+| Weight | Criterion (their wording) | What we build for it |
 |---|---|---|
-| **30%** | Working end-to-end demo | One continuous flow: request → search → offer → order → approval. **Not isolated pieces.** |
-| **20%** | Solving the problem / user need | Precise constraint matching + per-constraint satisfaction report |
-| **20%** | Autonomy and controls | YAML policy engine + human approval panel + readable decision log |
-| **15%** | Robustness to exceptions | Partial availability, substitutions, impossible delivery dates |
-| **15%** | Openness + production path | Auto-generated OpenAPI, ASSUMPTIONS page, justified choices, next steps |
+| **30%** | **Working end-to-end demo** — "The solution runs through a full request → lookup → order/approval flow in the mocked environment, not just isolated pieces." | One continuous flow: pasted request → structured request → search → offer → order → approval → audit record. |
+| **20%** | **Solving the problem and user need** — "how Precisely the agent matches what the buyer actually asked for, with the least manual correction needed." | Constraint extraction (product type, quantity in litres or kg, date, dietary and allergen needs) and an offer that reports each constraint as met, not met or unverified. |
+| **20%** | **Autonomy and controls** — "Quality of the guardrails design. What the agent can decide alone, what needs human sign-off, and how decisions are logged and auditable." | `policy.yaml`, a human approval panel, and an audit log with one readable sentence per decision. |
+| **15%** | **Robustness to exception situations** — "Handling of partial availability, substitutions and delivery constraints beyond the happy path." | The response logic in §2: not deliverable or out of stock → substitute; not enough stock → combine products; cut-off passed or quantity not confirmed → next option, with the reason stated. |
+| **15%** | **Openness and credible path toward production** — "Open, documented standards rather than a proprietary format, clear visibility of assumptions, well-justified technical choices, and a credible view of next development steps" | Auto-generated OpenAPI for the gateway, an MCP tool surface, GS1 allergen codes, and an "Assumptions & next steps" page. |
 
-**Their anti-pattern, quoted:** *"This is not about replacing today's e-commerce UI with a chatbot."* So the deliverable is **a typed interface + an operating model**, demonstrated by a working agent — not a chat window.
+### What the brief asks, and our piece for each
 
-**Note the rubric contradiction:** the brief says substitution "isn't scored as core," but the rubric gives 15% to robustness *including substitutions*. **Build for the rubric.**
+| Brief | Our piece |
+|---|---|
+| **Core 1** — "a structured way for an external agent to search for and retrieve what's available and at what price" | `search` (filter the static catalog) and `offer` (live price and availability for the narrowed set) |
+| **Core 2** — "a defined interaction for moving from inquiry to commitment, based on fixed prices rather than a negotiated quote" | `offer` returns a fixed price with its validity and a verification status per claim; `order` commits it. The mock has no order endpoint, so the order record is ours. |
+| **Core 3** — "what the agent may decide on its own, and what must go to a human for sign-off" | Policy engine and approval panel |
+| Optional — delivery time & sustainability comparison | Labels, delivery reliability and carbon shown per option when present (Tier 2) |
+| Optional — substitution and other exception handling | Response logic, §2 |
+| Optional — traceability and explainability | Audit log |
+| Trust protocol · guardrails model · response logic · audit trail | Verification status (§2) · `policy.yaml` · §2 with good-better-best ranking · audit log |
+
+**The flow they describe:** a buyer's agent sends "I need 1,000 litres of lactose-free milk by Monday…"; "Your solution returns products, prices and availability in structured form; the agent places the order within its authority or sends it to a human for approval."
+
+**Not a chatbot** ("This is not about replacing today's e-commerce UI with a chatbot"): the deliverable is a typed interface and an operating model. A working agent demonstrates it.
 
 ---
 
-## 1. Roles
+## 1. Working rule
+
+**The mock's behaviour is the scenario, not a fault.** Valio says they bring "availability behaviour" and "delivery lead times". Unknown stock, order cut-offs that have passed, products that cannot be delivered and missing allergen data are the conditions a real purchasing agent meets. We do not report them as bugs or build a feature around catching them. The agent handles each one and says what it did.
+
+Decided on 14 Nov:
+- **The order step is ours.** There is no order endpoint by design; we do not ask Valio whether one exists.
+- **Quantity not confirmed:** the agent suggests the best option with confirmed stock and names the unconfirmed product as an alternative. Ordering a product whose quantity is not confirmed always needs human approval. This covers Terminal `999999` and the very large Stock values alike: Valio told us in person on 14 Nov that when the value is very large they do not know the stock.
+- **What the agent may order alone is a buyer profile setting** (§9), on top of a few fixed rules that no profile can switch off.
+- **Cut-off passed:** `closingTime` is read literally. A product whose cut-off has passed cannot be promised for `availableDate`, so the agent picks another and says why.
+
+---
+
+## 2. Response logic — what the agent does with what the API returns
+
+Shares are from a random sample of 1,000 products on Friday 2026-11-13 at 23:00 server time. They are sample estimates and move with the clock.
+
+| State | How to detect | Share | What the agent does |
+|---|---|---|---|
+| **Confirmed** | Stock, `closingTime` later than `timeNow`, `availableAmount` between 0 and 999,999 | 25.2% | Suggests it; may order within its authority |
+| **Quantity not confirmed** | `availableAmount` ≥ 999,999, cut-off still open | 9.2% | Not the suggestion. Named as an alternative with "quantity not confirmed". Ordering it always needs human approval. |
+| **Cut-off passed** | `closingTime` earlier than `timeNow` | 42.3% | Cannot be promised for `availableDate` (spec: "order by closingTime at the latest to receive goods on availableDate"). Not offered for a dated request; named in the explanation. |
+| **Out of stock** | a schedule line with `availableAmount` 0 | 2.9% | Exception → substitute |
+| **Not deliverable** | empty `scheduleLines` | 20.3% | Exception → substitute |
+| **Blocked** | `salesBlock` true | 0.1% | Exception → substitute |
+
+- **Order of evaluation:** Blocked → Not deliverable → Out of stock → Cut-off passed → Quantity not confirmed → Confirmed. In the sample that gives 1 / 203 / 29 / 423 / 92 / 252 products. Before that ordering, 425 products (42.5%) have a passed cut-off.
+- In the sample every Terminal product had a passed cut-off, so "quantity not confirmed with an open cut-off" was always a Stock product carrying a placeholder value.
+- **Stock placeholder — answered by Valio in person (14 Nov):** when the value is very large they do not know the stock. The Stock values of 9,999,999,999 ÷ base units per sales unit are therefore read exactly like Terminal `999999`: quantity not confirmed. The spec sentence "Stock products are stocked by us, so we know their available quantities" does not hold for these lines. `464306`, the cheapest captured lactose-free milk, is the unconfirmed alternative, not the suggestion.
+- **Suggestion plus alternative, not suggestion plus footnote:** return the unconfirmed product as a second structured option that the approver can pick, with its price and status, so no manual correction is needed if the human prefers it.
+- **Verification status is our answer to the trust protocol.** For each claim in an offer (price, quantity, delivery date, origin, allergen status) the response says whether Valio's data confirms it, leaves it unknown or rules it out, so the buyer's agent needs no manual check to know what it can rely on.
+- **Good-better-best:** rank eligible options by constraint fit first, then verification status, then price.
+
+### What this does to the canonical request
+From a capture of 22 of the 35 lactose-free milks in category 10400 on Friday at 21:33. **Re-check on Saturday 09:00 with one call; stock moves.**
+
+| State | Products | Notes |
+|---|---|---|
+| Confirmed | 3 | `463380` Arla Café milk 1 L UHT, 698 units at €2.65 · `462775` Arla fat-free milk drink 1 L UHT, 51 units at €2.57 · `463203` Arla portion milk 100 × 2 cl, 192 cases (coffee portions, not drinking milk) |
+| Quantity not confirmed | 8 | Includes the cheapest of the 24 milks with a captured price, `464306` at €1.01 per litre |
+| Cut-off passed | 10 | All Terminal, including both 10 L boxes |
+| Not deliverable | 1 | `464440` |
+
+No single confirmed product covers 1,000 litres, so the canonical request is not a pure happy path. With the rule above the agent returns:
+- **Suggestion (confirmed):** 698 × `463380` + 51 × `462775` = 749 L for €1,980.77 before tax. It is 251 L short and mixes café milk with fat-free milk.
+- **Alternative (quantity not confirmed):** 1,000 × `464306` = €1,010.00 before tax.
+- **Excluded, with reasons:** cut-off passed, not deliverable, and portion packs. The portion-pack exclusion is a product-type rule we still have to write down (the request is for drinking milk); if `463203` counted, confirmed stock would total 1,133 L.
+
+Either way the order goes to a human: the suggestion is a partial fill and the alternative is unconfirmed.
+
+---
+
+## 3. Demo scenarios
+
+**Recommended set from the scenario analysis of 14 Nov; the team still has to confirm it (§9).** One flow for every beat — request + buyer profile → search → offer with options and a status per claim → policy decision → order or approval → audit record. Only the input changes, which is what the 30% criterion asks for ("not just isolated pieces"). Stock and prices are from Friday night's captures.
+
+| # | Scenario | What the judge sees | Aimed at |
+|---|---|---|---|
+| 1 | **Hotel profile — the canonical request.** "1,000 litres of lactose-free milk by Monday" | The offer of §2: a confirmed suggestion (749 L), the cheaper unconfirmed alternative, and the exclusions with reasons. It goes to a human; the approval card shows "order by Sunday 17:00"; the human picks; the order and audit record appear. | 30% · 20% problem · 20% controls · 15% robustness |
+| 2 | **Allergy-ward profile — same flow, strict rule.** "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only" | All 35 lactose-free milks are rejected because each declares milk. `468319` Oatly iKaffe is rejected (declares gluten cereals, silent on milk). `464056` Alpro Barista Soya passes: milk and gluten both `FREE_FROM`, 319 units confirmed, €2.14. 200 × €2.14 = €428.00, every claim confirmed, under the spend limit → **the agent orders alone.** | 20% controls (the autonomous path) · 20% problem |
+| 3 | **A substitute Valio lists fails the buyer's rule.** `473609` Oddlygood Barista oat drink, gluten-free | Its three listed substitutes are checked against the substitution rule of §7 (no allergen the original does not declare). The original declares oats only. `471690` also declares oats only, so it passes. `471881` and `464320` both add gluten cereals (`AW` `CONTAINS`) and are blocked — `471881` despite carrying a gluten-free claim. | 15% robustness · 20% controls |
+| Backup | **Variable-weight beef.** "30 kg beef chuck" | `464744` €15.00/kg, 10 kg confirmed, no allergen data · `466988` €16.88/kg, 109 kg confirmed, 14 allergens `FREE_FROM`. Both have a 3 kg lot step and variable weight, so the order carries a spend ceiling, not an exact total. Use it if milk stock changes and scenario 1 turns into a plain happy path. | 20% problem · 15% robustness |
+
+- **The autonomous path matters.** The 20% criterion scores "what the agent can decide alone" as well as what needs sign-off. Scenario 1 always ends in approval, so scenario 2 is where the agent is seen deciding alone, because every claim is confirmed and the spend is within its limit.
+- **Scenario 3 in numbers (catalog):** of Valio's 249 listed substitutes, 37 declare an allergen (`CONTAINS` or `MAY_CONTAIN`) that the original does not; in 20 of those the original has allergen data. Availability for the scenario 3 products has not been captured yet: one call on Saturday morning.
+- **Replay mode:** keep saved responses with a pinned clock as a fallback, in case the API is down or the cut-offs pass. If the mock's cut-off times do not roll forward, every product will be past its cut-off after Sunday 17:00.
+- **Extra build on top of the core,** estimated by the analysis: about 13.5 person-hours (scenario 1 extras 5.5, scenario 2 3.5, scenario 3 2, backup 1.5, replay mode 1). The allergen and substitute checks are pure functions the biomedical members can write and test.
+
+**Not demoing, and why:** recipe → order (every input would be synthetic and each extra line is another chance of a visible mismatch) · proactive selling (the data has no "new product" signal) · standing-order drift as a headline (the judge would be looking at invented history) · carbon ranking (all 91 products in the milk category carry the same value, 1.1).
+
+---
+
+## 4. Roles
 
 | Who | Owns | Carries |
 |---|---|---|
-| **CS (tech lead)** | FastAPI gateway over the mock APIs (OpenAPI auto-generated), MCP server, LLM agent + tool use, **Modal deploy** | Backbone of 30%, all of 15% openness |
-| **Bio 1 — data & rules** | Catalog exploration, comparison/substitution attributes (allergens, lactose, certificates, pack size, delivery), ranking logic | 20% need-matching, 15% robustness |
-| **Bio 2 — guardrails & audit** | `policy.yaml` (spend limits, allowed substitutions, when human sign-off is mandatory), human-readable audit log, **Aiven Postgres** | 20% autonomy — the highest-leverage axis |
-| **Bio 3 — arrives Saturday** | Test & exception scenarios, approval panel, pitch, video | The visible half of 30%, and 20% *as judges perceive it* |
+| **CS (tech lead)** | FastAPI gateway (`search`, `offer`, `order`) with auto-generated OpenAPI, the LLM agent with tool use, MCP wrapper, Modal deploy | Backbone of the 30%, most of the 15% openness |
+| **Bio 1 — data & rules** | Availability normaliser (the six states of §2), allergen check, pack size, substitute candidates and ranking | 20% problem fit, 15% robustness |
+| **Bio 2 — guardrails & audit** | Fixed rules, buyer profiles, policy engine, audit log | 20% autonomy and controls |
+| **Bio 3 — arrives Saturday (time to confirm)** | Approval panel (unless it moves to Bio 2, §9), test and exception scenarios, pitch, video | The visible half of the 30% |
 
-⚠️ **Bio 3 is overloaded.** The approval panel is where 20% of the rubric is visually judged; the pitch and video are ~3h on their own. **Move the approval panel to Bio 2** (it's the front-end of their own policy engine) and leave Bio 3 with scenarios + pitch + video.
+Proposals, not yet agreed (§9): Bio 1 writes the normaliser and the allergen check as pure functions with tests and CS only wires them in; the approval panel moves from Bio 3 to Bio 2, because it is the front end of Bio 2's own policy engine and Bio 3 already has about three hours of pitch and video.
 
----
-
-## 2. Schedule
-
-### Fase 0 — Tonight 21:45–00:00 · arranque
-- **ALL: read [FINDINGS.md](FINDINGS.md) — 10 minutes.** Every trap below is already verified; discovering them tomorrow costs hours.
-- **ALL: save the submission draft by 23:30.** Hard deadline.
-- **ALL: claim credits now** — Modal (`VVX-2QX-8HW`, **$100 each person**), Aiven ($50), Gemini. Minutes of work, and Gemini is capped at 400 teams.
-- **Bio 1:** portal (`junction26.valioaimo.fi`), download datasets, read API docs. ✅ *API key already tested and working — `{"status":"ok"}`. Both endpoints and their schemas are documented in FINDINGS.md.*
-- **Bio 2:** first `policy.yaml` — what is auto-order vs human approval — and the log format.
-- **CS:** repo, gateway skeleton with **3 endpoints: `search`, `offer`, `order`** (⚠️ **not "quote"** — the brief says *"fixed prices rather than a negotiated quote"*; naming it `offer` is a free openness point), real call to the mock API.
-- **ALL: choose 3 demo requests.** Recommended:
-  1. **The canonical one** — "1,000 L lactose-free milk by Monday" (their own example; safest 30%)
-  2. **Hospital allergen substitution** — with the certifiability split (see §4)
-  3. **Partial availability** — needs more than one SKU to fill
-
-### Fase 1 — Saturday 09:00–13:00 · full flow
-- **CS:** LLM agent using the gateway via MCP: request → search → offer → order.
-- **Bio 2:** policy engine wired to the gateway; every decision logged as JSON **plus one human-readable sentence**.
-- **Bio 1:** good/better/best substitution ranking, with hard rules for allergens and nutrition.
-- **Bio 3:** Streamlit panel — pending approvals + audit log.
-- **➕ ADDED — CS, last 60 min: `modal deploy` → public URL.** Deployed at hour 6, not hour 14. A broken deploy now is an inconvenience; at hour 14 it is the project.
-
-**🚦 CHECKPOINT 13:00 — the milk request works end to end, including one case that escalates to human approval.** If not green, cut everything in §5 Tier 2.
-
-### Fase 2 — Saturday 13:30–18:00 · robustness (15%)
-- Partial availability: split delivery across dates, or combine products.
-- Substitution outside buyer preferences → **always** to a human, with the trade-off explained.
-- Impossible delivery date → agent warns and proposes alternatives.
-- **Bio 1 + Bio 2: validate rules with the mentors** — Tommi Nurmi-Aro / Ville Takanen / Riku Tapper (technical + data governance), Hanna Forsström / Pirjo Kaartinen (commercial). **Bring the question list in §6.**
-- **➕ ADDED (~45 min): the contradiction detector.** See §4 — cheapest high-impact differentiator available.
-
-**🚦 18:00 — FEATURE FREEZE.**
-
-### Fase 3 — Saturday 18:30–22:30 · polish & submit
-- **"Assumptions & next steps" page** (the 15%): why OpenAPI + MCP, what is out of scope, next steps (verifiable credentials, sustainability).
-- Slides, demo video, final submission text.
-- **➕ ADDED: three award write-ups** (15 min each) + submission checklist (§3).
-- Rehearse the pitch twice. **Have a backup video.**
-
-Sunday morning is buffer. Junction submission closes **10:00**; set status to **FINAL**, not DRAFT.
+Use `offer`, not `quote`, for the middle step: the brief says "fixed prices rather than a negotiated quote".
 
 ---
 
-## 3. Tech challenges we are doing — and why
+## 5. Schedule
 
-**Three awards for ~3 hours.** Each one is work we need anyway.
+### Carry-over from Friday night — confirm each is done
+- Submission draft saved on the Junction platform.
+- Credits claimed: Modal (`VVX-2QX-8HW`, $100 per person), Aiven ($50), Gemini (capped at 400 teams).
+- Repo skeleton with the gateway calling the mock API.
+- **Branches `bio1` (`AIMO/catalog_search.py`) and `bio2` (`AIMO/policy/`: `policy.yaml`, log format, validator) were written on Friday night under the old framing.** Keep the structure and the thresholds (`policy.yaml` already has an autonomous spend cap of €750, a daily cap of €3,000 and a minimum fill ratio of 0.9). Before reuse, change what §1–§2 supersede: the `when_closing_time_contradicted` setting and the `CLOSING_TIME_CONTRADICTED` trust finding (a passed cut-off now excludes the product), the list of three sentinel values and `sentinel_qty_threshold` (now `availableAmount >= 999_999`, always to a human), rule P-05 which blocks `X99` as "unspecified" (GS1: no declarable allergens), and the log format's "data-quality report back to Valio Aimo".
 
-| Award | Hours | Integration point | Why it is honest, not a bolt-on |
+### Overnight build — Saturday about 02:00 to 09:00
+Agents build the flow overnight from [SPEC.md](SPEC.md), one task file per agent in [build/tasks/](build/tasks/). State is in [build/STATUS.md](build/STATUS.md); how to start, watch, stop and resume is in [build/RUNBOOK.md](build/RUNBOOK.md). The run ends by writing `build/MORNING.md`: what works, how to run it, what is blocked and what a human must decide.
+
+### Saturday 09:00 — start
+- **If the overnight build ran, start from `build/MORNING.md`.** The Fase 1 work below then becomes review, correction and the parts marked blocked.
+- **ALL, 15 minutes:** read the top of `CLAUDE.md`, §0–§2 here, and [FINDINGS.md](FINDINGS.md).
+- **One live call** for the demo product ids, to refresh the table in §2.
+- **Booth:** ask Q1, Q2 and Q7 from [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md), then the section "Raised during the overnight build", as soon as a mentor is free. Their answers feed this morning's work.
+
+### Fase 1 — 09:00–13:00 · the full flow
+- **CS:** gateway and agent, request → search → offer → order. Direct tool calls first; the MCP wrapper comes after the checkpoint. Last hour: `modal deploy` to a public URL.
+- **Bio 1:** availability normaliser and allergen check, with tests; pack size from the price ratio.
+- **Bio 2:** policy engine wired to the gateway; every decision logged as JSON plus one readable sentence.
+- **Bio 3:** approval panel (pending approvals and the audit log), unless it moves to Bio 2.
+
+**🚦 13:00 checkpoint — the milk request runs end to end, including one case that goes to a human for approval and one order the agent places alone (scenario 2).** If it is not green, cut everything in §8 Tier 2.
+
+### Fase 2 — 13:30–18:00 · robustness (15%)
+- **Substitution:** a requested product is not deliverable or out of stock → ranked substitutes with the trade-off explained. A substitute outside the buyer's stated preferences always goes to a human.
+- **Partial availability:** stock covers part of the quantity → combine products.
+- **Delivery constraints:** cut-off passed → next eligible option, with the reason.
+- **CS:** MCP wrapper over the gateway.
+- **Mentors:** the rest of the booth questions.
+
+**🚦 18:00 — feature freeze.**
+
+### Fase 3 — 18:30–22:30 · polish and submit
+- "Assumptions & next steps" page (the 15% openness): why OpenAPI and MCP, what the mock does not tell us and what we assumed, what is out of scope, next steps.
+- Slides, demo video (max 2:00), final submission text, three award write-ups.
+- Rehearse the 3-minute pitch twice, plus 3 minutes of questions. Keep a backup video.
+
+**Sunday:** buffer. Submission closes at **10:00**; set it to **FINAL**. Peer review 10:30–14:00, all four present.
+
+---
+
+## 6. Tech challenges we enter
+
+Two awards, each resting on work the rubric needs anyway. Aiven was dropped on 14 Nov: 1.5 hours for an entry our own notes rate as scoring nothing. Storage sits behind an interface, so Postgres can be added if `DATABASE_URL` is set.
+
+| Award | Hours | Integration point | Rubric tie |
 |---|---|---|---|
-| **Modal** | **1.0** | `modal_app.py` wraps the FastAPI gateway. `modal deploy` → autoscaling public URL. End of Fase 1. | **We need a judge-openable URL regardless.** Zero-regret, and it removes the "only works on my laptop" demo risk. Credits are **$100 per person = $400**. |
-| **Gemini** | **0.5** | Already the LLM doing tool use. Use **structured output** for NL→request parsing so the schema is the model's output contract. Cost is only the write-up. | Answers their "beyond simply adding an LLM" bar: schema-constrained generation, not a chat wrapper. Nearly free since it's on the critical path. |
-| **Aiven** | **1.5** | Bio 2's audit log + order/approval state → **Aiven Postgres** instead of local SQLite. | The audit log is **already a scored deliverable** (20% autonomy). Hosting it on Aiven makes the same work an award too. |
+| **Modal** | 1.0 | `modal_app.py` wraps the FastAPI gateway; `modal deploy` gives a public URL at the end of Fase 1. | 30% (a judge-openable demo) and 15% (path toward production). $100 credits per person. |
+| **Google Gemini** | 0.5 | Already the agent's model. Structured output turns the pasted request into the typed request, so the schema is the model's output contract. | 20% problem fit. Meets their bar of "beyond simply adding an LLM to an application". |
+| ~~Aiven~~ (dropped) | — | The audit log and the order and approval state live in Aiven Postgres. | 20% autonomy and controls ("how decisions are logged and auditable"). |
 
-### Not doing, and why
+**Modal deploy note:** the datasets are tracked at the repo root (the copies inside `AIMO/` are gitignored), so the deployed app can read the root copies or a slim index built into the image. Loading the full product file takes about half a second and 0.6 GB, so a slim index is optional.
+
+**How strong these entries are, by the briefs' own bars:** Modal asks for GPU serving, Sandboxes, fine-tuning or batch jobs where "Modal does the heavy lifting"; hosting a gateway is none of those, so this is a weak entry that we keep because we need the public URL anyway. Our own note in `AIVEN-CHALLENGE.md` says swapping local Postgres for Aiven Postgres "will score nothing"; the entry only has a story if the audit trail is shown back from Aiven as something the service enables. Gemini is the strongest of the three.
+
+### Stretch awards — built overnight only if the core flow is green first
+Decided by what the start line of the overnight run approves and which values are in `.env` ([build/RUNBOOK.md](build/RUNBOOK.md)). Neither may delay or endanger the core flow; both are the first things cut.
+
+| Award | Task | What it adds | Rubric tie |
+|---|---|---|---|
+| **Aiven** | [S1](build/tasks/S1-aiven-postgres.md) | Orders and audit trail in Aiven PostgreSQL: the database refuses to change an audit row, and the supplier reads its own view. This is the story the plain "swap the database" entry lacked. | 20% autonomy and controls |
+| **Context.dev** | [S2](build/tasks/S2-contextdev-evidence.md) | When a product has no allergen statement, the approval card shows what the manufacturer's page says, with the link. It never changes a verdict. Replaces the earlier idea (resolving code lists), which was dropped. | 20% autonomy and controls; trust protocol |
+
+### Not entering
 | Award | Reason |
 |---|---|
-| **Context.dev** | 2h to resolve GS1/certificate code lists at runtime. Genuinely elegant and would earn openness points — **but 2h is 13% of our budget.** Cut. |
-| **NVIDIA Nemotron** | Its distinctive capability is vision/document input. **There are no images in this challenge.** A text-only call is a weak entry. |
-| **Gemma** | Honest bar is "running an *open* model matters" — fine-tuning, on-device, privacy. Nothing here needs that, and a fine-tune is 8–14h. |
-| **Cloudinary** | Only subject-matter-constrained award (needs visual media), **plus a separate submission form**. No fit. |
-| **Oxylabs** | Requires buying a $500/month plan and cancelling it. Not worth the risk for no fit. |
-| **Atech / Arduino** | Hardware checkout, physical demo risk, no sensing need in a procurement protocol. |
+| NVIDIA Nemotron | Its distinctive capability is vision and document input; this challenge has no images. |
+| Gemma | The bar is that an open model matters (fine-tuning, on-device, privacy); nothing here needs it. |
+| Cloudinary | Needs visual media and a separate submission form. |
+| Oxylabs | Requires buying a $500 plan and cancelling it. |
+| Atech / Arduino | Hardware has no role in a procurement interface. |
 
-### Conflicts to respect
-- **Modal vs Aiven Runtime** — one hosting story. Modal hosts the app; Aiven provides data services. Do **not** deploy to Aiven Runtime.
-- **Gemini vs Gemma vs Nemotron** — three competing LLM-provider awards. Taking two dilutes the "this model is central" claim. **Gemini only.**
+### Conflicts
+- **Modal vs Aiven Runtime:** one hosting story. Modal hosts the app; Aiven provides the database.
+- **Gemini vs Gemma vs Nemotron:** one model provider, Gemini.
 
 ---
 
-## 4. Data traps — encode these on day one
+## 7. Facts to encode
 
-All verified against the live API. Full detail in [FINDINGS.md](FINDINGS.md).
+Verified against the live API and the full catalog; detail in [FINDINGS.md](FINDINGS.md) and [docs/](docs/). "Sample" means the 1,000-product sample of §2.
 
-| # | Trap | What to do |
+| Topic | Fact | What to do |
 |---|---|---|
-| 1 | **`MAY_CONTAIN` is an undocumented third allergen value**, and pervasive | The schema documents only `CONTAINS` / `FREE_FROM`. **A filter written against those two silently treats "may contain traces" as safe.** Use a four-state model: `CONTAINS / MAY_CONTAIN / FREE_FROM / SILENT`. |
-| 2 | **~59% of the catalog has no allergen statement at all** | `allergen` non-empty on 41%, `nonAllergen` on 29%. **You can only *certify* a swap on the ~29% with explicit FREE_FROM.** Absence of CONTAINS is not evidence of absence. |
-| 3 | **`salesBlock` is never `true`** | It is NOT the "can't buy" signal. **Empty `scheduleLines` is** (~14% of catalog). Same response shape is returned for a nonexistent product ID — don't conflate "unknown SKU" with "undeliverable". |
-| 4 | **Both APIs ignore `requestedDate` entirely** | Every date returns identical responses; `availableDate` frozen at **2026-11-16**. "By Monday" cannot be tested as a real constraint. Build date logic properly, demo against 2026-11-16, don't hunt for a lead-time model. |
-| 5 | **Three undocumented sentinels in `availableAmount`** | `999999`, `9999999999.0`, `666666666.0`. `if amount == 999999` is wrong, and arithmetic on these produces absurd order proposals. |
-| 6 | **`comparisonPrice` missing on 22.5%**, and rounded to 2 dp | Pack size = `catalogPrice.value / comparisonPrice.value` (**this is the shortcut that means we never need the undocumented sales-unit codes**). Needs a fallback: `unitConversions` → parse the Finnish name (81.2% carry a size token). Tag every result with a confidence tier. |
-| 7 | **`unitConversions.volume.unit` is often not a volume unit** | GRM 5,498 · **H87 1,500** (= "piece") · KGM 875 · LTR only 762. Reading `.volume` as litres is wrong more often than right. |
-| 8 | **`variableUnit: true` on 632 products** | Sold by variable weight — unit count doesn't determine quantity or price, so **a fixed-price commitment is impossible.** Route to human approval. That's a defensible guardrail, not a limitation. |
-| 9 | **`allowedLotSize`** is 0.01 ("no constraint") on 96%, real on 674 | Real steps include **1.5 and 1.8** — the values that produce a visibly wrong total on stage. Write a test for these at hour 3. |
-| 10 | **Deposits are unpriceable** | 506 products carry deposits; the 7 material codes resolve to zero products and no price list exists. Have the total **declare its own incompleteness** rather than being quietly wrong. |
-| 11 | **`vatCode` in the file is dirty** (159 literal `"MEDIUM MEDIUM"`) | Use `tax.taxRate` from the price API. Never parse the file field. |
-| 12 | **87MB JSON = 15s load, 2GB RSS** | Build a slim id-indexed SQLite once. **Never load the JSON at demo time.** |
-
-### ➕ The cheapest differentiator: the contradiction detector (~45 min)
-**Every Terminal product reports `closingTime` 2026-11-12T15:00 — over a day in the past — while simultaneously claiming availability on 2026-11-16.** Stock products report 2026-11-15T17:00 (future).
-
-An agent that respects cut-offs rejects half the assortment. One that ignores them has no cut-off logic at all. **Ours detects the contradiction, degrades the commitment window to the price validity window, and says so.**
-
-This is the single moment that proves to the judges we actually read their data, and it is the literal answer to their *"trust protocol: the minimum verification standard for an agent to trust Valio Aimo's claims without a manual check."* **Fold it into the hospital/allergen demo — don't make it a fourth scenario.**
-
----
-
-## 5. Priorities
-
-### Mandatory — the 3 core requirements + the 30%
-Product/price/availability search · offer and order · human approval. **One continuous flow, not loose pieces.**
-
-### Good to have
-Substitutions with explanation · partial availability · a readable audit log.
-
-### Tier 2 — only if time remains
-Sustainability comparison · proactive selling agent · standing-order drift detection.
-
-### Cut order if behind — announce each cut aloud
-1. MCP transport (the auto-generated OpenAPI already carries the openness story)
-2. Sustainability/delivery ranking — **keep the coverage disclosure sentence**, drop the ranking
-3. Third demo scenario → becomes a slide
-4. Substitution ranking tiers → single best substitute only
-
-**Never cut:** the canonical milk flow, the policy engine, the approval panel, the readable audit log. **Those four are ~70% of the rubric.**
+| Availability | Six states (§2) | One normaliser that returns the state |
+| Quantity not confirmed | Terminal is always 999999. Stock placeholders equal 9,999,999,999 ÷ base units per sales unit. The largest ordinary Stock value in the sample was 7,389 (39,243 in an earlier capture). | Treat `availableAmount >= 999_999` as a placeholder; never do arithmetic on it. Valio confirmed that a very large value means the stock is not known (§2) |
+| Missing fields | Optional fields are left out, never `null` | Use `.get()` |
+| Unknown product id | `/api/availability` answers it like a product that cannot be delivered; `/api/price` returns `error: true` | Check ids against the local catalog first |
+| Sales unit | The unit on the API line differs from the product file on 7 of 797 sample lines | Price and quantity follow the unit on the API line |
+| Dates | `requestedDate` changes nothing; `availableDate` was 2026-11-16 on 767 of the 768 sample lines that carry one | Compare the buyer's needed-by date with `availableDate` ourselves |
+| Customer | `customer` changes nothing | Limits live in a buyer profile (§9), with illustrative values labelled as ours |
+| Pack size | `catalogPrice ÷ comparisonPrice` gives litres or kg per priced unit; `comparisonPrice` is missing on 20.6% of the sample | Ratio first, then `unitConversions` when its unit is a real volume or weight, then the product name; if still unknown, exclude the product and say why |
+| Allergen data | Relations are `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (in `allergen`) and `FREE_FROM` (in `nonAllergen`). 46.2% of the catalog and 30.6% of food products have neither group | **Buyer exclusion rule** (proposed, §9): strictness is a required input. Under strict, for each excluded allergen and its sub-codes: an explicit `FREE_FROM` passes automatically; a declared `CONTAINS` is rejected; `MAY_CONTAIN`, `UNDECLARED` or no statement goes to a human. **Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen the original does not |
+| `X99` | GS1: "Does not contain declaration obligatory allergens in the product." | Map it that way; confirm with Valio (booth Q2) |
+| Claims are not allergens | All 35 lactose-free milks in category 10400 declare milk as `CONTAINS` | "Lactose-free" filters on `nutritionalClaim`, never on allergens; the offer says "lactose-free, contains milk" |
+| Variable weight | 632 products, 628 sold in KG; all 37 in the sample are priced per kg | Human approval until Valio says how they are invoiced (booth Q9) |
+| Lot size | 674 products have a real step (1.5 on 62, 1.8 on 17) | Round with `Decimal`; one test |
+| Deposits | 506 products carry deposits; the 7 codes cannot be priced | Totals exclude deposits and say so |
+| VAT | `vatCode` in the file is unreliable (159 "MEDIUM MEDIUM", absent on 3,068) | Use `tax.taxRate` from `/api/price` |
+| Price fields | `Price.value` excludes tax; `PriceWithTax.value` includes it | Two separate types |
+| Substitutes | 250 explicit pairs on 189 products; 230 stay in the same category | A seed, not the source. Candidates: same category → same first 4 digits → same first 3 digits; re-check availability of every candidate |
+| Optional axes | Delivery reliability 25.2% of products; carbon 62.9% (81.2% of food, 0.4% of non-food); both 17.8% | Show when present, never impute |
+| Performance | The product file loads in about half a second, 0.6 GB | Loading at start-up is fine |
+| Rate limits | 34 requests in 5 minutes, up to 251 ids each: no 429 | Filter locally, call narrowly, cache, keep a recorded-response fallback |
 
 ---
 
-## 6. Mentor questions — Fase 2
+## 8. Priorities
 
-1. **There is no order endpoint — is the order/approval contract purely ours to define, or do you have an internal schema to converge on?** (Line granularity, idempotency, whether confirmation promises quantity or only price.)
-2. **Which `closingTime` semantics should we honour**, given every Terminal cut-off is already stale relative to server time?
-3. **How should an agent treat `MAY_CONTAIN` and `X99` in an allergen-safety decision — and is silence (59% of the catalog) ever permissible for a school or hospital kitchen?**
-4. **Will you judge date/lead-time logic at all**, given the mock ignores `requestedDate` and has one frozen delivery date?
-5. **Is the 5-digit `category` code hierarchical?** (Is 10400 a sibling of 10401 under a 104xx parent?) That one fact decides whether category-distance substitution ranking is possible. A code→name mapping would help too.
-6. **Brief says substitution isn't core, rubric gives it 15% — which applies?**
-7. **Deposit pricing** — expected in order totals, or out of scope?
-8. **Actual rate limits?** "Undisclosed" is risky for a live demo.
-9. **Is customer/authority data coming** (spend limits, approver roles, standing orders)? Their drift-detection scenario implies order history exists; none is provided.
+**Mandatory — the three core requirements and the 30%:** lookup · offer and order · human approval · one order placed alone · readable audit log, as one continuous flow, including the partial fill of the canonical request.
 
-**If two minutes: 1, 3, 6.**
+**Good to have (the 15% robustness):** substitution with explanation · partial availability beyond the canonical case.
+
+**Tier 2, only if time remains:** delivery time & sustainability comparison.
+
+**Cut order if behind — announce each cut aloud:**
+1. MCP transport (the auto-generated OpenAPI still carries the openness story)
+2. Delivery and sustainability comparison (keep one sentence on what the data covers)
+3. Third demo scenario → a slide
+4. Substitute ranking tiers → single best substitute
+
+**Never cut:** the canonical flow, one order the agent places alone (scenario 2), the policy engine, the approval panel, the readable audit log.
+
+**Removed from the plan:** delivery split across dates (the mock cannot show it) and the "contradiction detector" (replaced by the response logic of §2).
 
 ---
 
-## 7. Submission checklist (CS owns from Fase 0)
+## 9. Decisions
+
+**Decided (14 Nov):**
+- The framing in §1; the order step is ours.
+- Quantity not confirmed: suggest the best confirmed option, name the unconfirmed product as an alternative, and always require human approval before ordering it.
+- **The very large Stock values mean "not known".** Valio's answer in person. This closes booth Q3.
+- Cut-off passed: read `closingTime` literally (§2).
+- The canonical demo follows the same rule: confirmed suggestion, unconfirmed alternative, human approval.
+- **What the agent may order alone: two layers.**
+  - *Fixed rules, which no profile can switch off:* a quantity that is not confirmed goes to a human; a product that declares an excluded allergen is blocked; a missing fact goes to a human, never to an automatic order; an agent cannot approve its own order.
+  - *Buyer profile, set per buyer:* spend limit per order and per day, minimum share of the quantity that must be covered, allergen exclusions and strictness, how far a substitute may differ, and who approves what.
+  - **The limit values are illustrative.** `bio2`'s €750 per order, €3,000 per day and 90% were chosen by hand (the file marks them as open team decisions; €750 was picked so that the €1,010 milk order goes to a human). The mock has no customer limits, so they are ours and are labelled as such. Booth Q7 asks Valio what real customers set.
+
+**Defaults taken on 14 Nov (proposed, nobody objected):**
+- Stay in Valio Aimo.
+- Allergen rules of §7: strictness has no default value; an explicit `FREE_FROM` passes, a declared `CONTAINS` is rejected, anything else goes to a human. For a "no gluten" buyer, oats (`GO`) go to a human.
+- Scenario set of §3.
+- Tech awards: Modal and Gemini. Aiven dropped (§6).
+
+**Open — need the team:**
+1. **Roles for Saturday (§4).** After the overnight build the work is review and correction. Proposal: each person reviews the area they already started — data and allergen rules, policy and audit, approval panel and pitch, gateway and deployment.
+
+**To ask the Junction organisers:** can one project be entered in more than one partner challenge? If yes, adding a second one is better than switching.
+
+**Specified in [SPEC.md](SPEC.md):** request → candidates, offer and order states, policy facts and profiles, the audit trail for two readers, and the assumptions page.
+
+---
+
+## 10. Mentor questions
+[BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md) is the only list. Two-minute cut: Q1, Q2 and Q7 (Q3 was answered on 14 Nov).
+
+---
+
+## 11. Submission checklist (CS owns)
 - [ ] Junction submission set to **FINAL**, not DRAFT (closes **Sunday 10:00**)
-- [ ] Pitch video **max 2:00** — strictly enforced, publicly viewable
+- [ ] Pitch video **max 2:00**, publicly viewable
 - [ ] Pitch deck (PDF)
-- [ ] Public GitHub repo (MIT) + **live Modal URL**
-- [ ] README with a data-fetch step (datasets are gitignored — judges need the 3 download endpoints)
-- [ ] **Gemini write-up**: model used, what it does, why it matters, how we improved outputs
-- [ ] **Aiven note**: which services, what they enable
-- [ ] **Modal note**: what it powers
-- [ ] Team phone numbers + Discord username
-- [ ] **ALL FOUR present for peer review Sunday 10:30–14:00** — mandatory for main-prize eligibility
-- [ ] Nemotron / Cloudinary / Context.dev / Oxylabs: **explicitly not entered**
-
----
-
-## 8. Two open decisions
-1. **`allergenPolicy` with no default** — forcing the caller to state their allergen strictness is a defensible safety stance and a good pitch line, but it makes the API less convenient. Agree?
-2. **Scenario swap** — the agent-to-agent trust handshake (unknown agent must present a delegation credential; list price to anyone, net customer price only to a proven delegate) is the only idea that engages their *"who owns the customer relationship"* framing head-on. It was ranked below the variable-weight scenario because **the live API provably ignores `customer`**, making customer-scoped pricing our layer rather than theirs. Swap it in if the mentors seem to reward protocol ambition over data rigour.
+- [ ] Public GitHub repo (MIT) and the live Modal URL
+- [ ] Project name, punchline and description · technologies used · credit preference
+- [ ] Challenges selected: Valio Aimo, plus Modal and Gemini
+- [ ] `LICENSE` file (MIT) in the repo — there is none yet
+- [ ] README says where the datasets are and how to refresh them
+- [ ] Gemini write-up, the four points their brief asks for: the problem and why it matters · how the Gemini API is integrated · what makes the use innovative · why Gemini is an important part of the solution
+- [ ] Modal note: what it powers
+- [ ] Team phone numbers and Discord username
+- [ ] **All four present for peer review, Sunday 10:30–14:00**

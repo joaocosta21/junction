@@ -4,7 +4,7 @@ Source of truth for this document:
 
 - `valio_aimo_junction26_product_data_schema.json` (read in full; every semantic `description` is quoted verbatim below)
 - `valio_aimo_junction26_product_data.json` — 87 MB, **17,546 products**, all counts below computed over the whole file
-- Companion: `FINDINGS.md` (API behaviour, traps). This file is the static-data/code-system half.
+- Companion: `FINDINGS.md` (verified API and catalog findings). This file is the static-data/code-system half.
 
 Quoted text in `> blockquotes` is **verbatim from the schema**. Everything else is derived from the data and labelled with a confidence level.
 
@@ -38,7 +38,7 @@ Quoted text in `> blockquotes` is **verbatim from the schema**. Everything else 
 | `countryOfOrigin` | string | 17,537 (**9 missing**) | "Country of origin as a lowercase ISO 3166-1 alpha-2 code, for example fi or de." |
 | `temperatureCondition` | integer | 17,485 (**61 missing**) | "Code of the temperature (storage and transport) class of the product, e.g. ambient, chilled or frozen. Code meanings are not part of this data set." |
 | `salesUnitGtin` | string | 17,387 (159 missing) | "GTIN (barcode number) of the sales unit. Not all products have one" |
-| `substitutions` | array | **196 only (1.1%)** | "Products that can replace this product when it is not available." |
+| `substitutions` | array | **196 only (1.1%); 189 with a non-empty list** | "Products that can replace this product when it is not available." |
 
 `deposits[]` required `material`, `quantity`, `unit`:
 > `material`: "Product code of the deposit material." · `quantity`: "Number of deposit units charged per sales unit of the product." · `unit`: "Unit of the deposit quantity, for example ST (piece)…"
@@ -161,9 +161,9 @@ Schema says only: *"For allergens it tells how the allergen relates to the produ
 | `UNDECLARED` | 303 | **NO** |
 | `FREE_FROM` | 0 | documented but never used here |
 
-`FREE_FROM` never appears in the `allergen` group — it lives exclusively in `nonAllergen`. The two groups are **disjoint by relation**, which means a two-valued filter written from the schema silently classifies 9,956 "may contain traces" rows and 303 "undeclared" rows as safe. 93 distinct (id, relation) pairs. Top: `(AM,CONTAINS)` 3,160 · `(AW,CONTAINS)` 2,794 · `(UW,CONTAINS)` 2,550 · `(AE,CONTAINS)` 1,317 · `(AN,MAY_CONTAIN)` 1,225 · `(AY,CONTAINS)` 1,104 · `(AY,MAY_CONTAIN)` 954 · `(AM,MAY_CONTAIN)` 728 · `(SA,MAY_CONTAIN)` 727 · `(SH,MAY_CONTAIN)` 658.
+`FREE_FROM` never appears in the `allergen` group — it lives exclusively in `nonAllergen`. The two groups are **disjoint by relation**, which means a two-valued filter written from the schema silently classifies 9,956 "may contain traces" rows as safe and has no branch for the 303 `UNDECLARED` rows. 93 distinct (id, relation) pairs. Top: `(AM,CONTAINS)` 3,160 · `(AW,CONTAINS)` 2,794 · `(UW,CONTAINS)` 2,550 · `(AE,CONTAINS)` 1,317 · `(AN,MAY_CONTAIN)` 1,225 · `(AY,CONTAINS)` 1,104 · `(AY,MAY_CONTAIN)` 954 · `(AM,MAY_CONTAIN)` 728 · `(SA,MAY_CONTAIN)` 727 · `(SH,MAY_CONTAIN)` 658.
 
-`UNDECLARED` concentrates on a small set of products that list ~14 codes at once (`AC`,`AN`,`NL`,`BC`,`UM`,`BM`,`AP`,`AS`,`AU`,`AF`,`AE`,`AW`,`AY`,`AM` ≈ 19–24 rows each). Semantics unknown; treat as **"no assertion made"**, never as negative.
+`UNDECLARED` concentrates on 33 products that list ~14 codes at once (`AC`,`AN`,`NL`,`BC`,`UM`,`BM`,`AP`,`AS`,`AU`,`AF`,`AE`,`AW`,`AY` ≈ 19–24 rows each, `AM` 14). GS1's level-of-containment code list (T4079) defines the relation values: `CONTAINS` "Intentionally included in the product."; `FREE_FROM` "The product is free from the indicated substance."; `MAY_CONTAIN` not intentionally included, but may be present through shared production; `UNDECLARED` "Not intentionally included in the product and assessed not to require a cross-contact declaration". Whether Valio uses the values in the GS1 sense is to be confirmed with them.
 
 ### 2.3 `nonAllergen` ids — UNDOCUMENTED (same GS1 list)
 
@@ -205,7 +205,7 @@ Where: `classifications[name="nutritionalClaim"]`. Non-empty on 7,618 products (
 
 ### 2.5 `packagingMarkedLabel` ids — SELF-DESCRIBING
 
-Where: `classifications[name="packagingMarkedLabel"]`. Non-empty on 17,255 (98.3%). `unit` is **always null** (23,582 rows). 19 distinct ids:
+Where: `classifications[name="packagingMarkedLabel"]`. Non-empty on 17,255 (98.3%). `unit` is **always absent** (23,582 rows). 19 distinct ids:
 
 | id | Count | Note |
 |---|---|---|
@@ -248,7 +248,7 @@ Note the **duplicate spellings** — `VITD`/`VITD-`, `VITC`/`VITC-`, `VITE`/`VIT
 |---|---|
 | `nutritionalContent.unit` | `GRM` 83,395 · `KJO` 12,182 · `E14` 12,080 · `MGM` 5,109 · **`MC` 1,988 (undocumented; UN/ECE microgram)** |
 | `nutritionalContent.basisQuantityUnit` | `GRM` 103,294 · `MLT` 11,230 · **`PTN` 164 (portion)** · **`H87` 30 (piece)** · `KGM` 27 · **`GL` 9** |
-| `nutritionalContent.servingSizeUnit` | `GRM` 5,926 · `MLT` 362 (null 108,466) — matches schema exactly |
+| `nutritionalContent.servingSizeUnit` | `GRM` 5,926 · `MLT` 362 (key absent on 108,466) — matches schema exactly |
 | `unitConversions.grossWeight.unit` | `GRM` 14,288 · `KGM` 186 — matches schema |
 | `unitConversions.netWeight.unit` | `GRM` 9,297 · `KGM` 489 — matches schema |
 | `unitConversions.height/length/width.unit` | `MMT` 14,426/14,426/14,427 · `CMT` 48/48/47 — matches schema |
@@ -256,9 +256,9 @@ Note the **duplicate spellings** — `VITD`/`VITD-`, `VITC`/`VITC-`, `VITE`/`VIT
 | `gda` group `unit` | `GRM` 78,044 · `KJO` 11,471 · `E14` 11,365 · `MGM` 1 · `MC` 1 |
 | `deposits[].unit` | `ST` 576 (only value) |
 
-**`volume` is the dirtiest field in the file.** Only 1,071 of 7,962 rows (13.4%) carry an actual volume unit (`LTR`/`MLT`/`CLT`). 6 rows carry space-separated compound units, which are not valid unit codes at all. `basisQuantity` is 100.0 in 113,093 of ~114,700 rows; the 45 distinct values include 1.0, 40.0, 330.0 and `101.0`/`401.0`-style oddities.
+**`volume` is the dirtiest field in the file.** Only 1,071 of 8,970 rows (11.9%) carry an actual volume unit (`LTR`/`MLT`/`CLT`). 6 rows carry space-separated compound units, which are not valid unit codes at all. `basisQuantity` is 100.0 in 113,093 of 114,754 rows; the 45 distinct values include 1.0, 40.0, 330.0 and `101.0`/`401.0`-style oddities.
 
-`unitPrecision` — DOCUMENTED (3 of 4 values): `APPROXIMATELY` 107,160 · null 5,156 · `LESS_THAN` 2,424 · `LESS_THAN_OR_EQUAL` 8 (**undocumented**) · `ABOUT` 6.
+`unitPrecision` — DOCUMENTED (3 of 4 values): `APPROXIMATELY` 107,160 · *(key absent)* 5,156 · `LESS_THAN` 2,424 · `LESS_THAN_OR_EQUAL` 8 (**undocumented**) · `ABOUT` 6.
 
 ### 2.8 `synkkaPackagingType` — DOCUMENTED IN SCHEMA, complete
 
@@ -293,7 +293,7 @@ Documented: `STANDARD` (25.5 %), `MEDIUM` (13.5 %, food), `LOW` (10 %).
 |---|---|---|
 | KI 8,005 · ST 5,607 · KG 1,068 · PAK 880 · BAG 697 · RAS 328 · PRK 320 · BOT 310 · SK 120 · CS 72 · **KLE 66** · KRT 48 · KAN 13 · PAL 4 · NIP 3 · DSP 3 · DZ 2 | ST 9,770 · PAK 1,725 · KI 1,573 · BAG 1,222 · KG 1,106 · BOT 893 · PRK 533 · RAS 494 · SK 89 · CS 74 · KRT 41 · KAN 14 · PAL 4 · NIP 3 · DSP 3 · DZ 2 | KI 14,157 · ST 9,832 · PAL 8,303 · **KRS 5,288** · PAK 1,813 · BAG 1,246 · KG 1,131 · BOT 903 · PRK 534 · RAS 524 · CS 227 · SK 129 · KRT 97 · KLE 69 · **ZML 37** · **DOL 26** · KAN 14 · DSP 11 · **KOR 6** · NIP 5 · **PNT 2** · DZ 2 · **MDO 1** |
 
-Structural facts worth relying on: **every product's `salesUnit` and `baseUnit` both appear in its own `units[].unitId` list (0 exceptions)**, so `units` is a complete hierarchy and `sizeInBaseUnits` gives you the conversion without any translation. `KLE` appears as a `salesUnit` but never as a `baseUnit`; `KRS`, `ZML`, `DOL`, `KOR`, `PNT`, `MDO` appear only inside `units`.
+Structural facts worth relying on: **every product's `salesUnit` and `baseUnit` both appear in its own `units[].unitId` list (0 exceptions)**, so `units` is a complete hierarchy and `sizeInBaseUnits` gives you the unit-to-unit conversion without any translation — as a count of base units, not litres or kilograms (for the sales unit it is 1.0 on 62.4% of products). `KLE` appears as a `salesUnit` but never as a `baseUnit`; `KRS`, `ZML`, `DOL`, `KOR`, `PNT`, `MDO` appear only inside `units`.
 
 Likely Finnish/Swedish abbreviations (**LOW confidence, inference from the language and from `sizeInBaseUnits`, not evidence**): ST *styck* = piece, KI *kiila/kolli* = case/crate, KG kilogram, PAK *pakkaus* = pack, BAG, PRK *purkki* = jar/can, RAS *rasia* = tub/tray, BOT bottle, SK *säkki* = sack, CS case, KRT *kartonki* = carton, KAN *kanisteri* = canister, PAL *lava* = pallet, KRS *kerros* = pallet layer, DZ dozen, NIP, DSP display, KLE, ZML, DOL, KOR *kori* = basket, PNT, MDO. **Do not ship these as facts.** `FINDINGS.md`'s price-ratio trick (`catalogPrice.value / comparisonPrice.value`) avoids needing them at all.
 
@@ -318,9 +318,9 @@ Cross-referencing against median `min`/`maxTemperature` and the `*Temperature` p
 | 5 | 221 | 2 / 7 | `coolTemperature` only 7/221 | Chilled (another band) | MEDIUM |
 | 6 | 10 | 4 / 20 | none | Mixed/unclassified | LOW |
 | 9 | 9 | 0 / 2 | `freezeTemperature` 1/9 | Near-zero / superchilled | LOW |
-| null | 61 | 15 / 25 | — | Unknown; behaves ambient | LOW |
+| *(key absent)* | 61 | 15 / 25 | — | Unknown; behaves ambient | LOW |
 
-**This extends `FINDINGS.md`**, which stated the meanings were unavailable and warned against assuming 8 = ambient. The data says 8 *is* ambient, with 99.95% label agreement. Codes 1–5 are a graded chilled ladder ordered by temperature (1 coldest), 7 is frozen, 8 is ambient. Still prefer `minTemperature`/`maxTemperature` when present (10,156 / 10,266 products) and use the code as the fallback.
+**This extends an earlier `FINDINGS.md`**, which stated the meanings were unavailable and warned against assuming 8 = ambient. The data says 8 *is* ambient, with 99.95% label agreement. Codes 1–5 are a graded chilled ladder ordered by temperature (1 coldest), 7 is frozen, 8 is ambient. Still prefer `minTemperature`/`maxTemperature` when present (10,156 / 10,266 products) and use the code as the fallback.
 
 ### 2.14 `category` — UNDOCUMENTED by design
 
@@ -330,7 +330,7 @@ Cross-referencing against median `min`/`maxTemperature` and the `*Temperature` p
 
 ### 2.15 `countryOfOrigin` — DOCUMENTED IN SCHEMA (ISO 3166-1 alpha-2, lowercase)
 
-98 distinct values on 17,537 products. `fi` 7,849 (44.8%) · `de` 1,029 · `it` 977 · `se` 874 · `cn` 741 · `nl` 659 · `fr` 599 · `pl` 431 · `es` 404 · `be` 383 · `dk` 379 · `gb` 289 · `gr` 271 · `ee` 249 · `th` 223 …
+97 distinct values on 17,537 products. `fi` 7,849 (44.8%) · `de` 1,029 · `it` 977 · `se` 874 · `cn` 741 · `nl` 659 · `fr` 599 · `pl` 431 · `es` 404 · `be` 383 · `dk` 379 · `gb` 289 · `gr` 271 · `ee` 249 · `th` 223 …
 
 **Non-ISO values present:** `zy` 179, `xs` 11, `zz` 5 — user-assigned/private-use ranges. `zz` is conventionally "unknown"; `zy` and `xs` have no standard meaning. A strict ISO validator will reject 195 products; treat these as "origin not stated".
 
@@ -389,7 +389,7 @@ The 14 most-used `nonAllergen` codes form a tight block, all between 3,580 and 4
 
 **That is exactly 14 codes, and the EU has exactly 14 mandatory declarable allergens** (Regulation 1169/2011 Annex II). A product making a free-from declaration declares against the statutory list, which is why these 14 move together. Mapping the 14 names onto the 14 codes, 12 are then confirmed independently by ingredient evidence (below) and the remaining **two — lupin and molluscs — are fixed by elimination**: `NL` = lupin, `UM` = molluscs.
 
-Everything beyond those 14 is a **sub-code**: tree-nut species (`SA`, `SH`, `SW`, `SC`, `ST`, `SM`, `SP`, `SR` under `AN`), gluten cereals (`UW`, `GB`, `NR`, `GO`, `GS`, `GK`, `NM` under `AW`), `ML` lactose under `AM`, and a tail of non-statutory sensitivities (`NE`, `NK`, `NW`, `NC`, `CM`, `BF`, `PO`).
+Everything beyond those 14 is a **sub-code**: tree-nut species (`SA`, `SH`, `SW`, `SC`, `ST`, `SM`, `SP`, `SR` under `AN`), gluten cereals (`UW`, `GB`, `NR`, `GO`, `GS`, `GK` under `AW`; `NM` maize is a separate, non-gluten code), `ML` lactose under `AM`, and a tail of non-statutory sensitivities (`NE`, `NK`, `NW`, `NC`, `CM`, `BF`, `PO`).
 
 ### 3.2 Method
 
@@ -424,7 +424,7 @@ For each code, token frequency in `keyIngredients` (en ∪ fi) of the products c
 | `SM` | 177 | **Macadamia nuts** | HIGH | *macadamia* 100% ×649.9; *macadamiapähkinä* 60.0% ×3509.2 (n=5 CONTAINS, but unambiguous) |
 | `SR` | 171 | **Brazil nuts** | MEDIUM | Only 3 CONTAINS, all generic nut mixes. Decided by elimination: the one explicit list reads *"may contain traces of nuts (almonds, hazelnuts, cashews, **Brazil nuts** and walnuts)"* and Brazil nut is the one EU tree-nut species with no other code |
 | `NL` | 145 | **Lupin** (EU-14) | HIGH (structural) | Fixed by the EU-14 elimination in §3.1. **Ingredient evidence is contradictory**: 3 of its 5 CONTAINS products mention *mussel* — these also carry `UM`, so the tokens leak. Trust the structure, not the tokens. |
-| `X99` | 121 | **Other / unspecified** | HIGH | No ingredient signal at all; carriers are juices and crisps (*juice* 80.2%, *concentrate* 79.3%, *citric* 51.2%) with no allergen in common. See warning below. |
+| `X99` | 121 | **"Does not contain declaration obligatory allergens in the product."** (GS1 T4078) | GS1 definition; Valio's use to be confirmed | No ingredient signal at all; carriers are juices and crisps (*juice* 80.2%, *concentrate* 79.3%, *citric* 51.2%) with no allergen in common, which fits the GS1 definition. 120 of the 121 carry no other allergen code. See §3.4. |
 | `AC` | 118 | **Crustaceans** (EU-14) | HIGH | *katkarapu* 43.1% ×210.2; *shrimp* 31.4% ×344.0; *pandalus borealis* 15.7% ×305.8 |
 | `NM` | 94 | **Maize / corn** | HIGH | *corn* 66.3% ×8.9; *maissitärkkelys* 48.3%; *maissijauho* 16.9% ×12.0 |
 | `UM` | 89 | **Molluscs** (EU-14) | HIGH | Structure + tokens agree: *squid* ×923.5, *snail* ×527.7, *sinisimpukka* ×692.6, *osteriuute* ×692.6, *oyster* ×167.9; carriers include "Razor Clam", "Smoked blue mussel", "Octopus ink" |
@@ -435,31 +435,33 @@ For each code, token frequency in `keyIngredients` (en ∪ fi) of the products c
 | `CM` | 19 | **Chicken meat** | HIGH | *chicken* 89.5% ×30.2; *broilerinlihaa* 26.3% ×659.6; *rintafilee* 36.8% ×170.1 |
 | `BF` | 18 | **Beef** | HIGH | *beef* 77.8% ×19.9; *naudanlihaa* 16.7% ×324.9; *naudanlihauute* 22.2% ×111.4 |
 | `NK` | 18 | **Coriander** | HIGH | *korianteri* **100%** ×32.6; *coriander* 94.4% ×32.4 |
-| `SO` | 17 | **Carob / locust bean** | LOW | *locust* 81.2% ×65.1; *johanneksenleipäpuujauhe* 81.2% ×51.3. But all 16 CONTAINS carriers are ice creams from two brands, so this may be one supplier's habit rather than the code's meaning. Could equally be a soy variant. |
+| `SO` | 17 | **Coconut** (GS1 T4078: "Coconuts and its derivatives") | GS1 | An earlier inference from ingredient tokens read this as carob / locust bean; that was wrong. The carriers are ice creams, where both coconut fat and locust bean gum are common. |
 | `PO` | 9 | **Pork** | MEDIUM | *pork* 77.8% ×19.3; *porsaanliha* 44.4% ×36.6 (n=9) |
 | `ABD` | 7 | **Tuna** | MEDIUM | *tuna* **100%** ×797.5; *tonnikala* 100% ×626.6; *Katsuwonus pelamis* 60% ×1503.9. All 5 CONTAINS carriers are tuna products. Note the 3-letter shape — a different code family from everything else. |
-| `NP` | 7 | *unknown* | LOW | 4 CONTAINS: a sugar bun, broad beans, glögg jellies, a Christmas loaf. No common token above noise. Pulses/legumes is a guess only. |
-| `GK` | 7 | **Khorasan wheat (kamut)** | LOW | 7 MAY_CONTAIN, **0 CONTAINS** — no ingredient evidence whatsoever. Carriers are brioche buns and chocolate bars. Inferred purely from its position in the `G*` cereal family (`GO` oats, `GB` barley, `GS` spelt) and the EU-14 cereal list, where kamut is the remaining named grain. |
-| `BP` | 6 | **Fragrance / cosmetic sensitiser** | LOW | Not a food code: all 6 carriers are non-food (toilet rim block, lip balms, hand washes, shower gel). Tokens *linalool* ×584.9, *limonene* ×302.5, *edta* ×337.4, *aqua* ×104.4. Plausibly "Balsam of Peru" or a perfume-allergen flag. |
-| `ADQ` | 3 | *fish-related, unknown* | LOW | 3 CONTAINS, all breaded white fish (Fish'n'Chips, saithe). *kala*/*fish* 100%, but n=3 and `AF` already covers fish. Possibly a species sub-code. 3-letter, like `ABD`. |
-| `PN` | 2 | *unknown* | LOW | 1 CONTAINS (granola), 1 MAY_CONTAIN (ice cream). Pine nuts would fit the `*N*`/nut families but there is no token evidence. **Do not use.** |
+| `NP` | 7 | **Pod fruits** (GS1 T4078: "Pod Fruits and its derivatives") | GS1 | No ingredient signal in the data; meaning taken from the code list. |
+| `GK` | 7 | **Khorasan wheat (kamut)** (GS1 T4078: "Khorasan wheat and its derivatives") | GS1 | 7 MAY_CONTAIN, 0 CONTAINS in the data; meaning confirmed by the code list. |
+| `BP` | 6 | **Linalool** (GS1 T4078), a fragrance allergen | GS1 | Not a food code: all carriers are non-food (toilet rim block, lip balms, hand washes, shower gel). |
+| `ADQ` | 3 | **Pollock** (GS1 T4078: "Pollock and its derivatives") | GS1 | 3 CONTAINS, all breaded white fish (saithe is a pollock). A species sub-code of `AF`. |
+| `PN` | 2 | **Pine nuts** (GS1 T4078: "Pine nuts and its derivatives") | GS1 | 1 CONTAINS (granola), 1 MAY_CONTAIN (ice cream); meaning taken from the code list. |
 
-**Codes to treat as unusable:** `PN`, `NP`, `ADQ`, `GK`, `BP`, `SO` (31 products total). **`UN`** appears 9 times and *only* in `nonAllergen`, never in `allergen` — no evidence at all; most likely "unspecified".
+**No code needs to be treated as unusable:** the six low-frequency codes `PN`, `NP`, `ADQ`, `GK`, `BP` and `SO` all have a GS1 T4078 meaning (rows above). **`UN`** appears 9 times, only in `nonAllergen`; GS1 defines it as "Shellfish and its derivatives". Whether Valio's data follows the GS1 list is to be confirmed with them.
 
-### 3.4 `X99` is unusable for safety claims — flag it loudly
+### 3.4 `X99` — GS1: no declaration-obligatory allergens (Valio's use to be confirmed)
 
-`X99` means **"other / unspecified allergen"**. It appears 121× as `CONTAINS` and 74× as `FREE_FROM`.
+GS1's allergen type code list (T4078) defines `X99` as **"Does not contain declaration obligatory allergens in the product."** It is a statement that no allergen with a declaration obligation is present, not a placeholder for an unnamed allergen. Whether Valio uses the GS1 meaning is to be confirmed with them.
 
-- `X99 CONTAINS` tells you *an* allergen is present but **not which one**. Its carriers (fruit juices, kettle chips, smoothies) share no allergenic ingredient, which confirms the code is a free-text escape hatch, not a substance.
-- `X99 FREE_FROM` is worse: it is a free-from claim about an unnamed substance, i.e. semantically empty.
+Measured:
 
-**Rule:** a product with `X99 CONTAINS` can never be certified free of any allergen, and `X99 FREE_FROM` must never satisfy a free-from query. Surface it as "manufacturer declares an unspecified allergen — manual review required".
+- In `allergen`: 121 products, always with `unit` `CONTAINS`. 120 of the 121 carry no other allergen code (the one exception adds `NW` `CONTAINS`); 103 of those 120 also have an empty `nonAllergen` group. Its carriers (fruit juices, kettle chips, smoothies) share no allergenic ingredient.
+- In `nonAllergen`: 74 products (`FREE_FROM`), 8 of which list other `nonAllergen` codes as well. No product carries `X99` in both groups.
+
+**Until Valio confirms:** do not read `X99` as an unspecified allergen. How it counts in a free-from query is an open decision.
 
 ---
 
-## 4. The nutritional-claim / allergen trap
+## 4. Nutritional claims are not allergen statements
 
-### 4.1 The trap
+### 4.1 The mismatch
 
 `FREE_FROM_LACTOSE` is a **`nutritionalClaim`**. `AM` (milk) is an **`allergen`**. They live in different classification groups, answer different questions, and **are not consistent with each other by design**:
 
@@ -495,7 +497,7 @@ Of the **4,178** products claiming `FREE_FROM_LACTOSE`:
 
 **More than a third of all lactose-free products explicitly contain the milk allergen**, and another 8.6% may. Only 30% carry a positive `AM FREE_FROM` assertion. The 55.8% with no assertion are the dangerous middle: silence is not a negative.
 
-The same trap exists on gluten. Of **3,049** `FREE_FROM_GLUTEN` products, cereal allergens are declared `CONTAINS` on: `GO` (oats) **196**, `UW` (wheat) 30, `GB` (barley) 12, `AW` 11, `NR` (rye) 2. Gluten-free oats are a legitimate product (certified low-gluten oats) — but a naive engine that treats `FREE_FROM_GLUTEN` as "no cereal allergens" gets 196 products wrong. And `LOW_LACTOSE` carries `AM: CONTAINS` on **300 of 321** (93.5%), which is expected and should be stated as such.
+The same mismatch exists on gluten. Of **3,049** `FREE_FROM_GLUTEN` products, cereal allergens are declared `CONTAINS` on: `GO` (oats) **196**, `UW` (wheat) 30, `GB` (barley) 12, `AW` 11, `NR` (rye) 2. Gluten-free oats are a legitimate product (certified low-gluten oats) — but a naive engine that treats `FREE_FROM_GLUTEN` as "no cereal allergens" gets 196 products wrong. And `LOW_LACTOSE` carries `AM: CONTAINS` on **300 of 321** (93.5%), which is expected and should be stated as such.
 
 ### 4.4 The rule an allergen-safety engine must follow
 
@@ -505,9 +507,10 @@ The same trap exists on gluten. Of **3,049** `FREE_FROM_GLUTEN` products, cereal
    - `nonAllergen` has *X* → **SAFE (certified)**
    - `allergen` has *X* as `CONTAINS` → **UNSAFE**
    - `allergen` has *X* as `MAY_CONTAIN` → **UNSAFE for a safety query** (may be offered with an explicit warning for a preference query)
-   - *X* appears nowhere, or as `UNDECLARED`, or the product carries `X99` → **UNKNOWN**, which is *not* safe. 59% of the catalogue lands here.
+   - *X* appears nowhere → **UNKNOWN**, which is *not* safe. 8,110 products (46.2%) have neither group populated and land here for every *X*: 30.6% of food products and 99.8% of non-food (category prefixes `63`/`64`/`20`/`90`).
+   - *X* as `UNDECLARED`, or a product carrying `X99` → GS1 defines these as "not intentionally included … assessed not to require a cross-contact declaration" and "does not contain declaration obligatory allergens" (§2.2, §3.4), so they are not "unknown" by definition; how to count them is open until Valio confirms it uses the GS1 meanings.
 4. **Only `nonAllergen` certifies.** Absence of `CONTAINS` is never evidence of absence. Report coverage honestly: only ~29% of the catalogue can ever be certified free of anything.
-5. **Expand sub-codes before answering.** "Milk-free" must check `AM` **and** `ML`. "Gluten-free" must check `AW` and `UW`, `GB`, `NR`, `GO`, `GS`, `GK`, `NM`. "Nut-free" must check `AN` and `SA`, `SH`, `SW`, `SC`, `ST`, `SM`, `SP`, `SR`. A query on the umbrella code alone under-reports.
+5. **Expand sub-codes before answering.** "Milk-free" must check `AM` **and** `ML`. "Gluten-free" must check `AW` and `UW`, `GB`, `NR`, `GO`, `GS`, `GK`. "Nut-free" must check `AN` and `SA`, `SH`, `SW`, `SC`, `ST`, `SM`, `SP`, `SR`. A query on the umbrella code alone under-reports.
 6. **2 products are internally contradictory** — `468044` asserts `AM` in both `allergen` and `nonAllergen`; `469429` does so for `AM` and `AN`. Resolve conflicts toward unsafe and log them.
 
 ---
@@ -578,7 +581,7 @@ Products in 10400 and 10401 are **3.2× closer than 10400 and 52201**, and 10401
 
 **Confidence: HIGH that the codes are hierarchical and that prefix length correlates monotonically with semantic proximity. MEDIUM on the exact digit boundaries** — the 2-digit division and the 4-digit sibling group are both clearly real; whether digit 3 is a separate level or just carries through is less clear (same-3-only pairs sit between the other two but with a very low median of 0.110, so the 3-digit level is weak).
 
-**Practical consequence for substitution:** `FINDINGS.md` reports 230/250 (92%) of explicit substitution pairs stay inside the same `category`. Of the remaining 8%, a same-first-4-digits fallback is the next-best candidate generator and is now empirically justified. Do **not** fall back to the 3-digit prefix — the similarity is too weak to defend on stage.
+**Practical consequence for substitution:** 230 of the 250 explicit substitution pairs (92%) stay inside the same `category`. Of the other 20, 11 share the first 4 digits, 5 share only the first 3, 2 share only the first 2 and 2 share none. A same-first-4-digits fallback is the next-best candidate generator. A 3-digit fallback is weaker on name similarity (median cosine 0.110 above), but Valio's own pairs use it (5 of 20), so offer it as a weaker, labelled tier rather than ruling it out.
 
 ---
 
@@ -589,7 +592,7 @@ Products in 10400 and 10401 are **3.2× closer than 10400 and 52201**, and 10401
 1. `deleted` is always `false`; reject the file if any product is `true`.
 2. All 10 top-level required keys and all 7 `synkkaData` required keys exist on every product — assert, don't `.get()`, for these only.
 3. Every `unitConversions` entry has `grossWeight`, `height`, `length`, `width`, `synkkaPackagingType` (0 violations).
-4. `salesUnit` and `baseUnit` are always present in the product's own `units[].unitId` (0 violations) — assert this and use `units[].sizeInBaseUnits` for conversions.
+4. `salesUnit` and `baseUnit` are always present in the product's own `units[].unitId` (0 violations) — assert this and use `units[].sizeInBaseUnits` for unit-to-unit conversions (a count of base units, not litres or kilograms).
 5. `salesUnitGtin` is globally unique (0 duplicates) — safe as a secondary key, but absent on 159 products.
 6. `substitutions[].product` always equals the owning product's `id` (0 violations) and every `substituteProduct` resolves to a real `id` (0 dangling). The relation is **directed** — symmetrise it yourself.
 7. `classifications[].type` is fixed per group `name` — reject a `nutritionalClaim` group typed `DECIMAL`.
@@ -600,11 +603,11 @@ Products in 10400 and 10401 are **3.2× closer than 10400 and 52201**, and 10401
 
 | Rule | Violations | Handling |
 |---|---|---|
-| `allergen.unit` ∈ {CONTAINS, FREE_FROM} per schema | **10,259 rows** (`MAY_CONTAIN` 9,956, `UNDECLARED` 303) | Accept all four states. **Treat an unknown relation as unsafe**, never as absent. |
+| `allergen.unit` ∈ {CONTAINS, FREE_FROM} per schema | **10,259 rows** (`MAY_CONTAIN` 9,956, `UNDECLARED` 303) | Accept all four values (GS1 meanings in §2.2). **Treat a relation value you do not recognise as unsafe**, never as absent. |
 | `vatCode` ∈ {STANDARD, MEDIUM, LOW} | **165 rows** ("MEDIUM MEDIUM" 159, "" 4, NOT_APPLICABLE 1, "STANDARD MEDIUM" 1) | Do not parse. Use `tax.taxRate` from `/price`. If forced, reject non-singletons. |
 | `productionMethod` ∈ 3 documented values | **5 rows** (`MARINE_FISHERY1`, `AQUACULTURE1`) | Strip trailing digits. |
 | `unitPrecision` ∈ 3 documented values | 8 rows (`LESS_THAN_OR_EQUAL`) | Accept; treat as `LESS_THAN`. |
-| `unitConversions.volume.unit` is a volume unit | **6,891 of 7,962 rows (86.6%)** are GRM/KGM/H87/PTN/MTR, incl. 6 compound strings | Never read `.volume` as litres. Three-tier fallback (price ratio → netWeight → name token) with a confidence flag. |
+| `unitConversions.volume.unit` is a volume unit | **7,899 of 8,970 rows (88.1%)** are GRM/KGM/H87/PTN/MTR/PR, incl. 6 compound strings | Never read `.volume` as litres. Three-tier fallback (price ratio → netWeight → name token) with a confidence flag. |
 | `countryOfOrigin` is a valid ISO 3166-1 alpha-2 | **195 rows** (`zy` 179, `xs` 11, `zz` 5) | Map to "origin not stated". |
 | `countriesOfOrigin` is numeric | 10 rows (`NON_EU`), plus 99 rows of non-assigned `097` | Allow the `NON_EU` sentinel; treat `097` as an unresolved aggregate. |
 | `deposits[].material` is "a product code" | **576 of 576** resolve to no `id` | Deposits are unpriceable. Carry them as an explicit "incomplete total" flag on the 506 affected products. |
@@ -620,27 +623,29 @@ Products in 10400 and 10401 are **3.2× closer than 10400 and 52201**, and 10401
 
 ### 6.3 Performance
 
-Use `id` as the primary key, **not** GTIN — 3,068 products (17.5%) have no `synkkaData.gtin`. The 87 MB array costs ≈15 s and ~2 GB RSS via `json.load`; build an id-indexed slim projection once and work from that.
+Use `id` as the primary key, **not** GTIN — 3,068 products (17.5%) have no `synkkaData.gtin`. The 87 MB array costs about half a second and ~0.6–0.7 GB peak RSS via `json.load` (measured 2026-11-14, Python 3.13); load it once per process and index it by `id`.
 
 ---
 
 ## 7. Deltas against `FINDINGS.md`
 
+*This section describes an earlier version of `FINDINGS.md` and is kept as history.*
+
 **Extends:**
 - `temperatureCondition` is **decodable** (§2.13): 8 = ambient (99.95% label agreement), 7 = frozen, 1–5 = a chilled ladder ordered coldest-first. `FINDINGS.md` says the meanings are unavailable and warns against assuming 8 = ambient — the data says 8 *is* ambient.
 - A **fourth** allergen relation exists: `UNDECLARED` (303 rows), alongside the undocumented `MAY_CONTAIN`. `FINDINGS.md` lists only `MAY_CONTAIN`.
-- The allergen code system is now mapped: 30 codes at HIGH confidence, 5 at MEDIUM, 6 unusable (§3.3). The EU-14 block in `nonAllergen` is the structural key.
+- The allergen code system is now mapped: 30 codes at HIGH confidence, 5 at MEDIUM, and 6 low-frequency codes that take their meaning from the GS1 list (§3.3). The EU-14 block in `nonAllergen` is the structural key.
 - `category` hierarchy is now **quantified** (§5.2), justifying a same-first-4-digits substitution fallback.
 - `nutritionalClaim`'s `unit` inconsistency is explained: `synkkaId` holds the subject, `unit` the direction, with `DIET` as the catch-all. Confirms "key on the id".
 - `packaging` is a declared classification group that is **always empty**; `composition`/`mineral`/`vitamin` are real groups absent from the schema.
-- `salesUnit`/`baseUnit` are always present in the product's own `units[]` (0 exceptions), so `sizeInBaseUnits` gives a translation-free conversion path alongside the price-ratio trick.
+- `salesUnit`/`baseUnit` are always present in the product's own `units[]` (0 exceptions), so `sizeInBaseUnits` gives a translation-free count of base units per unit (not litres or kilograms; 1.0 for the sales unit on 62.4% of products).
 - `materialAdditionalDescriptions` is a schema-required field that is empty on 99.9% of products.
 
 **Corrects:**
 - `nutritionalClaim` has **21** distinct ids, not 24. `FREE_FROM_GLUTEN` is 3,049 (not 3,047). `HIGH_PROTEIN` is 417 total.
 - `packagingMarkedLabel` ids are `MARINE_STEWARDSHIP_COUNCIL_LABEL` (not `MSC`), `AQUACULTURE_STEWARDSHIP_COUNCIL` (not `ASC`), `KRAV_MARK` (not `KRAV`). 19 ids total including the 3 pseudo-labels, so **16 real certificates**.
 - `allergen` has **44** distinct ids (93 (id, relation) pairs), `nonAllergen` **40**.
-- Substitutions: **196** products carry a `substitutions` key (`FINDINGS.md` says 189); 250 rows, 1 self-referential.
+- Substitutions: **196** products carry a `substitutions` key, 189 of them with a non-empty list (the 189 in `FINDINGS.md`); 250 rows, 1 self-referential.
 - `baseUnit` has 16 values and `units[].unitId` 23 — `KLE` is a `salesUnit` but never a `baseUnit`; `KRS`, `ZML`, `DOL`, `KOR`, `PNT`, `MDO` occur only inside `units`.
 
 **Confirms:** 17,546 products · 0 deleted · 349 five-digit categories · `allergen` non-empty 41.1% / `nonAllergen` 29.2% / `nutritionalClaim` 43.4% · dirty `vatCode` counts exactly · `allowedLotSize` 0.01 on 96.2% · `variableUnit` true on 632 · 3,068-product empty-`synkkaData` block · deposits unpriceable (576 lines, 0 resolve) · `unitConversions.volume.unit` distribution · `X99` 121/74.

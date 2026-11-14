@@ -1,6 +1,6 @@
 # The two Valio Aimo CSV datasets — reference and join guide
 
-Everything below was computed from the three provided files plus 3 live API calls. No figure here is inferred.
+Everything below was computed from the three provided files plus 3 live API calls. No figure here is inferred. Figures labelled "random sample of 1,000" come from the saved responses of the 2026-11-13 23:00 retest (1,000 random catalog ids sent to `/api/availability` and `/api/price`).
 Catalog denominator throughout: **17,546 products** (`valio_aimo_junction26_product_data.json`, all `deleted: false`, 17,546 distinct ids).
 
 Verdict up front:
@@ -18,7 +18,7 @@ Verdict up front:
 |---|---|
 | Header (exact) | `productId,deliveryReliability` |
 | Data rows | 4,425 |
-| File encoding | UTF-8, no BOM, LF, `,` delimiter, no quoting |
+| File encoding | UTF-8 (ASCII only), no BOM, CRLF line endings, `,` delimiter, no quoting |
 | `productId` dtype | **string of exactly 6 ASCII digits** — 4,425/4,425 |
 | `deliveryReliability` dtype | float |
 | Duplicate productIds | **0** (4,425 distinct) |
@@ -94,22 +94,22 @@ Note 477051 — "kausituote" (seasonal product). Several of these read like disc
 
 | id | DR | logisticModel | scheduleLines | availableAmount | priced? |
 |---|---|---|---|---|---|
-| 469628 | **0.0** | Terminal | 1 line | **999999.0** (unknown/unlimited) | yes, €32.87/KG |
+| 469628 | **0.0** | Terminal | 1 line | **999999.0** (placeholder: quantity unknown) | yes, €32.87/KG |
 | 476973 | **0.0** | Stock | 1 line | **416666666.0** | yes, €18.22 (€1.52/L) |
 | 466305 | **0.01** | *(key absent)* | **`[]` — empty** | — | yes, €46.57 |
 
-**A 0.0 delivery reliability does not stop the availability API returning the product as fully available.** Two of the three worst products in the dataset report themselves available in unlimited quantity on the requested date. The two signals are independent: `deliveryReliability` is *historical* fulfilment, `availability` is a *forward* promise, and the forward promise is blind to the history.
+**A 0.0 delivery reliability does not stop the availability API returning a schedule line.** Both 0.0 products queried returned one line for the requested date whose `availableAmount` is a placeholder (quantity unknown), not a confirmed quantity. Only these 2 of the 12 products at 0.0 were queried; the other ten were not, and none of the 12 is in the random sample of 1,000. The two signals measure different things: `deliveryReliability` is *historical* fulfilment, `availability` is a *forward* statement.
 
-> Incidental finding, not in `FINDINGS.md`: **`416666666.0` is a fourth undocumented `availableAmount` sentinel**, alongside the known `999999`, `9999999999.0` and `666666666.0`. Any `if amount == 999999` guard remains wrong.
+> `416666666.0` is the Stock placeholder rule, not a separate value to memorise: floor(9,999,999,999 ÷ 24), and `476973` has 24 base units per sales unit (`KI`). Detect placeholders with `availableAmount >= 999_999` ([API §8.1](API.md#81-availableamount-placeholders-two-rules)); an `if amount == 999999` guard misses the Stock ones.
 
-But the correlation is real in aggregate. A single 80-id availability call comparing the 40 lowest-DR products against 40 products at DR 1.0:
+A single 80-id availability call compared the 40 lowest-DR products against 40 products at DR 1.0:
 
 | Group | n | empty `scheduleLines` (undeliverable) | all-zero `availableAmount` | combined unavailable |
 |---|---|---|---|---|
 | DR < 0.75 | 40 | **9 (22.5%)** | 3 | **30.0%** |
 | DR == 1.0 | 40 | **0 (0.0%)** | 1 | **2.5%** |
 
-Also: the low-DR group is 15/40 Terminal and 16/40 Stock; the DR=1.0 group is 35/40 Stock. **Low delivery reliability predicts both undeliverability and Terminal logistics.** Against the ~14% catalog-wide undeliverable baseline in `FINDINGS.md`, DR < 0.75 roughly doubles the risk and DR == 1.0 roughly eliminates it. Caveat: the DR=1.0 sample is the first 40 by id order, not a random draw, so treat the exact rates as indicative.
+Also: the low-DR group is 15/40 Terminal and 16/40 Stock; the DR=1.0 group is 35/40 Stock. The random sample of 1,000 (2026-11-13 23:00) does not support reading this as "low DR predicts undeliverability": its catalog-wide rate of empty `scheduleLines` is 20.3% (23.2% with zero-amount lines), so the low-DR group's 22.5% (30.0% combined) is close to baseline, and the 169 sampled products at DR 1.0 had 19 empty (11.2%), not 0%. What the sample does show is that products with any DR score are undeliverable less often than products without one (32 of 259, 12.4%, against 171 of 741, 23.1%). Only 2 sampled products have DR < 0.75, so the low-DR rate cannot be re-estimated from it. The DR=1.0 group of the 80-id call is the first 40 by id order, not a random draw.
 
 ### Do low values cluster?
 
@@ -153,7 +153,7 @@ By category, among categories with ≥15 scored products:
 |---|---|
 | Header (exact) | `productId,AVG kg CO2-eq/kg` |
 | Data rows | 11,033 |
-| File encoding | UTF-8, no BOM, LF, `,` delimiter, no quoting |
+| File encoding | UTF-8 (ASCII only), no BOM, CRLF line endings, `,` delimiter, no quoting |
 | `productId` dtype | **string of exactly 6 ASCII digits** — 11,033/11,033 |
 | `AVG kg CO2-eq/kg` dtype | float |
 | Duplicate productIds | **0** (11,033 distinct) |
@@ -293,7 +293,7 @@ Both are structured, carbon five times more so than delivery. The per-category c
 | Delivery reliability | 0.00 | 0.15 | 0.26 | 0.37 | 0.83 |
 | Carbon footprint | 0.00 | 0.56 | 0.81 | 0.89 | **1.00** |
 
-Delivery reliability has **no category at 100%** and 22 categories (n≥5) at 0% — it is dispersed around 25% everywhere, with a long tail of pockets. Carbon is sharply bimodal: 35 categories at 100% and 63 at 0%.
+Delivery reliability has **no category with ≥5 products at 100%** (the maximum there is 90.9%, category 17414 with 11 products; five categories of 1–4 products are at 100%: 20000, 10502, 18706, 77722, 85034) and 22 categories (n≥5) at 0% — it is dispersed around 25% everywhere, with a long tail of pockets. Carbon is sharply bimodal: 35 categories (n≥5) at 100% and 63 at 0%.
 
 Cross-tab by 2-digit category prefix, which separates the catalog cleanly:
 
@@ -331,17 +331,17 @@ The unit explains it: the figure is **kg CO2-eq per kg of product**, which is a 
 | variableUnit | n | DR | CF |
 |---|---|---|---|
 | `false` | 13,846 | 24.9% | 65.0% |
-| `null` (field absent) | 3,068 | 27.7% | 48.2% |
+| *(key absent)* | 3,068 | 27.7% | 48.2% |
 | `true` | 632 | 21.0% | **87.7%** |
 
-GTIN presence — identical split, because `gtin` and `variableUnit` go missing together (the 3,068 non-GTIN products of `FINDINGS.md` #12):
+GTIN presence — identical split, because `gtin` and `variableUnit` go missing together (the 3,068 products without `synkkaData.gtin`):
 
 | has `gtin` | n | DR | CF |
 |---|---|---|---|
 | `false` | 3,068 | 27.7% | 48.2% |
 | `true` | 14,478 | 24.7% | 66.0% |
 
-`synkkaData` sparseness. Note the `FINDINGS.md` characterisation of "essentially empty `synkkaData`" needs a correction: **no product has a completely empty `synkkaData`** — the minimum is 2 populated keys. The real distribution of populated keys is bimodal: a cluster at 2–4 keys (3,015 products) and a cluster at 12–23 (14,500). Using ≤3 keys as the sparse test:
+`synkkaData` sparseness. Note that an earlier `FINDINGS.md` characterisation of "essentially empty `synkkaData`" needs a correction: **no product has a completely empty `synkkaData`** — the minimum is 2 populated keys. The real distribution of populated keys is bimodal: a cluster at 2–4 keys (3,015 products) and a cluster at 12–23 (14,500). Using ≤3 keys as the sparse test:
 
 | synkkaData sparse (≤3 keys) | n | DR | CF |
 |---|---|---|---|
@@ -352,7 +352,7 @@ GTIN presence — identical split, because `gtin` and `variableUnit` go missing 
 
 | temp | n | DR | CF |
 |---|---|---|---|
-| null | 61 | 14.8% | 19.7% |
+| *(key absent)* | 61 | 14.8% | 19.7% |
 | 1 | 240 | 20.8% | 95.4% |
 | 2 | 324 | 41.4% | 85.2% |
 | 3 | 1,673 | 23.3% | 77.9% |
@@ -363,7 +363,7 @@ GTIN presence — identical split, because `gtin` and `variableUnit` go missing 
 | 8 | 10,053 | 23.9% | **49.4%** |
 | 9 | 9 | 0.0% | 100.0% |
 
-Condition 8 (10,053 products — the ambient-looking bucket that `FINDINGS.md` warns against reading literally) drags carbon coverage down because it is where all the non-food sits.
+Condition 8 (10,053 products — the ambient-looking bucket that an earlier `FINDINGS.md` warned against reading literally) drags carbon coverage down because it is where all the non-food sits.
 
 `countryOfOrigin` (top 12):
 
@@ -403,14 +403,14 @@ China at 18.4% carbon coverage is not a sourcing story, it is the same food/non-
 
 ### `logisticModel`
 
-**Not obtainable from the static catalog.** It only appears in the `/api/availability` response, and `FINDINGS.md` records that it is *absent as a key* on the ~14% of products with empty `scheduleLines`. Cross-tabulating coverage against it at catalog scale would need ~220 API calls, which the portal's rate-limit guidance explicitly discourages. The 80-id probe in §1 is the partial answer: the low-DR group skews Terminal (15/40) while the DR=1.0 group skews Stock (35/40).
+**Not obtainable from the static catalog.** It only appears in the `/api/availability` response, and it is *absent as a key* on the products with empty `scheduleLines` (20.3% of the random sample of 1,000, 2026-11-13 23:00). Cross-tabulating coverage against it at catalog scale would need 18 calls of 1,000 ids, which the portal's guidance explicitly discourages. Partial answers: in the random sample the 259 products with a DR score split 161 Stock / 66 Terminal / 32 no schedule line, and the 741 without one 279 / 291 / 171; in the 80-id probe of §1 the low-DR group skews Terminal (15/40) while the DR=1.0 group skews Stock (35/40).
 
 ### Summary answer
 
 **Missingness is structured, but the two axes are structured differently, and this distinction drives the ranking design:**
 
 - **Carbon** is *missing-by-design*. The gap is a category boundary (food vs. non-food), not a data-quality gap. There is nothing to recover, and no amount of extra work will produce a carbon figure for a napkin. 81.2% coverage within its applicable domain is good coverage.
-- **Delivery reliability** is *missing-at-random-ish*. χ²/df of 7.8–15 says the gaps are not uniform, but there is no clean boundary: coverage sits between 15% and 37% for the middle half of categories, no category reaches 100%, and the low-coverage pockets (20xx kitchen equipment at 7.1%, 90xx office supplies at 3.6%) are a weak tendency rather than a rule. The best available explanation is order-history volume — low-turnover SKUs have too few historical lines to score.
+- **Delivery reliability** is *missing-at-random-ish*. χ²/df of 7.8–15 says the gaps are not uniform, but there is no clean boundary: coverage sits between 15% and 37% for the middle half of categories, no category with ≥5 products reaches 100%, and the low-coverage pockets (20xx kitchen equipment at 7.1%, 90xx office supplies at 3.6%) are a weak tendency rather than a rule. The best available explanation is order-history volume — low-turnover SKUs have too few historical lines to score.
 
 **That asymmetry answers the ranking question directly.** For carbon, "missing" on a non-food product means *not applicable* and the axis should be dropped from the comparison entirely rather than scored. For delivery reliability, "missing" means *unknown* — and given that the scored distribution is 56% perfect and only 6.6% below 0.9, an unknown product is probably fine but cannot be certified, so it must never out-rank a product with a verified good score.
 
@@ -418,13 +418,15 @@ China at 18.4% carbon coverage is not a sourcing story, it is the same food/non-
 
 ## 5. Ranking design recommendation
 
+> Not the plan's ranking. [PLAN.md](../PLAN.md) §2 ranks by constraint fit, then verification status, then price; reliability and carbon are shown per option, not scored. This section is kept as an analysis of the three axes.
+
 Three axes: price, delivery reliability, carbon. Only **17.8% of the catalog** carries all three, and **23.0% within food**. The design has to be honest about that rather than hide it.
 
 ### Normalise each axis within the candidate set, not globally
 
 All three axes are normalised across the shortlist the user is actually choosing between (typically 5–50 products from one category), not against the whole catalog. A global normalisation makes every candidate in a category look identical.
 
-**Price** — always present (the `/price` API covers everything, including the undeliverable products, as §1 confirms). Normalise on **comparison price** (€/kg or €/L), never the sales-unit price, otherwise a crate beats a carton on arithmetic alone. Use the `catalogPrice / comparisonPrice` pack-size trick from `FINDINGS.md` when `comparisonPrice` is absent (22.5% of products), and carry the resulting confidence flag into the display. Linear min-max over the candidate set:
+**Price** — always present (the `/price` API covers everything, including the undeliverable products, as §1 confirms). Normalise on **comparison price** (€/kg or €/L), never the sales-unit price, otherwise a crate beats a carton on arithmetic alone. When `comparisonPrice` is absent (20.6% of the random sample of 1,000, 2026-11-13 23:00) there is no ratio to compute: derive the size from the product name ([PRODUCT-DATA.md](PRODUCT-DATA.md) §5), or leave the product out of the price comparison and say so, and carry the resulting confidence flag into the display. Linear min-max over the candidate set:
 
 ```
 score_price = (max_p - p) / (max_p - min_p)      # 1.0 = cheapest
@@ -436,7 +438,7 @@ score_price = (max_p - p) / (max_p - min_p)      # 1.0 = cheapest
 score_delivery = clamp((dr - 0.85) / 0.15, 0, 1)   # 0.85 -> 0, 1.0 -> 1
 ```
 
-This gives real separation across the 0.85–1.0 range where 93% of the data lives, and floors everything below 0.85 at zero — which is correct, since below 0.85 the §1 probe says you are looking at a materially elevated chance of the product being undeliverable outright.
+This gives real separation across the 0.85–1.0 range where 95.5% of the scored products live, and floors everything below 0.85 at zero. That floor is a design choice about historical fulfilment; §1 does not show low-DR products to be undeliverable more often than the 20.3% sample baseline.
 
 **Carbon** — present on 62.9% overall, 81.2% of food. The distribution runs 0.13–30.46 with p75 at 4.98, so linear normalisation is dominated by the tail. Use **rank-within-candidate-set** or log:
 
@@ -476,11 +478,11 @@ This is the only neutral treatment. Substituting 0 penalises missing data (a pro
 Each result row should carry, inline:
 
 - the comparison price with its unit, and whether it came from `comparisonPrice` (exact) or the pack-size ratio (approximate, ~0.3% error)
-- delivery reliability as the raw figure plus its meaning (`0.94 — 94% of historical order lines fulfilled`), or **`no delivery history`** — never a blank cell and never a zero
+- delivery reliability as the raw figure with no gloss (what it measures is open, booth Q12), or **`no delivery history`** — never a blank cell and never a zero
 - carbon as the raw figure, **explicitly labelled a category average, not a product measurement**, or `not published`, or `not applicable (non-food)`
 - an evidence badge: **`3/3 axes`**, `2/3`, `1/3`
 
-And, from §1, one honest caveat worth surfacing because it is a trust win rather than a gap: **delivery reliability is historical and the availability API does not know about it.** A product at 0.0 reliability will still tell you it has 999,999 units available on Monday. The ranking is the only place that information meets.
+And, from §1, one honest caveat worth surfacing because it is a trust win rather than a gap: **delivery reliability is historical and is a separate signal from the availability API.** A product at 0.0 reliability can still return a schedule line for Monday with a placeholder quantity (both of the two 0.0 products queried did). The ranking is the only place that information meets.
 
 ### Coverage figures a demo should display
 
@@ -497,7 +499,7 @@ Put these on screen rather than in the speaker notes:
 | Carbon on non-food | **0.4%** — axis not applicable |
 | Products scoring below 0.9 reliability | 291 (1.7% of catalog, 6.6% of scored) |
 
-The honest headline: **a full three-axis comparison is possible on about 1 in 6 products, 1 in 4 within food.** Say it out loud. The system is more credible for declaring the limit than for hiding it behind imputed numbers, and the §1 probe gives you the payoff line — the 1.7% of the catalog that *is* flagged unreliable is genuinely the risky tail, and nothing else in the dataset will tell you about it.
+The honest headline: **a full three-axis comparison is possible on about 1 in 6 products, 1 in 4 within food.** Say it out loud. The system is more credible for declaring the limit than for hiding it behind imputed numbers, and the 1.7% of the catalog scoring below 0.9 is the only historical-fulfilment signal in the dataset — nothing else will tell you about it (§1 does not show that it predicts current availability).
 
 ---
 
@@ -525,7 +527,7 @@ import csv
 import json
 from pathlib import Path
 
-AIMO = Path("/Users/joaocosta/Pessoal/junction/AIMO")
+AIMO = Path("AIMO")   # run from the repo root
 ID_LENGTH = 6
 
 
@@ -559,7 +561,7 @@ carbon_footprint = load_metric_csv(
 print(len(delivery_reliability), len(carbon_footprint))
 ```
 
-Attach to a catalog index. The 87MB load takes ~15s and ~2GB RSS, so build a slim projection once and reuse it (`FINDINGS.md` #13):
+Attach to a catalog index. The 87 MB load takes about half a second and ~0.6–0.7 GB peak RSS (measured 2026-11-14, Python 3.13); the projection below keeps only the fields the join needs:
 
 ```python
 NON_FOOD_PREFIXES = frozenset({"63", "64", "20", "90"})
@@ -658,6 +660,8 @@ print(f"carbon on food    {food_cf}/{len(food)} ({100 * food_cf / len(food):.1f}
 
 ## Appendix — corrections and additions to `FINDINGS.md`
 
+*This appendix describes an earlier version of `FINDINGS.md` and is kept as history.*
+
 | `FINDINGS.md` claim | Status |
 |---|---|
 | `deliveryReliability` 25.2%, 4,425 rows, 243 distinct, 0.0–1.0 | **Confirmed exactly.** |
@@ -665,6 +669,6 @@ print(f"carbon on food    {food_cf}/{len(food)} ({100 * food_cf / len(food):.1f}
 | Both present 17.8% (3,123) | **Confirmed exactly.** |
 | "89 categories hold >1 value, so not a clean lookup" | **Confirmed** (190 single / 89 multi of 279). Extended: the stronger argument is that 86 of 177 values span multiple categories, so `category` is not the key at all. |
 | #12: "3,068 products have essentially empty `synkkaData`" | **Needs qualifying.** The 3,068 figure is right as the count of products missing `gtin`/`vatCode`/`variableUnit`, but no product has an empty `synkkaData` — the minimum populated-key count is 2, and the sparse cluster is 2–4 keys (3,015 products). |
-| #4: `availableAmount` sentinels 999999 / 9999999999.0 / 666666666.0 | **Add a fourth: `416666666.0`** (observed on product 476973). |
-| ~14% of products not orderable | **Consistent, and now predictable.** DR < 0.75 → 22.5% empty `scheduleLines`; DR == 1.0 → 0%. |
+| #4: `availableAmount` sentinels 999999 / 9999999999.0 / 666666666.0 | **Superseded.** `416666666.0` (product 476973) and the others follow two placeholder rules, not a list — see §1 and [API §8.1](API.md#81-availableamount-placeholders-two-rules). |
+| ~14% of products not orderable | **Superseded.** The random sample of 1,000 (2026-11-13 23:00) gives 20.3% empty `scheduleLines` and does not reproduce the DR split of the 80-id call (DR == 1.0 → 19 of 169 empty, 11.2%). See §1. |
 | "Design the three-axis ranking to degrade explicitly (missing ≠ good)" | **Confirmed and sharpened.** Carbon absence on non-food is *not applicable*, not *missing* — drop the axis, don't score it. See §5. |

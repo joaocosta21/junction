@@ -1,5 +1,7 @@
 # Recommendation — challenge choice and tech-award pairing
 
+> **Superseded (14 Nov): the team chose Valio Aimo — "Trusted Trade Agents".** Working documents are in [AIMO/](AIMO/); the judging criteria to maximise are at the top of [CLAUDE.md](CLAUDE.md). This file is kept for reference only.
+
 > **REVISED** after team capability update: **all four members program competently and have extended experience; all have done Arduino.** Objective stated: **maximize probability of winning money** (not prestige), at an event with ~2000 participants.
 >
 > This revision supersedes the Aalto-first recommendation below the line. Two assumptions changed: implementation bandwidth is 4 engineers rather than 1, and the goal is expected cash rather than peer prestige. **Aalto names no cash prize** — its only route to money is peer review → top 5 → the €10,000 main prize, a single high-variance shot.

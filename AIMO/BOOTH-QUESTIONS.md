@@ -1,153 +1,266 @@
 # Valio Aimo — questions for the booth
 
-**Source tags:** `[DOCS]` their OpenAPI/schema descriptions · `[TESTED]` our live API calls · `[DATA]` our analysis of the 4 files
+The only question list. Every question has the same shape: **context → what we did → what we got → an example to show → "is that expected, or did we get something wrong?"** The last line is what we build if nobody answers.
 
-Full detail lives in [docs/](docs/) and [FINDINGS.md](FINDINGS.md). This page is just the questions.
+**How to ask:** the mock's behaviour is the scenario we are meant to handle, not a fault. We are checking our reading, not reporting bugs.
 
----
+**How the numbers were produced (Friday 2026-11-13, 23:00 server time)**
+- **"The sample"** = a random sample of 1,000 of the 17,546 products, sent to `/api/availability` and `/api/price` with `requestedDate` 2026-11-16. It came back as 440 Stock, 357 Terminal and 203 with no schedule line. Sample figures are estimates, not catalog totals.
+- **"The catalog"** = counted over all 17,546 products in the product file.
+- Examples with live values (Q1, Q3–Q10, Q12) must be re-run before showing.
 
-## The challenge in four lines
-Let **autonomous purchasing agents** find products, compare offers, and place orders against Valio Aimo — by defining **the interface and operating model**, not a marketplace. `[DOCS]`
-
-Their anti-pattern, quoted: *"This is not about replacing today's e-commerce UI with a chatbot."*
-
-**Core 3:** price/availability lookup · inquiry→order (fixed prices, not negotiated quotes) · permission & human-approval management.
-**Rubric:** 30% working end-to-end demo · 20% problem fit · 20% autonomy & controls · 15% robustness · 15% openness. **Prizes €4,000 / €2,000 / €1,000.**
+## If you only get two minutes: Q1 · Q2 · Q7
+Their answers feed Saturday-morning work, so ask them as soon as a mentor is free.
 
 ---
 
-# ⭐ Q1 — Is the order contract ours to define?
+## Settled — we handle these ourselves, do not ask them
 
-**Fact:** The API has six operations only — `ping`, `price`, `availability`, 3 file downloads. **No order, basket or quote endpoint.** `[DOCS, TESTED]` *(404 on `/api/order`, `/api/orders`, `/api/quote`)*
-
-**Why it matters:** 30% of the score is a *"full request → lookup → **order/approval** flow."* With no order endpoint, we have to build one — the question is how far.
-
-**Ask:**
-- Is defining the order/approval contract our deliverable, or do you have an internal schema to converge on?
-- Should our order request **extend your `customer` / `requestedDate` / `products` shape**? (We plan to.)
-- Does a confirmation promise **quantity, or only price**? You say *"fixed prices rather than a negotiated quote"* `[DOCS]`
-- Do you want an **idempotency key**?
-- Is an **MCP tool surface** acceptable as the submitted interface, or HTTP+OpenAPI as primary?
+| Topic | Why it is settled | What we do |
+|---|---|---|
+| There is no order endpoint | Core requirement 2 asks us to define "a defined interaction for moving from inquiry to commitment". The spec has 6 operations and none for orders. | Our own order step, with approval and an audit record |
+| `requestedDate` changes nothing | The spec says `availableDate` is the "Earliest date when amount is available. Note that this might differ from your requestedDate". 24 products with 4 different dates returned identical product data. | We compare the buyer's needed-by date with `availableDate` ourselves |
+| Products that cannot be delivered (20.3% of the sample have no schedule line; 2.9% show amount 0) | The spec says "Empty array means product cannot currently be delivered on any date". This is the brief's "what happens when the exact request can't be met". | Exception → ranked substitute, with the trade-off explained |
+| Terminal quantity is 999999 | The spec says it is "always 999999 since actual value is not known". | Never the suggestion; named as an alternative; ordering it always needs human approval |
+| Very large quantities on Stock products (Q3) | **Answered by Valio in person on 14 Nov:** when the value is very large they do not know the stock. | Same as Terminal: quantity not confirmed |
 
 ---
 
-# ⭐ Q2 — Which `closingTime` should we honour? 53% are in the past
+## Q1 — Order cut-offs that have already passed
 
-**Fact:** `closingTime` is *"the order cut-off to receive goods on availableDate."* `[DOCS]`
-**But 129 of 244 deliverable products (53%) report a cut-off already in the past**, across 12 distinct values. Terminal products cluster at 2026-11-12T15:00 — a day before server time — while still claiming 2026-11-16 availability. `[TESTED]`
+- **Context:** the spec says `closingTime` is "the order cut-off time (= order by closingTime at the latest to receive goods on availableDate)".
+- **We did:** sent the sample to `/api/availability` on Friday at 23:00 server time.
+- **We got:** all 357 Terminal products had a `closingTime` already in the past (between 2026-11-11 13:00 and 2026-11-13 12:30; 229 of them at 2026-11-12 15:00), and 356 of them show `availableDate` 2026-11-16. For Stock, 372 of 440 close on Sunday 2026-11-15 17:00 and 68 closed on Friday at 13:00.
+- **Example to show** — two Valio lactose-free milks, values captured in one call on Friday at 23:03 server time. Request to reproduce:
 
-**Why it matters:** Honour them literally → we reject **most of the catalog**. Ignore them → we have no cut-off logic, and that's exactly what the 15% robustness criterion rewards.
+  ```
+  POST /api/availability
+  {"customer": "123", "requestedDate": "2026-11-16", "products": ["464119", "464306"]}
+  ```
 
-**Ask:** Artefact of the mock we should ignore, or do you want *"cut-off passed → next delivery slot"* modelled?
+  | | `464119` skimmed milk 1 l lactose free UHT | `464306` Eila semi-skimmed milk drink 1 l |
+  |---|---|---|
+  | `logisticModel` | Terminal | Stock |
+  | `closingTime` | **2026-11-12T15:00** — 32 hours before `timeNow` | 2026-11-15T17:00 — still open |
+  | `timeNow` | 2026-11-13T23:03 | 2026-11-13T23:03 |
+  | `availableDate` | **2026-11-16** | 2026-11-16 |
+  | `availableAmount` | 999999 | 9999999999 |
+  | `salesBlock` | false | false |
 
----
+- **Ask:** "We read closingTime literally: once it has passed, the product can no longer arrive on availableDate, so our agent picks a product whose cut-off is still open and says why. Is that the right reading, or did we get something wrong?"
+- **Then:** "Do the closingTime values move forward over the weekend, or will every product be past its cut-off after Sunday 17:00?"
+- **If no answer, we build:** that rule. A product whose cut-off has passed is not offered for a dated request, and the explanation names it. We keep a replay mode with saved responses in case every cut-off has passed by judging time.
 
-# ⭐ Q3 — Allergen policy: `MAY_CONTAIN`, `UNDECLARED`, and silence
+## Q2 — Allergen values that are not in the schema
 
-**Facts:**
-- Schema documents **only `CONTAINS` and `FREE_FROM`**. `[DOCS]`
-- **Two more relations exist and are undocumented: `MAY_CONTAIN` (9,956 rows) and `UNDECLARED` (303 rows).** `[DATA]`
-- **~59% of the catalog has no allergen statement** (`allergen` non-empty 41%, `nonAllergen` 29%). `[DATA]`
-- **`X99` (121 CONTAINS + 74 FREE_FROM) names no substance** — semantically empty, unusable for a safety claim. `[DATA]`
-- **The lactose trap is systemic, not anecdotal: of 4,178 `FREE_FROM_LACTOSE` products, 1,485 (35.5%) explicitly declare milk (`AM`) as `CONTAINS`.** Only 1,255 (30%) carry a positive `AM: FREE_FROM`. Same on gluten — 196 `FREE_FROM_GLUTEN` products declare oats (`GO`) as CONTAINS. `[DATA]`
-- **2 products assert the same allergen in both `allergen` and `nonAllergen`** — `468044` (AM), `469429` (AM + AN). Direct self-contradiction. `[DATA]`
+- **Context:** allergen-safe substitution for school and hospital kitchens is one of your scenarios. The schema says the allergen relation is `CONTAINS` or `FREE_FROM`.
+- **We did:** counted every value of that field across the catalog, and looked the codes up in the public GS1 code lists.
+- **We got:** two more relation values — `MAY_CONTAIN` on 2,685 products and `UNDECLARED` on 33 — and the code `X99` on 121 products in `allergen` (120 of which list no other allergen) plus 74 in `nonAllergen`. GS1 defines `X99` as "Does not contain declaration obligatory allergens in the product" and `UNDECLARED` as "Not intentionally included in the product and assessed not to require a cross-contact declaration".
+- **Example to show** — the `allergen` group of three products in the product file:
 
-**Why it matters:** Your scenario is *"allergen-safe substitution under pressure, in a school or hospital kitchen."* `[DOCS]` A filter written against the two documented values **silently treats "may contain traces" as safe**, and a nutritional claim is not an allergen assertion.
+  | Product | `allergen` entries |
+  |---|---|
+  | `465657` Aino raspberry chocolate ice cream | `AM` `CONTAINS` · `AN` **`MAY_CONTAIN`** |
+  | `460556` Turun Sinappia mild mustard 6 kg | `BM` `CONTAINS` · 13 other codes **`UNDECLARED`** |
+  | `460622` Marli Natur apple juice 1 L | only **`X99`** `CONTAINS` |
 
-**Ask:**
-- Is `MAY_CONTAIN` a hard fail or an escalation? What does **`UNDECLARED`** mean?
-- **Is silence ever committable** for a school/hospital kitchen, or must there be an explicit free-from?
-- **We mapped the allergen codes ourselves** (the 14 most-frequent `nonAllergen` codes form a tight block matching the EU's 14 mandatory declarable allergens) — can you confirm a few? `AM` milk · `AW` cereals-with-gluten · `UW` wheat · `AY` soy · `AE` eggs · `AN` tree nuts · `NL` lupin · `UM` molluscs. Is it GS1 AllergenTypeCode?
+- **Ask:** "We read these with the GS1 meanings: X99 is a product with no declarable allergens, UNDECLARED is not intentionally included. Is that how your data uses them, or did we get it wrong?"
+- **Then:** "For an allergy diet, who decides whether 'may contain' is acceptable — you, or the customer's own policy?"
+- **If no answer, we build:** GS1 meanings. Allergen strictness is a required input with no default (proposed, PLAN §9). Under the strict setting an explicit `FREE_FROM` for that allergen passes automatically, a declared `CONTAINS` is rejected, and everything else goes to a human.
 
-# Q4 — Brief says substitution isn't core; rubric gives it 15%
+## Q3 — Very large stock quantities on Stock products · ANSWERED, do not ask again
 
-**Fact:** Brief: substitution *"isn't scored as core."* Rubric: **15% for "robustness… partial availability, substitutions and delivery constraints."** `[DOCS]` These contradict.
+**Answer (Valio, in person, 14 Nov):** when the value is very large they do not know the stock. We read these lines like Terminal: quantity not confirmed; never the suggestion; named as an alternative; ordering needs human approval. The rest of this section is kept as the record of what we asked.
 
-**Ask:** Which applies? And does a **specification artefact** score on its own, or must everything be in the running demo?
+- **Context:** the spec explains 999999 for Terminal ("actual value is not known"). For Stock it says "Stock products are stocked by us, so we know their available quantities" and does not mention the values below.
+- **We did:** looked at `availableAmount` in the sample.
+- **We got:** all 357 Terminal lines are 999999, as documented. But 92 of 440 Stock lines carry values such as 9999999999, 4999999999 or 416666666 — each equals 9,999,999,999 divided by the base units per sales unit. The largest ordinary Stock value was 7,389.
+- **Example to show:**
 
----
+  | Product (all Stock) | Base units per sales unit | `availableAmount` | 9,999,999,999 ÷ units |
+  |---|---|---|---|
+  | `464306` Eila milk drink 1 l | 1 | 9999999999 | 9,999,999,999 |
+  | `477398` Schweppes Indian Tonic 1.5 L | 12 | 833333333 | 833,333,333 |
+  | `463779` Valio Eila milk drink 2.5 dl UHT | 15 | 666666666 | 666,666,666 |
+  | `477367` Hartwall Novelle Plus 24 × 0.5 l | 24 | 416666666 | 416,666,666 |
+  | `465158` Tropic apple juice 1 L | 1 | **3239** | — an ordinary value |
 
-# Q5 — Category hierarchy: confirm the 4-digit prefix is the parent
-
-**We think we proved this ourselves — just confirming.**
-
-**Facts:**
-- 349 categories, all 5 digits. *"Category names are not part of this data set."* `[DOCS]`
-- **The codes are hierarchical at 4 digits.** Products sharing the first 4 digits have mean name-similarity **0.280 vs 0.025** for different prefixes — 11× the mean, ~100× the median. `cos(10400, 10401) = 0.471` vs `cos(10400, 52201) = 0.146`. `[DATA]`
-- **A 3-digit fallback does NOT work** (median similarity 0.110). `[DATA]`
-- **230 of your 250 substitution pairs (92%) stay inside the same category.** `[DATA]`
-
-**Why it matters:** This gives us category-distance ranking for substitutes — your *"good-better-best"* ask — without a name mapping.
-
-**Ask:** Confirm 4-digit = parent category? And can we have a code→name mapping to make the demo readable?
-
-# Q6 — Will you judge date/lead-time logic?
-
-**Fact:** **Both endpoints ignore `requestedDate` entirely.** 2026-11-13, 11-14 and 12-25 returned byte-identical responses; `availableDate` is frozen at 2026-11-16. Prices identical for 2025, 2026 and 2027. `[TESTED]`
-
-**Why it matters:** Your canonical example is *"by Monday"* — untestable. Your resources promise *"delivery lead times"* `[DOCS]`, but the mock has one date.
-
-**Ask:** Judged or not? If judged, what are the intended lead-time rules — per temperature class, logistic model, vendor?
-
----
-
-# Q7 — Delivery reliability: why 25%, and does missing mean bad?
-
-**Facts:**
-- Coverage **25.2%**, dispersed ~25% across every category — **no category at 100%**. Looks like order-history volume, not product type. `[DATA]`
-- **56.3% sit at exactly 1.0**; only 6.6% below 0.9; 12 products at 0.0. `[DATA]`
-- **It predicts availability:** DR < 0.75 → **22.5% returned empty `scheduleLines`**; DR = 1.0 → **0%**. `[TESTED]`
-- The 12 products at 0.0 still report themselves **fully available and priced**. `[TESTED]`
-
-**Ask:**
-- Why only 25% — insufficient history, deliberate cut-off, something else?
-- **Should missing rank neutral or penalised?** (We currently renormalise weights and never impute.)
-- Is it computed over a fixed window? 56% at exactly 1.0 suggests a short one.
+- **Why it matters:** it decides the canonical request. `464306`, Valio's own lactose-free milk at €1.01 per litre, carries this value. Read as "not known", our agent suggests 749 litres of Arla milk at about €2.64 instead and only mentions it.
+- **Ask:** "We treat those Stock values like Terminal: quantity not known. Our agent suggests a product with a confirmed quantity, mentions these as an alternative and asks a human before ordering one. Is 'not known' the right reading, or do they mean the stock is effectively unlimited?"
+- **If no answer, we build:** any amount of 999,999 or more means "quantity not confirmed"; it is never used in arithmetic, and ordering it needs human approval. The reading is one switch in the code.
 
 ---
 
-# Q8 — Carbon: confirm it's food-only by design
+## Q4 — What an accepted order commits to
 
-**We think we answered this one ourselves — just confirming.**
+- **Context:** the brief asks for "a defined interaction for moving from inquiry to commitment, based on fixed prices rather than a negotiated quote". The mock has no order step, so we define it.
+- **We did:** designed our offer so that every claim carries a status: confirmed, not confirmed, or ruled out.
+- **We got** — for `464306`, from `/api/price` and `/api/availability`:
 
-**Facts:**
-- Coverage is **81.2% on food, 0.4% on non-food** (non-food = cleaning, packaging, kitchen equipment, office supplies). `[DATA]`
-- Every low-coverage vendor is non-food — DUNI 817 products, Essity 245, Huhtamaki 190, Diversey 343. `[DATA]`
-- Makes sense: `kg CO2-eq/kg` is a food-LCA unit, meaningless for a knife.
-- You say it's a **category average** `[DOCS]` — mostly true, but **89 of 279 categories (32%) hold multiple values**, split along **plant-based vs animal protein** (cat 41705: meatballs 15.79 vs vegan patties 2.195). And **86 of 177 values span multiple categories**. `[DATA]`
+  | Claim | What the API gives | Status in our offer |
+  |---|---|---|
+  | Price | 1.01 per unit, `validFrom` 2026-09-01, `validTo` 2026-12-31 | fixed until 2026-12-31 |
+  | Delivery date | `availableDate` 2026-11-16, `closingTime` 2026-11-15T17:00 | 2026-11-16 if ordered before Sunday 17:00 |
+  | Quantity | `availableAmount` 9999999999 | not confirmed |
 
-**Ask:** Confirm carbon is food-only by design, so we drop the axis as **not applicable** on non-food rather than showing it as a gap? And is the average computed over an external food-type taxonomy we don't have?
+- **Ask:** "When Valio Aimo accepts an order today, what is committed at that moment — the price, the quantity, the delivery date? Is our reading of these three fields right?"
+- **If no answer, we build:** price is committed for its validity window; the date is committed if the order is placed before `closingTime`; quantity is committed only when the stock figure is an ordinary number.
+
+## Q5 — Products with no allergen data
+
+- **We did:** counted products with nothing in the `allergen` group and nothing in the `nonAllergen` group.
+- **We got:** 8,110 of 17,546 (46.2%). Leaving out non-food categories (cleaning, packaging, equipment, office), it is 4,149 of 13,577 food products (30.6%).
+- **Example to show** — both came back priced and with a schedule line for 2026-11-16, and neither has any entry in `allergen` or `nonAllergen`:
+
+  | Product | What the product file says about allergens |
+  |---|---|
+  | `463168` Peltolan blue cheese 1.6 kg | no entry in either group |
+  | `463427` HK cooked ham 6 × 300 g | claims `FREE_FROM_GLUTEN`, `FREE_FROM_LACTOSE`, `HIGH_PROTEIN`, but no allergen entries |
+
+- **Ask:** "Is that expected? Does no data mean the supplier declared nothing, so an agent must treat it as unknown rather than safe?"
+- **If no answer, we build:** no data means unknown; under the strict setting it goes to a human.
+
+## Q6 — When stock covers only part of an order
+
+- **Context:** your rubric scores "handling of partial availability".
+- **We got:** the API returns at most one schedule line per product and the request carries no quantity, so it cannot express a delivery split across dates.
+- **Example to show** — `461360` Alpro almond drink 1 L: Stock, one schedule line, `availableAmount` 50, `availableDate` 2026-11-16. A need for 200 gets the same single line of 50; nothing says when the other 150 could come.
+- **Ask:** "When stock covers only part of an order line, what happens today — partial delivery, a substitute, or the line is dropped?"
+- **If no answer, we build:** fill the remainder from a second product and show the order as combined.
+
+## Q7 — What limits do real customers set?
+
+- **Context:** your rubric scores "what the agent can decide alone, what needs human sign-off". The spec says `customer` does not affect responses in this challenge.
+- **We did:** sent the same 24 products with six different `customer` strings.
+- **We got:** every per-product field was identical.
+- **Example to show** — `/api/price` for `464306`:
+
+  | `customer` sent | `customerId` returned | Price | `netPriceFound` |
+  |---|---|---|---|
+  | `"123"` | `"123"` | 1.01 | true |
+  | `"ACME-RESTAURANT-42"` | `"ACME-RESTAURANT-42"` | 1.01 | true |
+
+- **Ask:** "Since the mock has no customer model, we write our own limits. What do real customers put on ordering — a euro cap per order, an approved product list, approver roles? One example is enough."
+- **Follow-up, now that our limits are per-buyer profile settings:** "Which of these would a real customer set, and with what typical values: a euro limit per order, a limit per day, a minimum share of the quantity that must be covered, an approved product list, who approves what?"
+- **If no answer, we build:** a buyer profile per customer (spend limit per order and per day, minimum fill, allergen rule, substitution scope) with illustrative values, labelled as ours.
+
+## Q8 — Deposits
+
+- **We did:** took the 7 deposit `material` codes in the catalog (1, 2, 3, 4, 147, 171, 9708918) and looked them up as product ids, in the catalog and in `/api/price`.
+- **We got:** 506 products carry deposits. None of the 7 codes is a catalog product, and `/api/price` returns `error: true` for all 7.
+- **Example to show:**
+
+  ```
+  Product file, 476204 (Bundaberg Ginger Beer 12 × 37.5 cl), catalogPrice 22.09:
+    "deposits": [{"material": "1", "unit": "ST", "quantity": 12.0}]
+
+  POST /api/price   {"customer": "123", "requestedDate": "2026-11-16", "products": ["1"]}
+    {"productId": "1", "quantity": 1.0, "netPriceFound": false, "error": true}
+  ```
+
+- **Ask:** "Is that expected? Is the deposit already inside catalogPrice, or charged on top — and if on top, what is the value per code?"
+- **If no answer, we build:** totals exclude deposits and say so.
+
+## Q9 — Variable-weight products
+
+- **We did:** counted `variableUnit: true` in the catalog and checked how those products are priced in the sample.
+- **We got:** 632 products, 628 of them sold in KG. All 37 that fell in the sample are priced per kg (`catalogPrice` equals `comparisonPrice`).
+- **Example to show** — `467620` Atria cooked beef strips "ca 2 kg": sold in `KG`, `allowedLotSize` 2.0, `catalogPrice` 20.99 and `comparisonPrice` 20.99 per KG. For an order of 2 kg: is the invoice 2 × 20.99 = 41.98, or the actual weight × 20.99?
+- **Ask:** "If an agent orders 10 kg of a variable-weight product, is the delivered and invoiced weight exactly 10 kg, or the actual weight?"
+- **If no answer, we build:** variable-weight lines go to a human, because the final amount may differ from the offer.
+
+## Q10 — Sales unit differs between the API and the product file
+
+- **We did:** compared `salesUnit` on each `/api/availability` line with `salesUnit` in the product file.
+- **We got:** they differ on 7 of 797 lines.
+- **Example to show** — `460657` Marli Natur tomato juice 1 L:
+
+  | Source | Unit |
+  |---|---|
+  | Product file | `salesUnit` `KI` (1 KI = 10 ST) |
+  | `/api/availability` line | `salesUnit` `ST`, `availableAmount` 112 |
+  | `/api/price` | 2.26, and 2.26 per L — the price of one 1 L carton, not of a case of ten |
+
+- **Ask:** "Is that expected? Which unit do the price and the available amount refer to?"
+- **If no answer, we build:** price and quantity follow the unit on the API line.
+
+## Q11 — Category codes
+
+- **Context:** your brief asks for "good-better-best" substitution ranking; category names are not in the data.
+- **We did:** compared the categories of the two products in each of your 250 substitution pairs.
+- **We got:** 230 pairs stay in the same 5-digit category. Of the other 20, 11 share the first 4 digits and 5 share only the first 3.
+- **Example to show** — three of your substitution pairs:
+
+  | Product → substitute | Categories | Shared digits |
+  |---|---|---|
+  | `460027` Tomato NL/BE/ES → `460065` Tomato Finland | 17401 → 17401 | all 5 |
+  | `461480` Myllyn Paras strawberry-rhubarb pie → `461927` Myllyn Paras berry-mix pie | 41765 → 41763 | first 4 |
+  | `460211` White cabbage Finland → `467530` SallaCarte shredded cabbage 1 kg | 17404 → 17443 | first 3 |
+
+- **Ask:** "Is the category code a hierarchy — which digits are the levels? And can we have the category names?"
+- **If no answer, we build:** substitute tiers — same category → same 4 digits → same 3 digits (labelled weaker).
+
+## Q12 — Delivery reliability
+
+- **We did:** joined the delivery-reliability file to the catalog.
+- **We got:** 4,425 of 17,546 products have a value (25.2%). 56.3% of those are exactly 1.0 and 12 are 0.0.
+- **Example to show:**
+
+  | Product | `deliveryReliability` | Availability on Friday |
+  |---|---|---|
+  | `464306` Eila milk drink 1 l | 1.0 | Stock, 9999999999 |
+  | `473463` Atria beef tenderloin ca 2.4 kg | 0.332 | `availableAmount` 0 |
+  | `463038` Valio Eila milk drink 10 l | no row in the file | Terminal, 999999 |
+
+- **Ask:** "What exactly does the number measure, and does a missing value mean no delivery history?"
+- **If no answer, we build:** missing means "no history" and is never imputed; we show the raw value without a gloss.
+
+## Q13 — Call volume
+
+- **We did:** 34 requests on Friday night, at least 3 seconds apart, up to 251 products each.
+- **We got:** no 429 and no rate-limit headers.
+- **Ask:** "Is that volume fine during judging? Our demo makes about N calls of at most 50 products." *(fill in N)*
+- **If no answer, we build:** filter locally, a few narrow calls per run, a response cache and a recorded-response fallback.
 
 ---
 
-# Q9 — Deposits can't be priced
+## Ask any Valio person
 
-**Fact:** 506 products carry deposits, but the **7 `material` codes resolve to zero catalog products**, and there's no deposit price list anywhere. `[DATA]`
-
-**Why it matters:** For bottled/canned goods the true payable total is unknowable — and we can't even bound it. Against a brief built on fixed-price commitments.
-
-**Ask:** In scope for order totals, or out? (Our plan: the total **declares its own incompleteness** and escalates, rather than showing a wrong number.)
-
----
-
-# Q10 — Rate limits, and is customer data coming?
-
-**Facts:**
-- *"Undisclosed rate limits are in place."* `[DOCS]` We saw no 429 at 80-id batches, ~15 calls. `[TESTED]`
-- **`customer` provably changes nothing** — six different strings, identical output. `[TESTED]` You say so too. `[DOCS]`
-- No customer model, spend limits, approver roles, or **order history** anywhere. `[DATA]`
-
-**Ask:**
-- Is a 1,000-product batch safe during judging? Requests/minute per key?
-- Is customer/authority data coming, or is the permission model entirely ours to invent? (20% of the score is autonomy and controls — a spend cap needs a budget.)
-- Your *"standing order drift detection"* scenario needs order history that isn't provided — should we synthesise it?
+- "How and when do you judge — at our table, the video, or the deployed link — and will the mock API stay up unchanged until then?"
+- "Do exception cases have to run in the live demo, or does a documented rule count?"
+- "The brief mentions webshop test accounts. Are they available?"
+- "The hackathon requires a public MIT repository. May the datasets and a few recorded responses of the mock API stay in it, or should we keep them out?"
 
 ---
 
-## If you only get two minutes
-**Q1** (order contract) · **Q2** (stale cut-offs) · **Q3** (`MAY_CONTAIN`)
+## Raised during the overnight build
 
-## Two openers that show we read the data
-> *"35% of your lactose-free products explicitly declare milk as an allergen — 1,485 of 4,178. How should an agent treat that in a hospital kitchen?"*
+The build agents add questions here in the same shape as above. Empty until the run starts.
 
-> *"53% of deliverable products have an order cut-off in the past. Artefact, or should we model next-slot rollover?"*
+### For Valio
+
+### For the team
+
+---
+
+## Claims we no longer make
+
+Earlier versions of this page (including the 16-row table still on the `bio1` branch) said these.
+
+| Earlier claim | What holds |
+|---|---|
+| Unknown stock, passed cut-offs and undeliverable products are faults or contradictions in the mock | They are the "availability behaviour" the brief says the mock brings. We handle them and explain; we do not report them |
+| "Is there an order endpoint?" as a question for Valio | Settled: the order step is ours to define |
+| "Every Terminal product's closingTime is 2026-11-12T15:00" | 229 of 357 (64%); 12 distinct values. What holds: all 357 are in the past |
+| "Respecting cut-offs rejects half the catalog" | 42.5% of the sample; 53% of products that have a schedule line |
+| "`salesBlock` is never true" | True once in 1,000 (`470094`) |
+| "~14% of products are undeliverable" | 20.3% have no schedule line, plus 2.9% with amount 0 |
+| "Three sentinels in `availableAmount`" | Two rules: Terminal 999999; Stock 9,999,999,999 ÷ base units per sales unit (9 distinct values in the sample) |
+| "Three dates → byte-identical responses" | Per-product fields identical; the echoed date and `timeNow` differ |
+| "`comparisonPrice` missing on 22.5%" | 20.6% of the sample |
+| "Price ratio = pack size, so we never need the unit codes" | It gives kg or litres per priced unit, not a count, and is unavailable for 1 product in 5 |
+| "Unknown id cannot be told from undeliverable" | True for `/api/availability` only; `/api/price` returns `error: true` for non-catalog ids |
+| "`variableUnit` makes a fixed-price commitment impossible" | 628 of 632 are sold in KG and all 37 sampled are priced per kg; the open point is delivered vs ordered weight (Q9) |
+| "~59% of the catalog has no allergen statement" | 58.9% have an empty `allergen` group; 46.2% have neither group; 30.6% of food products |
+| "Lactose trap: 35% of lactose-free products declare milk" | The count is right (1,485 of 4,178) but it is correct labelling: lactose-free milk is still milk, including our demo product `464306` |
+| "`X99` names no substance" | GS1: "Does not contain declaration obligatory allergens in the product" |

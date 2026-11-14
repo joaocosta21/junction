@@ -2,13 +2,13 @@
 
 Everything below was measured against the actual file (87 MB, JSON array, **17,546 product objects**), not inferred from the schema. Percentages are always *of all 17,546 products* unless stated otherwise.
 
-Companion docs: [`FINDINGS.md`](../FINDINGS.md) (API behaviour + traps), `valio_aimo_junction26_product_data_schema.json` (official JSON Schema, the source of all field *meanings* quoted here).
+Companion docs: [`FINDINGS.md`](../FINDINGS.md) (verified API and catalog findings), `valio_aimo_junction26_product_data_schema.json` (official JSON Schema, the source of all field *meanings* quoted here).
 
 Conventions used in this doc:
 - **present** = the key exists on the object.
 - **non-empty** = key exists *and* is not `null`, `""`, `[]` or `{}`. For arrays and the `classifications` groups, this distinction is the whole story — several groups are present on ~100% of products and empty on most of them.
 
-Loading cost: `json.load` ≈ 15 s and ~2 GB RSS. Build the slim index in §7 once and never open the big file again.
+Loading cost: `json.load` takes about half a second and ~0.6–0.7 GB peak RSS (measured 2026-11-14, Python 3.13). The slim index in §7 is what the query recipes there run against; it is not needed for load time.
 
 ---
 
@@ -25,7 +25,7 @@ Loading cost: `json.load` ≈ 15 s and ~2 GB RSS. Build the slim index in §7 on
 | `vendorName` | string | 100% | 100% | **yes** | Supplier name, UPPERCASE, 648 distinct. | `"VALIO OY TUORE"` |
 | `synkkaData` | object | 100% | 100% | **yes** | Manufacturer-supplied GS1 Synkka block. See §2. Never `null`, but comes in two very different shapes. | `{...}` |
 | `units` | array | 100% | 100% | **yes** | Packaging hierarchy. Always ≥1 row. See below. | `[{...}]` |
-| `countryOfOrigin` | string | 99.95% | 99.95% | no | Lowercase ISO 3166-1 alpha-2. 98 distinct values. **9 products missing.** | `"fi"` |
+| `countryOfOrigin` | string | 99.95% | 99.95% | no | Lowercase ISO 3166-1 alpha-2. 97 distinct values. **9 products missing.** | `"fi"` |
 | `temperatureCondition` | integer | 99.65% | 99.65% | no | Storage/transport class 1–9. Meanings not in the dataset (see §4). **61 missing.** | `4` |
 | `salesUnitGtin` | string | 99.09% | 99.09% | no | GTIN of the **sales unit**. **159 missing.** No duplicate values. | `"6408430000487"` |
 | `deposits` | array | 100% | **2.88%** (506) | **yes** (may be `[]`) | Returnable-packaging charges. See below. | `[]` |
@@ -61,7 +61,7 @@ Most common unitId sets: `(KI,ST)` 3,152 · `(KI,KRS,PAL,ST)` 2,459 · `(KI,PAL,
 | `quantity` | number | 100% | Deposit units per sales unit. 24.0 (273) · 12.0 (142) · 1.0 (98) · 6.0 (42) · 20.0 (7) · 16.0 (4) · 8.0 (3) · 2.0/4.0/18.0 (2 each) · 30.0 (1). |
 | `unit` | string | 100% | Always `"ST"` (576/576). |
 
-436 products have 1 deposit line, 70 have 2. **None of the 7 `material` codes resolves to a product `id` in this catalog**, and no deposit price list exists anywhere in the challenge data — deposit money is unpriceable (FINDINGS trap 10).
+436 products have 1 deposit line, 70 have 2. **None of the 7 `material` codes resolves to a product `id` in this catalog**, and no deposit price list exists anywhere in the challenge data — deposit money is unpriceable (FINDINGS.md §4).
 
 ### `substitutions[]` — 250 rows
 
@@ -91,13 +91,13 @@ Full analysis in §6.
 | `marketingTexts` | array | 100% | 67.91% | Marketing copy per language. **0 of the 3,068 thin products have any.** | `[{"language":"fi","value":"..."}]` |
 | `materialAdditionalDescriptions` | array | 100% | **0.06%** (11) | Extra description, e.g. multipack contents. Effectively unusable. | `[]` |
 | `gtin` | string | 82.51% | 82.51% | GTIN of the **consumer unit**. The shape discriminator. | `"6408430000487"` |
-| `lastUpdated` | string | 82.51% | 82.51% | ISO 8601 with `+0300` offset. Range **2022-10-22 → 2025-10-05**. | `"2025-10-05T21:28:56+0300"` |
-| `variableUnit` | boolean | 82.51% | 82.51% | `true` on **632** products, `false` on 13,846, **absent on 3,068**. `true` = sold by variable weight (FINDINGS trap 8). | `false` |
+| `lastUpdated` | string | 82.51% | 82.51% | ISO 8601 with a `+0300` (13,623) or `+0200` (855) offset. Range **2022-10-22 → 2025-10-05**. | `"2025-10-05T21:28:56+0300"` |
+| `variableUnit` | boolean | 82.51% | 82.51% | `true` on **632** products (628 with `salesUnit` `KG`, 4 with `KI`), `false` on 13,846, **absent on 3,068**. `true` = sold by variable weight (FINDINGS.md §4). | `false` |
 | `vatCode` | string | 82.51% | 82.49% | Finnish VAT class. **Dirty — see §4.** Use `tax.taxRate` from `/price`. | `"MEDIUM"` |
 | `unitConversions` | array | 82.51% | 82.49% | Weights/dimensions. **Exactly one row per product, never more.** See §5. | see §5 |
 | `producers` | array | 82.51% | 82.45% | `{id (13-digit GLN), name}`. Exactly 1 row when present; 334 distinct GLNs. | `[{"id":"6408430000008","name":"Valio Oy"}]` |
 | `countriesOfOrigin` | array | 82.51% | 82.43% | Numeric ISO 3166-1 strings, zero-padded. Top: `246` fi (6,976) · `276` de (987) · `752` se (770) · `380` it (551) · `528` nl (521). 1 entry on 14,347, 2 on 69, 3 on 35, 4 on 5, 6 on 3. | `["246"]` |
-| `brand` | string | 82.43% | 82.43% | 1,501 distinct. Top: Valio 773 · DUNI 639 · Fazer 349 · Atria 283 · Santa Maria 251. | `"Valio"` |
+| `brand` | string | 82.43% | 82.43% | 1,500 distinct (1,465 after trimming whitespace). Top: Valio 773 · DUNI 639 · Fazer 349 · Atria 283 · Santa Maria 251. | `"Valio"` |
 | `mediasLastUpdated` | string | 76.23% | 76.23% | Present on exactly the products with ≥1 media. | `"2024-03-11T09:00:00+0200"` |
 | `maxTemperature` | number | 58.51% | 58.51% | Max storage °C. | `8.0` |
 | `minTemperature` | number | 57.88% | 57.88% | Min storage °C. 72 products have `min` without `max`; 7,208 have neither. **No product has min > max.** | `2.0` |
@@ -123,7 +123,7 @@ No product has two entries for the same language. Entries per product: 3 → 16,
 
 **923 Finnish names contain `®` or `™`** — break naive slugging/matching.
 
-### 2.2 `nutritionalContent` (12,251 products, 114,751 rows)
+### 2.2 `nutritionalContent` (12,251 products, 114,754 rows)
 
 Per row: `id`, `value`, `unit`, `basisQuantity`, `basisQuantityUnit`, optional `dailyValueIntakePercent`, `servingSize`, `servingSizeUnit`, `unitPrecision`.
 
@@ -132,7 +132,7 @@ Per row: `id`, `value`, `unit`, `basisQuantity`, `basisQuantityUnit`, optional `
 - `unitPrecision`: APPROXIMATELY 107,160 · *(absent)* 5,156 · LESS_THAN 2,424 · LESS_THAN_OR_EQUAL 8 · ABOUT 6.
 - Top ids: ENER-KJO 12,178 · PRO- 12,164 · FAT 12,153 · CHOAVL 12,138 · ENER-E14 12,080 · SALTEQ 11,952 · FASAT 11,889 · SUGAR- 11,841 · FIBTG 6,070 · LACS 3,573 · NA 1,078 · CA 954 · **VITD- 602 · VITB12 583 · FAMSCIS 567** · FAPUCIS 525 · RIBF 494 · **VITC- 394** · ZN 329 · K 313.
 
-⚠️ **Nutrient ids are spelled differently in `nutritionalContent` than in `classifications.vitamin`**: `VITD-`/`VITC-` here vs `VITD`/`VITC` there. Do not join the two on id without normalising the trailing hyphen.
+⚠️ **Three vitamin ids are spelled two ways inside `nutritionalContent`**: `VITD-` 602 / `VITD` 8, `VITC-` 394 / `VITC` 7, `VITE-` 223 / `VITE` 1 (never both on one product). For these three, `classifications.vitamin` carries only the hyphen-less spelling (8 / 7 / 1 values), and each of its 1,075 values has an identically spelled row in the same product's `nutritionalContent`, so a join on id drops nothing; the hyphenated rows have no `vitamin`-group counterpart at all. Normalise the trailing hyphen when aggregating one nutrient across products.
 
 ### 2.3 What characterises the 3,068 thin-`synkkaData` products
 
@@ -142,7 +142,7 @@ Measured directly on that subset:
 - **Zero `marketingTexts`** (0/3,068). `keyIngredients` on 1,124; `nutritionalContent` on 731; `medias` on only 122.
 - `classifications` is present on all 3,068, but with only **5 groups** (`allergen`, `nonAllergen`, `nutritionalClaim`, `packaging`, `packagingMarkedLabel`) on 2,337 of them, +`nutritionFact` on the other 731. The DECIMAL groups `gda`/`mineral`/`vitamin`/`composition` **never** appear.
 - Still fully present: `id`, `salesUnit`, `baseUnit`, `category`, `allowedLotSize`, `vendorName`, `units`, and `salesUnitGtin` on 2,915 of 3,068.
-- Top categories: **20012 (119), 20022 (108), 20031 (105), 20033 (85), 20032 (82), 20021 (76), 41731 (76), 20011 (60)** — plus the whole 174xx fresh-produce block.
+- Top categories: **20012 (119), 20022 (108), 20031 (105), 20033 (85), 20032 (82), 20021 (76), 41731 (76), 20011 (60)** — the `200xx` codes are kitchen equipment, tableware and glassware, 41731 is frozen vegetables — plus 558 of the 901 products in the 174xx fresh-produce block.
 - Top vendors: WULFF OY AB (232, office supplies), SAMBONET PADERNO (177, tableware), HEUSCHEN&SCHROUFF ORIENTAL FOODS (118), VALIO OY / VALIO AIMO (97), BUD HOLLAND B.V. (91), STAAY FOOD GROOP (91), MASTERMARK BRANDS (91), SAVO-KARJALAN LIHA (80).
 - Sample fi names: `TOMAATTI "TOM BERRY" 125G RASIA HOLLANT`, `CHAMP RUSKEA HERKKUSIENI 2KG/LTK SUOMI`, `AVOMAANKURKKU SUOMI`, `BATAATTI LILA USA`, `KUKKAKAALI LILA SUOMI`.
 
@@ -179,7 +179,9 @@ The five `ENUM` groups are present on all 17,535 products that have any classifi
 
 `unit` values across the whole group: **CONTAINS 15,610 values / 6,847 products · MAY_CONTAIN 9,956 / 2,685 · UNDECLARED 303 / 33.**
 
-⚠️ The schema documents only `CONTAINS` and `FREE_FROM`. In `allergen` the real values are **CONTAINS, MAY_CONTAIN and UNDECLARED** — `FREE_FROM` never appears here, it lives in `nonAllergen`. `UNDECLARED` (33 products) is a **fourth** state not mentioned in FINDINGS.md.
+⚠️ The schema documents only `CONTAINS` and `FREE_FROM`. In `allergen` the real values are **CONTAINS, MAY_CONTAIN and UNDECLARED** — `FREE_FROM` never appears here, it lives in `nonAllergen`. `UNDECLARED` (33 products) is a **fourth** state.
+
+Meanings of the relation values in GS1's level-of-containment code list (T4079) — Valio's use of them is to be confirmed with Valio: `CONTAINS` "Intentionally included in the product."; `MAY_CONTAIN` not intentionally included, but may be present through shared production; `UNDECLARED` "Not intentionally included in the product and assessed not to require a cross-contact declaration"; `FREE_FROM` "The product is free from the indicated substance."
 
 Full id list (all 44) with per-qualifier value counts:
 
@@ -230,7 +232,7 @@ Full id list (all 44) with per-qualifier value counts:
 | ADQ | 3 | 3 | — | — |
 | PN | 2 | 1 | 1 | — |
 
-The two-letter ids are the public **GS1 AllergenTypeCode** list (AM = milk, AW = cereals containing gluten, AE = egg, AN = nuts, AS = soy, …) — mappable from an external code list, not derivable from this file. **`X99` = "other/unspecified"**: 121 products assert they *contain* something unnamed. Any "safe for allergy X" claim must treat X99 as unknown, not clear. `ABD`/`ADQ` are 3-character outliers in an otherwise 2-character space.
+The two-letter ids are the public **GS1 AllergenTypeCode** list (AM = milk, AW = cereals containing gluten, AE = egg, AN = nuts, AS = sesame, AY = soy, …) — mappable from an external code list, not derivable from this file. **`X99`** is defined in GS1's allergen type code list (T4078) as "Does not contain declaration obligatory allergens in the product." It is on 121 products, always with `unit` `CONTAINS`; 120 of them carry no other allergen code, and 103 of those also have an empty `nonAllergen` group. Whether Valio uses the GS1 meaning is to be confirmed with them. `ABD`/`ADQ` are 3-character outliers in an otherwise 2-character space.
 
 ### 3.2 `nonAllergen` — 5,119 products, 40 ids, one qualifier
 
@@ -240,7 +242,7 @@ Full id list: UM 4,651 · AC 4,632 · NL 4,629 · AU 4,563 · BC 4,560 · AF 4,5
 
 Note the shape: a product that files a `nonAllergen` block typically files ~13 ids at once (the full EU-14 minus the ones it contains), which is why the top 14 ids all sit near 3,600–4,650.
 
-⚠️ **`X99` FREE_FROM (74 products) is meaningless** — "free from something unspecified".
+`X99` also appears here, on 74 products (`FREE_FROM`). GS1 defines `X99` as "Does not contain declaration obligatory allergens in the product." (§3.1); how Valio intends `X99` with `FREE_FROM` is to be confirmed with them.
 
 ### 3.3 The four-state allergen model
 
@@ -254,7 +256,7 @@ For a product *p* and allergen code *a*, exactly one of:
 | **FREE_FROM** | `nonAllergen` (always FREE_FROM) | 5,119 |
 | **SILENT** | neither group mentions *a* | — |
 
-**10,341 products (58.9%) have an empty `allergen` group**, and **12,427 (70.8%) have an empty `nonAllergen` group**. Silence is the default, and it is **not** evidence of absence. Only the 5,119 with `nonAllergen` can be *certified* free of anything.
+**10,341 products (58.9%) have an empty `allergen` group**, and **12,427 (70.8%) have an empty `nonAllergen` group**; **8,110 (46.2%) have neither group populated** — 30.6% of food products and 99.8% of non-food (category prefixes `63`/`64`/`20`/`90`). Silence is the default, and it is **not** evidence of absence. Only the 5,119 with `nonAllergen` can be *certified* free of anything.
 
 ### 3.4 `nutritionalClaim` — 7,618 products, 21 ids, 5 qualifiers
 
@@ -288,7 +290,7 @@ For a product *p* and allergen code *a*, exactly one of:
 
 ### 3.5 `packagingMarkedLabel` — 17,255 products, 19 ids, `unit` always absent
 
-`unit` is `null`/absent on all 23,582 values. Median 1 label per product, max 5.
+`unit` is absent on all 23,582 values. Median 1 label per product, max 5.
 
 | id | products |
 |---|---|
@@ -349,7 +351,7 @@ KI 14,157 · ST 9,832 · **PAL 8,303** · **KRS 5,288** · PAK 1,813 · BAG 1,24
 
 `PAL`, `KRS`, `ZML`, `DOL`, `KOR`, `PNT`, `MDO` appear only inside `units[]` (pallet / crate-stack / display levels), never as a `salesUnit` except `PAL` on 4 products. Translations are explicitly excluded from the dataset — and §5 shows you do not need them.
 
-### `temperatureCondition` — 10 values + null
+### `temperatureCondition` — 9 values, key absent on 61 products
 
 | code | products | dominant (min,max) °C | reading |
 |---|---|---|---|
@@ -364,7 +366,7 @@ KI 14,157 · ST 9,832 · **PAL 8,303** · **KRS 5,288** · PAK 1,813 · BAG 1,24
 | 6 | 10 (0.06%) | *(none)* 6; 4–20 2 | unclear |
 | 9 | 9 (0.05%) | mixed | unclear |
 
-**Evidence-based refinement of FINDINGS.md:** the code *does* correlate strongly with a temperature band — 1→2→3→4 is a monotone chilled ladder, 7 is frozen, 8 is ambient. What it does *not* do is map cleanly to `logisticModel`. Use codes 1–4 as "chilled", 7 as "frozen", 8 as "ambient" for *filtering*, but take actual limits from `min`/`maxTemperature` (available on only 58%) or the `warmTemperature`/`coolTemperature`/`freezeTemperature` labels in §3.5 (covered on 17,362 values).
+**Evidence-based refinement of an earlier `FINDINGS.md`:** the code *does* correlate strongly with a temperature band — 1→2→3→4 is a monotone chilled ladder, 7 is frozen, 8 is ambient. What it does *not* do is map cleanly to `logisticModel`. Use codes 1–4 as "chilled", 7 as "frozen", 8 as "ambient" for *filtering*, but take actual limits from `min`/`maxTemperature` (available on only 58%) or the `warmTemperature`/`coolTemperature`/`freezeTemperature` labels in §3.5 (covered on 17,362 values).
 
 ### `category` — 349 codes
 
@@ -393,9 +395,9 @@ All 349 match `^\d{5}$`. Median 32 products, p90 117, max 443, 4 singletons. Nam
 | 41753 | 146 | Frozen vegetarian patties & dumplings | Findus Falafel, Apetit Kasvispihvi, Mondo Fresco Vihannesnyytti |
 | 21380 | 140 | Dry pasta & macaroni | Barilla Fusilli, Torino suurkeittiömakaroni, Myllyn Paras Lasagne |
 
-Useful structural reads: the `1xxxx` block is Valio's own dairy (10400 drinking milk, 10402 plant drinks, 10412 yoghurt, 10600 cheese), `174xx`/`200xx` fresh produce, `41xxx` frozen/bakery, `2xxxx` ambient grocery, `52xxx` confectionery, `63xxx`/`64xxx` non-food HoReCa.
+Useful structural reads: the `104xx`/`106xx` codes are dairy (10400 drinking milk, 10402 plant drinks, 10412 yoghurt, 10600 cheese; Valio is the largest vendor there, not the only one), `174xx` fresh produce, `200xx` kitchen equipment, tableware and glassware (non-food), `41xxx` frozen/bakery, `21xxx`/`22xxx` ambient grocery, `52xxx` confectionery, `63xxx`/`64xxx` non-food HoReCa.
 
-### `countryOfOrigin` — 98 values, 9 products missing
+### `countryOfOrigin` — 97 values, 9 products missing
 
 fi 7,849 (44.73%) · de 1,029 · it 977 · se 874 · cn 741 · nl 659 · fr 599 · pl 431 · es 404 · be 383 · dk 379 · gb 289 · gr 271 · ee 249 · th 223 · **zy 179** · no 145 · at 141 · ch 114 · us 110 · in 108 · lv 95 · lt 86 · sk 77 · cz 73 · tr 72 · ro 69 · hu 62 · vn 59 · ph 55 · id 51 · br 49 · mx 46 · jp 33 · nz 31 · cy 31 · pt 30 · pe 28 · tw 26 · eg 25 · lk 25 · my 21, then a long tail of 1–16 each (za, ca, cr, ie, ma, gt, bg, il, ke, lu, au, ar, **xs 11**, kr, cl, ua, hr, si, ec, tn, sg, la, ae, **zz 5**, pk, mg, co, py, lb, jm, bf, cu, sv, gl, bd, ug, bo, gh, ci, mu, mw, is, dz, do, mm, kz, et, sc, mk, vc, az, ir, kh, ru, ht).
 
@@ -436,12 +438,12 @@ Schema says STANDARD = 25.5%, MEDIUM = 13.5%, LOW = 10%, and that **`tax.taxRate
 
 Nothing in this file states "litres per sales unit". You need it for "1,000 litres of milk". Three tiers, in descending confidence.
 
-### Tier 1 — `catalogPrice.value / comparisonPrice.value` from `/price` (**high confidence, ~77.5% available**)
+### Tier 1 — `catalogPrice.value / comparisonPrice.value` from `/price` (**high confidence, ~79.4% available**)
 
-The ratio of the per-sales-unit price to the per-comparison-unit price *is* the pack size in `comparisonUnit` (which the OpenAPI restricts to `KG` or `L`). Verified in FINDINGS: 1.0 for a 1 L `ST` carton, 10.015 for a `KI` crate of ten, 19.94 for a 2×10 L novobox, 3.7448 for 15×2.5 dl.
+The ratio of the per-sales-unit price to the per-comparison-unit price *is* the pack size in `comparisonUnit` (which the OpenAPI restricts to `KG` or `L`). Verified on saved responses (FINDINGS.md §4): 1.0 for a 1 L `ST` carton, 10.015 for a `KI` crate of ten, 19.94 for a 2×10 L novobox, 3.7448 for 15×2.5 dl.
 
 - Requires an API call → only usable *after* local filtering.
-- `comparisonPrice`/`comparisonUnit` are **missing on 22.5%** of products.
+- `comparisonPrice`/`comparisonUnit` are **missing on 20.6%** of products (206 of 1,000; random sample of 1,000, 2026-11-13 23:00).
 - Values are rounded to 2 dp → ~0.3% error; crate ratios land on 10.015, not 10.0. **Round to a plausible pack size, never treat as exact.**
 
 ### Tier 2 — static fields in this file
@@ -480,13 +482,13 @@ And the level tracks `salesUnit`: for `salesUnit == KI` it is `CASE` 6,071 / `BA
 
 `netWeight` — present on 9,786 (55.8%), and here the unit is clean: **GRM 9,297 / KGM 489, nothing else.** At BASE level: GRM 7,590 / KGM 422. `grossWeight` (14,288 GRM / 186 KGM) includes packaging — never use it for content quantity.
 
-**2b. `units[unitId == salesUnit].sizeInBaseUnits` (high confidence, 100% available) — the multiplier FINDINGS misses.**
+**2b. `units[unitId == salesUnit].sizeInBaseUnits` (high confidence, 100% available).**
 
 Available on **every** product, by the invariants in §1. It does not give litres; it gives *base units per sales unit* (1.0 on 62.4%, >1 on 6,602). Combine it with a per-base-unit quantity from `netWeight` or the name, and you get a per-sales-unit quantity with no API call. This is the piece that makes tier 2 usable rather than decorative.
 
 ### Tier 3 — parse the Finnish name (low confidence, 88.0% available)
 
-**15,437 fi names (88.0%)** contain a `\d+([.,]\d+)?\s*(kg|g|l|dl|cl|ml|kpl)` token (higher than the 81.2% in FINDINGS, which used a narrower token set — `kpl` and comma decimals matter). **1,910 (10.9%)** contain an `N x M unit` multipack pattern (`6 x Saarioinen Lihakaalilaatikko 380g`, `Vaasan Mini Vehnäpatonki 52x130g`, `8 x Frödinge ... 400g`).
+**15,437 fi names (88.0%)** contain a `\d+([.,]\d+)?\s*(kg|g|l|dl|cl|ml|kpl)` token (higher than the 81.2% in an earlier `FINDINGS.md`, which used a narrower token set — `kpl` and comma decimals matter). **1,910 (10.9%)** contain an `N x M unit` multipack pattern (`6 x Saarioinen Lihakaalilaatikko 380g`, `Vaasan Mini Vehnäpatonki 52x130g`, `8 x Frödinge ... 400g`).
 
 Parsing rules that the data forces on you:
 - Decimal comma (`2,6kg`, `0,33L`) and decimal point both occur.
@@ -562,7 +564,7 @@ def pack_size(product, price_row=None):
     return (None, None, None)
 ```
 
-Then **always** reconcile against `allowedLotSize` with `Decimal`, and refuse to quote any product with `variableUnit is True` (632 products) without human approval — a variable-weight product has no determinate quantity per unit by definition.
+Then **always** reconcile against `allowedLotSize` with `Decimal`, and flag any product with `variableUnit is True` (632 products) before quoting. 628 of them are sold in `KG`, and all 37 in the random sample of 1,000 (2026-11-13 23:00) are priced per kg (`catalogPrice.value == comparisonPrice.value`), so the unit price is known; the 4 whose file `salesUnit` is `KI` are priced per pack, not per kg (37-id extras call). What is open is whether the delivered weight equals the ordered weight — to be confirmed with Valio.
 
 ---
 
@@ -577,6 +579,7 @@ Then **always** reconcile against `allowedLotSize` with `Decimal`, and refuse to
 | Targets resolving to a catalog product | **250/250 (100%)** |
 | Targets with `deleted == true` | **0** (and the whole file has 0 deleted products) |
 | Same `category` | **230/250 (92.0%)** |
+| The 20 cross-`category` pairs, by shared prefix | 11 share the first 4 digits · 5 only the first 3 · 2 only the first 2 · 2 none |
 | Same `salesUnit` | 175 (70.0%) |
 | Same `vendorName` | 154 (61.6%) |
 | Same `brand` | 102 (40.8%) |
@@ -588,11 +591,13 @@ Then **always** reconcile against `allowedLotSize` with `Decimal`, and refuse to
 
 ### Directedness — correction to FINDINGS.md
 
-FINDINGS states the relation is directed with "no reverse edges". That is **not quite right**: 31 of the 125 unordered pairs are explicitly recorded in both directions. The accurate statement is **the relation is stored directed and is only partly symmetric** — 62 of 250 edges have their reverse present, 188 do not. You still need to symmetrise for two-way swaps, but don't assume a reverse edge is absent (and don't double-count the 31 that already exist).
+*This subsection refers to an earlier version of `FINDINGS.md` and is kept as history.*
+
+An earlier `FINDINGS.md` stated the relation is directed with "no reverse edges". That is **not quite right**: 31 of the 125 unordered pairs are explicitly recorded in both directions. The accurate statement is **the relation is stored directed and is only partly symmetric** — 62 of 250 edges have their reverse present, 188 do not. You still need to symmetrise for two-way swaps, but don't assume a reverse edge is absent (and don't double-count the 31 that already exist).
 
 ### Deliverability of targets
 
-Nothing in the static file marks a target as undeliverable, and all 250 exist and are not deleted. But FINDINGS trap 5 found **~14% of products return empty `scheduleLines`** (= undeliverable) from `/availability`, and that signal exists **only in the API**. So: *targets are all valid catalog entries; whether any given target is actually orderable is unknowable from this file.* Any substitution flow must re-check the target against `/availability` before offering it.
+Nothing in the static file marks a target as undeliverable, and all 250 exist and are not deleted. But **20.3% of products returned empty `scheduleLines`** (= undeliverable) from `/availability` in the random sample of 1,000 (2026-11-13 23:00), and that signal exists **only in the API**. So: *targets are all valid catalog entries; whether any given target is actually orderable is unknowable from this file.* Any substitution flow must re-check the target against `/availability` before offering it.
 
 ### Chains exist and they are shallow but real
 
@@ -731,9 +736,14 @@ WHERE c.claim = 'FREE_FROM_LACTOSE' AND p.category = '10400';
 
 ### 7.3 Allergen safety with the four-state model
 
+The plan's buyer exclusion rule ([PLAN.md](../PLAN.md) §7): an explicit `FREE_FROM` passes automatically, a declared `CONTAINS` is rejected, and `MAY_CONTAIN`, `UNDECLARED` or no statement goes to a human. The sample below only returns the set that passes automatically.
+
 ```python
 SAFE_STATES = {"FREE_FROM"}                      # certifiable
 UNSAFE      = {"CONTAINS", "MAY_CONTAIN", "UNDECLARED"}
+# UNDECLARED is kept on the excluded side pending confirmation from Valio, not because it
+# means "contains": GS1 (T4079) defines it as "Not intentionally included in the product
+# and assessed not to require a cross-contact declaration".
 
 def allergen_state(con, pid, code):
     """-> 'FREE_FROM'|'CONTAINS'|'MAY_CONTAIN'|'UNDECLARED'|'SILENT'"""
@@ -741,12 +751,12 @@ def allergen_state(con, pid, code):
                     (pid, code)).fetchone()
     return r[0] if r else "SILENT"
 
-def filter_by_allergen(con, pids, code, *, strictness="certified"):
+def filter_by_allergen(con, pids, code, *, strictness):   # required: the plan gives strictness no default
     """strictness:
        'certified'  -> only explicit FREE_FROM. Safe. Max 5,119 candidates.
        'permissive' -> FREE_FROM or SILENT. Covers the catalog but is NOT a
-                       safety claim: 58.9% of products file no allergen data,
-                       and silence is not evidence of absence.
+                       safety claim: 46.2% of products have neither allergen group
+                       populated, and silence is not evidence of absence.
     """
     out = []
     for pid in pids:
@@ -761,7 +771,7 @@ def filter_by_allergen(con, pids, code, *, strictness="certified"):
 
 Two rules that follow from the data and should be surfaced in any UI:
 1. **`MAY_CONTAIN` is not safe.** A filter written against the two schema-documented values (`CONTAINS`, `FREE_FROM`) silently passes 2,685 products that declare possible traces.
-2. **`X99` means "other, unspecified"** — 121 CONTAINS and 74 FREE_FROM. A product with `X99` CONTAINS can never be certified free of anything; `X99` FREE_FROM certifies nothing.
+2. **`X99` is not an unnamed allergen.** GS1's allergen type code list (T4078) defines it as "Does not contain declaration obligatory allergens in the product." It is on 121 products in `allergen` (120 of them with no other allergen code) and on 74 in `nonAllergen`. Whether Valio uses the GS1 meaning is to be confirmed with them.
 
 ### 7.4 Candidate substitutes for a product id
 
@@ -806,21 +816,21 @@ def candidates(con, pid, *, limit=25):
     return sorted(derived, reverse=True)[:limit], explicit
 ```
 
-Then call `/availability` **once**, batched, on the shortlist (≤1,000 ids per request) — and reject any candidate whose `scheduleLines` comes back empty.
+Then call `/availability` **once**, batched, on the shortlist (≤1,000 ids per request), and classify every candidate with the six states of [PLAN.md](../PLAN.md) §2. The plan widens candidates beyond this sample: same category, then the same first 4 digits, then the same first 3 (§7), and variable-weight candidates go to a human rather than being dropped.
 
 ---
 
-## 8. Traps specific to this file
+## 8. Parsing pitfalls specific to this file
 
-Counts are products affected unless noted. API-side traps are in FINDINGS.md; these are file-side.
+Counts are products affected unless noted. API-side behaviour is in `FINDINGS.md` and [API.md](API.md); these are file-side.
 
 | # | Trap | Affected |
 |---|---|---|
 | 1 | **`synkkaData` has two shapes; 15 keys are *absent*, not empty.** `s["vatCode"]` raises `KeyError`. Always `.get()`. | **3,068** (17.49%) |
 | 2 | **`MAY_CONTAIN` is undocumented and pervasive.** A filter on the two schema values treats "may contain traces" as safe. | **2,685** |
-| 3 | **`UNDECLARED` is a fourth allergen qualifier**, documented nowhere (incl. FINDINGS.md). 303 values. | **33** |
-| 4 | **`X99` = "other/unspecified" allergen.** Blocks any certification claim. | 121 CONTAINS + 74 FREE_FROM |
-| 5 | **Allergen silence ≠ safe.** `allergen` group empty / `nonAllergen` group empty. | **10,341** / **12,427** |
+| 3 | **`UNDECLARED` is a fourth allergen qualifier**, not in the schema. 303 values. GS1 (T4079): "Not intentionally included in the product and assessed not to require a cross-contact declaration"; Valio's use to be confirmed. | **33** |
+| 4 | **`X99` is not an unnamed allergen.** GS1 (T4078): "Does not contain declaration obligatory allergens in the product." 120 of the 121 `allergen` carriers list no other allergen code. Valio's use to be confirmed. | 121 CONTAINS + 74 FREE_FROM |
+| 5 | **Allergen silence ≠ safe.** `allergen` group empty / `nonAllergen` group empty / both empty. | **10,341** / **12,427** / **8,110** (46.2%) |
 | 6 | **`unitConversions.volume.unit` is usually not a volume unit** (GRM 5,498, H87 1,500, KGM 875, MTR 8, and 6 space-joined compounds like `"KGM H87"`). Only 11.9% of volume rows are genuine volumes. | 7,899 of 8,970 volume rows |
 | 7 | **`unitConversions` has exactly one row**, and `synkkaPackagingType` varies — `CASE` on 6,249, so the weight is the *case*, not the consumer unit. Multiplying by `sizeInBaseUnits` then double-counts. | **6,259** (CASE+PALLET) |
 | 8 | **No pack-size signal at all** (no real volume, no netWeight, no parseable name token). | **1,660** (9.5%) |
@@ -830,7 +840,7 @@ Counts are products affected unless noted. API-side traps are in FINDINGS.md; th
 | 12 | **`variableUnit` is tri-state**: `true` 632, `false` 13,846, **absent 3,068**. `if not s.get("variableUnit")` conflates "fixed weight" with "unknown". | **3,700** |
 | 13 | **`allowedLotSize` fractional steps** (1.5 ×62, 1.8 ×17, 0.9 ×13, 1.6 ×14, 2.5 ×21, 3.35, 1.44, 0.15 …). Float rounding fails strict multiple checks. Use `Decimal`. | **674** real steps, ~200 fractional |
 | 14 | **GTIN is not a usable key.** `synkkaData.gtin` missing 3,068; `salesUnitGtin` missing 159; both missing 153; the two **differ on 6,867** (consumer vs sales unit — both correct); 27 `synkkaData.gtin` values are **shared by 54 products**. `id` is the only safe key (6 digits, 0 duplicates). | see cells |
-| 15 | **`nutritionalContent` vs `classifications.vitamin` use different ids**: `VITD-`/`VITC-` vs `VITD`/`VITC`. A naive join silently drops them. | 602 + 394 rows |
+| 15 | **`nutritionalContent` spells three vitamin ids two ways**: `VITD-` 602 / `VITD` 8, `VITC-` 394 / `VITC` 7, `VITE-` 223 / `VITE` 1. For these three, `classifications.vitamin` has only the hyphen-less spelling, on the same products, so a join on id drops nothing; aggregating by raw id splits each nutrient in two. | 602 + 394 + 223 hyphenated rows · 8 + 7 + 1 hyphen-less |
 | 16 | **`nutritionalClaim` qualifier is inconsistent** — HIGH_PROTEIN appears 403× HIGH / 14× DIET; FREE_FROM_GLUTEN 3,047 FREE_FROM / 2 DIET; LOW_FAT 109/1. Key on `id` alone. | 4 ids, 17 rows |
 | 17 | **`packagingMarkedLabel` mixes 3 temperature pseudo-labels into the certificate group** (17,362 of 23,582 values). Filter them before claiming "has an eco-label". | 10,057 / 4,060 / 3,245 |
 | 18 | **`countryOfOrigin` has non-ISO placeholders**: `zy` 179, `xs` 11, `zz` 5, plus 9 products with no value. | **204** |
@@ -846,4 +856,4 @@ Counts are products affected unless noted. API-side traps are in FINDINGS.md; th
 | 28 | **`FREE_FROM_LACTOSE` co-occurs with milk-allergen CONTAINS** (correct — lactose-free milk is dairy) and with non-zero `LACS` nutrition facts. Neither is a data error; both break naive cross-validation. | **1,485** / **503** |
 | 29 | **`deposits[].material` resolves to nothing.** 7 codes, 0 catalog matches, no price list → order totals for bottled goods are structurally incomplete. | **506** |
 | 30 | **`deleted` is always `false`** and `temperatureCondition`/`countryOfOrigin`/`salesUnitGtin` are optional but ~99.9% present — code that treats them as guaranteed fails on a handful of rows only in production. | 61 / 9 / 159 |
-| 31 | **Load cost**: `json.load` ≈15 s, ~2 GB RSS. Doing it per request, or inside a loop, is the single biggest performance mistake available here. | whole file |
+| 31 | **Load cost**: `json.load` ≈0.5 s, ~0.6–0.7 GB peak RSS (measured 2026-11-14, Python 3.13). Load it once per process, not per request or inside a loop. | whole file |
