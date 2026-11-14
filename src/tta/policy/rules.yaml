@@ -80,6 +80,8 @@ facts:
   # --- the option ---
   option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
   option.fill_ratio:              {type: ratio,    source: option, label: "the share of the quantity covered", note: "the lowest fill ratio over the request's lines"}
+  option.least_covered:           {type: string,   source: engine, label: "the least covered request line", note: "'the requested quantity' for a request of one line; else the quantity of the request line with the lowest fill ratio, the first one on a tie (task FIX-12b)"}
+  option.coverage_by_line:        {type: string,   source: engine, label: "what each request line gets", note: "covered of requested for each request line, the least covered first; with several lines each is named by its product type, name terms or products, read as data like line.name, and by its number; missing when the option carries no coverage"}
   option.valid_until:             {type: datetime, source: option, label: "the time the option is valid until"}
   option.expired:                 {type: bool,     source: engine, label: "the option's expiry", note: "valid_until at or before the clock, as a cut-off equal to the clock has passed; missing when the option carries no valid_until"}
   option.needed_by_check:         {type: enum,     source: option, label: "the needed-by check", values: [NOT_ASKED, MET, UNVERIFIED, NOT_MET], note: "the least favourable result of the option's constraint checks of kind NEEDED_BY; NOT_ASKED when it carries none, because the request gave no date"}
@@ -311,7 +313,7 @@ rules:
         - {fact: option.fill_ratio, op: lt, value: {fact: profile.min_fill_ratio}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "only {option.fill_ratio} of the requested quantity is covered, below the {profile.min_fill_ratio} minimum"
+    message: "only {option.fill_ratio} of {option.least_covered} is covered, below the {profile.min_fill_ratio} minimum (covered: {option.coverage_by_line})"
     authority:
       - text: "An option that covers less than {profile.min_fill_ratio} of the requested quantity goes to the purchasing manager."
     justification: "A partial fill changes what the kitchen can serve; below the buyer's threshold a person decides."

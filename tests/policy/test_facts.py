@@ -165,4 +165,6 @@ def test_p03_never_says_that_100_percent_is_below_the_100_percent_minimum(
     decision = engine.evaluate(option, ward, make_context())
 
     assert decision.rule_ids == ("P-03",)
-    assert decision.fired[0].sentence == "Only 99.9% of the requested quantity is covered, below the 100% minimum."
+    assert decision.fired[0].sentence == (
+        "Only 99.9% of the requested quantity is covered, below the 100% minimum (covered: 999.6 of 1,000 L)."
+    )

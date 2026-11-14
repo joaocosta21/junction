@@ -116,7 +116,10 @@ def find_substitutes(
         excluded=profile.excluded_allergens,
         strictness=profile.allergen_strictness if profile.excluded_allergens else None,
         needed_by=query.needed_by,
-        require_confirmed=False,  # every candidate is shown with its status; the offer applies confirmed-only
+        # The buyer's own rules, as its offer applies them: a candidate the offer would exclude is shown with
+        # the same reason and sentence and cannot be ordered (task FIX-12b). A substitute query has no
+        # request, so the profile's setting is the only source of confirmed-only here.
+        require_confirmed=profile.require_confirmed,
     )
     ranking = rank_substitutes(original, need, deps)
     return SubstituteResult(

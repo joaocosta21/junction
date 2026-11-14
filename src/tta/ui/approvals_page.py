@@ -5,12 +5,16 @@ before signing. Each card says why a human is needed, shows every option of the 
 and lets the approver approve (choosing an option) or reject with a note. The gateway decides whether this
 approver may: an agent is refused (F-06), and so is an approver who holds none of the roles still missing.
 
+Each line of an option shows the facts behind the rules that name it, above the buttons: the allergen findings that
+send it to a human and, for a substitute, what the buyer gives up and the claims it loses (FIX-12b, 4).
+
 A card's form says whom it was shown to. When another tab of the same browser has switched the approver in
 the meantime, the decision is refused rather than signed by someone who never saw the card (FIX-10, 6).
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -19,9 +23,9 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from tta.api.service import Gateway
-from tta.contracts.common import ApprovalStatus, DecisionKind, Identity
+from tta.contracts.common import AllergenOutcome, ApprovalStatus, DecisionKind, Identity
 from tta.contracts.errors import NotFound, TtaError
-from tta.contracts.offer import Offer
+from tta.contracts.offer import Offer, OfferLine, OfferOption, SubstituteInfo
 from tta.contracts.order import MAX_NOTE_LENGTH, Approval, DecisionRequest
 from tta.ui import security
 from tta.ui.run import Problem
@@ -43,6 +47,15 @@ SOMEONE_ELSE = "another approver"
 
 
 @dataclass(frozen=True)
+class LineFacts:
+    """One line of an option with what the approver accepts by signing it. Every text is data, escaped on the page."""
+
+    line: OfferLine
+    to_human: tuple[str, ...]  # the allergen findings that send the line to a human (a dietitian)
+    substitute: SubstituteInfo | None  # what a substitute gives up and the claims it loses
+
+
+@dataclass(frozen=True)
 class Card:
     """One pending approval as the chosen approver sees it."""
 
@@ -50,6 +63,21 @@ class Card:
     offer: Offer | None  # the offer the options come from; None when it can no longer be read
     can_decide: bool  # the chosen approver holds a role the approval still needs
     holders: tuple[Identity, ...]  # the demo approvers who hold a role that is still missing
+    lines: Mapping[str, tuple[LineFacts, ...]]  # by option id: each line of the option with its facts
+
+
+def line_facts(option: OfferOption) -> tuple[LineFacts, ...]:
+    """The facts behind the rules that name each line: the reasons name the rules, these are what they read."""
+    return tuple(
+        LineFacts(line=line, to_human=_to_human(line), substitute=line.substitute) for line in option.lines
+    )
+
+
+def _to_human(line: OfferLine) -> tuple[str, ...]:
+    check = line.allergen_check
+    if check is None:
+        return ()
+    return tuple(finding.sentence for finding in check.findings if finding.outcome is AllergenOutcome.TO_HUMAN)
 
 
 def _card(site: Site, service: Gateway, approver: Identity, approval: Approval) -> Card:
@@ -58,9 +86,11 @@ def _card(site: Site, service: Gateway, approver: Identity, approval: Approval) 
     except NotFound:
         offer = None
     missing = approval.roles_missing
+    options = offer.options if offer is not None else ()
     return Card(
         approval=approval, offer=offer, can_decide=any(role in approver.roles for role in missing),
         holders=site.holders(approval.profile_id, missing),
+        lines={option.option_id: line_facts(option) for option in options},
     )
 
 

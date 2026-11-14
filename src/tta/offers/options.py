@@ -7,15 +7,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from tta.availability.wording import format_amount
 from tta.contracts.common import AvailabilityState, CheckResult, OptionKind
 from tta.contracts.offer import ConstraintCheck, Coverage, OfferLine, OfferOption, SubstituteInfo, Totals
 from tta.contracts.policy import BuyerProfile, PolicyContext
-from tta.contracts.request import PurchaseRequest
+from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers.candidates import Need
 from tta.offers.checks import constraint_checks
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import coverage_of, lowest_fill_ratio, totals_of, valid_until_of
-from tta.offers.wording import counted, eur, measured, percent, plain_name
+from tta.offers.wording import counted, eur, line_label, line_words, measured, plain_name
 
 MAX_OPTIONS = 3
 # A product asked for comes before a stand-in for it. Only the net total comes after this in the ranking.
@@ -44,6 +45,7 @@ class _Assembled:
     totals: Totals
     coverage: tuple[Coverage, ...]
     checks: tuple[ConstraintCheck, ...]
+    asked: tuple[RequestLine, ...]
 
 
 def finish_options(
@@ -68,7 +70,9 @@ def finish_options(
 def _assemble(draft: Draft, request: PurchaseRequest, needs: Sequence[Need], deps: OfferDeps) -> _Assembled:
     coverage = coverage_of(request.lines, draft.lines)
     checks = constraint_checks(request, needs, draft.lines, coverage, deps.catalog)
-    return _Assembled(draft=draft, totals=totals_of(draft.lines), coverage=coverage, checks=checks)
+    return _Assembled(
+        draft=draft, totals=totals_of(draft.lines), coverage=coverage, checks=checks, asked=tuple(request.lines)
+    )
 
 
 def _rank_key(assembled: _Assembled) -> tuple[bool, int, int, int, Decimal]:
@@ -121,7 +125,8 @@ def _summary(assembled: _Assembled) -> str:
         kept = len(lines) > len(stand_ins)
         stands_in = "fills what is missing of" if kept else "in place of"
         text = f"{_names(stand_ins)} {stands_in} {originals}: {covered}, for {money}."
-    return text + (CEILING_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
+    notes = (CEILING_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
+    return text + _per_line(assembled.coverage, assembled.asked) + notes
 
 
 def _covered_phrase(coverage: Sequence[Coverage]) -> str:
@@ -131,10 +136,27 @@ def _covered_phrase(coverage: Sequence[Coverage]) -> str:
         if only.missing <= 0:
             return asked
         return f"{measured(only.covered, only.unit)} of {asked} ({measured(only.missing, only.unit)} missing)"
-    lowest = lowest_fill_ratio(coverage)
-    if lowest >= 1:
+    full = sum(entry.missing <= 0 for entry in coverage)
+    if full == len(coverage):
         return f"all {len(coverage)} request lines in full"
-    return f"the {len(coverage)} request lines, the least covered at {percent(lowest)}"
+    return f"{full or 'none'} of the {len(coverage)} request lines in full"
+
+
+def _per_line(coverage: Sequence[Coverage], asked: Sequence[RequestLine]) -> str:
+    """What each request line gets, the least covered first, when an option of several lines falls short on
+    one. Rule P-03 compares the lowest line's ratio and names the lines the same way (`tta.policy.coverage`)."""
+    if len(coverage) <= 1 or all(entry.missing <= 0 for entry in coverage):
+        return ""
+    least_first = sorted(coverage, key=lambda entry: (entry.fill_ratio, entry.request_line_index))
+    return f" Covered: {'; '.join(_line_covered(entry, asked[entry.request_line_index]) for entry in least_first)}."
+
+
+def _line_covered(entry: Coverage, asked: RequestLine) -> str:
+    """`0 of 10 kg of butter, request line 2`."""
+    words = line_words(asked)
+    named = f" of {words}" if words else ""
+    label = line_label(entry.request_line_index).lower()
+    return f"{format_amount(entry.covered)} of {measured(entry.requested, entry.unit)}{named}, {label}"
 
 
 def _names(lines: Iterable[OfferLine]) -> str:

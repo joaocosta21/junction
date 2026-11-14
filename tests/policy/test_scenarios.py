@@ -68,7 +68,7 @@ def test_canonical_option_is_explained_in_one_sentence_with_the_numbers_and_the_
     assert decision.sentence == (
         "The agent cannot place this order alone: the total of €1,980.77 before tax is above the €750 limit "
         "per order of profile hotel-kitchen (P-01) and only 74.9% of the requested quantity is covered, below "
-        "the 90% minimum (P-03). It needs the purchasing manager."
+        "the 90% minimum (covered: 749 of 1,000 L) (P-03). It needs the purchasing manager."
     )
     assert decision.fired[0].sentence == (
         "The total of €1,980.77 before tax is above the €750 limit per order of profile hotel-kitchen."
@@ -76,7 +76,10 @@ def test_canonical_option_is_explained_in_one_sentence_with_the_numbers_and_the_
     assert decision.fired[0].facts == {
         "option.net_eur": 1980.77, "profile.max_order_net_eur": 750.0, "profile.profile_id": "hotel-kitchen",
     }
-    assert decision.fired[1].facts == {"option.fill_ratio": 0.749, "profile.min_fill_ratio": 0.9}
+    assert decision.fired[1].facts == {
+        "option.fill_ratio": 0.749, "profile.min_fill_ratio": 0.9, "option.least_covered": "the requested quantity",
+        "option.coverage_by_line": "749 of 1,000 L",
+    }
 
 
 def test_unconfirmed_alternative_goes_to_a_human_by_f01_and_p01(

@@ -3,16 +3,39 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
+from markupsafe import escape
 
-from tta.contracts.common import ApprovalStatus, OrderStatus, PlacedBy
+from tta.contracts.common import AllergenOutcome, AllergenStrictness, ApprovalStatus, OrderStatus, PlacedBy, Unit
+from tta.contracts.offer import Offer
+from tta.contracts.request import PurchaseRequest, RequestLine
 
 Post = Callable[..., Any]
 Identities = Callable[..., Any]
 HANNA = "human:hotel-purchasing"
 NOTE = 'Use the cheaper one <img src=x onerror="alert(1)">'
+MONDAY = date(2026, 11, 16)
+# The ward asks for an oat drink it cannot order (it states nothing about milk): the offer is a substitute (P-05).
+WARD_SUBSTITUTE = PurchaseRequest(
+    needed_by=MONDAY,
+    lines=(RequestLine(text="100 L of 473609", product_ids=("473609",), quantity=Decimal(100), unit=Unit.L),),
+)
+# The hotel excludes milk and gluten for one request: 475224 states nothing about milk and declares oats (P-04).
+HOTEL_NO_MILK_NO_GLUTEN = PurchaseRequest(
+    needed_by=MONDAY,
+    lines=(
+        RequestLine(
+            text="100 L of 475224, no milk, no gluten", product_ids=("475224",), quantity=Decimal(100), unit=Unit.L,
+            exclude_allergens=("AM", "AW"), allergen_strictness=AllergenStrictness.STRICT,
+        ),
+    ),
+)
+HOSTILE = '<script>alert("trade-off")</script>'
 
 
 def _pending(client: TestClient, identities: Identities, approver_id: str = HANNA) -> Any:
@@ -198,3 +221,95 @@ def test_the_decision_form_carries_the_approver_it_was_shown_to(
     form = page[page.index('class="decision"'):]
 
     assert 'name="shown_to" value="human:hotel-purchasing"' in form
+
+
+# --- FIX-12b: the facts behind the rules, above the buttons -------------------------------------------------
+
+def _order_as(client: TestClient, identities: Identities, own_book: Callable[..., Any], agent_id: str,
+              request: PurchaseRequest) -> Offer:
+    """An order placed in this browser's book by the agent, through the gateway's own functions."""
+    service = own_book(client).service
+    agent = identities(client)[agent_id]
+    offer = service.create_offer(agent, request)
+    order = service.place_order(agent, offer.offer_id, offer.options[0].option_id, f"fix12b-{agent_id}")
+    assert order.status is OrderStatus.PENDING_APPROVAL
+    return offer
+
+
+def _before_the_buttons(page: str, text: str) -> bool:
+    form = page.index('class="decision"')
+    return form < page.index(text) < page.index('value="APPROVE"')
+
+
+def test_a_substitute_card_shows_what_is_given_up_above_the_buttons(
+    client: TestClient, identities: Identities, own_book: Callable[..., Any], act_as: Post
+) -> None:
+    offer = _order_as(client, identities, own_book, "agent:allergy-ward", WARD_SUBSTITUTE)
+    substitute = offer.options[0].lines[0].substitute
+    assert substitute is not None
+
+    page = act_as(client, "human:ward-purchasing").text
+
+    assert _before_the_buttons(page, str(escape(substitute.gives_up)))
+    assert _before_the_buttons(page, "In place of")
+    assert "Claims it loses" not in page  # the rice drink keeps every dietary claim of the oat drink
+
+
+def test_a_card_sent_to_the_dietitian_shows_the_allergen_findings_above_the_buttons(
+    client: TestClient, identities: Identities, own_book: Callable[..., Any], act_as: Post
+) -> None:
+    offer = _order_as(client, identities, own_book, "agent:hotel-kitchen", HOTEL_NO_MILK_NO_GLUTEN)
+    check = offer.options[0].lines[0].allergen_check
+    assert check is not None
+    to_human = [finding.sentence for finding in check.findings if finding.outcome is AllergenOutcome.TO_HUMAN]
+
+    page = act_as(client, "human:hotel-dietitian").text
+
+    assert len(to_human) == 2
+    assert all(_before_the_buttons(page, str(escape(sentence))) for sentence in to_human)
+
+
+def test_an_option_whose_lines_need_no_human_shows_no_trade_off(
+    client: TestClient, run_example: Post
+) -> None:
+    run_example(client, "scenario-1")
+
+    page = client.get("/approvals").text
+
+    assert "In place of" not in page and "a dietitian must decide" not in page
+
+
+@pytest.mark.parametrize("field", ["gives_up", "claims_lost", "finding"])
+def test_the_trade_off_is_escaped(
+    field: str, client: TestClient, identities: Identities, own_book: Callable[..., Any], act_as: Post,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = WARD_SUBSTITUTE if field != "finding" else HOTEL_NO_MILK_NO_GLUTEN
+    agent = "agent:allergy-ward" if field != "finding" else "agent:hotel-kitchen"
+    approver = "human:ward-purchasing" if field != "finding" else "human:hotel-dietitian"
+    offer = _order_as(client, identities, own_book, agent, request)
+    service = own_book(client).service
+    monkeypatch.setattr(service, "get_offer", lambda _identity, _offer_id: _hostile(offer, field))
+
+    page = act_as(client, approver).text
+
+    assert HOSTILE not in page
+    assert _before_the_buttons(page, str(escape(HOSTILE)))
+
+
+def _hostile(offer: Offer, field: str) -> Offer:
+    """The offer with hostile text in one fact the card shows: text from the product file is untrusted."""
+    option = offer.options[0]
+    line = option.lines[0]
+    if field == "finding":
+        assert line.allergen_check is not None
+        findings = tuple(
+            finding.model_copy(update={"sentence": HOSTILE}) for finding in line.allergen_check.findings
+        )
+        check = line.allergen_check.model_copy(update={"findings": findings})
+        changed = line.model_copy(update={"allergen_check": check})
+    else:
+        assert line.substitute is not None
+        value: Any = HOSTILE if field == "gives_up" else (HOSTILE,)
+        changed = line.model_copy(update={"substitute": line.substitute.model_copy(update={field: value})})
+    return offer.model_copy(update={"options": (option.model_copy(update={"lines": (changed,)}),)})

@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from tta.availability.wording import format_amount
-from tta.contracts.common import AvailabilityState, ExclusionReason
+from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason
 from tta.contracts.product import PackSize
 from tta.offers.candidates import price_problem
 from tta.offers.wording import UNIT_WORDS, eur, plain_name
@@ -14,6 +14,15 @@ from tta.offers.wording import UNIT_WORDS, eur, plain_name
 if TYPE_CHECKING:
     from tta.offers.substitutes import Judged, Ranking
 
+# Reasons that come from the buyer's own rules, not from the product or the supplier (SPEC section 5): the
+# offer of this buyer excludes the product for the same reason.
+BUYER_RULE_REASONS = frozenset(
+    {
+        ExclusionReason.ALLERGEN_NOT_STATED,
+        ExclusionReason.QUANTITY_NOT_CONFIRMED,
+        ExclusionReason.DELIVERY_DATE_NOT_CONFIRMED,
+    }
+)
 NOTHING_GIVEN_UP = (
     "Compared with the product asked for, nothing the data shows is given up: same category, "
     "same pack size, listed by Valio as its substitute, and not dearer."
@@ -29,9 +38,20 @@ def why(judged: Judged) -> str:
     lacks = ""
     if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict
         lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
+    if judged.reason in BUYER_RULE_REASONS:
+        return f"It adds no allergen, but this buyer's rules exclude it. {judged.reason_sentence}{lacks}"
     if judged.reason is not None:
         return f"It adds no allergen, but it cannot be ordered now. {judged.reason_sentence}{lacks}"
-    return f"{judged.rule.sentence} {judged.candidate.assessment.sentence}{lacks}"
+    return f"{judged.rule.sentence} {judged.candidate.assessment.sentence}{_to_a_human(judged)}{lacks}"
+
+
+def _to_a_human(judged: Judged) -> str:
+    """The findings of the buyer's allergen rule that send the candidate to a dietitian, as the offer would."""
+    check = judged.candidate.allergen_check
+    if check is None:
+        return ""
+    sentences = [finding.sentence for finding in check.findings if finding.outcome is AllergenOutcome.TO_HUMAN]
+    return "".join(f" {sentence}" for sentence in sentences)
 
 
 def gives_up(judged: Judged, ranking: Ranking) -> str:

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import unicodedata
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from tta.availability.wording import format_amount
 from tta.contracts.common import ExclusionReason, Unit, round_money
+from tta.contracts.request import RequestLine
 
 EURO_SIGN = "€"
 UNIT_WORDS = {Unit.L: "L", Unit.KG: "kg", Unit.UNIT: "sales units"}
@@ -20,7 +21,6 @@ APOSTROPHE = "'"
 # Unicode categories Cc (control: line breaks, tabs) and Cf (format: bidirectional overrides, zero width),
 # and the rest of the "other" group (surrogates, private use, unassigned).
 _NOT_SHOWN = "C"
-_TENTH_OF_A_PERCENT = Decimal("0.1")
 
 
 def eur(value: Decimal) -> str:
@@ -31,11 +31,6 @@ def eur(value: Decimal) -> str:
 def measured(value: Decimal, unit: Unit) -> str:
     """`1,000 L`, `30 kg`, `24 sales units`."""
     return f"{format_amount(value)} {UNIT_WORDS[unit]}"
-
-
-def percent(ratio: Decimal) -> str:
-    """`74.9%`."""
-    return f"{(ratio * 100).quantize(_TENTH_OF_A_PERCENT, rounding=ROUND_HALF_UP)}%"
 
 
 def counted(count: int, noun: str) -> str:
@@ -80,3 +75,27 @@ def listed(ids: Sequence[str]) -> str:
 def line_label(index: int) -> str:
     """`Request line 1` for index 0."""
     return f"Request line {index + 1}"
+
+
+def joined(items: Sequence[str]) -> str:
+    """`a`, `a and b`, `a, b and c`."""
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def line_words(line: RequestLine) -> str:
+    """What a request line asked for: its product type, else its name terms, else the products it named.
+
+    The policy names a line the same way from the subjects of its constraint checks (`tta.policy.coverage`),
+    so the option summary and rule P-03 read alike.
+    """
+    if line.product_type:
+        return line.product_type.replace("_", " ")
+    terms = tuple(plain_name(term) for term in dict.fromkeys(line.name_terms))
+    if terms:
+        return f"{APOSTROPHE}{' '.join(terms)}{APOSTROPHE}"
+    ids = tuple(dict.fromkeys(line.product_ids))
+    if not ids:
+        return ""
+    return f"product {ids[0]}" if len(ids) == 1 else f"products {joined(ids)}"

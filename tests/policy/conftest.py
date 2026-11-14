@@ -32,7 +32,7 @@ from tta.contracts.common import (
     Unit,
     round_money,
 )
-from tta.contracts.offer import ConstraintCheck, OfferLine, OfferOption, SubstituteInfo, Totals
+from tta.contracts.offer import ConstraintCheck, Coverage, OfferLine, OfferOption, SubstituteInfo, Totals
 from tta.contracts.policy import BuyerProfile, PolicyContext
 from tta.contracts.product import PackSize
 from tta.policy import PROFILES_DIR, RULES_PATH, RulePolicyEngine
@@ -42,6 +42,7 @@ NOW = datetime(2026, 11, 14, 2, 52, tzinfo=timezone(timedelta(hours=2)))
 # The Monday after the capture: the date of the canonical request (AIMO/CHALLENGE.md).
 NEEDED_BY = "2026-11-16"
 TAX_RATE = Decimal("14")
+REQUESTED_LITRES = Decimal(1000)  # the one request line of a test option, which covers `fill_ratio` of it
 _UNSET: Any = object()
 
 
@@ -218,9 +219,12 @@ def make_option(make_line: Callable[..., OfferLine]) -> Callable[..., OfferOptio
         excludes_deposits: bool = False,
         needed_by: CheckResult | None = CheckResult.MET,
     ) -> OfferOption:
-        """An option of a request dated `NEEDED_BY`, which it meets. `needed_by=None`: the request gave no date."""
+        """An option of a one-line request dated `NEEDED_BY`, which it meets. `needed_by=None`: the request gave
+        no date. The line asks for 1,000 L and the option covers `fill_ratio` of it."""
         total = Decimal(net)
         tax = round_money(total * TAX_RATE / 100)
+        ratio = Decimal(fill_ratio)
+        covered = REQUESTED_LITRES * ratio
         return OfferOption(
             option_id="opt_1",
             kind=kind,
@@ -231,7 +235,13 @@ def make_option(make_line: Callable[..., OfferLine]) -> Callable[..., OfferOptio
             totals=Totals(
                 net=total, tax=tax, gross=total + tax, excludes_deposits=excludes_deposits, is_ceiling=is_ceiling
             ),
-            fill_ratio=Decimal(fill_ratio),
+            coverage=(
+                Coverage(
+                    request_line_index=0, requested=REQUESTED_LITRES, covered=covered, unit=Unit.L, fill_ratio=ratio,
+                    missing=REQUESTED_LITRES - covered,
+                ),
+            ),
+            fill_ratio=ratio,
             valid_until=NOW + timedelta(days=1) if valid_until is _UNSET else valid_until,
             constraint_checks=() if needed_by is None else (
                 ConstraintCheck(

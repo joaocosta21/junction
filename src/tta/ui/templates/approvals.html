@@ -68,8 +68,18 @@ option of the same offer, or rejects. An agent can never approve: the gateway re
         <span class="option-title">{{ option.title }}</span>
         <span class="total"><strong>{{ option.totals.net|money }}</strong> before tax</span>
         <span class="summary">{{ option.summary }}</span>
-        {% for line in option.lines %}
+        {% for facts in card.lines[option.option_id] %}
+        {% set line = facts.line %}
         <span class="line-head">{{ line.quantity|quantity }} × {{ line.name }} <span class="id">({{ line.product_id }})</span></span>
+        {% for sentence in facts.to_human %}
+        <span class="summary trade-off">{{ mark("warn", "Allergen") }} {{ sentence }}</span>
+        {% endfor %}
+        {% if facts.substitute %}
+        <span class="summary trade-off">{{ mark("warn", "Substitute") }} In place of {{ facts.substitute.original_name or "the product asked for" }} ({{ facts.substitute.original_id }}). {{ facts.substitute.gives_up }}</span>
+        {% if facts.substitute.claims_lost %}
+        <span class="summary trade-off">Claims it loses: {{ facts.substitute.claims_lost|join(", ") }}</span>
+        {% endif %}
+        {% endif %}
         {% endfor %}
         {% if option.decision %}
         <span class="sentence">{{ mark(option.decision.verdict|tone, option.decision.verdict|words) }} {{ option.decision.sentence }}</span>

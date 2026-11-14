@@ -119,10 +119,12 @@ def test_between_options_that_fit_alike_the_lower_net_total_ranks_first(
     option = best(build([price(A, "2.48")], [stock(A, 1500)]))
     cheaper = _Assembled(
         draft=Draft(option.kind, option.lines), totals=option.totals, coverage=option.coverage,
-        checks=option.constraint_checks,
+        checks=option.constraint_checks, asked=(),
     )
     dearer_totals = option.totals.model_copy(update={"net": option.totals.net + 1})
-    dearer = _Assembled(draft=cheaper.draft, totals=dearer_totals, coverage=cheaper.coverage, checks=cheaper.checks)
+    dearer = _Assembled(
+        draft=cheaper.draft, totals=dearer_totals, coverage=cheaper.coverage, checks=cheaper.checks, asked=()
+    )
 
     assert sorted([dearer, cheaper], key=_rank_key) == [cheaper, dearer]
 

@@ -100,7 +100,10 @@ def test_a_request_line_with_no_product_is_reported_in_the_option_and_in_the_not
     assert found[(1, ConstraintKind.PACK, "BULK")] is CheckResult.NOT_MET
     assert found[(0, ConstraintKind.QUANTITY, "100 L")] is CheckResult.MET
     assert option.fill_ratio == 0
-    assert "least covered at 0.0%" in option.summary
+    assert "covers 1 of the 2 request lines in full" in option.summary
+    assert option.summary.endswith(
+        "Covered: 0 of 30 kg of beef chuck, request line 2; 100 of 100 L of milk, request line 1."
+    )
     assert any(note.startswith("Request line 2: no product can be offered") for note in offer.notes)
     assert "P-03" in option.decision.rule_ids
 

@@ -35,6 +35,7 @@ from tta.policy.claims import (
     needed_by_result,
     unconfirmed_reasons,
 )
+from tta.policy.coverage import coverage_by_line, least_covered
 from tta.policy.text import format_datetime, join_words, plain_name, unique
 
 
@@ -146,6 +147,11 @@ def _needed_by_finding(scope: OrderScope) -> Reading:
     return words if words is not None else Missing("the needed-by date is met, or the request gave none")
 
 
+def _coverage_by_line(scope: OrderScope) -> Reading:
+    words = coverage_by_line(scope.option)  # what each request line gets, the least covered first
+    return words if words is not None else Missing("the option carries no coverage per request line")
+
+
 def _day_committed(scope: OrderScope) -> Reading:
     committed = scope.context.day_committed_net_eur
     if committed is None:
@@ -207,6 +213,8 @@ def _stale_reason(scope: OrderScope) -> Reading:
 ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "option.net_eur": lambda scope: scope.option.totals.net,
     "option.fill_ratio": lambda scope: scope.option.fill_ratio,
+    "option.least_covered": lambda scope: least_covered(scope.option),
+    "option.coverage_by_line": _coverage_by_line,
     "option.valid_until": _valid_until,
     "option.expired": _expired,
     "option.needed_by_check": _needed_by_check,

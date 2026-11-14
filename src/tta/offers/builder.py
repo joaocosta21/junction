@@ -8,12 +8,16 @@ from __future__ import annotations
 import uuid
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import replace
+from datetime import datetime
 
+from tta.availability.wording import format_day
+from tta.contracts.common import ExclusionReason
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
 from tta.contracts.request import PurchaseRequest, RequestLine
-from tta.offers.candidates import Found, Need, evaluate, exclusion_for, find_products, need_for
+from tta.offers.candidates import Candidate, Found, Need, evaluate, exclusion_for, find_products, need_for
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
@@ -33,10 +37,12 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
     needs = tuple(need_for(index, line, request, profile) for index, line in enumerate(request.lines))
     found = tuple(find_products(line, deps.catalog) for line in request.lines)
     lookup = look_up(deps, (product.id for each in found for product in each.products))
-    outcomes = tuple(
+    judged = tuple(
         _judge_line(need, asked, each, lookup, deps.catalog)
         for need, asked, each in zip(needs, request.lines, found, strict=True)
     )
+    outcomes = tuple(outcome for outcome, _ in judged)
+    late = tuple(candidates for _, candidates in judged)
     plan = plan_options(outcomes, lookup.now, deps)
     options = finish_options(plan.drafts, request, needs, profile, deps, lookup.now)
     return Offer(
@@ -51,15 +57,20 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         source=lookup.source,
         time_now=lookup.now,
         notes=(
-            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options), *_empty_notes(outcomes, options)
+            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options),
+            *_empty_notes(outcomes, late, options, lookup.now),
         ),
     )
 
 
-def _judge_line(need: Need, asked: RequestLine, found: Found, lookup: Lookup, catalog: Catalog) -> LineOutcome:
-    """Classify each candidate and run the allergen check; what drops out gets a reason and a sentence."""
+def _judge_line(
+    need: Need, asked: RequestLine, found: Found, lookup: Lookup, catalog: Catalog
+) -> tuple[LineOutcome, tuple[Candidate, ...]]:
+    """Classify each candidate and run the allergen check; what drops out gets a reason and a sentence.
+    Also returns the candidates that dropped out for arriving after the needed-by date."""
     fitting = []
     excluded = []
+    late = []
     for product in found.products:
         candidate = evaluate(product, need, lookup, catalog)
         dropped = exclusion_for(candidate, need, lookup.now)
@@ -67,15 +78,18 @@ def _judge_line(need: Need, asked: RequestLine, found: Found, lookup: Lookup, ca
             fitting.append(candidate)
             continue
         reason, sentence = dropped
+        if reason is ExclusionReason.LATE_FOR_NEEDED_BY:
+            late.append(candidate)
         excluded.append(
             Exclusion(
                 product_id=product.id, name=product.display_name, request_line_index=need.index, reason=reason,
                 sentence=sentence,
             )
         )
-    return LineOutcome(
+    outcome = LineOutcome(
         need=need, asked=asked, considered=len(found.products), fitting=tuple(fitting), excluded=tuple(excluded)
     )
+    return outcome, tuple(late)
 
 
 def _search_notes(found: Sequence[Found]) -> tuple[str, ...]:
@@ -100,13 +114,48 @@ def _unused_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption
     return tuple(notes)
 
 
-def _empty_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption]) -> tuple[str, ...]:
-    """Why a request line has no product in any option, and that there is no option at all."""
+def _empty_notes(
+    outcomes: Sequence[LineOutcome], late: Sequence[tuple[Candidate, ...]], options: Sequence[OfferOption],
+    now: datetime,
+) -> tuple[str, ...]:
+    """Why a request line has no product in any option, the earliest date a late product could make, and that
+    there is no option at all."""
     offered = {line.request_line_index for option in options for line in option.lines}
-    notes = [_nothing_for(outcome) for outcome in outcomes if outcome.need.index not in offered and outcome.considered]
+    notes: list[str] = []
+    for outcome, arrive_later in zip(outcomes, late, strict=True):
+        if outcome.need.index in offered or not outcome.considered:
+            continue
+        notes.append(_nothing_for(outcome))
+        notes.extend(_earliest_date(outcome.need, arrive_later, now))
     if not options:
         notes.append(NO_OPTION_NOTE)
     return tuple(notes)
+
+
+def _earliest_date(need: Need, arrive_later: Sequence[Candidate], now: datetime) -> tuple[str, ...]:
+    """When nothing of a dated line arrives in time: the earliest delivery date among the products that would
+    fit on their own date, and which products make it, so the buyer can decide (task FIX-12b).
+
+    A product counts only when it passes every other check with its own date as the needed-by date: one with
+    no price, or one that confirmed-only would leave out, is not named.
+    """
+    if need.needed_by is None:
+        return ()
+    fits = [
+        (day, candidate.product.id)
+        for candidate in arrive_later
+        if (day := candidate.assessment.available_date) is not None
+        and exclusion_for(candidate, replace(need, needed_by=day), now) is None
+    ]
+    if not fits:
+        return ()
+    earliest = min(day for day, _ in fits)
+    ids = [product_id for day, product_id in fits if day == earliest]
+    return (
+        f"{line_label(need.index)}: nothing can arrive by {format_day(need.needed_by)}. The earliest delivery date "
+        f"in Valio's data for a product that otherwise fits is {format_day(earliest)}, for "
+        f"{counted(len(ids), 'product')}: {listed(ids)}.",
+    )
 
 
 def _nothing_for(outcome: LineOutcome) -> str:
