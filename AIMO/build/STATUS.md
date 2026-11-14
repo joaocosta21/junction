@@ -33,7 +33,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
 | FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | done | 251 API tests; all 14 findings fixed; `/mcp` and `/v1` exact paths |
 | T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | done | 148 tests; `gemini-3.8-flash` 504 every time, `gemini-3.6-flash` answers (now the default); first real recording (scenario 1) |
-| FIX-9 | Agent: proposals checked against the text, no lost order, readings labelled, outage remembered | T10 | running | |
+| FIX-9 | Agent: proposals checked against the text, no lost order, readings labelled, outage remembered | T10 | done | 294 agent tests, 99% coverage; all nine findings fixed |
 | FIX-10 | Pages and API: a private sandbox per browser, per-visitor limits by kind, honest labels, no double order | T09 T12 | running | |
 
 ## Log
@@ -75,6 +75,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:22 T15 done and committed (10 standards checked against their specification pages; 74 assumptions on the page). Flagged for the team: the four partner data files are tracked in the repository, which will be public.
 - 08:33 T14 files committed: secret of three values read at deploy time, image without `.env`, SQLite on local disk with a copy on the Volume. Final review round: silent-failure report in (2 high: a second order when a run fails after placing one; a reading from a recording not labelled as such); two reports to come.
 - 08:38 T16 final round back: no critical finding; 6 high (shared order book; one visitor can fill the global ceilings; spoofable forwarded address; a second order on resend after a failure; a recorded reading not labelled; the model's quantity, date and exclusions not checked against the text). Decided: a private sandbox per browser for the pages; per-visitor limits by kind; the deployed budget at 120 live calls, so the night's total stays within the 150 approved. FIX-9 (agent) and FIX-10 (pages and API) started.
+- 09:13 FIX-9 done and committed.
 
 ## Live API calls used
 10 of 150 (T00 capture 2, T01 live check 2, T13 live run 6)
