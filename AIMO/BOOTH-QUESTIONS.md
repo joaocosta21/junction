@@ -279,6 +279,13 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "We take `comparisonPrice` to be `catalogPrice` divided by the content of one sales unit (drained weight where there is one), rounded to cents. Is that expected, or did we get something wrong?"
 - **If no answer, we build:** the file's figure when it is consistent with the two prices (10 litres, not 9.943), otherwise the ratio.
 
+**T07-5 · Is a listed substitute meant across sales units?** (from the offers package)
+- **Context:** the product file lists substitutes for 189 products. We convert quantities through litres or kilograms per sales unit.
+- **We did:** looked up the substitutes of `473609` (Oddlygood Barista oat drink 1 l, sold by the piece, €1.37).
+- **We got:** the listed substitute `471690` (the same drink, "Delight") is sold by the case of 10 litres at €15.55, so 100 pieces of the original become 10 cases. Tonight its order cut-off has also passed (Thursday 12 Nov 15:00).
+- **Ask:** "When a listed substitute is sold in another sales unit than the original, do you expect the buyer to convert the quantity by volume, as we do — is that expected, or did we get something wrong?"
+- **If no answer, we build:** quantities are converted through the pack size and rounded up to the lot step.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
@@ -359,6 +366,29 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Still in `milk`:** four milks sold for coffee — `462626`, `464237` "Valio coffee milk", `473142` "coffee milk drink vanilla" and `463380` "Arla Cafè milk 1 L UHT lactose free".
 - **Why it matters tonight:** `463380` supplies 565 of the 1,000 litres in scenario 1's best option. Without it the confirmed lactose-free milks cover 435 litres and option 1 becomes a partial fill.
 - **Ask:** "Keep the coffee milks in `milk`? Drop the vanilla one?" Leaving one out is one term in `exclude_terms` of `milk` in `src/tta/catalog/product_types.yaml`.
+
+**T07-1 · A substitute that drops a claim of the original** (settled by the orchestrator, for information)
+- **Found:** the substitution rule looks at allergens only, so regular milk passed as a stand-in for a lactose-free milk named by id, and the hotel's agent could order it alone.
+- **Decided overnight:** a new fixed rule F-08 — a substitute that lacks a nutritional claim the original carries (lactose-free, gluten-free) always goes to a human. Substitutes that keep every claim are ranked first.
+
+**T07-2 · A stand-in when the named product is only "quantity not confirmed"**
+- **Built overnight:** when a product asked for by id has no confirmed stock (also when its quantity is just not confirmed, or its cut-off has passed), the offer puts a confirmed stand-in first and the named product second as the unconfirmed alternative.
+- **Example to show:** `473609` by id, 100 L, hotel: option 1 stand-in `475224` (€174.00, agent may order), option 2 `473609` itself (€137.00, needs a human).
+- **Ask:** "Is the stand-in first what a buyer expects?"
+
+**T07-3 · A partial fill of the product asked for, or a full fill with a stand-in, first?**
+- **Built overnight:** the product asked for comes first (40 of 100 L, needs a human for the short fill); the full fill with a stand-in is option 2.
+- **Ask:** "Should the full fill come first?"
+
+**T07-4 · Is stock that moved but still covers the order a change?**
+- **Built overnight:** at the re-check before an order, stock is a change only when it no longer covers what the order takes. A price difference in either direction, a new cut-off and a new price validity are always changes.
+- **Ask:** "Agreed?"
+
+**T07-6 · Tonight's scenario products** (for information)
+- Scenario 1: 384 × `469363` + 51 × `462775` + 565 × `463380` = €2,580.64, full fill, needs the purchasing manager (over €750). Alternative: 1,000 × `464306` = €1,010.00, quantity not confirmed.
+- Scenario 2: 200 × `464013` Alpro No Sugars Soya drink 1 L = €402.00, ordered by the agent alone. Friday's plan named `464056` (€2.14); `464013` is cheaper tonight and states the same free-from.
+- Scenario 3: `471690` passes the allergen rule but its cut-off has passed tonight; `471881` and `464320` fail (they add `AW`). The best stand-in that can be ordered is `475224` Fazer Aito Barista oat drink, gluten-free.
+- Backup: 30 kg → 30 × `466988` = €506.40, a ceiling, needs a human (variable weight).
 
 ---
 

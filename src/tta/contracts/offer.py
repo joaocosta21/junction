@@ -37,8 +37,12 @@ class SubstituteInfo(Contract):
     original_id: str
     original_name: str | None = None
     listed_by_supplier: bool
-    category_distance: int = Field(ge=0, description="0 same 5-digit category, 1 same first 4, 2 same first 3")
+    category_distance: int = Field(
+        ge=0,
+        description="0 same 5-digit category, 1 same first 4, 2 same first 3, 3 listed by the supplier from further away",
+    )
     allergen_check: SubstituteAllergenCheck
+    claims_lost: tuple[str, ...] = ()  # nutritional claims of the original that the substitute does not carry
     gives_up: str  # one sentence: what the buyer gives up
 
 
@@ -181,9 +185,10 @@ class SubstituteCandidate(Contract):
     name: str
     passes: bool
     orderable: bool
-    reason: ExclusionReason | None = None  # set when it fails
+    reason: ExclusionReason | None = None  # set whenever the candidate cannot be ordered
     sentence: str  # why it passes or fails
     gives_up: str  # what the buyer gives up
+    claims_lost: tuple[str, ...] = ()  # nutritional claims of the original that this product does not carry
     listed_by_supplier: bool
     category_distance: int = Field(ge=0)
     pack_size: PackSize

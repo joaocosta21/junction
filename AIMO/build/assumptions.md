@@ -137,3 +137,20 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Two writers on one database are safe: an append checks the head inside one transaction and the trail retries (5 attempts).
 - What verification does not show: the end of the trail cut off, a rewrite of every hash to the end, and who wrote an event. `AuditTrail.head()` gives the event count and last hash so another party can hold them; nothing publishes or compares it yet.
 - A database file made before this change must be deleted; there is no migration.
+
+## Offers (T07)
+- An offer's clock is the `timeNow` of its availability answer.
+- A line that names products by id uses those products as given; its product type, name terms and claims do not filter them. An unknown or deleted id fails the request with `unknown-product`.
+- A search is cut at 1,000 candidates per request line.
+- One exclusion reason per product, the first of: allergen declared, portion pack, pack size unknown, the availability state, late for the needed-by date, price unavailable, allergen not stated. What does not match the request comes before what Valio cannot supply now.
+- A price is unusable (`PRICE_UNAVAILABLE`) when its currency is not EUR, it is zero or negative, it is not valid yet, or its validity has passed.
+- Allergen strictness is the stricter of the profile's and the request line's. Confirmed-only applies when the request or the profile sets it.
+- Under confirmed-only, a product left out for a quantity or delivery date that is not confirmed has no reason code; it is named in the offer's notes.
+- Combining: a single product is chosen on the cost of the whole quantity; a combination is filled cheapest per litre or kilogram first, ties by id. Stock off the lot step is rounded down.
+- A request with several lines gives options that span all lines; stock one line takes is not offered to the next; the fill ratio is the lowest of the lines.
+- The unconfirmed alternative exists whenever a fitting product is in that state, also beside a full confirmed fill.
+- A substitute option is built when confirmed stock of the named products leaves something missing (question T07-2). A stand-in carries the line's required claims and obeys its pack rule and allergen exclusions.
+- Option order: an option holding an unconfirmed quantity comes after the others; then fewer unmet checks; then fewer unverified ones; then best confirmed, unconfirmed alternative, substitute.
+- Totals are sums of the rounded lines; tax is net × `taxRate` per line.
+- Substitute candidates: the listed pairs plus the three category tiers, 999 at most, one price and one availability call. "Passes" is about the allergen rules; "orderable" adds price and availability.
+- Re-check before an order: any price difference, a new price validity, a new state and a new cut-off are changes; stock is a change only when it no longer covers the order (question T07-4).
