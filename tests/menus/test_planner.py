@@ -95,18 +95,20 @@ def test_a_menu_whose_every_line_is_covered_asks_for_one_offer(
 def test_an_ingredient_without_a_working_alternative_cannot_be_sourced_and_says_why(
     parts: Parts, agent_hotel: Identity, menu: Callable[..., MenuRequest], recipes: Mapping[str, Recipe]
 ) -> None:
-    """Rice and butter are not in the capture, and rice porridge lists no alternative for either."""
+    """Rice is not in the capture, and rice porridge lists no alternative for it. Butter is in the baking
+    recording joined to it (task CK), so it is ordered."""
     request = menu(dishes=[{"dish_id": "rice_porridge", "servings": 40}], stock=[])
 
     plan = plan_menu(parts.service, agent_hotel, request, recipes)
 
     unsourced = {item.product_type: item for item in plan.cannot_be_sourced}
-    assert set(unsourced) == {"rice", "butter"}
+    assert set(unsourced) == {"rice"}
+    assert _ingredient(plan, "rice_porridge", "butter").status is IngredientStatus.ORDERED_AS_IN_RECIPE
     assert "in this demo's recording of Valio Aimo's data" in unsourced["rice"].sentence
     assert "the recipe lists no alternative that does the same job" in unsourced["rice"].sentence
     assert _ingredient(plan, "rice_porridge", "rice").status is IngredientStatus.CANNOT_BE_SOURCED
-    # No second offer: nothing to try. The first offer is the final one, and rice and butter stay in it with
-    # nothing offered, so the rules see that the menu is incomplete (review A2a, finding M-3).
+    # No second offer: nothing to try. The first offer is the final one, and rice stays in it with nothing
+    # offered, so the rules see that the menu is incomplete (review A2a, finding M-3).
     assert len(plan.offers_asked) == 1
     assert [line.product_type for line in plan.lines if line.request_line_index is not None] == [
         "rice", "milk", "butter",

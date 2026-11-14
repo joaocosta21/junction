@@ -6,13 +6,15 @@ from typing import Annotated
 
 from pydantic import Field
 
-from tta.contracts.menu import MenuRequest
 from tta.contracts.standing import NewStandingOrder, RenewStandingOrder, StandingOrderId
+from tta.menus.sentence import MenuAsk
 
 MenuArgument = Annotated[
-    MenuRequest,
+    MenuAsk,
     Field(description="The dishes with their servings (dish ids from the recipe table, GET /v1/menus/recipes), what "
-                      "the kitchen already holds, the date and what to exclude."),
+                      "the kitchen already holds, the date and what to exclude. Instead of typed dishes, `text` may "
+                      'hold a sentence that names them: "I want to make a chocolate cake for 20 people by Monday". '
+                      "Typed fields win; a sentence that leaves a question open is refused with the question."),
 ]
 NewStandingOrderArgument = Annotated[
     NewStandingOrder,

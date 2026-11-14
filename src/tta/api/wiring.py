@@ -14,11 +14,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from tta.api import hooks
+from tta.api.budget import MeteredAudit, StorageBudget
 from tta.api.fallback import FallbackGateway
 from tta.api.identity import TokenRegistry, load_tokens
 from tta.api.limits import CallLimits, RateLimit, call_limits
 from tta.api.sandbox import BookCustomer, Sandbox, Sandboxes
-from tta.api.service import MAX_DEMO_REQUEST_LINES, Gateway, GatewayDeps
+from tta.api.service import (
+    MAX_DEMO_NAME_TERMS,
+    MAX_DEMO_REQUEST_CHARACTERS,
+    MAX_DEMO_REQUEST_LINES,
+    Gateway,
+    GatewayDeps,
+)
 from tta.api.signing import Signer
 from tta.api.suggesting import CustomerOf, OfferSuggestions, customer_on_file
 from tta.audit import AuditTrail
@@ -216,12 +223,19 @@ def wire(
     supplier_suggestions: bool = True,
     customer_of: CustomerOf = customer_on_file,
     suggestions: bool = True,
+    demo_limits: bool = False,
 ) -> tuple[Gateway, AuditSink]:
     """The services over one store: one audit trail, the offer service, the order book, the gateway service.
     `supplier_suggestions`: Valio Aimo's own suggestion on an offer (`TTA_SUPPLIER_SUGGESTIONS`). `customer_of`: whose
     customer file an offer's suggestions are computed from; by default the file of the caller's buyer profile.
-    `suggestions`: False leaves every offer without suggestions (`suggestions_in`: live mode)."""
-    audit = AuditTrail(store, UtcClock(), policy=policy)  # one per store and process
+    `suggestions`: False leaves every offer without suggestions (`suggestions_in`: live mode). `demo_limits`: the
+    limits of dev and demo on a request's words and a search's name terms (review H2 and M3). When the limiter
+    holds a day's budget of stored bytes, every event the trail writes is counted against it."""
+    # One trail per store and process. In dev and demo it counts what it writes against the day's budget.
+    if limiter.storage is not None:
+        audit: AuditTrail = MeteredAudit(store, UtcClock(), limiter.storage, policy=policy)
+    else:
+        audit = AuditTrail(store, UtcClock(), policy=policy)
     offers = OfferService(OfferDeps(
         catalog=catalog, gateway=gateway, policy=policy, clock=clock,
         # Both parts of the day's spend, so rule P-02's sentence says what is ordered and what waits for a person.
@@ -234,6 +248,8 @@ def wire(
     service = Gateway(GatewayDeps(
         catalog=catalog, policy=policy, store=store, audit=audit, offers=offers, orders=orders, limiter=limiter,
         request_parser=request_parser, agent_runner=agent_runner, max_request_lines=max_request_lines,
+        max_request_characters=MAX_DEMO_REQUEST_CHARACTERS if demo_limits else None,
+        max_name_terms=MAX_DEMO_NAME_TERMS if demo_limits else None,
         suggestions=OfferSuggestions(
             ports=SuggestionPorts(catalog=catalog, gateway=gateway, clock=clock), policy=policy, store=store,
             audit=audit, supplier_suggestions=supplier_suggestions, customer_of=customer_of,
@@ -254,6 +270,7 @@ class _Shared:
     request_parser: RequestParser | None
     agent_runner: AgentRunner | None
     max_request_lines: int | None
+    demo_limits: bool = False  # dev and demo: the limits on a request's words and a search's name terms
     evidence: EvidenceFinder | None = None  # web evidence on a dietitian's approval card (task S2)
     supplier_suggestions: bool = True
     suggestions: bool = True
@@ -267,6 +284,7 @@ class _Shared:
             limiter=self.limiter, request_parser=self.request_parser, agent_runner=self.agent_runner,
             max_request_lines=self.max_request_lines, evidence=self.evidence,
             supplier_suggestions=self.supplier_suggestions, customer_of=customer.of, suggestions=self.suggestions,
+            demo_limits=self.demo_limits,
         )
         return Sandbox(service=service, store=store, audit=audit, customer=customer)
 
@@ -314,8 +332,10 @@ def build_parts(
         shared = _Shared(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock,
             # The demonstration tokens are public and shared: there a caller is counted per visitor.
-            limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
-            max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None, evidence=evidence,
+            # In dev and demo an address and a token also have a day's budget of stored bytes (review H2).
+            limiter=call_limits(demo, rate_limit, storage=StorageBudget() if demo else None),
+            request_parser=request_parser, agent_runner=agent_runner,
+            max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None, demo_limits=demo, evidence=evidence,
             supplier_suggestions=settings.tta_supplier_suggestions, suggestions=suggestions_in(settings),
         )
         store, start_reasons, store_kind = _order_book(settings)
@@ -324,7 +344,7 @@ def build_parts(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
             request_parser=request_parser, agent_runner=agent_runner, max_request_lines=shared.max_request_lines,
             evidence=evidence, supplier_suggestions=settings.tta_supplier_suggestions,
-            suggestions=suggestions_in(settings),
+            suggestions=suggestions_in(settings), demo_limits=demo,
         )
     except BaseException:
         close_each(opened)  # a close that fails here is logged; the error that stopped the start is raised

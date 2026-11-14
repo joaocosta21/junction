@@ -28,8 +28,9 @@ MILK = RequestLine(
     text="100 L lactose-free milk", product_type="milk", required_claims=("FREE_FROM_LACTOSE",),
     quantity=Decimal(100), unit=Unit.L,
 )
-BUTTER = RequestLine(text="10 kg butter", product_type="butter", quantity=Decimal(10), unit=Unit.KG)
-MILK_AND_BUTTER = PurchaseRequest(needed_by=MONDAY, lines=(MILK, BUTTER))
+# Cheese is in neither recording. Butter served here until the baking recording was joined (task CK).
+CHEESE = RequestLine(text="10 kg cheese", product_type="cheese", quantity=Decimal(10), unit=Unit.KG)
+MILK_AND_CHEESE = PurchaseRequest(needed_by=MONDAY, lines=(MILK, CHEESE))
 LATE_NOTE = "Request line 1: nothing can arrive by Sunday 15 Nov."
 
 
@@ -51,9 +52,9 @@ def serve(fake_gateway: Callable[..., Any], deps_for: Callable[..., OfferDeps]) 
 
 
 @pytest.fixture(scope="module")
-def milk_and_butter(service: OfferService, agent_hotel: Identity) -> Offer:
-    """Replay: the milk is in tonight's capture, no butter is."""
-    return service.build_offer(MILK_AND_BUTTER, agent_hotel)
+def milk_and_cheese(service: OfferService, agent_hotel: Identity) -> Offer:
+    """Replay: the milk is in tonight's capture, no cheese is, in either recording."""
+    return service.build_offer(MILK_AND_CHEESE, agent_hotel)
 
 # The headline (the first option's summary) says what the product type milk left out (B0's leftover, lane L2b).
 COFFEE = " Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
@@ -63,35 +64,35 @@ COFFEE_LINE_1 = " Request line 1:" + COFFEE
 # --- coverage per line ----------------------------------------------------------------------------------------
 
 def test_a_two_line_offer_says_how_many_lines_it_covers_in_full_and_what_each_line_gets(
-    milk_and_butter: Offer,
+    milk_and_cheese: Offer,
 ) -> None:
-    option = of_kind(milk_and_butter, OptionKind.BEST_CONFIRMED)
+    option = of_kind(milk_and_cheese, OptionKind.BEST_CONFIRMED)
 
     assert option.summary == (
         "1 confirmed product covers 1 of the 2 request lines in full, for €248.00 before tax. "
-        "Covered: 0 of 10 kg of butter, request line 2; 100 of 100 L of milk, request line 1." + COFFEE_LINE_1
+        "Covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1." + COFFEE_LINE_1
     )
     assert "least covered" not in option.summary
 
 
-def test_the_unconfirmed_alternative_says_the_same_of_its_lines(milk_and_butter: Offer) -> None:
-    option = of_kind(milk_and_butter, OptionKind.ALTERNATIVE_UNCONFIRMED)
+def test_the_unconfirmed_alternative_says_the_same_of_its_lines(milk_and_cheese: Offer) -> None:
+    option = of_kind(milk_and_cheese, OptionKind.ALTERNATIVE_UNCONFIRMED)
 
     assert "(464306) for 1 of the 2 request lines in full, €101.00 before tax." in option.summary
     assert option.summary.endswith(
-        "Covered: 0 of 10 kg of butter, request line 2; 100 of 100 L of milk, request line 1."
+        "Covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1."
     )
 
 
 def test_p03_names_the_least_covered_line_and_what_each_line_gets_while_the_ratio_stays_the_lowest(
-    milk_and_butter: Offer,
+    milk_and_cheese: Offer,
 ) -> None:
-    option = of_kind(milk_and_butter, OptionKind.BEST_CONFIRMED)
+    option = of_kind(milk_and_cheese, OptionKind.BEST_CONFIRMED)
     rule = p03(option)
 
     assert rule.sentence == (
         "Only 0% of the quantity of request line 2 is covered, below the 90% minimum "
-        "(covered: 0 of 10 kg of butter, request line 2; 100 of 100 L of milk, request line 1)."
+        "(covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1)."
     )
     assert "of the requested quantity" not in rule.sentence
     assert option.fill_ratio == 0

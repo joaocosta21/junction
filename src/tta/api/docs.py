@@ -15,6 +15,8 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from tta.api.audit_pages import AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, WHOLE_CHAIN_MAX_EVENTS
+from tta.api.budget import MAX_STORED_MEGABYTES_PER_ADDRESS_PER_DAY, MAX_STORED_MEGABYTES_PER_TOKEN_PER_DAY
 from tta.api.idempotency import MISSING_KEY, MissingIdempotencyKey
 from tta.api.limits import (
     DEFAULT_RATE_LIMIT_CALLS,
@@ -33,7 +35,12 @@ from tta.api.limits import (
     MAX_ORDERS_PER_VISITOR_PER_MINUTE,
 )
 from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_MINUTES
-from tta.api.service import MAX_DEMO_REQUEST_LINES, MAX_LIST_ITEMS
+from tta.api.service import (
+    MAX_DEMO_NAME_TERMS,
+    MAX_DEMO_REQUEST_CHARACTERS,
+    MAX_DEMO_REQUEST_LINES,
+    MAX_LIST_ITEMS,
+)
 from tta.api.suggesting import NEVER_ADDED
 from tta.contracts.errors import (
     PROBLEM_CONTENT_TYPE,
@@ -89,7 +96,9 @@ order (RFC 9110); ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allerg
 every offer and order record answered carries `proof`, the gateway's detached JSON Web Signature (RFC 7515, EdDSA
 over Ed25519, RFC 8037) of the record without `proof`, written as RFC 8785 canonical JSON; the public key is a JSON
 Web Key set at `/.well-known/jwks.json`. It says this gateway answered the record, not that Valio Aimo signed it,
-and `demo_key: true` marks a key generated at start, about which nothing is claimed. The same functions are
+and `demo_key: true` marks a key generated at start, about which nothing is claimed. The marker is signed: it is
+in the protected header, in the key id (`demo-...`) and in the published key; the header's `typ` (`tta-offer+jws`
+or `tta-order+jws`) says which kind of record was signed. The same functions are
 offered as MCP tools at `/mcp` when that surface is installed, menus, standing orders and the caller's customer
 (`GET /v1/customers`, synthetic) included; a request there whose `Origin` names a foreign
 site is refused with `403`, as MCP revision 2026-07-28 requires. **Discovery:** an agent that knows only the
@@ -111,13 +120,21 @@ demonstration pages keep each browser's orders in an order book of its own, whic
 
 **Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a
 `Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids and,
-in the dev and demo environments, at most {MAX_DEMO_REQUEST_LINES} lines. A list answers at most {MAX_LIST_ITEMS}
-items, the newest. The routes that reach the supplier, the model or the audit trail are counted, in windows of
-one minute. A token from the environment makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in
+in the dev and demo environments, at most {MAX_DEMO_REQUEST_LINES} lines whose words (`text`) have at most
+{MAX_DEMO_REQUEST_CHARACTERS} characters together, and a search names at most {MAX_DEMO_NAME_TERMS} name terms
+(`422` otherwise, saying the limit). A list answers at most {MAX_LIST_ITEMS}
+items, the newest. `GET /v1/audit` answers in pages: {AUDIT_PAGE_DEFAULT} events by default and at most
+{AUDIT_PAGE_MAX} (`limit`), the newest; `next_cursor` goes into `before` to read the page before. `verified` says
+what was checked for the answer: `whole_chain` while the trail holds at most {WHOLE_CHAIN_MAX_EVENTS:,} events,
+`returned_span` above that (each event returned against its own hash and the hash of the event stored before it).
+The routes that reach the supplier, the model or the audit trail are counted, in windows of
+one minute; searches, reads of one product and reads of the audit trail are counted with the offers.
+A token from the environment makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in
 {DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g} seconds. The demonstration tokens are public, so there the caller is the
 visitor, whichever token it sends: **per browser** on the demonstration pages (known by the cookie of its own
 order book), and **per address** for REST and MCP and for a page request without that cookie. Each visitor makes
-at most {MAX_LOOKUPS_PER_VISITOR_PER_MINUTE} offers and substitute searches, {MAX_ORDERS_PER_VISITOR_PER_MINUTE}
+at most {MAX_LOOKUPS_PER_VISITOR_PER_MINUTE} offers, searches and reads of the catalog and the audit trail,
+{MAX_ORDERS_PER_VISITOR_PER_MINUTE}
 orders and approval decisions and {MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE} request readings and agent runs a
 minute. Every browser and caller behind **one address** together make at most
 {MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE}, {MAX_ORDERS_PER_ADDRESS_PER_MINUTE} and {MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE}
@@ -125,7 +142,12 @@ of these a minute, so a room on one network is served and one address cannot fil
 at most {MAX_NEW_BOOKS_PER_ADDRESS} new order books on the pages in {NEW_BOOKS_WINDOW_MINUTES} minutes.
 **All callers** together make at most {MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE}, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE}
 and {MAX_MODEL_CALLS_PER_MINUTE} a minute. Beyond any of these the answer is `rate-limited` with `Retry-After`, naming
-the window that was full. The address is the peer's; `X-Forwarded-For` is read only as far as
+the window that was full. In the dev and demo environments there is also a **budget of stored bytes a day**: the
+offers and audit events written for one address may take {MAX_STORED_MEGABYTES_PER_ADDRESS_PER_DAY} MB, and for one
+demonstration token, whoever sends it, {MAX_STORED_MEGABYTES_PER_TOKEN_PER_DAY} MB. Once that is stored, calls that
+write are `rate-limited` (`429`) until the count starts again at 00:00 UTC, and the answer says in how long; reading
+still works. The count is kept in memory and starts again when the gateway restarts.
+The address is the peer's; `X-Forwarded-For` is read only as far as
 `TTA_TRUSTED_PROXY_HOPS` says (default 0: never). In live mode at most {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute
 reach the supplier, {MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE} for one address; further looks are answered from the
 recorded capture and say `replay`.

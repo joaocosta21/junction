@@ -3,16 +3,24 @@
 No network and no key. The clock is pinned to the capture's `timeNow`, so a demo gives the same
 answer whatever the hour, and survives the mock API being down. A demo clock (`TTA_DEMO_CLOCK`) pins it
 to an instant we chose instead; each availability answer says which of the two its `time_now` is.
+
+A capture's manifest may join later recordings (`joined_recordings`, task CK): the first recording gives the
+clock and wins wherever both hold a product; a product only a later one holds is answered from it, and the
+gateway says which recording answered and when it was made (`recording_of`, `recorded_at_of`, `join_sentence`).
+Valio Aimo said on 14 Nov 2026 that its test data is static, which is why two recordings of the same Saturday
+are read as one.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
+from tta.availability.wording import format_moment
 from tta.config import Settings
 from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
 from tta.contracts.common import CURRENCY_EUR, ClockBasis, DataSource
@@ -28,6 +36,36 @@ from tta.valio.parsing import (
 )
 
 MANIFEST_NAME = "manifest.json"
+JOINED_KEY = "joined_recordings"  # in a manifest: the names of sibling capture folders read after this one
+JOIN_SENTENCE = (
+    "{later:,} of the {total:,} recorded products were recorded later than the rest: {parts}, against {first_at} "
+    "for the other {first:,} (recording {first_name}, which gives the clock). Valio Aimo said on 14 Nov 2026 that "
+    "its test data is static, which is why two recordings of the same Saturday are read as one."
+)
+
+
+@dataclass(frozen=True)
+class LaterRecording:
+    """A recording joined to the first one: its name, its own server time, and how many products it answers
+    for (those the recordings before it do not hold)."""
+
+    name: str
+    recorded_at: datetime
+    product_count: int
+
+
+@dataclass(frozen=True)
+class _Recording:
+    """One capture folder, parsed."""
+
+    name: str
+    recorded_at: datetime
+    prices: Mapping[str, PriceLine]
+    availability: Mapping[str, AvailabilityLine]
+    currency: str | None
+    pricing_date: datetime | None
+    requested_date: datetime | None
+    joined: tuple[str, ...]
 
 
 def unknown_price_line(product_id: str) -> PriceLine:
@@ -59,27 +97,29 @@ class ReplayGateway:
     def __init__(self, capture_dir: Path, *, demo_clock: datetime | None = None) -> None:
         """`demo_clock`: an instant we chose, which then replaces the capture's own `timeNow` as the clock of
         every answer (`Settings.tta_demo_clock`). The recorded prices and availability are not changed."""
-        self._name = capture_dir.name
-        recorded_at, files = _read_manifest(capture_dir)
         if demo_clock is not None and demo_clock.utcoffset() is None:
             raise ValueError("a demo clock needs a time with an offset, not a naive one")
-        time_now = demo_clock or recorded_at
-        self._recorded_at = recorded_at
+        first = _read_recording(capture_dir)
+        self._name = first.name
+        self._recorded_at = first.recorded_at
+        self._time_now = demo_clock or first.recorded_at
         self._basis = ClockBasis.RECORDING if demo_clock is None else ClockBasis.DEMO_SETTING
-        price_parts = [
-            _read_part(path, self._name, lambda body: parse_price_body(body, DataSource.REPLAY, time_now))
-            for path in files[PRICE_ENDPOINT]
-        ]
-        availability_parts = [
-            _read_part(path, self._name, lambda body: parse_availability_body(body, DataSource.REPLAY))
-            for path in files[AVAILABILITY_ENDPOINT]
-        ]
-        self._time_now = time_now
-        self._prices = {line.product_id: line for part in price_parts for line in part.lines}
-        self._availability = {line.product_id: line for part in availability_parts for line in part.lines}
-        self._currency = price_parts[0].currency if price_parts else CURRENCY_EUR
-        self._pricing_date = price_parts[0].pricing_date if price_parts else None
-        self._requested_date = availability_parts[0].requested_date if availability_parts else None
+        self._currency = first.currency or CURRENCY_EUR
+        self._pricing_date = first.pricing_date
+        self._requested_date = first.requested_date
+        prices, availability = dict(first.prices), dict(first.availability)
+        answered_by: dict[str, _Recording] = dict.fromkeys((*prices, *availability), first)
+        later: list[LaterRecording] = []
+        for name in first.joined:
+            joined = _read_joined(capture_dir, name, first)
+            new_ids = [pid for pid in dict.fromkeys((*joined.availability, *joined.prices)) if pid not in answered_by]
+            # The first recording wins: a product it holds is never answered from a later one, in whole or in part.
+            prices.update({pid: joined.prices[pid] for pid in new_ids if pid in joined.prices})
+            availability.update({pid: joined.availability[pid] for pid in new_ids if pid in joined.availability})
+            answered_by.update(dict.fromkeys(new_ids, joined))
+            later.append(LaterRecording(joined.name, joined.recorded_at, len(new_ids)))
+        self._prices, self._availability, self._answered_by = prices, availability, answered_by
+        self._later = tuple(later)
 
     @property
     def source(self) -> DataSource:
@@ -109,6 +149,46 @@ class ReplayGateway:
     @property
     def clock(self) -> PinnedClock:
         return PinnedClock(self._time_now)
+
+    @property
+    def product_count(self) -> int:
+        """How many products have a recorded answer, over the first recording and those joined to it."""
+        return len(self._answered_by)
+
+    @property
+    def later_recordings(self) -> tuple[LaterRecording, ...]:
+        """The recordings joined to the first one, in the manifest's order; empty for a capture read alone."""
+        return self._later
+
+    def recording_of(self, product_id: str) -> str | None:
+        """The name of the recording that answers for this product; None when none holds it."""
+        recording = self._answered_by.get(product_id)
+        return None if recording is None else recording.name
+
+    def recorded_at_of(self, product_id: str) -> datetime | None:
+        """The server time of the recording that answers for this product; None when none holds it."""
+        recording = self._answered_by.get(product_id)
+        return None if recording is None else recording.recorded_at
+
+    def recorded_later(self, product_ids: Sequence[str]) -> tuple[str, ...]:
+        """Those of `product_ids` whose answer comes from a recording made after the first one, in order."""
+        return tuple(
+            pid for pid in distinct_ids(product_ids)
+            if pid in self._answered_by and self._answered_by[pid].name != self._name
+        )
+
+    @property
+    def join_sentence(self) -> str | None:
+        """What a person reads about the join: how many products were recorded later, when, and why reading
+        them together is honest. None when the capture joins nothing."""
+        if not self._later:
+            return None
+        later = sum(each.product_count for each in self._later)
+        parts = ", ".join(f"on {format_moment(each.recorded_at)} (recording {each.name})" for each in self._later)
+        return JOIN_SENTENCE.format(
+            later=later, total=self.product_count, parts=parts, first_at=format_moment(self._recorded_at),
+            first=self.product_count - later, first_name=self._name,
+        )
 
     def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:  # noqa: ARG002
         lines = tuple(
@@ -149,8 +229,66 @@ def _read_text(path: Path, capture: str) -> str:
         ) from error
 
 
-def _read_manifest(capture_dir: Path) -> tuple[datetime, dict[str, tuple[Path, ...]]]:
-    """The capture's `timeNow` and its body files. The manifest is a data file, so nothing in it is trusted."""
+def recording_instant(capture_dir: Path) -> datetime:
+    """The server time of a capture, read from its manifest alone: the clock of replay without loading the
+    recorded answers. Raises `SupplierUnavailable` when the manifest cannot be used."""
+    return _read_manifest(capture_dir)[0]
+
+
+def _read_recording(capture_dir: Path) -> _Recording:
+    """One capture folder. Raises `SupplierUnavailable` when it cannot be used."""
+    name = capture_dir.name
+    recorded_at, files, joined = _read_manifest(capture_dir)
+    price_parts = [
+        _read_part(path, name, lambda body: parse_price_body(body, DataSource.REPLAY))
+        for path in files[PRICE_ENDPOINT]
+    ]
+    availability_parts = [
+        _read_part(path, name, lambda body: parse_availability_body(body, DataSource.REPLAY))
+        for path in files[AVAILABILITY_ENDPOINT]
+    ]
+    return _Recording(
+        name=name, recorded_at=recorded_at,
+        prices={line.product_id: line for part in price_parts for line in part.lines},
+        availability={line.product_id: line for part in availability_parts for line in part.lines},
+        currency=price_parts[0].currency if price_parts else None,
+        pricing_date=price_parts[0].pricing_date if price_parts else None,
+        requested_date=availability_parts[0].requested_date if availability_parts else None,
+        joined=joined,
+    )
+
+
+def _read_joined(capture_dir: Path, name: str, first: _Recording) -> _Recording:
+    """A recording joined to `first`: a sibling folder that answers for the same requested date, pricing date and
+    currency. One made for another date is refused: its stock and price say nothing about the date asked. The
+    joined recording's own joins are not followed."""
+    joined = _read_recording(capture_dir.parent / name)
+    for what, own, theirs in (
+        ("requested date", first.requested_date, joined.requested_date),
+        ("pricing date", first.pricing_date, joined.pricing_date),
+        ("currency", first.currency, joined.currency),
+    ):
+        if own is not None and theirs is not None and own != theirs:
+            _unusable(first.name, f"the joined recording {name} has another {what}")
+    return joined
+
+
+def _joined_names(capture_dir: Path, names: Any) -> tuple[str, ...]:
+    """The sibling capture folders a manifest joins. A name is a plain folder name, never this capture's own."""
+    if names is None:
+        return ()
+    if not isinstance(names, list):
+        _unusable(capture_dir.name, f"{MANIFEST_NAME} has a `{JOINED_KEY}` that is not a list")
+    for name in names:
+        plain = isinstance(name, str) and name not in ("", ".", "..", capture_dir.name) and Path(name).name == name
+        if not plain:
+            _unusable(capture_dir.name, f"{MANIFEST_NAME} joins a recording outside the captures folder")
+    return tuple(dict.fromkeys(names))
+
+
+def _read_manifest(capture_dir: Path) -> tuple[datetime, dict[str, tuple[Path, ...]], tuple[str, ...]]:
+    """The capture's `timeNow`, its body files and the recordings it joins. The manifest is a data file, so
+    nothing in it is trusted."""
     capture = capture_dir.name
     try:
         manifest = json.loads(_read_text(capture_dir / MANIFEST_NAME, capture))
@@ -171,7 +309,7 @@ def _read_manifest(capture_dir: Path) -> tuple[datetime, dict[str, tuple[Path, .
         endpoint: _body_paths(capture_dir, listed.get(endpoint), endpoint)
         for endpoint in (AVAILABILITY_ENDPOINT, PRICE_ENDPOINT)
     }
-    return time_now, files
+    return time_now, files, _joined_names(capture_dir, manifest.get(JOINED_KEY))
 
 
 def _body_paths(capture_dir: Path, names: Any, endpoint: str) -> tuple[Path, ...]:

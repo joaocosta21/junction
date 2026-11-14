@@ -68,7 +68,7 @@ async def test_the_inputs_are_the_contract_models_and_their_fields(connect: Conn
         "get_offer": {"request"},
         "place_order": {"offer_id", "option_id", "idempotency_key"},
         "get_order": {"order_id"},
-        "get_audit": {"order_id", "offer_id", "reader"},
+        "get_audit": {"order_id", "offer_id", "reader", "limit", "before"},
         "get_customer": set(),
         "plan_menu": {"menu"},
         "set_up_standing_order": {"standing_order"},

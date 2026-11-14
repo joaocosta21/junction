@@ -146,23 +146,25 @@ def test_m2_a_stand_in_that_declares_nothing_new_says_so(
 def test_m3_an_unsourced_ingredient_stays_in_the_final_offer_and_the_rules_send_the_rest_to_a_person(
     parts: Parts, agent_hotel: Identity, menu: Callable[..., MenuRequest], recipes: Mapping[str, Recipe]
 ) -> None:
-    """The review's case: oven pancake for 50 by Monday. Eggs, flour and sugar are not in the recording; before,
-    the final offer was 8 x 463047 milk alone, EUR 16.08, and no rule knew three ingredients were missing."""
-    request = menu(dishes=[{"dish_id": "oven_pancake", "servings": 50}], stock=[], require_confirmed=False)
+    """The review's case was an oven pancake for 50: eggs, flour and sugar were not in the recording, the final
+    offer was milk alone and no rule knew three ingredients were missing. Since the baking recording was joined
+    (task CK) the pancake is fully sourced, so the case is a macaroni casserole for 50: pasta and minced meat are
+    in neither recording, milk and eggs are."""
+    request = menu(dishes=[{"dish_id": "macaroni_casserole", "servings": 50}], stock=[], require_confirmed=False)
 
     plan = plan_menu(parts.service, agent_hotel, request, recipes)
 
-    assert {item.product_type for item in plan.cannot_be_sourced} == {"eggs", "flour", "sugar"}
+    assert {item.product_type for item in plan.cannot_be_sourced} == {"pasta", "minced_meat"}
     offer = parts.service.get_offer(agent_hotel, plan.offer_id)
-    assert [line.product_type for line in offer.request.lines] == ["milk", "eggs", "flour", "sugar"]
+    assert [line.product_type for line in offer.request.lines] == ["pasta", "minced_meat", "milk", "eggs"]
     top = offer.options[0]
-    assert top.totals.net == Decimal("16.08") and top.fill_ratio == 0
+    assert top.totals.net == Decimal("60.44") and top.fill_ratio == 0  # 8 x 463047 milk and 1 x 466032 eggs
     assert top.decision.verdict is Verdict.APPROVAL
     assert {"F-07", "P-03"} <= set(top.decision.rule_ids)  # the date is not met for every line; fill below minimum
-    eggs = _ingredient(plan, "oven_pancake", "eggs")
-    assert eggs.status is IngredientStatus.CANNOT_BE_SOURCED and eggs.request_line_index == 1
-    assert len(plan.offers_asked) == 1  # nothing to try and nothing replaced: the first offer is the final one
-    assert any("3 ingredients cannot be sourced (eggs, flour and sugar)" in note for note in plan.notes)
+    meat = _ingredient(plan, "macaroni_casserole", "minced_meat")
+    assert meat.status is IngredientStatus.CANNOT_BE_SOURCED and meat.request_line_index == 1
+    assert len(plan.offers_asked) == 2  # ham was tried for the minced meat; nothing replaced, the first offer stays
+    assert any("2 ingredients cannot be sourced (pasta and minced meat)" in note for note in plan.notes)
     assert any("stay in the offer with nothing offered" in note for note in plan.notes)
 
 
@@ -173,7 +175,7 @@ def test_m3_with_ordering_alone_switched_on_the_incomplete_menu_still_waits_for_
     book = parts.sandboxes.open("m3")
     book.kitchen.start_from("hotel-kitchen")
     book.kitchen.set_up({**book.kitchen.settings, "auto_order_enabled": True})
-    request = menu(dishes=[{"dish_id": "oven_pancake", "servings": 50}], stock=[], require_confirmed=False)
+    request = menu(dishes=[{"dish_id": "macaroni_casserole", "servings": 50}], stock=[], require_confirmed=False)
 
     plan = plan_menu(book.service, KITCHEN_AGENT, request, recipes)
     order = book.service.place_order(KITCHEN_AGENT, plan.offer_id, "opt_1", "menu-m3")
@@ -182,7 +184,7 @@ def test_m3_with_ordering_alone_switched_on_the_incomplete_menu_still_waits_for_
     assert book.kitchen.profile.auto_order_enabled is True
     assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
     assert {"F-07", "P-03"} <= set(order.decision.rule_ids)
-    assert "0 of 2 kg of eggs" in reasons  # the person reads which ingredient the order leaves out
+    assert "0 of 4 kg of pasta" in reasons  # the person reads which ingredient the order leaves out
 
 
 # --- M-4 ----------------------------------------------------------------------------------------------------
@@ -221,16 +223,15 @@ def test_m4_with_confirmed_only_nothing_changes_yoghurt_still_stands_in(
 def test_m5_an_ingredient_that_is_only_missing_from_the_recording_says_so(
     parts: Parts, agent_hotel: Identity, menu: Callable[..., MenuRequest], recipes: Mapping[str, Recipe]
 ) -> None:
-    request = menu(dishes=[{"dish_id": "oven_pancake", "servings": 50}], stock=[], require_confirmed=False)
+    request = menu(dishes=[{"dish_id": "macaroni_casserole", "servings": 50}], stock=[], require_confirmed=False)
 
     plan = plan_menu(parts.service, agent_hotel, request, recipes)
 
     sentences = {item.product_type: item.sentence for item in plan.cannot_be_sourced}
-    assert sentences["eggs"].startswith(
-        "Cannot be sourced in this demo: eggs: none of its 30 products is in this demo's recording of Valio Aimo's "
-        "data, so no price or stock is known for it"
+    assert sentences["pasta"].startswith(
+        "Cannot be sourced in this demo: pasta (macaroni): none of its 15 products is in this demo's recording of "
+        "Valio Aimo's data, so no price or stock is known for it"
     )
-    assert "by Mon 16 Nov 2026" not in sentences["eggs"]  # it is not about the date
-    # Sugar has another reason too, so it keeps the date and counts each reason.
-    assert sentences["sugar"].startswith("Cannot be sourced by Mon 16 Nov 2026: sugar: none of 40 products")
-    assert "3 portion pack, 37 not in this demo's recording" in sentences["sugar"]
+    assert "by Mon 16 Nov 2026" not in sentences["pasta"]  # it is not about the date
+    # Before the baking recording was joined (task CK) sugar showed a line with another reason too ("3 portion
+    # pack, 37 not in this demo's recording"), which kept the date. No recipe line mixes the two reasons now.

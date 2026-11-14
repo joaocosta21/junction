@@ -12,12 +12,12 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter
 
 from tta.api import create_app
+from tta.api.audit_pages import AuditPage
 from tta.api.schema_export import exported_models
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
 from tta.contracts.agent import AgentRun, ParseRequestBody
-from tta.contracts.audit import AuditView
 from tta.contracts.common import Verdict
 from tta.contracts.errors import PROBLEM_CONTENT_TYPE, ProblemDetails
 from tta.contracts.menu import MenuRequest
@@ -86,7 +86,7 @@ RESPONSE_MODELS: dict[str, Any] = {
     "get_order": Order,
     "list_approvals": tuple[Approval, ...],
     "decide_approval": Order,
-    "get_audit": AuditView,
+    "get_audit": AuditPage,
     "parse_request": PurchaseRequest,
     "run_agent": AgentRun,
 }

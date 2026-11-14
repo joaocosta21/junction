@@ -135,7 +135,9 @@ def test_a_length_python_calls_a_digit_but_cannot_read_is_refused_too(length: by
 def test_a_body_at_the_size_of_a_real_request_passes(
     client: TestClient, auth: Auth, scenario_1: dict[str, Any]
 ) -> None:
-    line = {**scenario_1["lines"][0], "text": "x" * 1900}
+    # 3 lines of 190 characters: under the demonstration's 600 characters of words for one request (review H2;
+    # this test sent 3 lines of 1,900 before that limit).
+    line = {**scenario_1["lines"][0], "text": "x" * 190}
 
     response = client.post("/v1/offers", json={"lines": [line] * 3}, headers=auth("agent_hotel"))
 
@@ -186,6 +188,7 @@ def test_order_and_approval_lists_are_cut_to_the_newest(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("tta.api.service.MAX_LIST_ITEMS", 2)
+    monkeypatch.setattr("tta.api.audit_pages.AUDIT_PAGE_DEFAULT", 2)  # the audit trail's own page (review H2)
     orders = [
         place_order(client, "agent_hotel", make_offer(client, "agent_hotel", scenario_1), f"key-{number}")
         for number in range(3)

@@ -17,8 +17,9 @@ from tta.valio import ReplayGateway
 
 UNKNOWN_ID = "000000"  # in no capture and not in the catalog
 TIME_NOW = "2026-11-14T02:52:45+0200"
-# Two Valio butters of category 10500. Tonight's capture holds categories 104xx and 18720 and five ids.
-BUTTER_IDS = ("464205", "476731")
+# Two cheeses of category 10600. Tonight's capture holds categories 104xx and 18720 and five ids, and joins the
+# baking recording (butter, eggs, flour, sugar, cocoa, baking aids; `test_replay_join.py`): cheese is in neither.
+CHEESE_IDS = ('460217', '461471')
 
 
 def write_capture(folder: Path, manifest: Any, files: dict[str, str] | None = None) -> Path:
@@ -122,11 +123,11 @@ def test_no_recorded_line_is_marked_not_in_the_recording(load_capture, capture_n
     assert not any(line.not_in_recording for line in (*prices, *lines))
 
 
-def test_butter_is_not_in_tonights_capture(capture_demo) -> None:
+def test_cheese_is_not_in_tonights_capture(capture_demo) -> None:
     replay = ReplayGateway(capture_demo.path)
 
-    assert all(line.not_in_recording for line in replay.availability(BUTTER_IDS).lines)
-    assert all(line.not_in_recording for line in replay.price(BUTTER_IDS).lines)
+    assert all(line.not_in_recording for line in replay.availability(CHEESE_IDS).lines)
+    assert all(line.not_in_recording for line in replay.price(CHEESE_IDS).lines)
 
 
 def test_replay_answers_in_the_order_asked_and_once_per_id(capture_demo) -> None:

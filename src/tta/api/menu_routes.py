@@ -15,18 +15,24 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Request
 from starlette.concurrency import run_in_threadpool
 
+from tta.agent.days import helsinki_date
 from tta.api import docs
 from tta.api.identity import Caller
 from tta.api.routes import CALLER
-from tta.api.service import Gateway
+from tta.api.wiring import Parts
 from tta.contracts.common import Identity
 from tta.contracts.errors import InvalidRequest, RateLimited, SupplierUnavailable
-from tta.contracts.menu import MenuPlan, MenuRequest, Recipe, RecipeBook
+from tta.contracts.menu import MenuPlan, Recipe, RecipeBook
 from tta.menus import plan_menu, shipped_recipes
+from tta.menus.sentence import MenuAsk, later_recorded_note, resolve, with_notes
 
 TAG_MENUS = docs.TAG_MENUS  # the OpenAPI tag, described in tta.api.docs
 # The page's "last-minute event" (MENU-1 hand-back, replay): quark cannot be had by Monday, yoghurt stands in (F-09).
 MENU_EXAMPLES = {
+    "a_sentence": {
+        "summary": "A sentence: a chocolate cake for 20 people",
+        "value": {"text": "I want to make a chocolate cake for 20 people by Monday"},
+    },
     "last_minute_event": {
         "summary": "A dinner for 120 on Monday: beef stew and berry quark dessert",
         "value": {
@@ -39,8 +45,8 @@ MENU_EXAMPLES = {
 }
 
 
-def _service(request: Request) -> Gateway:
-    return request.app.state.parts.service
+def _parts(request: Request) -> Parts:
+    return request.app.state.parts
 
 
 def menu_router(recipes: Mapping[str, Recipe] | None = None) -> APIRouter:
@@ -66,7 +72,7 @@ def menu_router(recipes: Mapping[str, Recipe] | None = None) -> APIRouter:
         summary="Dishes and servings become one offer",
     )
     async def plan(
-        request: Request, caller: Caller, menu: Annotated[MenuRequest, Body(openapi_examples=MENU_EXAMPLES)]
+        request: Request, caller: Caller, menu: Annotated[MenuAsk, Body(openapi_examples=MENU_EXAMPLES)]
     ) -> MenuPlan:
         """Servings times each recipe's amounts, minus the kitchen's stock, rounded up to whole litres or
         kilograms: one request line per product type, and one offer. A line that no option covers to the buyer
@@ -75,11 +81,22 @@ def menu_router(recipes: Mapping[str, Recipe] | None = None) -> APIRouter:
         and the plan names the allergens its product declares. An ingredient that cannot be sourced stays in the
         final offer with nothing offered for it, so the offer and the rules see that the menu is incomplete.
         Order an option of `offer_id` with POST /v1/orders, as any offer. At most three offers, each counted by
-        the rate limit."""
-        return await run_in_threadpool(_plan, _service(request), caller, menu, table)
+        the rate limit.
+
+        The dishes are typed in `dishes`, or named in `text` as a sentence ("I want to make a chocolate cake for
+        20 people by Monday"), read by fixed rules with no model. Typed fields win. What the sentence leaves open
+        is refused with the question to answer and never guessed: a dish that is not in the recipe table, missing
+        servings, two days. The first note of the plan says what was read. An amount below one litre or kilogram
+        is asked for to the gram, and each ingredient's sentence says the product offered, the packs, the price,
+        the stock and what is left over when the pack is larger than the need."""
+        return await run_in_threadpool(_plan, _parts(request), caller, menu, table)
 
     return router
 
 
-def _plan(service: Gateway, caller: Identity, menu: MenuRequest, table: Mapping[str, Recipe]) -> MenuPlan:
-    return plan_menu(service, caller, menu, table)
+def _plan(parts: Parts, caller: Identity, menu: MenuAsk, table: Mapping[str, Recipe]) -> MenuPlan:
+    """Raises `InvalidRequest` (422) when neither `dishes` nor `text` names a dish, with the list of dishes."""
+    resolved = resolve(menu, table, helsinki_date(parts.clock.now()))
+    plan = plan_menu(parts.service, caller, resolved.request, table)
+    offer = parts.service.get_offer(caller, plan.offer_id) if plan.offer_id is not None else None
+    return with_notes(plan, read_as=resolved.read_as, later=later_recorded_note(parts.replay, offer))

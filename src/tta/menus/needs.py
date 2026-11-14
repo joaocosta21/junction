@@ -2,7 +2,8 @@
 
 A `Use` is one ingredient of one dish. A `Need` is one request line: the uses bought as one product type, the
 recipe's own or an alternative that does the same job. Stock is taken off per product type, dish by dish in menu
-order; what is left is ordered, rounded up to whole litres or kilograms.
+order; what is left is ordered, rounded up to whole litres or kilograms. Less than one litre or kilogram is asked
+for as it is, to the gram (task CK): 20 g of baking powder is not a request for 1 kg of it.
 """
 
 from __future__ import annotations
@@ -14,11 +15,12 @@ from decimal import ROUND_CEILING, Decimal
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.menu import MenuRequest
 from tta.contracts.request import MAX_ROLE_LENGTH, MAX_TEXT_LENGTH, PurchaseRequest, RequestLine
-from tta.menus.recipes import Choice, Ingredient, Recipe, unit_of
+from tta.menus.recipes import Choice, Ingredient, Recipe, product_ids_of, unit_of
 from tta.menus.wording import amount_words, choice_words, dish_words
 
 ZERO = Decimal(0)
 WHOLE = Decimal(1)
+SMALLEST = Decimal("0.001")  # a gram or a millilitre: the request's own precision (MAX_QUANTITY_DECIMALS)
 UNKNOWN_DISH = "No recipe has the id '{dish_id}'. GET /v1/menus/recipes lists the dishes."
 WRONG_STOCK_UNIT = "The recipes use {unit} for {product_type}, so its stock must be given in {unit}, not {given}."
 
@@ -68,8 +70,11 @@ class Need:
 
     @property
     def quantity(self) -> Decimal:
-        """Rounded up to whole litres or kilograms, and at least one."""
-        return max(self.amount.to_integral_value(rounding=ROUND_CEILING), WHOLE)
+        """Rounded up to whole litres or kilograms; an amount below one is rounded up to the gram or millilitre
+        instead, so a small need is not asked for as a whole kilogram."""
+        if self.amount < WHOLE:
+            return max(self.amount.quantize(SMALLEST, rounding=ROUND_CEILING), SMALLEST)
+        return self.amount.to_integral_value(rounding=ROUND_CEILING)
 
     @property
     def key(self) -> tuple[str, tuple[str, ...], str | None]:
@@ -151,11 +156,22 @@ def _role(need: Need) -> str | None:
     return "; ".join(dict.fromkeys(use.ingredient.role for use in need.uses))[:MAX_ROLE_LENGTH]
 
 
-def purchase_request(request: MenuRequest, needs: Sequence[Need]) -> PurchaseRequest:
+def _named(need: Need, recipes: Mapping[str, Recipe]) -> dict[str, object]:
+    """How the request line names the product: by the product type and the words of its name, or by product ids
+    for an ingredient the product-type table does not hold (`recipes.yaml`, `named_products`)."""
+    ids = product_ids_of(recipes, need.choice.product_type)
+    if ids:
+        return {"product_ids": ids}
+    return {"product_type": need.choice.product_type, "name_terms": need.choice.name_terms}
+
+
+def purchase_request(
+    request: MenuRequest, needs: Sequence[Need], recipes: Mapping[str, Recipe] | None = None
+) -> PurchaseRequest:
     """The typed request of these needs, with the menu's date, exclusions and confirmed-only setting."""
     lines = tuple(
         RequestLine(
-            text=_text(need), product_type=need.choice.product_type, name_terms=need.choice.name_terms,
+            text=_text(need), **_named(need, recipes or {}),
             quantity=need.quantity, unit=need.choice.unit, exclude_allergens=request.exclude_allergens,
             allergen_strictness=request.allergen_strictness, stands_in_for=need.stands_in_for,
             stands_in_role=_role(need),

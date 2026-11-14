@@ -261,7 +261,11 @@ def test_the_database_itself_refuses_two_events_with_the_same_previous_hash(tmp_
 def test_the_store_offers_no_way_to_change_or_remove_an_audit_event(store: SqliteStore) -> None:
     audit_methods = [name for name in dir(store) if "audit" in name and not name.startswith("_")]
 
-    assert sorted(audit_methods) == ["append_audit_event", "last_audit_hash", "list_audit_events"]
+    # Three more reads since review H2 (the count, a position, a page): still one way to write, and none to change.
+    assert sorted(audit_methods) == [
+        "append_audit_event", "audit_events_page", "audit_position", "count_audit_events", "last_audit_hash",
+        "list_audit_events",
+    ]
 
 
 def test_a_file_database_uses_wal_and_keeps_its_data_when_reopened(tmp_path: Path, samples) -> None:

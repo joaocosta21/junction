@@ -100,6 +100,26 @@ def _refusal(error: psycopg.Error, event_id: str) -> Exception:
     return _unavailable(error)
 
 
+# The bounded audit read of review H2, as in `tta.store.sqlite_store`. Not run against a database in the build of
+# 14 Nov: no PostgreSQL was reachable offline.
+COUNT_AUDIT_EVENTS = "SELECT COUNT(*) FROM audit_events"
+AUDIT_POSITION = """
+SELECT seq FROM audit_events
+WHERE event_id = %(event_id)s::text AND (%(profile_id)s::text IS NULL OR profile_id = %(profile_id)s::text)
+"""
+AUDIT_EVENTS_PAGE = """
+SELECT e.body, (SELECT p.hash FROM audit_events p WHERE p.seq < e.seq ORDER BY p.seq DESC LIMIT 1)
+FROM audit_events e
+WHERE (%(profile_id)s::text IS NULL OR e.profile_id = %(profile_id)s::text)
+  AND (%(offer_id)s::text IS NULL OR e.offer_id = %(offer_id)s::text)
+  AND (%(order_id)s::text IS NULL OR e.order_id = %(order_id)s::text OR (e.order_id IS NULL AND e.offer_id IN (
+        SELECT o.offer_id FROM audit_events o
+        WHERE o.order_id = %(order_id)s::text AND o.offer_id IS NOT NULL
+          AND (%(profile_id)s::text IS NULL OR o.profile_id = %(profile_id)s::text))))
+  AND (%(before)s::bigint IS NULL OR e.seq < %(before)s::bigint)
+ORDER BY e.seq DESC LIMIT %(limit)s::bigint
+"""
+
 class PostgresStore:
     """Offers, orders, approvals, idempotency keys, audit events and standing orders in one PostgreSQL schema.
 
@@ -347,6 +367,28 @@ class PostgresStore:
 
     def last_audit_hash(self) -> str | None:
         return self._value(statements.LAST_AUDIT_HASH, ())
+
+    def count_audit_events(self) -> int:
+        """How many events the trail holds, without reading one."""
+        return self._value(COUNT_AUDIT_EVENTS, ())
+
+    def audit_position(self, event_id: str, profile_id: str | None = None) -> int | None:
+        """The place of an event in the trail, to read the page before it; None for an id nobody stored, or one
+        that is not this buyer's when a profile is given."""
+        rows = self._rows(AUDIT_POSITION, {"event_id": event_id, "profile_id": profile_id})
+        return rows[0][0] if rows else None
+
+    def audit_events_page(
+        self, *, limit: int, order_id: str | None = None, offer_id: str | None = None,
+        profile_id: str | None = None, before: int | None = None,
+    ) -> tuple[tuple[AuditEvent, str | None], ...]:
+        """At most `limit` events, newest first, each with the hash of the event stored just before it in the whole
+        trail (None for the first event): a bounded read (review H2), as `SqliteStore.audit_events_page`."""
+        parameters = {
+            "order_id": order_id, "offer_id": offer_id, "profile_id": profile_id, "before": before, "limit": limit,
+        }
+        rows = self._rows(AUDIT_EVENTS_PAGE, parameters)
+        return tuple((AuditEvent.model_validate_json(body), hash_before) for body, hash_before in rows)
 
     def save_standing_order(self, standing: StandingOrder) -> None:
         self._write(

@@ -187,3 +187,48 @@ def test_a_customer_whose_standing_orders_cannot_be_set_up_at_start_is_named_in_
 
     assert answer.status_code == 200 and answer.json()["status"] == "degraded"
     assert answer.json()["reasons"] == ["the standing orders of school-kitchen were not set up at start"]
+
+
+# --- who the rate limiter takes the caller for (earlier review F3, a check after the deploy) -------------
+
+
+def test_in_dev_health_says_how_many_proxy_hops_are_trusted_and_the_callers_address_family_never_the_address(
+    app: Any,
+) -> None:
+    with TestClient(app, client=("203.0.113.7", 50000)) as one:  # the app stops when this block ends
+        two, six = TestClient(app, client=("203.0.113.8", 50000)), TestClient(app, client=("2001:db8:1:2::9", 50000))
+        first, again, other, ipv6 = one.get("/healthz"), one.get("/healthz"), two.get("/healthz"), six.get("/healthz")
+
+    seen = first.json()["rate_limit_caller"]
+    assert (seen["trusted_proxy_hops"], seen["address_family"], seen["forwarded_for_entries"]) == (0, "IPv4", 0)
+    assert "203.0.113" not in first.text and "2001:db8" not in ipv6.text
+    assert ipv6.json()["rate_limit_caller"]["address_family"] == "IPv6"
+    # The bucket label is the same for one address and differs between two: two networks that read the same
+    # label share one window.
+    assert seen["bucket"] == again.json()["rate_limit_caller"]["bucket"] != other.json()["rate_limit_caller"]["bucket"]
+    assert "share" in seen["sentence"] and "0 prox" in seen["sentence"]
+
+
+def test_the_forwarded_header_is_counted_and_believed_only_as_far_as_the_setting_says(
+    tmp_path: Any, catalog: ProductCatalog
+) -> None:
+    settings = Settings.for_tests(tta_data_dir=tmp_path / "var", tta_trusted_proxy_hops=1)
+    app = create_app(settings, parts=build_parts(settings, catalog=catalog))
+
+    with TestClient(app, client=("10.0.0.1", 50000)) as proxied:
+        one = proxied.get("/healthz", headers={"X-Forwarded-For": "198.51.100.4"}).json()["rate_limit_caller"]
+        two = proxied.get("/healthz", headers={"X-Forwarded-For": "198.51.100.5"}).json()["rate_limit_caller"]
+
+    assert (one["trusted_proxy_hops"], one["forwarded_for_entries"], one["address_family"]) == (1, 1, "IPv4")
+    assert one["bucket"] != two["bucket"]  # one peer, two visitors: the forwarded entry is what is counted
+
+
+def test_outside_dev_and_demo_health_says_nothing_about_the_caller(tmp_path: Any, catalog: ProductCatalog) -> None:
+    tokens = '{"an-environment-token-of-forty-characters": {"kind": "AGENT", "id": "agent:x", "display_name": "X", ' \
+             '"profile_id": "hotel-kitchen"}}'
+    settings = Settings.for_tests(tta_env="prod", tta_tokens=tokens, tta_data_dir=tmp_path / "var")
+
+    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
+        body = client.get("/healthz").json()
+
+    assert body["rate_limit_caller"] is None

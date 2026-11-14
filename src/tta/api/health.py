@@ -6,6 +6,9 @@ the answer says where the record is kept) and on the 15% path to production. No 
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import secrets
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request, Response
@@ -13,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from tta.api import docs
 from tta.api.clock_info import HealthClock, describe_clock
+from tta.api.limits import UNKNOWN_CLIENT, current_client_key, forwarded_for_entries
 from tta.api.signing import JWKS_PATH
 from tta.contracts.common import DataSource
 from tta.contracts.offer import PROOF_ALGORITHM
@@ -57,6 +61,46 @@ class SigningKey(BaseModel):
     note: str
 
 
+AddressFamily = Literal["IPv4", "IPv6", "unknown"]
+BUCKET_LABEL_CHARACTERS = 8
+# Keys the bucket label. Made when the process starts and never shown, so a label cannot be turned back into an
+# address by trying every address; after a restart the labels are new.
+_BUCKET_LABEL_KEY = secrets.token_bytes(32)
+CALLER_SENTENCE = (
+    "The rate limiter trusts {hops} prox{ies} in front of this gateway and counted this call for an {family} "
+    "address (bucket {bucket}; X-Forwarded-For held {entries} entr{ys}). Call this from two networks: if both "
+    "read the same bucket, all visitors share one rate-limit window and TTA_TRUSTED_PROXY_HOPS must be raised."
+)
+
+
+class RateLimitCaller(BaseModel):
+    """Who the rate limiter took the caller of `/healthz` for (earlier review F3): a check a person makes after a
+    deploy. Never the address: its family and a label that is the same for one address and differs between two."""
+
+    model_config = ConfigDict(frozen=True)
+
+    trusted_proxy_hops: int  # `TTA_TRUSTED_PROXY_HOPS`: how many forwarded entries are believed
+    address_family: AddressFamily
+    forwarded_for_entries: int  # how many entries X-Forwarded-For held on this call
+    bucket: str  # a keyed hash of the address the call was counted for, cut short
+    sentence: str
+
+
+def _rate_limit_caller(request: Request, trusted_proxy_hops: int) -> RateLimitCaller:
+    key = current_client_key()
+    family: AddressFamily = "unknown" if key == UNKNOWN_CLIENT else "IPv6" if ":" in key else "IPv4"
+    bucket = hmac.new(_BUCKET_LABEL_KEY, key.encode(), hashlib.sha256).hexdigest()[:BUCKET_LABEL_CHARACTERS]
+    entries = forwarded_for_entries(request.scope)
+    sentence = CALLER_SENTENCE.format(
+        hops=trusted_proxy_hops, ies="y" if trusted_proxy_hops == 1 else "ies", family=family, bucket=bucket,
+        entries=entries, ys="y" if entries == 1 else "ies",
+    )
+    return RateLimitCaller(
+        trusted_proxy_hops=trusted_proxy_hops, address_family=family, forwarded_for_entries=entries, bucket=bucket,
+        sentence=sentence,
+    )
+
+
 class Health(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -75,6 +119,8 @@ class Health(BaseModel):
     surfaces: dict[str, bool]
     store: StoreInUse  # which database holds the shared order book and the audit trail, and why
     signing: SigningKey  # the key offers and order records are signed with, and whether it is a demo key
+    # Dev and demo only: who the rate limiter took this caller for, without the address. Null anywhere else.
+    rate_limit_caller: RateLimitCaller | None = None
 
 
 OK, DEGRADED = "ok", "degraded"
@@ -103,7 +149,10 @@ def get_health(request: Request, response: Response) -> Health:
     is `ok` or `degraded` and why, the head of the audit chain, and which database holds the shared order book
     (`store`: PostgreSQL or SQLite, and why) and the key offers and orders are signed with (`signing`, saying when
     it is a demo key). No token needed; no secret, no path, no host name and no budget
-    figure is shown. Nothing is asked of the supplier and the audit trail is not read through.
+    figure is shown. In dev and demo `rate_limit_caller` says how many proxy hops the rate limiter trusts and which
+    address family it counted this call for, with a short label instead of the address: two networks that read
+    the same label share one rate-limit window. Nothing is asked of the supplier and the audit trail is not read
+    through.
 
     A demo signing key is a `notices` line in dev and demo and a reason anywhere else. A degraded gateway answers
     200 in dev and demo, so a demonstration stays reachable, and 503 anywhere else."""
@@ -137,4 +186,5 @@ def get_health(request: Request, response: Response) -> Health:
             key_id=parts.signer.key_id, algorithm=PROOF_ALGORITHM, jwks_path=JWKS_PATH, demo_key=parts.signer.demo_key,
             note=DEMO_KEY if parts.signer.demo_key else SET_KEY,
         ),
+        rate_limit_caller=_rate_limit_caller(request, parts.settings.tta_trusted_proxy_hops) if demo else None,
     )

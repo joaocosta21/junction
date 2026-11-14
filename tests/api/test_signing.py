@@ -18,9 +18,10 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from tta.api import create_app
-from tta.api.signing import JWKS_PATH, Signer, SigningKeyError, canonical_json, verifies
+from tta.api.signing import JWKS_PATH, SET_KEY_NOTE, Signer, SigningKeyError, canonical_json, verifies
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -102,7 +103,11 @@ def test_the_signature_is_checked_here_with_nothing_but_the_standards(
 
     assert (key["kty"], key["crv"], key["alg"], key["use"]) == ("OKP", "Ed25519", "EdDSA", "sig")
     assert key["kid"] == proof["key_id"]
-    assert empty_payload == "" and json.loads(_decode(header)) == {"alg": "EdDSA", "kid": proof["key_id"]}
+    # The protected header also says what kind of record was signed and whether the key is a demo key (M2).
+    assert empty_payload == "" and json.loads(_decode(header)) == {
+        "alg": "EdDSA", "kid": proof["key_id"], "typ": "tta-offer+jws", "demo_key": True,
+    }
+    assert key["demo_key"] is True and proof["key_id"].startswith("demo-")
     assert (proof["type"], proof["algorithm"], proof["canonicalization"]) == ("JsonWebSignature", "EdDSA", "RFC 8785")
     signed = f"{header}.{_b64url(canonical_json(offer))}".encode()
     Ed25519PublicKey.from_public_bytes(_decode(key["x"])).verify(_decode(signature), signed)  # raises when invalid
@@ -208,3 +213,65 @@ def test_the_key_set_and_the_proof_are_documented(client: TestClient) -> None:
     assert "proof" in document["components"]["schemas"]["Order"]["properties"]
     assert "RFC 8785" in document["info"]["description"] and JWKS_PATH in text
     assert "not that Valio Aimo signed it" in text
+
+
+# --- what is signed says which key and which kind of record (review M2) ---------------------------------
+
+
+def test_a_demo_signed_record_cannot_be_relabelled_as_signed_with_a_set_key(
+    client: TestClient, scenario_1: dict[str, Any], make_offer: Flow
+) -> None:
+    offer, keys = make_offer(client, "agent_hotel", scenario_1), _jwks(client)
+    assert offer["proof"]["demo_key"] is True and verifies(offer, keys)
+
+    relabelled = {**offer, "proof": {**offer["proof"], "demo_key": False, "note": SET_KEY_NOTE}}
+    other_note = {**offer, "proof": {**offer["proof"], "note": "Signed by Valio Aimo."}}
+    other_path = {**offer, "proof": {**offer["proof"], "jwks_path": "/somewhere/else.json"}}
+
+    assert not verifies(relabelled, keys)
+    assert not verifies(other_note, keys)
+    assert not verifies(other_path, keys)
+
+
+def test_the_demo_marker_is_in_the_signed_header_the_key_id_and_the_published_key() -> None:
+    demo, private = Signer.from_setting(None), Ed25519PrivateKey.generate()
+    seed = _b64url(private.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()))
+    fixed = Signer.from_setting(SecretStr(seed))
+    record = {"offer_id": "o-1", "total": 3}
+
+    for signer, is_demo in ((demo, True), (fixed, False)):
+        proof = signer.proof_of(record).model_dump(mode="json")
+        header = json.loads(_decode(proof["jws"].split(".")[0]))
+        [key] = signer.jwks["keys"]
+        assert header["demo_key"] is is_demo and key["demo_key"] is is_demo and proof["demo_key"] is is_demo
+        assert proof["key_id"].startswith("demo-") is is_demo and key["kid"] == header["kid"] == proof["key_id"]
+        assert verifies({**record, "proof": proof}, signer.jwks)
+    # A key set that hides the marker, or states the other one, is not the set this record was signed for.
+    proof = demo.proof_of(record).model_dump(mode="json")
+    [key] = demo.jwks["keys"]
+    assert not verifies({**record, "proof": proof}, {"keys": [{**key, "demo_key": False}]})
+    assert not verifies({**record, "proof": proof}, {"keys": [{k: v for k, v in key.items() if k != "demo_key"}]})
+
+
+def test_a_signature_over_an_offer_cannot_be_presented_as_an_order_and_the_other_way() -> None:
+    signer = Signer.from_setting(None)
+    offer, order = {"offer_id": "o-1", "total": 3}, {"order_id": "r-1", "offer_id": "o-1", "total": 3}
+    offer_proof = signer.proof_of(offer).model_dump(mode="json")
+    order_proof = signer.proof_of(order).model_dump(mode="json")
+
+    assert json.loads(_decode(offer_proof["jws"].split(".")[0]))["typ"] == "tta-offer+jws"
+    assert json.loads(_decode(order_proof["jws"].split(".")[0]))["typ"] == "tta-order+jws"
+    assert verifies({**offer, "proof": offer_proof}, signer.jwks)
+    assert verifies({**order, "proof": order_proof}, signer.jwks)
+    # The same content with the other kind's header: the signature was made over another header, and the header
+    # of the proof given does not name this kind of record.
+    assert not verifies({**offer, "proof": order_proof}, signer.jwks)
+    assert not verifies({**order, "proof": offer_proof}, signer.jwks)
+    header, _, signature = offer_proof["jws"].partition("..")
+    swapped = order_proof["jws"].partition("..")[0] + ".." + signature
+    assert not verifies({**offer, "proof": {**offer_proof, "jws": swapped}}, signer.jwks)
+
+
+def test_a_record_that_is_neither_an_offer_nor_an_order_is_not_signed() -> None:
+    with pytest.raises(TypeError):
+        Signer.from_setting(None).proof_of({"something": "else"})

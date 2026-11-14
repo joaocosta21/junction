@@ -45,11 +45,11 @@ def _offer_maker(service: GatewayService) -> MakeOffer:
     return getattr(service, MENU_OFFER, None) or service.create_offer
 
 
-def _request(request: MenuRequest, needs: Sequence[Need]) -> PurchaseRequest:
+def _request(request: MenuRequest, needs: Sequence[Need], recipes: Mapping[str, Recipe]) -> PurchaseRequest:
     """Raises `InvalidRequest` for more lines than one offer holds, in plain words."""
     if len(needs) > MAX_REQUEST_LINES:
         raise InvalidRequest(TOO_MANY_LINES.format(count=len(needs), limit=MAX_REQUEST_LINES))
-    return purchase_request(request, needs)
+    return purchase_request(request, needs, recipes)
 
 
 def alternative_key(use: Use, alternative: Alternative) -> tuple[str, tuple[str, ...], str]:
@@ -123,7 +123,7 @@ def plan_menu(
         return assemble(request, uses, Outcome())
     offer_for = _offer_maker(service)
     minimum = service.get_authority(identity).profile.min_fill_ratio
-    first = offer_for(identity, _request(request, first_needs))
+    first = offer_for(identity, _request(request, first_needs, recipes))
     # A line fails only when no option covers enough of it (finding M-4): the recipe's own ingredient is kept
     # when an option holds it, also one whose quantity is not confirmed.
     failed = {index for index in range(len(first_needs)) if best_fill_of(first, index) < minimum}
@@ -132,12 +132,12 @@ def plan_menu(
                                                final_needs=first_needs))
     failed_uses = [use for index in sorted(failed) for use in first_needs[index].uses]
     probe_needs = _probe_needs(failed_uses)
-    probe = offer_for(identity, _request(request, probe_needs)) if probe_needs else None
+    probe = offer_for(identity, _request(request, probe_needs, recipes)) if probe_needs else None
     working = {need.key for index, need in enumerate(probe_needs) if best_fill_of(probe, index) >= minimum}
     resolution = _resolve(first_needs, failed, first, working)
     final = first
     if not _same_lines(resolution.needs, first_needs):
-        final = offer_for(identity, _request(request, resolution.needs))
+        final = offer_for(identity, _request(request, resolution.needs, recipes))
     return assemble(request, uses, Outcome(
         first_needs=first_needs, first=first, probe_needs=probe_needs, probe=probe, final=final,
         final_needs=resolution.needs, chosen=resolution.chosen, unsourced=resolution.unsourced,

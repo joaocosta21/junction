@@ -35,6 +35,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
+from typing import Protocol
 
 from starlette.requests import cookie_parser
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -121,10 +122,18 @@ class RateLimit:
     window_seconds: float = DEFAULT_RATE_LIMIT_WINDOW_SECONDS
 
 
+class WriteBudget(Protocol):
+    """What one address and one token may store in a day (`tta.api.budget.StorageBudget`)."""
+
+    def check(self, token_id: str) -> None: ...
+
+    def charge(self, size: int) -> None: ...
+
+
 class CallKind(StrEnum):
     """The kinds of call that are counted. The value is how a refusal names them."""
 
-    LOOKUP = "offers and substitute searches"
+    LOOKUP = "offers, searches and reads of the catalog and the audit trail"
     ORDER = "orders and approval decisions"
     MODEL = "request readings and agent runs"
 
@@ -268,6 +277,11 @@ def _forwarded(scope: Scope) -> list[str]:
     return [entry.strip() for entry in joined.split(",")]
 
 
+def forwarded_for_entries(scope: Scope) -> int:
+    """How many entries `X-Forwarded-For` holds on this request: none when the header is absent."""
+    return len([entry for entry in _forwarded(scope) if entry])
+
+
 def _visitor(scope: Scope, trusted_proxy_hops: int) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     """The peer, or with N trusted proxies the N-th forwarded entry from the right: the address our outermost
     proxy saw. What a caller wrote into the header itself stands left of that and is never read. A header
@@ -347,6 +361,7 @@ class CallLimits:
         address_caps: Mapping[CallKind, int] | None = None,
         ceilings: Mapping[CallKind, int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
+        storage: WriteBudget | None = None,
     ) -> None:
         self._per_caller = per_caller
         self._per_visitor = per_visitor
@@ -356,10 +371,15 @@ class CallLimits:
         self._address_caps = dict(ADDRESS_CAPS if address_caps is None else address_caps)
         self._ceilings = dict(GLOBAL_CEILINGS if ceilings is None else ceilings)
         self._limiter = RateLimiter(per_caller, monotonic=monotonic)
+        self.storage = storage  # the day's budget of stored bytes (review H2); None outside dev and demo
 
-    def check(self, identity: Identity, kind: CallKind) -> None:
+    def check(self, identity: Identity, kind: CallKind, *, writes: bool = True) -> None:
         """Count one call, or raise `RateLimited` (with the seconds to wait) and count it nowhere. The refusal
-        says which window was full: the browser's or address's own, the address's cap, or the whole app's."""
+        says which window was full: the browser's or address's own, the address's cap, or the whole app's.
+        A call that writes (`writes`, the default) is first refused when its address or its token has stored
+        its day's budget; a call that only reads is not."""
+        if writes and self.storage is not None:
+            self.storage.check(identity.id)
         ceiling = RateLimit(calls=self._ceilings[kind], window_seconds=SECONDS_PER_MINUTE)
         self._limiter.check_all((
             *self._callers_windows(identity, kind),
@@ -385,12 +405,17 @@ def _naming(refusal: str, kind: CallKind) -> str:
     return refusal.replace("{kind}", kind.value)
 
 
-def call_limits(per_visitor: bool, rate_limit: RateLimit | None = None) -> CallLimits:
+def call_limits(
+    per_visitor: bool, rate_limit: RateLimit | None = None, *, storage: WriteBudget | None = None
+) -> CallLimits:
     """The limits of the gateway. `rate_limit`, for a test, replaces the window of one caller for every kind
-    of call: of a token from the environment, or of one visitor of the demonstration tokens."""
+    of call: of a token from the environment, or of one visitor of the demonstration tokens. `storage` is the
+    day's budget of stored bytes, given in dev and demo."""
     if rate_limit is None:
-        return CallLimits(RateLimit(), per_visitor=per_visitor)
-    return CallLimits(rate_limit, per_visitor=per_visitor, visitor_windows=dict.fromkeys(CallKind, rate_limit))
+        return CallLimits(RateLimit(), per_visitor=per_visitor, storage=storage)
+    return CallLimits(
+        rate_limit, per_visitor=per_visitor, visitor_windows=dict.fromkeys(CallKind, rate_limit), storage=storage
+    )
 
 
 class BodyLimitMiddleware:

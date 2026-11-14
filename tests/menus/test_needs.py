@@ -45,13 +45,17 @@ def test_stock_goes_to_the_dishes_in_menu_order_and_only_the_rest_is_ordered(
 
     assert (uses["rice_porridge"].needed, uses["rice_porridge"].in_stock) == (Decimal("3.0"), Decimal("3.0"))
     assert (uses["oven_pancake"].needed, uses["oven_pancake"].in_stock) == (Decimal("1.50"), Decimal("1.0"))
-    assert _by_type(request, recipes)[("milk", ())] == Decimal(1)  # 0.5 L rounded up
+    assert _by_type(request, recipes)[("milk", ())] == Decimal("0.5")  # below 1 L: asked for as it is (task CK)
 
 
-def test_a_line_is_never_below_one_unit(menu: Callable[..., MenuRequest], recipes: Mapping[str, Recipe]) -> None:
+def test_a_line_below_one_unit_asks_for_its_amount_to_the_gram_not_for_a_whole_unit(
+    menu: Callable[..., MenuRequest], recipes: Mapping[str, Recipe]
+) -> None:
+    """Task CK: 0.03 L of milk is not a request for 1 L of it. From 1 L or 1 kg up a line is in whole units."""
     request = menu(dishes=[{"dish_id": "cheese_omelette", "servings": 1}], stock=[])
 
-    assert _by_type(request, recipes)[("milk", ())] == Decimal(1)  # 0.03 L
+    assert _by_type(request, recipes)[("milk", ())] == Decimal("0.03")
+    assert _by_type(request, recipes)[("eggs", ())] == Decimal("0.12")
 
 
 def test_an_unknown_dish_or_a_stock_in_another_unit_is_an_invalid_request(

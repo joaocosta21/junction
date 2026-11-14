@@ -39,7 +39,10 @@ from tta.contracts.order import DecisionRequest, Order, PlaceOrderRequest
 from tta.contracts.request import ProductQuery, PurchaseRequest, RequestLine
 from tta.store import SqliteStore
 
-# The scenarios of SPEC section 13. The profiles and the product are those of the demonstration.
+# The first three scenarios of the demo set (docs/DEMO.md), named as there and with the sentences of the first
+# page (`tta.ui.examples`): 1 the brief's request, 2 the ward, 3 the stock-out's substitutes. They are run 3, 2, 1:
+# the single example of a read route (an offer, an order) is then the ward's, the one fully confirmed case.
+# The profiles and the product are those of the demonstration.
 HOTEL_PROFILE = "hotel-kitchen"
 WARD_PROFILE = "allergy-ward"
 SCENARIO_1_TEXT = "1,000 litres of lactose-free milk by Monday"
@@ -162,7 +165,8 @@ class _Examples:
     def _substitutes(self) -> None:
         substitutes = SubstituteQuery()
         self._keep(
-            "find_substitutes", "scenario_3", f"Scenario 3: ranked substitutes of product {SCENARIO_3_PRODUCT}",
+            "find_substitutes", "scenario_3",
+            f"Scenario 3: a stock-out, ranked substitutes of product {SCENARIO_3_PRODUCT}",
             self._service.find_substitutes(self._hotel, SCENARIO_3_PRODUCT, substitutes), substitutes,
         )
 

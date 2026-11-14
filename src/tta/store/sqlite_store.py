@@ -37,6 +37,24 @@ STORE_BUSY_DETAIL = (
 # lock of its own while it waits here (the audit trail does), and the thread inside the block may need that lock:
 # without a bound the two would wait for each other for ever.
 LOCK_WAIT_SECONDS = 5.0
+# The bounded audit read of review H2. Kept here: `tta.store.schema` holds the statements of the unbounded reads.
+COUNT_AUDIT_EVENTS = "SELECT COUNT(*) FROM audit_events"
+AUDIT_POSITION = """
+SELECT seq FROM audit_events
+WHERE event_id = :event_id AND (:profile_id IS NULL OR profile_id = :profile_id)
+"""
+AUDIT_EVENTS_PAGE = """
+SELECT e.body, (SELECT p.hash FROM audit_events p WHERE p.seq < e.seq ORDER BY p.seq DESC LIMIT 1)
+FROM audit_events e
+WHERE (:profile_id IS NULL OR e.profile_id = :profile_id)
+  AND (:offer_id IS NULL OR e.offer_id = :offer_id)
+  AND (:order_id IS NULL OR e.order_id = :order_id OR (e.order_id IS NULL AND e.offer_id IN (
+        SELECT o.offer_id FROM audit_events o
+        WHERE o.order_id = :order_id AND o.offer_id IS NOT NULL
+          AND (:profile_id IS NULL OR o.profile_id = :profile_id))))
+  AND (:before IS NULL OR e.seq < :before)
+ORDER BY e.seq DESC LIMIT :limit
+"""
 CHAIN_MOVED_DETAIL = (
     "The audit event does not follow the last event of the trail: another writer added an event first. "
     "Nothing was recorded."
@@ -251,6 +269,33 @@ class SqliteStore:
         with self._session() as connection:
             row = connection.execute(schema.LAST_AUDIT_HASH).fetchone()
         return None if row is None else row[0]
+
+    def count_audit_events(self) -> int:
+        """How many events the trail holds, without reading one."""
+        with self._session() as connection:
+            return connection.execute(COUNT_AUDIT_EVENTS).fetchone()[0]
+
+    def audit_position(self, event_id: str, profile_id: str | None = None) -> int | None:
+        """The place of an event in the trail, to read the page before it; None for an id nobody stored, or one
+        that is not this buyer's when a profile is given."""
+        with self._session() as connection:
+            row = connection.execute(AUDIT_POSITION, {"event_id": event_id, "profile_id": profile_id}).fetchone()
+        return None if row is None else row[0]
+
+    def audit_events_page(
+        self, *, limit: int, order_id: str | None = None, offer_id: str | None = None,
+        profile_id: str | None = None, before: int | None = None,
+    ) -> tuple[tuple[AuditEvent, str | None], ...]:
+        """At most `limit` events, newest first, each with the hash of the event stored just before it in the whole
+        trail (None for the first event): a bounded read (review H2). The filters are those of the audit view
+        (`tta.audit.views.select`): one buyer's events; for an order, its own events and the events of its offer
+        that belong to no order. `before` is a position `audit_position` gave."""
+        parameters = {
+            "order_id": order_id, "offer_id": offer_id, "profile_id": profile_id, "before": before, "limit": limit,
+        }
+        with self._session() as connection:
+            rows = connection.execute(AUDIT_EVENTS_PAGE, parameters).fetchall()
+        return tuple((AuditEvent.model_validate_json(body), hash_before) for body, hash_before in rows)
 
     def save_standing_order(self, standing: StandingOrder) -> None:
         with self._session() as connection:

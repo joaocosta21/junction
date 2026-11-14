@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from tta.api import docs
 from tta.api.agent_calls import header_value
+from tta.api.audit_pages import AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, AuditPage
 from tta.api.idempotency import PARAMETER as IDEMPOTENCY_PARAMETER
 from tta.api.idempotency import MissingIdempotencyKey, idempotency_key
 from tta.api.identity import Caller
@@ -21,7 +22,6 @@ from tta.api.schema_export import exported_schemas
 from tta.api.service import Gateway
 from tta.api.uploads import READ_IMAGE_PATH, REQUEST_BODY, ImageReading, body_too_large_answer, read_upload
 from tta.contracts.agent import AgentRun, ParseRequestBody
-from tta.contracts.audit import AuditView
 from tta.contracts.common import ApprovalStatus, AuditReader
 from tta.contracts.errors import (
     InvalidRequest,
@@ -133,23 +133,29 @@ def decide_approval(request: Request, caller: Caller, approval_id: StoredId, dec
 
 @router.post(
     "/products/search", operation_id="search_products", tags=[docs.TAG_LOOKUP],
-    responses=docs.problems(*CALLER, InvalidRequest), summary="Search the catalog",
+    responses=docs.problems(*CALLER, InvalidRequest, RateLimited), summary="Search the catalog",
 )
 def search_products(request: Request, caller: Caller, query: ProductQuery) -> SearchResult:
     """By product type, name terms (English or Finnish), nutritional claims, category and ids. Every filter
     given must hold. At most 100 products are returned; `total` says how many match. Price and availability
-    are not part of a search: ask for an offer."""
-    return _service(request).search_products(caller, query)
+    are not part of a search: ask for an offer. Counted with the offers in the caller's lookup window; in dev
+    and demo a search names at most 4 name terms."""
+    service = _service(request)
+    service.count_read(caller)
+    return service.search_products(caller, query)
 
 
 @router.get(
     "/products/{product_id}", operation_id="get_product", tags=[docs.TAG_LOOKUP],
-    responses=docs.problems(*CALLER, InvalidRequest, UnknownProduct), summary="One product",
+    responses=docs.problems(*CALLER, InvalidRequest, UnknownProduct, RateLimited), summary="One product",
 )
 def get_product(request: Request, caller: Caller, product_id: ProductIdPath) -> Product:
     """The product with its allergen statements (GS1 codes) and nutritional claims. A claim is never an
-    allergen statement, and a product with no statement is unknown, not safe."""
-    return _service(request).get_product(caller, product_id)
+    allergen statement, and a product with no statement is unknown, not safe. Counted with the offers in the
+    caller's lookup window."""
+    service = _service(request)
+    service.count_read(caller)
+    return service.get_product(caller, product_id)
 
 
 @router.post(
@@ -248,9 +254,22 @@ def get_order(request: Request, caller: Caller, order_id: StoredId) -> Order:
 # --- audit trail ----------------------------------------------------------------------------------------
 
 
+AuditLimitQuery = Annotated[
+    int | None,
+    Query(ge=1, le=AUDIT_PAGE_MAX, description=f"The most events to answer: {AUDIT_PAGE_DEFAULT} when not given, "
+                                               f"at most {AUDIT_PAGE_MAX}"),
+]
+AuditBeforeQuery = Annotated[
+    str | None,
+    Query(min_length=1, max_length=MAX_STORED_ID_LENGTH, pattern=r"^[A-Za-z0-9_-]+$",
+          description="The `next_cursor` of an earlier answer: read the events before it"),
+]
+
+
 @router.get(
     "/audit", operation_id="get_audit", tags=[docs.TAG_AUDIT],
-    responses=docs.problems(*CALLER, InvalidRequest, NotFound), summary="The audit trail as one reader sees it",
+    responses=docs.problems(*CALLER, InvalidRequest, NotFound, RateLimited),
+    summary="The audit trail as one reader sees it",
 )
 def get_audit(
     request: Request,
@@ -258,13 +277,23 @@ def get_audit(
     order_id: StoredIdQuery = None,
     offer_id: StoredIdQuery = None,
     reader: Annotated[AuditReader | None, Query(description="Default: the caller's own view")] = None,
-) -> AuditView:
+    limit: AuditLimitQuery = None,
+    before: AuditBeforeQuery = None,
+) -> AuditPage:
     """One sentence per step, built from a template, never by a model, with the state of the hash chain.
     The supplier token gets the supplier's view only: no limit value, no allergen exclusion, no approver's
     name or note. An agent or approver gets the buyer's view of its own buyer's events, and may ask for
-    `reader=supplier` to see what the supplier sees. With no order or offer: all of the caller's events,
-    the newest 100."""
-    return _service(request).get_audit(caller, reader, order_id=order_id, offer_id=offer_id)
+    `reader=supplier` to see what the supplier sees. With no order or offer: all of the caller's events.
+
+    In pages: the newest events, at most `limit` (100 when not given, at most 200), oldest of them first. A
+    trail that fits the page is answered whole. Otherwise `next_cursor` is set: send it as `before` to read the
+    page before. `chain` speaks of the events returned, and `verified` says what was checked for this answer:
+    `whole_chain` while the trail holds at most 1,000 events, `returned_span` above that (each event returned
+    against its own hash and the hash of the event stored before it). Counted with the offers in the caller's
+    lookup window."""
+    service = _service(request)
+    service.count_read(caller)
+    return service.get_audit(caller, reader, order_id=order_id, offer_id=offer_id, limit=limit, before=before)
 
 
 # --- buyer agent ----------------------------------------------------------------------------------------

@@ -4,7 +4,14 @@ Scores on Valio's "trust protocol" problem (what an agent can trust without a ma
 documented standards rather than a proprietary format". Every offer and every order record the REST routes and
 the MCP tools answer carries a `proof`: a detached JSON Web Signature (RFC 7515, appendix F) with the algorithm
 EdDSA over Ed25519 (RFC 8037), over the record's canonical JSON as RFC 8785 defines it (JCS). The public key is
-served as a JSON Web Key set (RFC 7517) at `/.well-known/jwks.json`; its `kid` is the key's thumbprint (RFC 7638).
+served as a JSON Web Key set (RFC 7517) at `/.well-known/jwks.json`; its `kid` is the key's thumbprint (RFC 7638),
+with `demo-` in front when the gateway generated the key itself.
+
+What is signed (review M2): the protected header and the record. The header holds `alg`, `kid`, `typ` (the kind of
+record: `tta-offer+jws` or `tta-order+jws`, so a signature over one cannot be presented as the other) and
+`demo_key`. The published key carries the same `demo_key`. The `proof` fields beside the signature (`key_id`,
+`demo_key`, `note`, `jwks_path`) are not signed: `verifies` reads the truth from the header and refuses a proof
+whose unsigned fields say anything else.
 
 To check a record: take the JSON as it was answered, remove `proof`, write the rest as RFC 8785 says, and verify
 `<header>.<base64url of those bytes>` against the signature, where `proof.jws` is `<header>..<signature>`.
@@ -49,6 +56,12 @@ DEMO_KEY_NOTE = (
 SET_KEY_NOTE = "Signed by this gateway with the key its operator set. The gateway signed it, not Valio Aimo."
 # ECMAScript writes a number without an exponent when its decimal exponent is in this range (RFC 8785, 3.2.2.3).
 ES_MIN_PLAIN_EXPONENT, ES_MAX_PLAIN_EXPONENT = -6, 21
+DEMO_KEY_ID_PREFIX = "demo-"  # in front of the thumbprint in the `kid` of a key the gateway generated itself
+DEMO_KEY_MEMBER = "demo_key"  # in the protected header and in the published key: true for such a key
+# The `typ` of the protected header (RFC 7515, 4.1.9) names the kind of record that was signed.
+OFFER_TYPE, ORDER_TYPE = "tta-offer+jws", "tta-order+jws"
+ORDER_ID_FIELD, OFFER_ID_FIELD = "order_id", "offer_id"
+NOT_A_SIGNED_KIND = "Only an offer or an order record is signed: this record has neither an order_id nor an offer_id."
 
 
 class SigningKeyError(RuntimeError):
@@ -114,8 +127,19 @@ def _without_proof(record: BaseModel | dict[str, Any]) -> dict[str, Any]:
     return document
 
 
-def _signing_input(header: str, record: BaseModel | dict[str, Any]) -> bytes:
-    return f"{header}.{_b64url(canonical_json(_without_proof(record)))}".encode("ascii")
+def _record_type(document: dict[str, Any]) -> str | None:
+    """The `typ` of a record: an order has an `order_id` (and its offer's id too); an offer has an `offer_id`."""
+    if document.get(ORDER_ID_FIELD):
+        return ORDER_TYPE
+    return OFFER_TYPE if document.get(OFFER_ID_FIELD) else None
+
+
+def _signing_input(header: str, document: dict[str, Any]) -> bytes:
+    return f"{header}.{_b64url(canonical_json(document))}".encode("ascii")
+
+
+def _note(demo_key: bool) -> str:
+    return DEMO_KEY_NOTE if demo_key else SET_KEY_NOTE
 
 
 class Signer:
@@ -127,8 +151,14 @@ class Signer:
         public = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         self._jwk = {"crv": "Ed25519", "kty": "OKP", "x": _b64url(public)}
         # RFC 7638: SHA-256 over the required members of the key, in lexicographic order, with no white space.
-        self.key_id = _b64url(hashlib.sha256(canonical_json(self._jwk)).digest())
-        self._header = _b64url(canonical_json({"alg": PROOF_ALGORITHM, "kid": self.key_id}))
+        thumbprint = _b64url(hashlib.sha256(canonical_json(self._jwk)).digest())
+        self.key_id = (DEMO_KEY_ID_PREFIX if demo_key else "") + thumbprint
+        self._headers = {
+            record_type: _b64url(canonical_json({
+                "alg": PROOF_ALGORITHM, "kid": self.key_id, "typ": record_type, DEMO_KEY_MEMBER: demo_key,
+            }))
+            for record_type in (OFFER_TYPE, ORDER_TYPE)
+        }
 
     @classmethod
     def from_setting(cls, seed: SecretStr | None) -> Signer:
@@ -146,14 +176,21 @@ class Signer:
 
     @property
     def jwks(self) -> dict[str, Any]:
-        """The public key as a JSON Web Key set."""
-        return {"keys": [{**self._jwk, "kid": self.key_id, "alg": PROOF_ALGORITHM, "use": "sig"}]}
+        """The public key as a JSON Web Key set. `demo_key` is ours: true for a key generated at start."""
+        key = {**self._jwk, "kid": self.key_id, "alg": PROOF_ALGORITHM, "use": "sig", DEMO_KEY_MEMBER: self.demo_key}
+        return {"keys": [key]}
 
     def proof_of(self, record: BaseModel | dict[str, Any]) -> Proof:
-        signature = self._key.sign(_signing_input(self._header, record))
+        """The proof of an offer or an order record. Raises `TypeError` for anything else: nothing else is signed."""
+        document = _without_proof(record)
+        record_type = _record_type(document)
+        if record_type is None:
+            raise TypeError(NOT_A_SIGNED_KIND)
+        header = self._headers[record_type]
+        signature = self._key.sign(_signing_input(header, document))
         return Proof(
-            key_id=self.key_id, jws=f"{self._header}..{_b64url(signature)}", jwks_path=JWKS_PATH,
-            demo_key=self.demo_key, note=DEMO_KEY_NOTE if self.demo_key else SET_KEY_NOTE,
+            key_id=self.key_id, jws=f"{header}..{_b64url(signature)}", jwks_path=JWKS_PATH,
+            demo_key=self.demo_key, note=_note(self.demo_key),
         )
 
     def signed[Record: BaseModel](self, record: Record) -> Record:
@@ -161,9 +198,38 @@ class Signer:
         return record.model_copy(update={PROOF_FIELD: self.proof_of(record)})
 
 
+def _signed_facts(header: str, document: dict[str, Any], key: dict[str, Any]) -> bool | None:
+    """Whether the key is a demo key, as the protected header says it; `None` when the header is not one this
+    gateway writes for this record and this key: another algorithm, key id or kind of record, a marker that is
+    not true or false, or one the key id or the published key contradicts."""
+    named = json.loads(_b64url_decode(header))
+    if not isinstance(named, dict) or set(named) != {"alg", "kid", "typ", DEMO_KEY_MEMBER}:
+        return None
+    demo_key = named[DEMO_KEY_MEMBER]
+    said_alike = (
+        isinstance(demo_key, bool)
+        and named["alg"] == PROOF_ALGORITHM
+        and named["kid"] == key.get("kid")
+        and named["typ"] == _record_type(document)
+        and str(named["kid"]).startswith(DEMO_KEY_ID_PREFIX) is demo_key
+        and key.get(DEMO_KEY_MEMBER) is demo_key
+    )
+    return demo_key if said_alike else None
+
+
+def _unsigned_fields_agree(proof: dict[str, Any], demo_key: bool) -> bool:
+    """The fields of `proof` that no signature covers must repeat what the signed header says, word for word."""
+    return (
+        proof.get("demo_key") is demo_key and proof.get("note") == _note(demo_key)
+        and proof.get("jwks_path") == JWKS_PATH
+    )
+
+
 def verifies(record: dict[str, Any], jwks: dict[str, Any]) -> bool:
-    """True when the record's `proof` is a valid signature of the record by a key of the set. The check a buyer
-    makes with the published key: nothing here needs the gateway."""
+    """True when the record's `proof` is a valid signature of the record by a key of the set, over a header that
+    names this kind of record, and nothing in the proof contradicts what was signed. The check a buyer makes with
+    the published key: nothing here needs the gateway. Whether the key is a demo key is read from the signed
+    header, never from `proof.demo_key` or `proof.note`."""
     proof = record.get(PROOF_FIELD)
     if not isinstance(proof, dict) or proof.get("algorithm") != PROOF_ALGORITHM:
         return False
@@ -173,12 +239,13 @@ def verifies(record: dict[str, Any], jwks: dict[str, Any]) -> bool:
     keys = [key for key in jwks.get("keys", ()) if key.get("kid") == proof.get("key_id")]
     if not header or not signature or len(keys) != 1:
         return False
+    document = _without_proof(record)
     try:
-        named = json.loads(_b64url_decode(header))
-        if named != {"alg": PROOF_ALGORITHM, "kid": proof["key_id"]}:
+        demo_key = _signed_facts(header, document, keys[0])
+        if demo_key is None or not _unsigned_fields_agree(proof, demo_key):
             return False
         public = Ed25519PublicKey.from_public_bytes(_b64url_decode(keys[0]["x"]))
-        public.verify(_b64url_decode(signature), _signing_input(header, record))
+        public.verify(_b64url_decode(signature), _signing_input(header, document))
     except (InvalidSignature, ValueError, KeyError, TypeError, binascii.Error):
         return False
     return True

@@ -17,8 +17,47 @@
 # Left out, and why: the product-type table has no vegetables, fruit, berries, herbs or spices, so the
 # dishes list those under `left_out` instead of ordering them. Butter, sugar, flour, eggs, rice, pasta,
 # chicken, fish, pork and minced meat are product types, but the recorded capture 2026-11-14-demo holds
-# only categories 104xx (milk, cream, plant drinks, yoghurt, quark) and 18720 (fresh beef): in replay
-# the other types answer "not in recording".
+# only categories 104xx (milk, cream, plant drinks, yoghurt, quark) and 18720 (fresh beef), and joins the
+# recording 2026-11-14-baking of the same Saturday (butter 10500, eggs 10590 and 10592, flour 21300 and
+# 21310, sugar 22100, cocoa 22540, baking aids 22601): in replay the other types answer "not in recording".
+#
+# `named_products` (task CK): an ingredient the product-type table does not hold yet, named by the product
+# ids that are it. A recipe uses its key as a product_type; the request line then names those products by
+# id. Once src/tta/catalog/product_types.yaml holds a type of the same key, the type is used and the list
+# here is ignored. The ids were read from the whole catalog on 14 Nov 2026 by the Finnish name:
+# "kaakaojauhe" (cocoa powder, not "kaakaojuomajauhe", a drink powder) in category 22540, 5 of its 27
+# products; "leivinjauhe" (baking powder, not "sooda") in category 22601, 6 of its 190.
+#
+# `also_called` (task CK): other names a person may write for a dish, among them the Finnish name the dish
+# carries in its `name`. The reader of dish sentences (src/tta/agent/dishes.py) matches a sentence against
+# the dish id's words ("chocolate cake"), the name before any bracket, and these. Nothing else is matched.
+
+also_called:
+  chocolate_cake: [suklaakakku]
+  oven_pancake: [pannukakku, pancake]
+  macaroni_casserole: [makaronilaatikko]
+  berry_quark_dessert: [marjarahka, quark dessert]
+  lasagne: [lasagna]
+  salmon_with_rice: [salmon and rice]
+  rice_porridge: [riisipuuro]
+  cheese_omelette: [omelette]
+
+named_products:
+  cocoa_powder:
+    product_ids:
+      - "466852"   # Capsi Cocoa powder 3kg
+      - "470538"   # Van Houten Cocoa Powder 24x125g
+      - "470594"   # 250g Van Houten Cocoa Powder
+      - "473820"   # Capsi Cocoa powder dark 3kg
+      - "475703"   # Fazer Cacao cocoa powder 200g
+  baking_powder:
+    product_ids:
+      - "465784"   # Dr. Oetker 160 g Baking powder
+      - "466202"   # 10x Meira Baking powder 100g
+      - "466228"   # Santa Maria 700G Baking Powder
+      - "468660"   # 15x Meira Baking powder 50g
+      - "476689"   # Salliselta Baking powder 630g
+      - "476737"   # Sallinen Baking Powder 5 kg
 
 dishes:
   beef_stew:
@@ -288,3 +327,52 @@ dishes:
         alternatives: []
     left_out:
       - "berries: the product-type table has no fruit or berries"
+
+  # An ordinary chocolate cake; ours, illustrative. One cake of 12 servings: 240 g flour, 240 g sugar, 4 eggs
+  # (240 g), 180 g butter, 60 g cocoa powder, 1.8 dl milk, 12 g baking powder.
+  chocolate_cake:
+    name: Chocolate cake (suklaakakku)
+    ingredients:
+      - product_type: flour
+        name_terms: [semi]      # semi-coarse wheat flour (puolikarkea vehnäjauho), the usual baking flour
+        per_serving: 0.02
+        unit: KG
+        role: "the structure of the sponge: its gluten and starch set the crumb"
+        alternatives: []
+      - product_type: sugar
+        name_terms: [granulated]
+        per_serving: 0.02
+        unit: KG
+        role: "sweetens the sponge and keeps it moist"
+        alternatives: []
+      - product_type: eggs
+        name_terms: [whole]     # whole egg, shelled: the type also holds yolks, whites, boiled eggs and spreads
+        per_serving: 0.02
+        unit: KG
+        role: "bind the batter and hold the air that makes the sponge rise"
+        alternatives: []
+      - product_type: butter
+        name_terms: [unsalted]
+        per_serving: 0.015
+        unit: KG
+        role: "the fat: it makes the crumb tender and carries the flavour"
+        alternatives: []
+      - product_type: cocoa_powder
+        per_serving: 0.005
+        unit: KG
+        role: "the chocolate flavour and colour"
+        alternatives: []
+      - product_type: milk
+        per_serving: 0.015
+        unit: L
+        role: "the liquid that loosens the batter"
+        alternatives:
+          - product_type: plant_drink
+            reason: "An oat or soya drink loosens the batter the same way; it is not dairy and the crumb browns less."
+      - product_type: baking_powder
+        per_serving: 0.001
+        unit: KG
+        role: "the raising agent: it makes the sponge rise in the oven"
+        alternatives: []
+    left_out:
+      - "vanilla and salt: the product-type table has no spices"

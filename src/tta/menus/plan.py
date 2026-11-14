@@ -10,6 +10,7 @@ from tta.contracts.menu import DishPlan, IngredientPlan, IngredientStatus, LineP
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.menus.allergens import StandInAllergens
 from tta.menus.needs import ZERO, Need, Use, as_recipe, group
+from tta.menus.offered import offered_words, total_words
 from tta.menus.recipes import Alternative
 from tta.menus.wording import (
     amount_words,
@@ -101,6 +102,13 @@ class _Reader:
     def final_index(self, key: tuple[str, tuple[str, ...], str | None]) -> int | None:
         return None if self.outcome.final is None else _index(self.outcome.final_needs, key)
 
+    def offered(self, index: int | None) -> str:
+        """What the final offer holds for request line `index`, with what is left over (`tta.menus.offered`)."""
+        if index is None or index >= len(self.outcome.final_needs):
+            return ""
+        need = self.outcome.final_needs[index]
+        return offered_words(self.outcome.final, index, need.amount, need.choice.unit)
+
     def why_not(self, use: Use) -> str:
         """What the first offer found for the recipe's own product type."""
         key = (use.ingredient.product_type, use.ingredient.name_terms, None)
@@ -154,7 +162,7 @@ def _ingredient(reader: _Reader, use: Use, unsourced: Mapping[UseId, str]) -> In
             f"{why_not[:1].upper()}{why_not[1:]}. {alternative.reason}"
         )
         declared = " ".join(found.sentence for found in reader.outcome.stand_in_allergens.get(use.use_id, ()))
-        sentence = f"{sentence} {declared}".strip()
+        sentence = f"{sentence} {declared} {reader.offered(index)}".strip()
         return IngredientPlan(
             **base, status=IngredientStatus.STANDS_IN, product_type=alternative.product_type,
             alternative_reason=alternative.reason, request_line_index=index, sentence=sentence,
@@ -180,6 +188,7 @@ def _ordered_sentence(reader: _Reader, use: Use, index: int | None) -> str:
         )
     elif index is not None and fill < 1:
         text += f" The best option covers {fill:.0%} of that line."
+    text = f"{text} {reader.offered(index)}".strip()
     return text[0].upper() + text[1:]
 
 
@@ -243,6 +252,8 @@ def _notes(request: MenuRequest, uses: Sequence[Use], outcome: Outcome) -> tuple
         notes.append(f"The final offer has {lines} line{'s' if lines != 1 else ''} for {dish_words(uses)}.")
     if outcome.unsourced:
         notes.append(_incomplete(outcome))
+    if outcome.final is not None:
+        notes.extend(total_words(option) for option in outcome.final.options)
     notes.extend(dict.fromkeys(
         found.sentence for group_found in outcome.stand_in_allergens.values() for found in group_found
         if found.added is None or found.added or not found.has_statement

@@ -3,14 +3,17 @@
 The table is ours and illustrative (`recipes.yaml`). It is checked when it is loaded: every product type must be
 a key of the product-type table, a product type has one unit everywhere, and an alternative is another product
 type with a reason. A table that fails a check does not load.
+
+`named_products` (task CK) names an ingredient the product-type table does not hold yet by the ids of the products
+that are it. A recipe uses its key as a product type; the request line then names those products by id
+(`product_ids_of`). A key the product-type table also holds is the table's: the list here is then ignored.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from functools import lru_cache
 from pathlib import Path
-from types import MappingProxyType
 
 import yaml
 from pydantic import ValidationError
@@ -18,11 +21,13 @@ from pydantic import ValidationError
 from tta.catalog.product_types import PRODUCT_TYPES_FILE, load_product_types
 from tta.contracts.common import Unit
 from tta.contracts.menu import Alternative, Choice, Ingredient, Recipe
+from tta.contracts.request import MAX_PRODUCT_IDS
 
 RECIPES_PATH = Path(__file__).resolve().parent / "recipes.yaml"
+MAX_NAME_LENGTH = 60  # of a name in `also_called`
 __all__ = [
-    "RECIPES_PATH", "Alternative", "Choice", "Ingredient", "Recipe", "RecipeLoadError", "load_recipes",
-    "shipped_recipes", "unit_of",
+    "RECIPES_PATH", "Alternative", "Choice", "Ingredient", "Recipe", "RecipeLoadError", "RecipeTable",
+    "dish_names", "load_recipes", "product_ids_of", "shipped_recipes", "unit_of",
 ]
 
 
@@ -32,6 +37,102 @@ class RecipeLoadError(ValueError):
     def __init__(self, problems: Iterable[str]) -> None:
         self.problems = tuple(problems)
         super().__init__("The recipe table cannot be loaded: " + "; ".join(self.problems))
+
+
+class RecipeTable(Mapping[str, Recipe]):
+    """The checked recipes by dish id, read-only, with the ingredients that are named by product ids."""
+
+    def __init__(
+        self, recipes: Mapping[str, Recipe], named_products: Mapping[str, tuple[str, ...]],
+        also_called: Mapping[str, tuple[str, ...]] | None = None,
+    ) -> None:
+        self._recipes = dict(recipes)
+        self._named = dict(named_products)
+        self._also_called = dict(also_called or {})
+
+    def __getitem__(self, dish_id: str) -> Recipe:
+        return self._recipes[dish_id]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._recipes)
+
+    def __len__(self) -> int:
+        return len(self._recipes)
+
+    @property
+    def named_products(self) -> Mapping[str, tuple[str, ...]]:
+        """Product ids by the key a recipe uses as a product type, for the keys the product-type table lacks."""
+        return dict(self._named)
+
+    @property
+    def also_called(self) -> Mapping[str, tuple[str, ...]]:
+        """Other names a person may write for a dish, by dish id (`recipes.yaml`, `also_called`)."""
+        return dict(self._also_called)
+
+
+def product_ids_of(recipes: Mapping[str, Recipe], product_type: str) -> tuple[str, ...]:
+    """The product ids a request line names for this ingredient; empty when it is a product type of the
+    product-type table, which the request line then names by its key."""
+    named = recipes.named_products if isinstance(recipes, RecipeTable) else {}
+    return named.get(product_type, ())
+
+
+def dish_names(recipes: Mapping[str, Recipe]) -> dict[str, tuple[str, ...]]:
+    """The names each dish goes by in a sentence: the words of its id ("chocolate cake"), its name before any
+    bracket ("Salmon with rice and cream sauce"), and the table's `also_called` names. First name first."""
+    also = recipes.also_called if isinstance(recipes, RecipeTable) else {}
+    names: dict[str, tuple[str, ...]] = {}
+    for dish_id, recipe in recipes.items():
+        own = (dish_id.replace("_", " "), recipe.name.split("(")[0].strip(), *also.get(dish_id, ()))
+        names[dish_id] = tuple(dict.fromkeys(name.casefold() for name in own if name))
+    return names
+
+
+def _also_called(data: Mapping[str, object], recipes: Mapping[str, Recipe]) -> dict[str, tuple[str, ...]]:
+    """The `also_called` section. Raises `RecipeLoadError` for a dish the table lacks, a name that is no plain
+    text, and a name two dishes share: a sentence must name one dish."""
+    raw = data.get("also_called") or {}
+    if not isinstance(raw, dict):
+        raise RecipeLoadError(["`also_called` is a mapping of a dish id to its other names"])
+    problems: list[str] = []
+    also: dict[str, tuple[str, ...]] = {}
+    for dish_id, names in raw.items():
+        plain = isinstance(names, list) and all(
+            isinstance(name, str) and 0 < len(name.strip()) <= MAX_NAME_LENGTH for name in names
+        )
+        if str(dish_id) not in recipes or not plain:
+            problems.append(f"also_called.{dish_id}: a dish of the table with a list of names")
+            continue
+        also[str(dish_id)] = tuple(name.strip() for name in names)
+    owners: dict[str, str] = {}
+    for dish_id, names in dish_names(RecipeTable(recipes, {}, also)).items():
+        for name in names:
+            if owners.setdefault(name, dish_id) != dish_id:
+                problems.append(f"also_called: '{name}' names both {owners[name]} and {dish_id}")
+    if problems:
+        raise RecipeLoadError(problems)
+    return also
+
+
+def _named_products(data: Mapping[str, object], known_types: Collection[str]) -> dict[str, tuple[str, ...]]:
+    """The `named_products` section. Raises `RecipeLoadError` for an entry that is not a list of product ids."""
+    raw = data.get("named_products") or {}
+    if not isinstance(raw, dict):
+        raise RecipeLoadError(["`named_products` is a mapping of a key to its product ids"])
+    named: dict[str, tuple[str, ...]] = {}
+    problems: list[str] = []
+    for key, entry in raw.items():
+        ids = entry.get("product_ids") if isinstance(entry, dict) else None
+        plain = isinstance(ids, list) and 0 < len(ids) <= MAX_PRODUCT_IDS and all(
+            isinstance(each, str) and each.isalnum() for each in ids
+        )
+        if not plain:
+            problems.append(f"named_products.{key}: `product_ids` is a list of product ids, each in quotes")
+        elif str(key) not in known_types:  # the product-type table wins once it holds the key
+            named[str(key)] = tuple(dict.fromkeys(ids))
+    if problems:
+        raise RecipeLoadError(problems)
+    return named
 
 
 def _alternative(raw: Mapping[str, object], ingredient: Mapping[str, object]) -> dict[str, object]:
@@ -86,17 +187,18 @@ def _check(recipes: Mapping[str, Recipe], known_types: Collection[str]) -> list[
     return problems
 
 
-def load_recipes(known_types: Collection[str], path: Path = RECIPES_PATH) -> Mapping[str, Recipe]:
+def load_recipes(known_types: Collection[str], path: Path = RECIPES_PATH) -> RecipeTable:
     """The checked recipe table, by dish id. Raises `RecipeLoadError` listing every problem."""
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as error:
         raise RecipeLoadError([f"{path.name} cannot be read: {type(error).__name__}"]) from error
     recipes = _parse(data)
-    problems = _check(recipes, known_types)
+    named = _named_products(data, known_types)
+    problems = _check(recipes, (*known_types, *named))
     if problems:
         raise RecipeLoadError(problems)
-    return MappingProxyType(recipes)
+    return RecipeTable(recipes, named, _also_called(data, recipes))
 
 
 def unit_of(recipes: Mapping[str, Recipe], product_type: str) -> Unit | None:
@@ -110,6 +212,6 @@ def unit_of(recipes: Mapping[str, Recipe], product_type: str) -> Unit | None:
 
 
 @lru_cache(maxsize=1)
-def shipped_recipes() -> Mapping[str, Recipe]:
+def shipped_recipes() -> RecipeTable:
     """The shipped table, checked against the shipped product-type table. Raises `RecipeLoadError`."""
     return load_recipes(tuple(load_product_types(PRODUCT_TYPES_FILE)))

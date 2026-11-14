@@ -1,5 +1,6 @@
-"""The menu page: choose dishes and servings, enter the kitchen's stock and the date, plan; then the plan per dish
-and ingredient, the final offer's options with their verdicts, and an order button (task MENU-1).
+"""The menu page: say the dish in a sentence or choose dishes and servings, enter the kitchen's stock and the date,
+plan; then the plan per dish and ingredient, the final offer's options with their verdicts and who confirms, and
+an order button (task MENU-1; the sentence box, task CK).
 
 Scores on the 20% "how precisely the agent matches what the buyer actually asked for" and the 15% exceptions:
 an ingredient that cannot arrive in time is replaced through the recipe's logic, and the page says what stands
@@ -23,9 +24,10 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from tta.contracts.common import AllergenStrictness, Identity, Unit
 from tta.contracts.errors import TtaError
-from tta.contracts.menu import RECIPES_NOTE, IngredientStatus, MenuPlan, MenuRequest, Recipe
+from tta.contracts.menu import RECIPES_NOTE, IngredientStatus, MenuPlan, Recipe
 from tta.contracts.offer import Offer
-from tta.menus import plan_menu, shipped_recipes
+from tta.menus import shipped_recipes
+from tta.menus.sentence import MenuAsk, plan_from_ask
 from tta.ui import security
 from tta.ui.run import Problem
 from tta.ui.run import order_key as idempotency_key
@@ -36,7 +38,11 @@ MENU_PATH, PLAN_PATH, ORDER_PATH = "/menu", "/menu/plan", "/menu/order"
 SERVINGS, STOCK = "servings__", "stock__"
 SEE_OTHER = 303
 # The demo case of the hand-back: a booking on Saturday night for a dinner on Monday, confirmed stock only.
+BAKERY_AGENT = "agent:bakery-cafe"
+CAKE_SENTENCE = "I want to make a chocolate cake for 20 people by Monday"
 EXAMPLES: Mapping[str, Mapping[str, str]] = {
+    # Task CK: the bakery asks in a sentence. `who` chooses the bakery's agent for the example.
+    "cake": {"who": BAKERY_AGENT, "text": CAKE_SENTENCE},
     "event": {
         f"{SERVINGS}beef_stew": "120", f"{SERVINGS}berry_quark_dessert": "120", f"{STOCK}butter": "3",
         f"{STOCK}sugar": "2", "needed_by": "2026-11-16", "require_confirmed": "yes",
@@ -49,7 +55,7 @@ STATUS_MARKS: Mapping[IngredientStatus, tuple[str, str]] = {
     IngredientStatus.CANNOT_BE_SOURCED: ("bad", "Cannot be sourced"),
 }
 NOT_A_DEMO_AGENT = "Choose who is asking: one of the demo agents."
-NO_DISH = "Choose at least one dish: give it a number of servings."
+MAX_SENTENCE = 500  # as `tta.agent.dishes.MAX_TEXT`
 NOT_SERVINGS = "Servings are a whole number, 0 to leave a dish out: '{value}' for {dish} is not."
 NOT_STOCK = "The stock of {product_type} is a number of {unit}, 0 or more: '{value}' is not."
 NOT_A_DATE = "The date is written as on the date field, for example 2026-11-16: '{value}' is not."
@@ -71,6 +77,8 @@ class PlanView:
     offer: Offer | None
     asker: Identity
     order_key: str
+    # Who confirms each option, by option id: the buyer's people who hold a role the decision asks for.
+    confirmers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -106,9 +114,7 @@ def _servings(form: MenuForm, recipes: Mapping[str, Recipe]) -> list[dict[str, A
         if not value.isdigit():
             raise FormProblem(NOT_SERVINGS.format(value=value[:20], dish=recipe.name))
         dishes.append({"dish_id": dish_id, "servings": int(value)})
-    if not dishes:
-        raise FormProblem(NO_DISH)
-    return dishes
+    return dishes  # may be empty: the sentence then names the dishes, or the gateway says none was named
 
 
 def _stock(form: MenuForm, recipes: Mapping[str, Recipe]) -> list[dict[str, Any]]:
@@ -138,28 +144,45 @@ def _needed_by(form: MenuForm) -> date | None:
         raise FormProblem(NOT_A_DATE.format(value=value[:20])) from error
 
 
-def _read(site: Site, form: MenuForm, recipes: Mapping[str, Recipe]) -> tuple[Identity, MenuRequest]:
+def _read(site: Site, form: MenuForm, recipes: Mapping[str, Recipe]) -> tuple[Identity, MenuAsk]:
     asker = site.agent(form.who)
     if asker is None:
         raise FormProblem(NOT_A_DEMO_AGENT)
     strictness = form.get("allergen_strictness")
     body = {
-        "dishes": _servings(form, recipes), "stock": _stock(form, recipes), "needed_by": _needed_by(form),
+        "text": form.get("text")[:MAX_SENTENCE] or None, "dishes": _servings(form, recipes),
+        "stock": _stock(form, recipes), "needed_by": _needed_by(form),
         "require_confirmed": form.get("require_confirmed") == "yes",
         "exclude_allergens": [code.upper() for code in form.get("exclude_allergens").replace(",", " ").split()],
         "allergen_strictness": AllergenStrictness(strictness) if strictness in AllergenStrictness else None,
     }
     try:
-        return asker, MenuRequest.model_validate(body)
+        return asker, MenuAsk.model_validate(body)
     except ValidationError as error:
         raise FormProblem(NOT_VALID.format(why=error.errors()[0]["msg"])) from error
 
 
-def _plan(site: Site, request: Request, asker: Identity, menu: MenuRequest, recipes: Mapping[str, Recipe]) -> PlanView:
+def _plan(site: Site, request: Request, asker: Identity, menu: MenuAsk, recipes: Mapping[str, Recipe]) -> PlanView:
+    """Raises `InvalidRequest` when neither the sentence nor the form names a dish, or the sentence leaves a
+    question open: the page shows the question."""
     service = site.own_book(request).service
-    plan = plan_menu(service, asker, menu, recipes)
+    plan = plan_from_ask(service, asker, menu, recipes, site.settings)
     offer = service.get_offer(asker, plan.offer_id) if plan.offer_id is not None else None
-    return PlanView(plan=plan, offer=offer, asker=asker, order_key=security.new_token())
+    return PlanView(
+        plan=plan, offer=offer, asker=asker, order_key=security.new_token(), confirmers=_confirmers(site, offer),
+    )
+
+
+def _confirmers(site: Site, offer: Offer | None) -> dict[str, tuple[str, ...]]:
+    """The demo people of the offer's buyer who hold a role an option's decision asks for, by option id."""
+    if offer is None:
+        return {}
+    return {
+        option.option_id: tuple(dict.fromkeys(
+            holder.display_name for holder in site.holders(offer.profile_id, option.decision.required_roles)
+        ))
+        for option in offer.options if option.decision is not None
+    }
 
 
 def _page(
@@ -191,7 +214,8 @@ def add_routes(app: FastAPI, site: Site, recipes: Mapping[str, Recipe] | None = 
     @app.get(MENU_PATH, response_class=HTMLResponse)
     def menu(request: Request, example: str = "") -> HTMLResponse:
         filled = EXAMPLES.get(example, {})
-        return _page(site, request, table, MenuForm(who=site.chosen_agent(request).id, values=filled))
+        who = filled.get("who") or site.chosen_agent(request).id
+        return _page(site, request, table, MenuForm(who=who, values=filled))
 
     @app.post(PLAN_PATH, response_class=HTMLResponse)
     async def plan(request: Request) -> Response:

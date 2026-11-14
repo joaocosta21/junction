@@ -8,7 +8,8 @@ needed. The agent works out what to order, asks Valio Aimo for one offer, and wh
 time it tries another product type that does the same job in the dish, the recipe's own alternatives in order.
 Such a stand-in always goes to the purchasing manager (rule F-09).</p>
 <p class="small">{{ recipes_note }} <a href="/menu?example=event">Fill in the last-minute event</a>: a booking on
-Saturday night for a dinner on Monday, confirmed stock only.</p>
+Saturday night for a dinner on Monday, confirmed stock only. <a href="/menu?example=cake">Fill in the bakery's
+chocolate cake</a>: one sentence, as Kallio Bakery.</p>
 
 {% if problem %}
 <div class="banner banner-bad" role="alert" id="problem">
@@ -23,6 +24,15 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
     {% for agent in agents %}
     <label><input type="radio" name="who" value="{{ agent.id }}"{% if agent.id == asker.id %} checked{% endif %}> {{ agent.display_name }}</label>
     {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>In a sentence</legend>
+    <label class="field-label" for="text">Say the dish, for how many, and by when</label>
+    <input type="text" id="text" name="text" value="{{ form.get('text') }}" maxlength="500" placeholder="I want to make a chocolate cake for 20 people by Monday">
+    <p class="small">Read by fixed rules, with no model: a dish of the list below, a whole number of servings, a
+    day. What the sentence leaves open is asked, never guessed. Servings and a date typed below win over the sentence.</p>
+    <button type="submit" class="primary">Plan from the sentence</button>
   </fieldset>
 
   <fieldset>
@@ -123,7 +133,7 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
     <p class="total"><strong>{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax</p>
     <ul class="lines">
       {% for line in option.lines %}
-      <li>{{ line.quantity|quantity }} × {{ line.name }} <span class="id">({{ line.product_id }})</span>, line {{ line.request_line_index + 1 }}: {{ line.net|money }} before tax. {{ mark(line.availability.state|tone, line.availability.state|words) }}</li>
+      <li>{{ line.quantity|quantity }} × {{ line.name }} <span class="id">({{ line.product_id }})</span>, line {{ line.request_line_index + 1 }}: {{ line.net|money }} before tax. {{ mark(line.availability.state|tone, line.availability.state|words) }}{% if line.availability.usable_amount is not none %} {{ line.availability.usable_amount|quantity }} sales units in stock.{% endif %}</li>
       {% endfor %}
     </ul>
     {% if option.decision %}
@@ -133,6 +143,7 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
       <ul class="rules">
         {% for rule in option.decision.fired %}<li><strong>{{ rule.rule_id }}</strong> {{ rule.sentence }}</li>{% endfor %}
       </ul>
+      {% if view.confirmers.get(option.option_id) %}<p class="confirms">Who confirms: {{ view.confirmers[option.option_id]|join(", ") }}.</p>{% endif %}
     </div>
     {% if option.decision.verdict.value != "BLOCK" %}
     <form method="post" action="/menu/order" class="inline-form">
@@ -141,13 +152,20 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
       <input type="hidden" name="offer" value="{{ offer.offer_id }}">
       <input type="hidden" name="option" value="{{ option.option_id }}">
       <input type="hidden" name="order_key" value="{{ view.order_key }}">
-      <button type="submit">{% if option.decision.verdict.value == "AUTO" %}Order this option{% else %}Send this option for approval{% endif %}</button>
+      <button type="submit">{% if option.decision.verdict.value == "AUTO" %}Order this option{% else %}Prepare the order: a person confirms it{% endif %}</button>
     </form>
     {% endif %}
     {% endif %}
   </article>
   {% endfor %}
   </div>
+  {% if offer.suggestions %}
+  <h3>Suggestions</h3>
+  <p class="small">In no option and in no total. A suggestion is shown, never added by itself.</p>
+  <ul class="suggestions">
+    {% for suggestion in offer.suggestions %}<li>{{ suggestion.sentence }}</li>{% endfor %}
+  </ul>
+  {% endif %}
 </section>
 {% endif %}
 {% endif %}
