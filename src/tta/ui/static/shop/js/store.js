@@ -1,9 +1,21 @@
-// What the shop remembers in this browser: the kitchen in use, each kitchen's settings, answer preferences,
-// what its agent has learned, and the conversation. Orders and approvals themselves live in the gateway.
+// What the shop remembers in this browser: the kitchen in use, each kitchen's settings as the buyer wants them
+// (the rules in force are the gateway's answer, never this copy), answer preferences, what its agent has
+// learned, and the latest results. Orders and approvals themselves live in the gateway.
 import { KITCHENS, kitchenById } from "./kitchens.js";
 
-const KEY = "tt-shop-v2"; // v2: nothing is ordered or sent without a click by default
+// v3: one "Confirm order" button and no preference that sends by itself. A new key, so a browser that opened
+// an earlier version does not keep its saved defaults (saved values win over new defaults at load).
+const KEY = "tt-shop-v3";
+const OLD_KEYS = ["tt-shop-v1", "tt-shop-v2"];
 const MAX_TURNS = 8;
+
+function forgetOldVersions() {
+  try {
+    for (const key of OLD_KEYS) localStorage.removeItem(key);
+  } catch {
+    // no storage in this window: nothing old to forget
+  }
+}
 
 function fresh() {
   const kitchens = {};
@@ -19,6 +31,7 @@ function fresh() {
 }
 
 function load() {
+  forgetOldVersions();
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || "null");
     if (!saved || !saved.kitchens) return fresh();

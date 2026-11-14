@@ -3,6 +3,7 @@ import { app, api, deliveryOf, on, refresh, render } from "../core.js";
 import { clock, html, longDate, money, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { active } from "../store.js";
+import { plain } from "../words.js";
 import { optionBlock, problemBox, ruleList, signers, spinner, statusTag } from "./parts.js";
 
 const trail = { orderId: null, reader: "buyer", data: null, problem: null, loading: false };
@@ -62,7 +63,7 @@ function detail(order) {
         <div class="card">
           <div class="card-title"><h3>What was ordered</h3></div>
           ${optionBlock(order.option)}
-          <p class="small muted">${order.status_sentence}</p>
+          <p class="small muted">${plain(order.status_sentence)}</p>
           ${approval && order.status === "PENDING_APPROVAL" ? html`<div class="decide">${signers(approval)}<div class="row"><a class="btn small" href="#/approvals">Go to approvals</a></div></div>` : ""}
         </div>
         <div class="card">
@@ -127,7 +128,7 @@ export function view() {
           ${list.map(
             (o) => html`<tr class="click" data-act="open" data-id="${o.order_id}"><td class="nowrap"><a href="#/orders/${o.order_id}">${o.order_id.slice(4, 10)}</a></td><td>${o.option.lines.map((l) => html`<div>${l.name}</div>`)}</td><td class="hide-s nowrap">${deliveryOf(o.option) ? shortDate(deliveryOf(o.option)) : "–"}</td><td class="num">${money(o.option.totals.net)}</td><td>${statusTag(o)}</td></tr>`
           )}</tbody></table>`
-        : html`<div class="empty"><h3>No orders in this demo yet</h3><p>Orders placed from the assistant show up here.</p><a class="btn" href="#/">Open the assistant</a></div>`}
+        : html`<div class="empty"><h3>No orders in this demo yet</h3><p>Orders confirmed on the request page show up here.</p><a class="btn" href="#/">New purchase request</a></div>`}
     </div>
     ${pastOrders()}`;
 }

@@ -84,7 +84,7 @@ export const KITCHENS = [
       substitution_without_approval: "LISTED_BY_SUPPLIER",
       require_confirmed: false,
     },
-    prefs: { short: false, alternatives: true, explain: true, autoSend: false },
+    prefs: { short: false, alternatives: true, explain: false },
     examples: [
       { text: "40 litres of lactose-free milk by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "40 litres of lactose-free milk by Monday", product_type: "milk", required_claims: ["FREE_FROM_LACTOSE"], quantity: 40, unit: "L" }] } },
       { text: "20 kg of natural yoghurt by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "20 kg of natural yoghurt by Monday", product_type: "yoghurt", name_terms: ["natural"], quantity: 20, unit: "KG" }] } },
@@ -122,7 +122,7 @@ export const KITCHENS = [
       substitution_without_approval: "NONE",
       require_confirmed: true,
     },
-    prefs: { short: false, alternatives: false, explain: true, autoSend: false },
+    prefs: { short: false, alternatives: false, explain: false },
     examples: [
       {
         text: "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only",
@@ -161,10 +161,13 @@ export const KITCHENS = [
       substitution_without_approval: "SAME_CATEGORY",
       require_confirmed: false,
     },
-    prefs: { short: false, alternatives: true, explain: false, autoSend: false },
+    prefs: { short: false, alternatives: true, explain: false },
     examples: [
       { text: "1,000 litres of lactose-free milk by Monday", request: milk1000 },
       { text: "30 litres of cream by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "30 litres of cream by Monday", product_type: "cream", quantity: 30, unit: "L" }] } },
+      // docs/CONTEXTDEV.md: Valio's data states nothing on milk for 469512, so it goes to the dietitian, and the
+      // approval card shows what the manufacturer's page says (recorded in fixtures/evidence/469512.json).
+      { text: "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk", request: { needed_by: "2026-11-16", lines: [{ text: "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk", product_ids: ["469512"], quantity: 100, unit: "L", exclude_allergens: ["AM"], allergen_strictness: "STRICT" }] } },
     ],
     learned: [
       { id: "hotel-price", kind: "note", title: "Price comes first", detail: "Mixing brands in one order is fine for this kitchen.", basis: "Assumed for hotel kitchens", state: "assumed", count: 0 },
@@ -196,7 +199,7 @@ export const KITCHENS = [
       substitution_without_approval: "SAME_CATEGORY",
       require_confirmed: false,
     },
-    prefs: { short: true, alternatives: true, explain: false, autoSend: false },
+    prefs: { short: true, alternatives: true, explain: false },
     examples: [
       { text: "10 litres of whipping cream by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "10 litres of whipping cream by Monday", product_type: "cream", name_terms: ["whipping"], quantity: 10, unit: "L" }] } },
       { text: "10 litres of milk by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "10 litres of milk by Monday", product_type: "milk", quantity: 10, unit: "L" }] } },

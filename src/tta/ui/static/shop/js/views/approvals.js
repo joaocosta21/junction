@@ -4,7 +4,48 @@ import { cutoff, html, initials, money } from "../dom.js";
 import { icon } from "../icons.js";
 import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
+import { plain } from "../words.js";
 import { optionBlock, personFor, problemBox, rolesStillNeeded, signerName, signers } from "./parts.js";
+
+// Only a plain web address becomes a link: never javascript:, data: or anything else a page could carry.
+const WEB_LINK = /^https?:\/\//i;
+
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+const named = (items) => (Array.isArray(items) && items.length ? items.join(", ") : "nothing named");
+
+// What one manufacturer's page says (task S2). Every word comes from the web and is escaped like any other text.
+function evidenceEntry(found) {
+  const url = typeof found.source_url === "string" && WEB_LINK.test(found.source_url) ? found.source_url : null;
+  if (!found.found || !url) return html`<p class="small">${plain(found.sentence)}</p>`;
+  return html`<div class="ev-entry">
+    <p><b>Product ${found.product_id}</b>${found.product_name_on_page ? html`, named on the page “${found.product_name_on_page}”` : ""}</p>
+    <ul class="findings">
+      <li><span>Contains</span>${named(found.contains)}</li>
+      <li><span>May contain</span>${named(found.may_contain)}</li>
+      <li><span>Free from</span>${named(found.free_from)}</li>
+    </ul>
+    <p class="small muted">Source: <a href="${url}" title="${url}" target="_blank" rel="noopener noreferrer nofollow">${hostOf(url)}</a>${found.page_title ? html` · page title “${found.page_title}”` : ""}${found.retrieved_at ? html` · read ${cutoff(found.retrieved_at)}` : ""}</p>
+  </div>`;
+}
+
+// Shown above the reasons, under its own heading, and never as Valio Aimo's data: it changes no status and no
+// decision. The same fields and wording as the approvals page of the old pages (templates/_evidence.html).
+function evidenceBlock(approval) {
+  const entries = (Array.isArray(approval.evidence) ? approval.evidence : []).filter((e) => e && typeof e === "object");
+  if (!entries.length) return "";
+  return html`<section class="evidence">
+    <h4>Manufacturer's page, not Valio Aimo data</h4>
+    ${entries.map(evidenceEntry)}
+    <p class="small muted">Read from the web through Context.dev. Valio Aimo's data still states nothing about this allergen, so it stays unknown: this changes no status and no decision, and the person approving decides.</p>
+  </section>`;
+}
 
 const notes = {};
 const busy = new Set();
@@ -44,9 +85,9 @@ function card(approval) {
       </div>
       ${option ? html`<span class="tag wait">${money(option.totals.net)}</span>` : ""}
     </div>
-    <ul class="reasons">${approval.reasons.map((r) => html`<li>${icon("clock")}<span>${r}</span></li>`)}</ul>
+    ${evidenceBlock(approval)}
+    <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${plain(r)}</span></li>`)}</ul>
     ${option ? optionBlock(option, true) : ""}
-    ${approval.evidence?.length ? html`<p class="small muted">${approval.evidence.length} note(s) from the manufacturer's page are attached in the audit trail. They are not Valio Aimo data.</p>` : ""}
     <div class="decide">
       ${signers(approval)}
       <div class="row">

@@ -1,19 +1,21 @@
-// Pieces several views share: product rows, status tags, rule lists, who signs.
+// Pieces several views share: product rows, status tags, rule lists, who signs. Availability is said in the
+// words of Valio Aimo's webshop: "available in storage", "Delivery date", "Closing time", "Deliverable".
 import { cutoff, html, initials, money, num, shortDate, tile, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
 import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
+import { plain } from "../words.js";
 
 export function stockLine(a) {
   if (!a) return html`<div class="stock"><span class="dot"></span>No availability data</div>`;
   const u = unit(a.sales_unit);
   switch (a.state) {
     case "CONFIRMED":
-      return html`<div class="stock"><span class="dot ok"></span>${num(a.usable_amount)} ${u} in stock · delivery ${shortDate(a.available_date)}${a.closing_time ? html` · order by ${cutoff(a.closing_time)}` : ""}</div>`;
+      return html`<div class="stock"><span class="dot ok"></span>${num(a.usable_amount)} ${u} available in storage${a.available_date ? html` · Delivery date ${shortDate(a.available_date)}` : ""}${a.closing_time ? html` · Closing time ${cutoff(a.closing_time)}` : ""}</div>`;
     case "QUANTITY_NOT_CONFIRMED":
-      return html`<div class="stock"><span class="dot wait"></span>Stock not confirmed by Valio Aimo${a.available_date ? html` · delivery ${shortDate(a.available_date)}` : ""}</div>`;
+      return html`<div class="stock"><span class="dot wait"></span>${a.available_date ? html`Deliverable ${shortDate(a.available_date)}, quantity not confirmed` : "Quantity not confirmed by Valio Aimo"}</div>`;
     case "CUTOFF_PASSED":
-      return html`<div class="stock"><span class="dot stop"></span>Order cut-off passed</div>`;
+      return html`<div class="stock"><span class="dot stop"></span>Closing time passed${a.closing_time ? html` (${cutoff(a.closing_time)})` : ""}</div>`;
     default:
       return html`<div class="stock"><span class="dot stop"></span>${titleCase(String(a.state).replaceAll("_", " "))}</div>`;
   }
@@ -44,7 +46,7 @@ export function optionBlock(option, compact = false) {
   return html`<div class="lines">
     ${option.lines.map((l) => productLine(l, compact))}
     <div class="totals">
-      <span class="muted small">${t.is_ceiling ? "At most · variable weight" : "Total before tax"}${t.excludes_deposits ? " · deposits not included" : ""}</span>
+      <span class="muted small">${t.is_ceiling ? "At most · variable weight" : "Total (VAT 0 %)"}${t.excludes_deposits ? " · deposits not included" : ""}</span>
       <span><b>${money(t.net)}</b> <span class="muted small">${money(t.gross)} with VAT</span></span>
     </div>
   </div>`;
@@ -53,9 +55,10 @@ export function optionBlock(option, compact = false) {
 export function statusTag(order) {
   switch (order.status) {
     case "ORDERED":
+      // "Ordered by your agent" only for an order the agent placed alone, which the buyer switched on.
       return order.placed_by === "AGENT"
-        ? html`<span class="tag ok">${icon("check")}Ordered by agent</span>`
-        : html`<span class="tag ok">${icon("check")}Ordered, approved</span>`;
+        ? html`<span class="tag ok">${icon("check")}Ordered by your agent</span>`
+        : html`<span class="tag ok">${icon("check")}Confirmed</span>`;
     case "PENDING_APPROVAL":
       return html`<span class="tag wait">${icon("clock")}Waiting for approval</span>`;
     case "REJECTED":
@@ -87,13 +90,13 @@ export function signers(approval) {
 export function ruleList(fired) {
   if (!fired?.length) return html`<p class="muted small">No rule asked for a human.</p>`;
   return html`<ul class="why-list">${fired.map(
-    (r) => html`<li>${icon(r.verdict === "BLOCK" ? "stop" : "clock", r.verdict === "BLOCK" ? "no" : "maybe")}<span><span class="rule-id">${r.rule_id}</span> ${r.sentence}${r.fixed ? html` <span class="tag">${icon("lock")}fixed rule</span>` : ""}</span></li>`
+    (r) => html`<li>${icon(r.verdict === "BLOCK" ? "stop" : "clock", r.verdict === "BLOCK" ? "no" : "maybe")}<span><span class="rule-id">${r.rule_id}</span> ${plain(r.sentence)}${r.fixed ? html` <span class="tag">${icon("lock")}fixed rule</span>` : ""}</span></li>`
   )}</ul>`;
 }
 
 export function problemBox(error) {
   if (!error) return "";
-  return html`<div class="problem"><b>${error.title || "Something went wrong"}</b>${error.message || error.detail || ""}</div>`;
+  return html`<div class="problem"><b>${error.title || "Something went wrong"}</b>${plain(error.message || error.detail || "")}</div>`;
 }
 
 export function spinner(text) {

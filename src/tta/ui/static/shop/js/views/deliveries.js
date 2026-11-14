@@ -67,7 +67,7 @@ function dayPanel(days) {
             ? html`<li><span><a href="#/orders/${e.live.order_id}"><b>${e.live.option.lines.map((l) => l.name).join(", ")}</b></a><br>${statusTag(e.live)} <span class="small muted">${money(e.live.option.totals.net)}</span></span></li>`
             : html`<li><span><b>${e.past.lines.map((l) => l[0]).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">${money(e.past.lines.reduce((s, l) => s + l[3], 0))} · demo history</span></span></li>`
         )}</ul>`
-      : html`<p class="small muted">No delivery on this day yet. Ask the assistant for something "by ${shortDate(key)}".</p>`}
+      : html`<p class="small muted">No delivery on this day yet. Write a purchase request for something "by ${shortDate(key)}".</p>`}
   </div>`;
 }
 

@@ -1,38 +1,35 @@
-// The assistant: the buyer says what is needed, the agent answers with an offer it may or may not order alone.
-import { app, api, dataToday, deliveryOf, on, pendingApprovals, refresh, render, spendToday, toast } from "../core.js";
-import { clock, html, isoDay, longDate, money, num, shortDate, titleCase, unit } from "../dom.js";
+// The request page: the buyer writes what is needed, the gateway reads it into a typed request and answers with
+// an offer, and nothing is ordered until the buyer clicks "Confirm order". Not a chat: each result is one typed
+// request and its answer, newest first. The agent orders alone only where the buyer switched that on.
+import { app, api, deliveryOf, on, refresh, render, verifyRules, withRules } from "../core.js";
+import { clock, html, longDate, money, num, unit } from "../dom.js";
+import { ROLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
-import { ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
-import { optionBlock, personFor, problemBox, rolesStillNeeded, ruleList, signerName, spinner } from "./parts.js";
+import { plain } from "../words.js";
+import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
+import { optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner } from "./parts.js";
+import { failedAnswer, problemOf } from "./refusal.js";
+import { side } from "./side.js";
+import { openInterface, typedRequest } from "./typed.js";
 
 const SOURCES = {
   model: "read by Gemini",
   recording: "read from a recorded Gemini answer",
   "hand-built": "read from a hand-written answer",
   "rule-based": "read by fixed rules, no model",
-  example: "example request, sent as typed",
+  example: "example, sent as a typed request",
 };
-
-const REASONS = {
-  CUTOFF_PASSED: "order cut-off passed",
-  NOT_DELIVERABLE: "cannot be delivered",
-  OUT_OF_STOCK: "out of stock",
-  BLOCKED: "sales blocked",
-  PORTION_PACK: "single-serve portions",
-  PACK_SIZE_UNKNOWN: "pack size unknown",
-  LATE_FOR_NEEDED_BY: "arrives too late",
-  PRICE_UNAVAILABLE: "no valid price",
-  ALLERGEN_DECLARED: "declares an excluded allergen",
-  ALLERGEN_NOT_STATED: "allergen not stated",
-  QUANTITY_NOT_CONFIRMED: "stock not confirmed",
-  DELIVERY_NOT_CONFIRMED: "delivery date not confirmed",
-  NOT_IN_RECORDING: "not in the recorded data",
-  LABEL_MISSING: "missing a required label",
-};
+const CONFIRM_NOTE = "Confirmed on the shop's request page.";
 
 const findTurn = (id) => mine().thread.find((t) => t.id === id);
+const chosenOf = (turn) => turn.offer?.options?.find((o) => o.option_id === turn.chosen) || turn.offer?.options?.[0];
+const isFirst = (turn, option) => Boolean(option) && option === turn.offer?.options?.[0];
+// The order of a result as the gateway has it now, so an order confirmed on the Approvals page shows here too.
+const orderOf = (turn) => (turn.order ? app.data.orders.find((o) => o.order_id === turn.order.order_id) || turn.order : null);
+const roleName = (role) => (ROLES[role] || role).toLowerCase();
+const names = (roles) => roles.map((r) => `${personFor(r)} (${roleName(r)})`).join(" and ");
 
 function update(turn) {
   save();
@@ -42,6 +39,14 @@ function update(turn) {
 
 // ---- asking -----------------------------------------------------------------------------------------------
 
+// A reading that holds no typed request: the reader's own sentence and question, if it gave one.
+function unread(reading) {
+  const error = new Error(reading?.sentence || "");
+  error.status = null;
+  error.problem = reading || {};
+  return error;
+}
+
 async function ask(text, typed = null) {
   text = text.trim();
   if (!text) return;
@@ -50,72 +55,97 @@ async function ask(text, typed = null) {
   mine().thread.push(turn);
   app.ui.draft = "";
   update(turn);
+  let step = "rules";
   try {
+    await verifyRules(); // never ask under rules the gateway has not confirmed
+    step = "reading";
     let request;
     if (typed) {
       request = structuredClone(typed);
       turn.reading = { source: "example" };
     } else {
-      const reading = await api().read(text);
+      const reading = await withRules(() => api().read(text));
+      if (!reading?.request?.lines?.length) throw unread(reading);
       request = reading.request;
       turn.reading = { source: reading.source, sentence: reading.sentence };
     }
-    const prepared = prepare(request, k, mine());
+    step = "offer";
+    const prepared = prepare(request, k, mine(), app.data.authority?.profile);
     turn.applied = prepared.applied;
+    turn.sent = prepared.request;
     turn.phase = "looking";
     update(turn);
-    turn.offer = await api().offer(prepared.request);
+    turn.offer = await withRules(() => api().offer(prepared.request));
     turn.flags = review(turn.offer, mine());
     turn.phase = "done";
     update(turn);
     await act(turn);
   } catch (error) {
     turn.phase = "failed";
-    turn.problem = { title: error.title, message: error.message, status: error.status };
+    turn.problem = problemOf(error, step);
     update(turn);
   }
 }
 
-// What the agent does on its own once the offer is in: order within its authority, or send it for approval.
+// The only order placed without a click: the buyer switched ordering alone on (a setting, off in every shipped
+// profile), the gateway confirms that setting is in force, and its decision is that the agent may order alone
+// (every statement confirmed, no rule asks for a person). Everything else waits for "Confirm order".
 async function act(turn) {
   const first = turn.offer?.options?.[0];
-  if (!first || turn.order) return;
-  const verdict = first.decision.verdict;
-  if (verdict === "BLOCK") return;
-  if (turn.flags?.length) return; // an open question to the buyer comes first
-  if (verdict === "AUTO" || (verdict === "APPROVAL" && mine().prefs.autoSend)) await place(turn, first.option_id);
+  if (!first || turn.order || turn.flags?.length) return;
+  const alone = app.data.authority?.profile?.auto_order_enabled === true;
+  if (alone && first.decision?.verdict === "AUTO") await place(turn, first.option_id, false);
 }
 
-async function place(turn, optionId) {
+// The signed-in person signs each role the order still needs that they hold: their click is the confirmation.
+async function signMine(turn) {
+  const order = turn.order;
+  if (order?.status !== "PENDING_APPROVAL" || !order.approval_id) return;
+  const approval = app.data.approvals.find((a) => a.approval_id === order.approval_id);
+  const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
+  for (const role of needed.filter((r) => active().person.roles.includes(r))) {
+    turn.order = await api().decide(order.approval_id, role, "APPROVE", CONFIRM_NOTE, signerName(role));
+    turn.confirmedBy = [...(turn.confirmedBy || []), { name: personFor(role), role }];
+    update(turn);
+  }
+}
+
+async function place(turn, optionId, sign) {
   turn.busy = true;
+  turn.problem = null;
   update(turn);
   try {
     const key = `shop.${active().id}.${turn.offer.offer_id}.${optionId}`;
-    turn.order = await api().order(turn.offer.offer_id, optionId, key);
-    turn.problem = null;
+    await verifyRules(); // the order is judged again when placed, under the rules in force then
+    turn.order = await withRules(() => api().order(turn.offer.offer_id, optionId, key));
+    if (sign) await signMine(turn);
   } catch (error) {
-    turn.problem = { title: error.title, message: error.message, status: error.status };
+    turn.problem = problemOf(error, "order");
   }
   turn.busy = false;
   update(turn);
   await refresh();
 }
 
-async function approveHere(turn) {
-  const approval = app.data.approvals.find((a) => a.order_id === turn.order.order_id && a.status === "PENDING");
-  if (!approval) return toast("This approval is no longer open.");
-  const mineRoles = active().person.roles;
-  const roles = rolesStillNeeded(approval).filter((r) => mineRoles.includes(r));
+async function signPending(turn) {
   turn.busy = true;
+  turn.problem = null;
   update(turn);
   try {
-    for (const role of roles) turn.order = await api().decide(approval.approval_id, role, "APPROVE", "Approved from the assistant.", signerName(role));
+    await signMine(turn);
   } catch (error) {
-    turn.problem = { title: error.title, message: error.message, status: error.status };
+    turn.problem = problemOf(error, "order");
   }
   turn.busy = false;
   update(turn);
   await refresh();
+}
+
+function askAgain(turn, text) {
+  mine().thread = mine().thread.filter((t) => t !== turn);
+  delete app.ui.redraft[turn.id];
+  const example = active().examples.find((e) => e.text === text);
+  return ask(text, example?.request || null);
 }
 
 on("ask", (form) => ask(form.elements.text.value));
@@ -126,13 +156,31 @@ on("example", (el) => {
 on("draft", (el) => {
   app.ui.draft = el.value;
 });
-on("place", (el) => place(findTurn(el.dataset.turn), el.dataset.option));
-on("approve-here", (el) => approveHere(findTurn(el.dataset.turn)));
+on("redraft", (el) => {
+  app.ui.redraft[el.dataset.turn] = el.value;
+});
+on("confirm", (el) => {
+  const turn = findTurn(el.dataset.turn);
+  if (turn && !turn.busy && !turn.order) return place(turn, el.dataset.option, true);
+});
+on("sign", (el) => {
+  const turn = findTurn(el.dataset.turn);
+  if (turn && !turn.busy) return signPending(turn);
+});
+on("choose", (el) => {
+  const turn = findTurn(el.dataset.turn);
+  if (!turn || turn.order) return;
+  turn.chosen = el.dataset.option;
+  turn.problem = null;
+  update(turn);
+});
 on("retry", (el) => {
   const turn = findTurn(el.dataset.turn);
-  mine().thread = mine().thread.filter((t) => t !== turn);
-  const example = active().examples.find((e) => e.text === turn.text);
-  return ask(turn.text, example?.request || null);
+  if (turn) return askAgain(turn, turn.text);
+});
+on("reask", (form) => {
+  const turn = findTurn(form.dataset.turn);
+  if (turn) return askAgain(turn, form.elements.text.value);
 });
 on("flag-yes", async (el) => {
   const turn = findTurn(el.dataset.turn);
@@ -158,220 +206,187 @@ on("clear", () => {
   render();
 });
 
-// ---- the answer card ---------------------------------------------------------------------------------------
+// ---- line 1: what was asked -------------------------------------------------------------------------------
 
 function readAs(request) {
-  const parts = request.lines.map((l) => {
-    const what = l.product_ids?.length ? `product ${l.product_ids.join(", ")}` : (l.product_type || l.name_terms?.join(" ") || "products").replaceAll("_", " ");
-    const claims = (l.required_claims || []).map((c) => c.replace(/^FREE_FROM_/, "").toLowerCase() + "-free").join(", ");
-    return `${num(l.quantity)} ${unit(l.unit)} ${claims ? claims + " " : ""}${what}`;
+  const parts = (request?.lines || []).map((l) => {
+    const terms = (l.name_terms || []).join(" ");
+    const type = l.product_type ? l.product_type.replaceAll("_", " ") : "";
+    const what = l.product_ids?.length ? `product ${l.product_ids.join(", ")}` : [terms, type].filter(Boolean).join(" ") || "products";
+    const claims = (l.required_claims || []).map((c) => c.replace(/^FREE_FROM_/, "").toLowerCase().replaceAll("_", " ") + "-free").join(", ");
+    const without = (l.exclude_allergens || []).map((c) => allergenName(c).toLowerCase()).join(", ");
+    return `${num(l.quantity)} ${unit(l.unit)} ${claims ? claims + " " : ""}${what}${without ? `, without ${without}` : ""}`;
   });
-  return `${parts.join(" + ")}${request.needed_by ? `, by ${longDate(request.needed_by)}` : ""}`;
+  return `${parts.join(" + ")}${request?.needed_by ? `, by ${longDate(request.needed_by)}` : ""}`;
 }
 
-function exclusionsSummary(offer) {
-  const counts = {};
-  for (const e of offer.excluded || []) counts[e.reason] = (counts[e.reason] || 0) + 1;
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([r, n]) => `${n} ${REASONS[r] || r.toLowerCase().replaceAll("_", " ")}`)
-    .join(" · ");
-}
-
-function whyBlock(turn, first, open) {
-  const offer = turn.offer;
-  const doubts = first.lines.flatMap((l) => l.claims.filter((c) => c.status !== "CONFIRMED").map((c) => ({ ...c, product: l.name })));
-  const checks = first.constraint_checks || [];
-  return html`<details class="why" ${open ? "open" : ""}>
-    <summary>${icon("right")}Why this answer</summary>
-    <div class="why-body">
-      <div><h4>Rules checked</h4>${ruleList(first.decision.fired)}</div>
-      <div><h4>What you asked for</h4><ul class="why-list">${checks.map(
-        (c) => html`<li>${icon(c.result === "MET" ? "check" : c.result === "NOT_MET" ? "x" : "info", c.result === "MET" ? "yes" : c.result === "NOT_MET" ? "no" : "maybe")}<span>${c.sentence}</span></li>`
-      )}</ul></div>
-      ${doubts.length
-        ? html`<div><h4>Not confirmed by Valio Aimo</h4><ul class="why-list">${doubts.map((c) => html`<li>${icon("info", "maybe")}<span><b>${c.claim.replace("_", " ")}</b> · ${c.sentence}</span></li>`)}</ul></div>`
-        : html`<div><h4>Data</h4><p class="muted small">Price, stock, delivery date, allergens and origin are confirmed for every product.</p></div>`}
-      <div><h4>Looked at ${offer.candidates_considered} products, left out ${offer.excluded?.length || 0}</h4>
-        <p class="small muted">${exclusionsSummary(offer) || "None left out."}</p>
-        ${(offer.notes || []).map((n) => html`<p class="small muted">${n}</p>`)}
-      </div>
-      ${first.comparison?.sentence ? html`<div><h4>Delivery and footprint</h4><p class="small muted">${first.comparison.sentence}</p></div>` : ""}
-    </div>
-  </details>`;
-}
-
-function verdictBox(turn, first) {
-  const k = active();
-  const order = turn.order;
-  const busy = turn.busy ? "disabled" : "";
-  if (order) {
-    if (order.status === "ORDERED") {
-      const by = order.placed_by === "AGENT" ? "Ordered by your agent" : "Ordered with approval";
-      return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${by}${deliveryOf(order.option) ? ` · delivery ${longDate(deliveryOf(order.option))}` : ""}</b><p>${order.status_sentence}</p><div class="actions"><a class="link" href="#/orders/${order.order_id}">Order and audit trail</a></div></div></div>`;
-    }
-    if (order.status === "PENDING_APPROVAL") {
-      const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
-      const needed = approval ? rolesStillNeeded(approval) : order.decision.required_roles;
-      const names = needed.map((r) => `${personFor(r)} (${(ROLES[r] || r).toLowerCase()})`).join(" and ");
-      const canSign = needed.some((r) => k.person.roles.includes(r));
-      return html`<div class="verdict wait">${icon("clock")}<div><b>Sent for approval to ${names}</b><p>${first.decision.sentence}</p>
-        <div class="actions">${canSign ? html`<button class="btn small dark" data-act="approve-here" data-turn="${turn.id}" ${busy}>Approve as ${k.person.name}</button>` : ""}<a class="btn small line" href="#/approvals">Open approvals</a></div></div></div>`;
-    }
-    return html`<div class="verdict stop">${icon("stop")}<div><b>${order.status === "REJECTED" ? "Rejected" : "Expired"}</b><p>${order.status_sentence}</p></div></div>`;
-  }
-  const d = first.decision;
-  if (turn.superseded) return "";
-  if (d.verdict === "BLOCK") {
-    return html`<div class="verdict stop">${icon("stop")}<div><b>This cannot be ordered, not even with approval</b><p>${d.sentence}</p></div></div>`;
-  }
-  if (turn.flags?.length) {
-    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : d.sentence}</p></div></div>`;
-  }
-  if (d.verdict === "AUTO") {
-    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${d.sentence}</p><div class="actions"><button class="btn small" data-act="place" data-turn="${turn.id}" data-option="${first.option_id}" ${busy}>Order now</button></div></div></div>`;
-  }
-  return html`<div class="verdict wait">${icon("clock")}<div><b>Needs ${d.required_roles.map((r) => personFor(r)).join(" and ")}</b><p>${d.sentence}</p><div class="actions"><button class="btn small" data-act="place" data-turn="${turn.id}" data-option="${first.option_id}" ${busy}>Send for approval</button></div></div></div>`;
-}
-
-function flagBox(turn, flag) {
-  return html`<div class="flag">
-    <div class="flag-head">${icon("alert")}Different brand than you usually buy</div>
-    <p>The best match is from <b>${flag.vendors.map(titleCase).join(", ")}</b>. You normally take <b>${flag.brand}</b> for dairy. Should the agent stick to ${flag.brand}?</p>
-    <div class="actions">
-      <button class="btn small dark" data-act="flag-yes" data-turn="${turn.id}" data-rule="${flag.ruleId}" data-brand="${flag.brand}">Yes, ${flag.brand} only</button>
-      <button class="btn small line" data-act="flag-no" data-turn="${turn.id}" data-rule="${flag.ruleId}">Other brands are fine</button>
-    </div>
-    <div class="basis">Why the agent asks: ${flag.basis.toLowerCase()} — it has not learned this from you yet. Your answer is remembered for next time.</div>
-  </div>`;
-}
-
-function others(turn) {
-  const rest = turn.offer.options.slice(1);
-  if (!rest.length || !mine().prefs.alternatives) return "";
-  const ordered = Boolean(turn.order) || Boolean(turn.superseded);
-  return html`<div class="others"><h4>Other options</h4>${rest.map(
-    (o) => html`<div class="other">
-      <div class="what"><b>${o.title}</b> · ${money(o.totals.net)}<div class="small muted">${o.summary}</div></div>
-      ${o.decision.verdict === "AUTO" ? html`<span class="tag ok">Agent may order</span>` : o.decision.verdict === "BLOCK" ? html`<span class="tag stop">Blocked</span>` : html`<span class="tag wait">Needs approval</span>`}
-      ${ordered || o.decision.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="place" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
-    </div>`
-  )}${turn.order?.status === "PENDING_APPROVAL" ? html`<p class="small muted">The approver can still switch to one of these.</p>` : ""}</div>`;
-}
-
-function answer(turn) {
-  const prefs = mine().prefs;
-  if (turn.phase === "reading") return html`<div class="answer">${spinner("Reading your request…")}</div>`;
-  if (turn.phase === "looking") return html`<div class="answer">${top(turn)}${spinner("Checking price and stock with Valio Aimo…")}</div>`;
-  if (turn.phase === "failed") {
-    return html`<div class="answer"><div class="answer-body">${problemBox(turn.problem)}
-      <div class="verdict info">${icon("info")}<div><p>${turn.problem?.status === 429 ? "The demo allows a few readings a minute per visitor. Wait a moment, or use one of the examples: they skip the reading step." : "You can try again, or write the request differently."}</p><div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Try again</button></div></div></div>
-    </div></div>`;
-  }
-  const offer = turn.offer;
-  const first = offer.options?.[0];
-  if (!first) {
-    return html`<div class="answer">${top(turn)}<div class="answer-body">
-      <div class="verdict stop">${icon("stop")}<div><b>Nothing can be offered for this request</b><p>Looked at ${offer.candidates_considered} products: ${exclusionsSummary(offer) || "none matched"}.</p>${(offer.notes || []).map((n) => html`<p>${n}</p>`)}</div></div>
-    </div></div>`;
-  }
-  return html`<div class="answer">${top(turn)}<div class="answer-body">
-    <p class="headline">${first.summary}</p>
-    ${optionBlock(first, prefs.short)}
-    ${turn.resolved ? html`<p class="small muted">${turn.resolved}</p>` : ""}
-    ${(turn.flags || []).map((f) => flagBox(turn, f))}
-    ${verdictBox(turn, first)}
-    ${turn.problem ? problemBox(turn.problem) : ""}
-    ${others(turn)}
-    ${prefs.short && !prefs.explain ? "" : whyBlock(turn, first, prefs.explain)}
-  </div></div>`;
-}
-
-function top(turn) {
-  const offer = turn.offer;
-  const source = SOURCES[turn.reading?.source] || "read";
-  return html`<div class="answer-top">
-    <span class="agent-dot">${icon("agent")}</span>
+function asked(turn) {
+  const request = turn.offer?.request || turn.sent;
+  const wrote = turn.reading?.source === "example" ? "" : `You wrote “${turn.text}”`;
+  const data = turn.offer ? (turn.offer.source === "replay" ? "recorded Valio Aimo data" : "live Valio Aimo data") : "";
+  const meta = [request ? wrote : "", SOURCES[turn.reading?.source], data, turn.at ? clock(turn.at) : ""].filter(Boolean).join(" · ");
+  return html`<div class="asked">
+    <span class="label">Asked</span>
     <div class="read">
-      ${offer ? html`<b>${readAs(offer.request)}</b>` : html`<b>Request read</b>`}
-      <div class="small muted">${source}${offer ? html` · ${offer.source === "replay" ? "recorded Valio Aimo data" : "live Valio Aimo data"}` : ""}</div>
+      <b>${request ? readAs(request) : turn.text}</b>
+      ${meta ? html`<div class="small muted">${meta}</div>` : ""}
       ${turn.applied?.length ? html`<div class="applied">${turn.applied.map((a) => html`<span class="tag ${a.tone}">${a.text}</span>`)}</div>` : ""}
     </div>
   </div>`;
 }
 
-// ---- side panel --------------------------------------------------------------------------------------------
+// ---- line 3: what needs a person, and why, next to the outcome --------------------------------------------
 
-function side() {
-  const k = active();
-  const s = mine().settings;
-  const spent = spendToday();
-  const share = s.max_daily_net_eur ? (100 * spent) / s.max_daily_net_eur : 0;
-  const waiting = pendingApprovals();
-  const upcoming = app.data.orders
-    .filter((o) => o.status === "ORDERED" || o.status === "PENDING_APPROVAL")
-    .map((o) => ({ o, date: deliveryOf(o.option) }))
-    .filter((x) => x.date)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(0, 4);
-  const knows = mine().learned.filter((r) => r.state !== "off").slice(0, 3);
-  return html`<aside class="side">
-    <div class="card">
-      <div class="card-title"><h3>Today</h3><span class="tag">${shortDate(isoDay(dataToday()))}</span></div>
-      <div class="small muted">Ordered or waiting today, against the daily limit</div>
-      <div class="meter ${share > 80 ? "hot" : ""}"><i data-w="${share}"></i></div>
-      <div class="kv"><span>${money(spent)} of ${money(s.max_daily_net_eur)}</span><b>${Math.round(share)}%</b></div>
-      <div class="kv"><span>Agent orders alone up to</span><b>${s.auto_order_enabled ? money(s.max_order_net_eur) : "never"}</b></div>
-      <div class="kv"><span>Allergens kept out</span><b>${s.excluded_allergens.length ? s.excluded_allergens.map((code) => `${allergenName(code)}${allergenRule(s, code) === "STRICT" ? " (strict)" : ""}`).join(", ") : "none"}</b></div>
-      <div class="kv"><span>Waiting for approval</span><b>${waiting.length ? html`<a href="#/approvals">${waiting.length}</a>` : "0"}</b></div>
-    </div>
-    <div class="card">
-      <div class="card-title"><h3>Coming deliveries</h3><a class="small" href="#/deliveries">Calendar</a></div>
-      ${upcoming.length
-        ? html`<ul class="side-list">${upcoming.map(
-            ({ o, date }) => html`<li><span class="when">${shortDate(date).split(" ")[1]}<small>${shortDate(date).split(" ")[0]}</small></span><span><a href="#/orders/${o.order_id}">${o.option.lines[0].name}${o.option.lines.length > 1 ? ` +${o.option.lines.length - 1}` : ""}</a><br><span class="small muted">${money(o.option.totals.net)} · ${o.status === "ORDERED" ? "confirmed" : "waiting for approval"}</span></span></li>`
-          )}</ul>`
-        : html`<p class="small muted">Nothing ordered yet in this demo. Delivery days for ${k.name}: ${k.deliveryDays}.</p>`}
-    </div>
-    <div class="card">
-      <div class="card-title"><h3>What your agent knows</h3><a class="small" href="#/settings">Edit</a></div>
-      <ul class="side-list knows">${knows.map((r) => html`<li>${icon("memory")}<span><b>${r.title}</b><br><span class="small muted">${r.basis}</span></span></li>`)}</ul>
-    </div>
-  </aside>`;
+const CANNOT_ALONE = /^The agent cannot place this order alone:\s*/;
+const IT_NEEDS = /\s*It needs [^.]*\.\s*$/;
+// The decision's sentence without what the box already says in its heading.
+const why = (sentence) => plain(sentence).replace(/^Prepared: confirm to order\.?\s*/i, "");
+
+function needsLine(roles, sentence) {
+  const text = why(sentence);
+  if (roles.length && CANNOT_ALONE.test(text)) return `Needs ${names(roles)}: ${text.replace(CANNOT_ALONE, "").replace(IT_NEEDS, "").replace(/\.$/, "")}.`;
+  return [roles.length ? `Needs ${names(roles)}.` : "", text].filter(Boolean).join(" ");
+}
+
+// "Confirmed by Marko Heikkinen (purchasing manager, finance)": one name once, with every role it signed.
+function confirmedBy(turn) {
+  const byName = new Map();
+  for (const c of turn.confirmedBy || []) byName.set(c.name, [...(byName.get(c.name) || []), roleName(c.role)]);
+  if (!byName.size) return "Confirmed";
+  return `Confirmed by ${[...byName].map(([name, roles]) => `${name} (${roles.join(", ")})`).join(" and ")}`;
+}
+
+function orderBox(turn, order) {
+  const delivery = deliveryOf(order.option);
+  const when = delivery ? ` · delivery ${longDate(delivery)}` : "";
+  const trail = html`<a class="link" href="#/orders/${order.order_id}">Order and audit trail</a>`;
+  if (order.status === "ORDERED") {
+    const alone = order.placed_by === "AGENT";
+    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : confirmedBy(turn)}${when}</b>
+      <p>${plain(order.status_sentence)}</p>
+      ${alone ? html`<p class="small">You let the agent order alone in Settings. It does so only when every statement is confirmed and no rule asks for a person.</p>` : ""}
+      <div class="actions">${trail}</div></div></div>`;
+  }
+  if (order.status === "PENDING_APPROVAL") {
+    const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
+    const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
+    const canSign = needed.some((r) => active().person.roles.includes(r));
+    const waitingFor = needed.length ? `waiting for ${names(needed)}` : "waiting for approval";
+    const head = turn.confirmedBy?.length ? `${confirmedBy(turn)}; ${waitingFor}` : waitingFor[0].toUpperCase() + waitingFor.slice(1);
+    return html`<div class="verdict wait">${icon("clock")}<div><b>${head}</b><p>${plain(order.status_sentence)}</p>
+      <div class="actions">${canSign ? html`<button class="btn small" data-act="sign" data-turn="${turn.id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>` : ""}<a class="btn small line" href="#/approvals">Open approvals</a>${trail}</div></div></div>`;
+  }
+  return html`<div class="verdict stop">${icon("stop")}<div><b>${order.status === "REJECTED" ? "Rejected: nothing was ordered" : "Expired: nothing was ordered"}</b><p>${plain(order.status_sentence)}</p></div></div>`;
+}
+
+function verdictBox(turn, option) {
+  const order = orderOf(turn);
+  if (order) return orderBox(turn, order);
+  if (turn.superseded) return "";
+  const d = option.decision || {};
+  const button = html`<button class="btn small" data-act="confirm" data-turn="${turn.id}" data-option="${option.option_id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>`;
+  if (d.verdict === "BLOCK") {
+    return html`<div class="verdict stop">${icon("stop")}<div><b>This cannot be ordered, not even with approval</b><p>${plain(d.sentence)}</p></div></div>`;
+  }
+  if (turn.flags?.length && isFirst(turn, option)) {
+    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : why(d.sentence)}</p></div></div>`;
+  }
+  if (d.verdict === "AUTO") {
+    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button}</div></div></div>`;
+  }
+  const needed = d.required_roles || [];
+  const others = needed.filter((r) => !active().person.roles.includes(r));
+  const after = !others.length ? "" : others.length === needed.length ? `Your confirmation sends it to ${names(others)}, who signs it.` : `After you confirm, it also needs ${names(others)}.`;
+  return html`<div class="verdict wait">${icon("clock")}<div><b>Prepared: confirm to order</b>
+    <p>${needsLine(needed, d.sentence)}</p>
+    <div class="actions">${button}</div>
+    ${after ? html`<p class="small">${after}</p>` : ""}
+  </div></div>`;
+}
+
+// ---- the result card ---------------------------------------------------------------------------------------
+
+function verdictTag(option) {
+  const v = option.decision?.verdict;
+  if (v === "AUTO") return html`<span class="tag ok">Agent may order alone</span>`;
+  if (v === "BLOCK") return html`<span class="tag stop">Cannot be ordered</span>`;
+  return html`<span class="tag wait">Needs a person</span>`;
+}
+
+function others(turn, chosen) {
+  const rest = (turn.offer.options || []).filter((o) => o !== chosen);
+  if (!rest.length || !mine().prefs.alternatives) return "";
+  const locked = Boolean(turn.order) || Boolean(turn.superseded);
+  return html`<div class="others"><h4>Alternative products</h4>${rest.map(
+    (o) => html`<div class="other">
+      <div class="what"><b>${plain(o.title)}</b> · ${money(o.totals?.net)}<div class="small muted">${plain(o.summary)}</div></div>
+      ${verdictTag(o)}
+      ${locked || o.decision?.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="choose" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
+    </div>`
+  )}</div>`;
+}
+
+const card = (turn, body) => html`<article class="answer">${asked(turn)}${body}</article>`;
+
+function nothingOffered(turn) {
+  const offer = turn.offer;
+  return html`<div class="answer-body">
+    <div class="verdict stop">${icon("stop")}<div><b>Nothing can be offered for this request</b><p>Looked at ${offer.candidates_considered ?? 0} products: ${exclusionsSummary(offer) || "none matched"}.</p>${(offer.notes || []).map((n) => html`<p>${plain(n)}</p>`)}</div></div>
+    ${typedRequest(turn)}
+  </div>`;
+}
+
+function answer(turn) {
+  const prefs = mine().prefs;
+  if (turn.phase === "reading") return card(turn, spinner(turn.reading?.source === "example" ? "Sending the typed request…" : "Reading the text into a typed request…"));
+  if (turn.phase === "looking") return card(turn, spinner("Checking price and availability with Valio Aimo…"));
+  if (turn.phase === "failed") return card(turn, html`<div class="answer-body">${failedAnswer(turn)}</div>`);
+  const option = chosenOf(turn);
+  if (!option) return card(turn, nothingOffered(turn));
+  const first = isFirst(turn, option);
+  return card(turn, html`<div class="answer-body">
+    <div class="label-row"><span class="label">Suggested</span><span class="small muted">${plain(option.title)}</span></div>
+    <p class="headline">${plain(option.summary)}</p>
+    ${optionBlock(option, prefs.short)}
+    ${turn.resolved ? html`<p class="small muted">${turn.resolved}</p>` : ""}
+    ${first ? (turn.flags || []).map((f) => flagBox(turn, f)) : ""}
+    ${verdictBox(turn, option)}
+    ${turn.problem ? html`${problemBox(turn.problem)}<div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Ask again</button></div>` : ""}
+    ${others(turn, option)}
+    ${prefs.short && !prefs.explain ? "" : whyBlock(turn.offer, option, prefs.explain)}
+    ${typedRequest(turn)}
+  </div>`);
 }
 
 // ---- view --------------------------------------------------------------------------------------------------
 
 export function view() {
   const k = active();
-  const thread = mine().thread;
-  const hour = new Date().getHours();
-  const hello = hour < 11 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const results = mine().thread;
   return html`
     <div class="page-head">
-      <div><div class="crumbs">${k.name} · customer ${k.customerNo} · ${k.address}</div><h1>${hello}, ${k.person.name.split(" ")[0]}</h1></div>
-      ${thread.length ? html`<div class="right"><button class="link quiet" data-act="clear">Clear conversation</button></div>` : ""}
+      <div><div class="crumbs">${k.name} · customer ${k.customerNo} · ${k.address}</div><h1>Purchase request</h1>
+        <div class="sub">Signed in as ${k.person.name}, ${k.person.title.toLowerCase()}. Nothing is ordered until you confirm it.</div></div>
+      ${results.length ? html`<div class="right"><button class="link quiet" data-act="clear">Clear results</button></div>` : ""}
     </div>
-    ${app.data.problem && !app.data.ready ? problemBox(app.data.problem) : ""}
+    ${app.data.problem ? problemBox(app.data.problem) : ""}
     <div class="grid">
       <section>
         <div class="ask">
-          <h2>What do you need, and by when?</h2>
-          <p>Write it the way you would to a colleague. The agent checks price and stock, and orders within the limits you set.</p>
+          <h2>What is needed, how much, and by when</h2>
+          <p>The text is read into a typed request: product, quantity, unit, date and allergens. The agent checks price and availability with Valio Aimo and prepares the order for you to confirm.</p>
           <form data-act="ask">
             <label class="sr" for="ask-text">Request</label>
             <textarea id="ask-text" name="text" rows="2" data-send data-input="draft" placeholder="e.g. 40 litres of lactose-free milk by Monday">${app.ui.draft || ""}</textarea>
-            <button class="btn" type="submit">${icon("send")}Ask</button>
+            <button class="btn" type="submit">Check price and stock</button>
           </form>
-          <div class="examples"><span>Try:</span>${k.examples.map((e, i) => html`<button class="chip" data-act="example" data-i="${i}">${e.text}</button>`)}</div>
+          <div class="examples"><span>Examples:</span>${k.examples.map((e, i) => html`<button class="chip" data-act="example" data-i="${i}">${e.text}</button>`)}</div>
+          ${openInterface()}
         </div>
-        <div class="thread">
-          ${thread.length
-            ? thread
-                .slice()
-                .reverse()
-                .map((t) => html`<div class="turn"><div class="said"><p>${t.text}<time>${clock(t.at)}</time></p></div>${answer(t)}</div>`)
-            : html`<div class="card empty"><h3>No requests yet</h3><p>Ask for something, or start from one of the examples above.</p></div>`}
+        <div class="results">
+          ${results.length
+            ? results.slice().reverse().map(answer)
+            : html`<div class="card empty"><h3>No requests yet</h3><p>Write one above, or start from an example: examples are sent as typed requests.</p></div>`}
         </div>
       </section>
       ${side()}

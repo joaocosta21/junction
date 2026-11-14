@@ -1,10 +1,11 @@
 // The page frame: header with the customer switcher, hash routing, events, and the render function.
 import { health } from "./api.js";
-import { app, handlers, nextDeliveryDay, on, pendingApprovals, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
+import { app, freshData, handlers, nextDeliveryDay, on, pendingApprovals, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
 import { html, initials, isoDay, shortDate } from "./dom.js";
 import { icon } from "./icons.js";
 import { KITCHENS, kitchenById } from "./kitchens.js";
 import { active, memory, save } from "./store.js";
+import { ended, plain } from "./words.js";
 import * as approvals from "./views/approvals.js";
 import * as assistant from "./views/assistant.js";
 import * as deliveries from "./views/deliveries.js";
@@ -13,7 +14,7 @@ import * as settings from "./views/settings.js";
 
 const VIEWS = { assistant, approvals, orders, deliveries, settings };
 const NAV = [
-  ["assistant", "#/", "Assistant"],
+  ["assistant", "#/", "Request"],
   ["deliveries", "#/deliveries", "Deliveries"],
   ["approvals", "#/approvals", "Approvals"],
   ["orders", "#/orders", "Orders"],
@@ -23,15 +24,15 @@ const NAV = [
 // ---- loading and switching customer ----------------------------------------------------------------------
 
 async function load() {
-  app.data.ready = false;
+  const data = app.data;
+  data.ready = false;
   render();
   try {
     await pushKitchen();
-    app.data.problem = null;
-  } catch (error) {
-    app.data.problem = error;
+  } catch {
+    // kept in app.data.refused until a push succeeds, and shown on every view (rulesBanner)
   }
-  app.data.ready = true;
+  data.ready = true;
   await refresh();
 }
 
@@ -43,7 +44,7 @@ async function switchKitchen(id) {
   memory.active = id;
   save();
   app.ui.menu = false;
-  app.data = { authority: null, orders: [], approvals: [], ready: false, problem: null };
+  app.data = freshData();
   settings.forget();
   if (location.hash && location.hash !== "#/") location.hash = "#/";
   await load();
@@ -56,6 +57,19 @@ on("menu", () => {
   render();
 });
 on("switch", (el) => switchKitchen(el.dataset.id));
+
+// Send this customer's settings again after a refusal; the answer, or the refusal, is what the page then shows.
+on("push-again", async () => {
+  const pending = pushKitchen();
+  render();
+  try {
+    await pending;
+    toast("Settings accepted: the gateway applies them now.");
+  } catch {
+    render();
+  }
+  await refresh();
+});
 
 // ---- events: one listener per kind, routed by data-act / data-change / data-input --------------------------
 
@@ -120,7 +134,7 @@ window.addEventListener("hashchange", () => {
 function modeLabel() {
   const h = app.health;
   if (!h) return "Gateway";
-  return h.mode === "replay" ? "Replay · recorded Valio Aimo data" : "Live · Valio Aimo mock API";
+  return h.mode === "replay" ? "Recorded Valio Aimo data" : "Live · Valio Aimo mock API";
 }
 
 function header() {
@@ -168,8 +182,20 @@ function header() {
     </header>`;
 }
 
+// The settings of this customer were refused or never confirmed by the gateway: said on every view, with a way
+// to send them again. Until the gateway accepts them, the page neither asks nor orders (core.js, withRules).
+function rulesBanner() {
+  const refused = app.data.refused;
+  if (!refused) return "";
+  return html`<div class="verdict stop banner" role="alert">${icon("alert")}<div>
+    <b>This customer's settings are not in force</b>
+    <p>${ended(plain(refused.message)) || "The gateway did not accept them."} Nothing is asked or ordered until the gateway accepts them.</p>
+    <div class="actions"><button class="btn small dark" data-act="push-again" ${app.data.pushing ? "disabled" : ""}>${app.data.pushing ? "Sending…" : "Send them again"}</button><a class="link" href="#/settings">Settings</a></div>
+  </div></div>`;
+}
+
 function footer() {
-  return html`<div class="foot">Demo shop on the Trusted Trade gateway. Customers, people and past orders are made up; prices, stock and every rule come from the gateway. Orders are recorded in this browser's demo order book and commit nobody.</div>`;
+  return html`<div class="foot">Demo shop on the Trusted Trade gateway. Customers, people and past orders are made up; prices, stock and every rule come from the gateway. Orders are recorded in this browser's demo order book and commit nobody. The same typed interface: <a href="/docs" target="_blank" rel="noopener">REST API (OpenAPI)</a> · MCP server at /mcp.</div>`;
 }
 
 setRenderer(() => {
@@ -180,7 +206,7 @@ setRenderer(() => {
   const caret = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   root.innerHTML = String(html`
     ${header()}
-    <main class="page">${view.view()}</main>
+    <main class="page">${rulesBanner()}${view.view()}</main>
     ${footer()}
     ${app.ui.toast ? html`<div class="toast" role="status">${app.ui.toast}</div>` : ""}
   `);

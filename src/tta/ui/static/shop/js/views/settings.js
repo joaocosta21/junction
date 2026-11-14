@@ -6,6 +6,7 @@ import { icon } from "../icons.js";
 import { ALLERGENS, ALLERGEN_RULES, NEW_ALLERGEN_RULE, ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { restore, confirm, dismiss } from "../learning.js";
 import { active, mine, resetKitchen, save } from "../store.js";
+import { ended, plain } from "../words.js";
 import { personFor } from "./parts.js";
 
 let draft = null;
@@ -80,11 +81,13 @@ on("save", async () => {
   render();
   try {
     app.data.authority = await api().setKitchen(d.settings);
+    app.data.refused = null;
     mine().settings = structuredClone(d.settings);
     save();
     message = { ok: true, text: "Saved. The gateway now applies these limits to every order of this customer." };
   } catch (error) {
-    message = { ok: false, text: error.message };
+    // A refused form changes nothing in the gateway (tta.api.sandbox, Kitchen.set_up).
+    message = { ok: false, text: `Not saved: ${ended(plain(error.message))} The rules in force did not change.` };
   }
   saving = false;
   render();
@@ -104,8 +107,12 @@ on("reset", async () => {
   }
   resetKitchen(active().id);
   draft = null;
-  message = { ok: true, text: "This customer's demo was reset: settings, conversation and orders." };
-  await pushKitchen();
+  message = { ok: true, text: "This customer's demo was reset: settings, results and orders." };
+  try {
+    await pushKitchen();
+  } catch (error) {
+    message = { ok: false, text: `Reset, but the gateway refused the settings: ${ended(plain(error.message))}` };
+  }
   await refresh();
   toast("Demo reset for this customer.");
 });
@@ -157,6 +164,13 @@ function fixedRules() {
     <li>${icon("lock")}<span class="rule-id">F-06</span><span>An agent can never approve an order, its own included.</span></li></ul>`;
 }
 
+// What the gateway applies now, from its own answer: never this browser's copy of the settings.
+function inForce() {
+  const p = app.data.authority?.profile;
+  if (!p) return html`<span class="msg bad">Not confirmed by the gateway: nothing is asked or ordered until it accepts these settings.</span>`;
+  return html`<span class="msg muted">In force in the gateway: per order ${money(p.max_order_net_eur)} · per day ${money(p.max_daily_net_eur)} · ordering alone ${p.auto_order_enabled ? "on" : "off"}</span>`;
+}
+
 // ---- view ---------------------------------------------------------------------------------------------------
 
 export function view() {
@@ -187,7 +201,7 @@ export function view() {
 
         <section class="card" id="s-autonomy">
           <div class="card-title"><h2>What the agent may do alone</h2></div>
-          <div class="field"><div><label for="f-auto_order_enabled">Let the agent place orders ${rule("P-00")}</label><div class="help">Off: every order waits for ${personFor("purchasing_manager")}.</div></div>${toggle("auto_order_enabled", s.auto_order_enabled, "set", "Let the agent place orders")}</div>
+          <div class="field"><div><label for="f-auto_order_enabled">Let the agent place orders alone ${rule("F-10")}</label><div class="help">Off: nothing is ordered until ${personFor("purchasing_manager")} confirms it. On: the agent orders alone only when every statement is confirmed and no rule asks for a person.</div></div>${toggle("auto_order_enabled", s.auto_order_enabled, "set", "Let the agent place orders alone")}</div>
           <div class="field"><div><label for="f-max_order_net_eur">Alone up to, per order ${rule("P-01")}</label><div class="help">Above this, ${personFor("purchasing_manager")} approves. Before tax.</div></div>${moneyField("max_order_net_eur", s.max_order_net_eur)}</div>
           <div class="field"><div><label for="f-max_daily_net_eur">Alone up to, per day ${rule("P-02")}</label><div class="help">Everything ordered or waiting today counts. Above it, ${personFor("finance")} (finance) approves.</div></div>${moneyField("max_daily_net_eur", s.max_daily_net_eur)}</div>
           <div class="field"><div><label for="f-min_fill_ratio">Partial deliveries ${rule("P-03")}</label><div class="help">Smallest share of the quantity the agent accepts alone.</div></div>
@@ -210,7 +224,6 @@ export function view() {
           <div class="field"><div><label for="f-short">Short answers</label><div class="help">One line per product, no stock details.</div></div>${toggle("short", p.short, "pref", "Short answers")}</div>
           <div class="field"><div><label for="f-alternatives">Show other options</label><div class="help">Off: only the agent's first choice.</div></div>${toggle("alternatives", p.alternatives, "pref", "Show other options")}</div>
           <div class="field"><div><label for="f-explain">Always explain</label><div class="help">Open the rules, checks and left-out products under every answer.</div></div>${toggle("explain", p.explain, "pref", "Always explain")}</div>
-          <div class="field"><div><label for="f-autoSend">Send for approval straight away</label><div class="help">When an order needs a person, the agent sends it without asking you first.</div></div>${toggle("autoSend", p.autoSend, "pref", "Send for approval straight away")}</div>
         </section>
 
         <section class="card" id="s-learned">
@@ -236,7 +249,7 @@ export function view() {
         </section>
 
         <div class="save-bar">
-          ${message ? html`<span class="msg ${message.ok ? "ok" : "bad"}">${message.text}</span>` : dirty() ? html`<span class="msg">Unsaved changes to limits or allergens.</span>` : html`<span class="msg muted">Per order ${money(mine().settings.max_order_net_eur)} · per day ${money(mine().settings.max_daily_net_eur)} in force</span>`}
+          ${message ? html`<span class="msg ${message.ok ? "ok" : "bad"}">${message.text}</span>` : dirty() ? html`<span class="msg">Unsaved changes to limits or allergens.</span>` : inForce()}
           ${dirty() ? html`<button class="btn line small" data-act="undo">Undo</button>` : ""}
           <button class="btn" data-act="save" ${dirty() && !saving ? "" : "disabled"}>${saving ? "Saving…" : "Save"}</button>
         </div>

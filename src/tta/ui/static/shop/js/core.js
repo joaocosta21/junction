@@ -3,10 +3,14 @@ import { gateway } from "./api.js";
 import { day, isoDay } from "./dom.js";
 import { memory, mine } from "./store.js";
 
+// `authority` is the gateway's own answer about the rules in force for this kitchen's book, never this
+// browser's copy of the settings. `refused` is the last refusal of the settings call, kept until a call succeeds.
+export const freshData = () => ({ authority: null, refused: null, pushing: false, orders: [], approvals: [], ready: false, problem: null });
+
 export const app = {
   route: { name: "assistant", id: null },
-  data: { authority: null, orders: [], approvals: [], ready: false, problem: null },
-  ui: { menu: false, toast: null },
+  data: freshData(),
+  ui: { menu: false, toast: null, redraft: {} },
   health: null,
 };
 
@@ -23,19 +27,112 @@ export function on(name, fn) {
 
 export const api = () => gateway(memory.active);
 
+// ---- the rules in force -------------------------------------------------------------------------------------
+
+const PUSH_ATTEMPTS = 2;
+const PUSH_RETRY_MS = 600;
+const OFFER_CHANGED = /offer-(expired|stale)$/;
+const wait = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// A 409 that is not about the offer: the book lost this kitchen's settings (a restart, an idle book dropped).
+export const rulesLost = (error) => error?.status === 409 && !OFFER_CHANGED.test(String(error.problem?.type || ""));
+
+// The book's answer is this kitchen's settings, not a book that started again from the defaults ("My kitchen").
+const isThisKitchens = (authority) => Boolean(authority?.profile) && authority.profile.display_name === mine().settings.display_name;
+
+// Make this kitchen's settings the rules of its book, trying once more when refused. The rules then shown are the
+// gateway's answer. Written into the data of the kitchen that asked, so a switch meanwhile cannot mix two kitchens.
 export async function pushKitchen() {
-  app.data.authority = await api().setKitchen(mine().settings);
-  return app.data.authority;
+  const data = app.data;
+  const settings = mine().settings;
+  data.pushing = true;
+  let last = null;
+  for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
+    try {
+      data.authority = await api().setKitchen(settings);
+      data.refused = null;
+      data.pushing = false;
+      return data.authority;
+    } catch (error) {
+      last = error;
+      if (attempt < PUSH_ATTEMPTS) await wait(PUSH_RETRY_MS);
+    }
+  }
+  data.authority = null;
+  data.refused = last;
+  data.pushing = false;
+  throw last;
+}
+
+// The rules in force, set up first when the gateway has not confirmed them.
+export async function ensureRules() {
+  return app.data.authority || pushKitchen();
+}
+
+// Before a request is read or an order confirmed: read the rules back from the gateway, and set them up again when
+// its book no longer holds this kitchen's settings (dropped after idling, or the gateway restarted).
+export async function verifyRules() {
+  const data = app.data;
+  if (data.authority && !data.pushing) {
+    try {
+      const authority = await api().authority();
+      if (isThisKitchens(authority)) {
+        data.authority = authority;
+        return authority;
+      }
+    } catch (error) {
+      if (!rulesLost(error)) return data.authority; // the check itself failed: the gateway's last answer stands
+    }
+  }
+  return pushKitchen();
+}
+
+// A call that needs this kitchen's rules: set them up first; when the book lost them meanwhile, set them up again
+// and make the call once more. Nothing is ever asked or ordered under rules the gateway did not confirm.
+export async function withRules(call) {
+  await ensureRules();
+  try {
+    return await call();
+  } catch (error) {
+    if (!rulesLost(error)) throw error;
+    app.data.authority = null;
+    await pushKitchen();
+    return call();
+  }
+}
+
+// Read the rules back from the gateway; when they are not this kitchen's, send the settings again.
+async function checkRules(data) {
+  if (data.pushing) return; // a push is on its way: its answer is the rules in force
+  try {
+    const authority = await api().authority();
+    if (isThisKitchens(authority)) {
+      data.authority = authority;
+      return;
+    }
+  } catch (error) {
+    if (!rulesLost(error)) return; // the gateway did not answer: keep its last answer, refresh() shows the problem
+  }
+  if (data !== app.data) return;
+  data.authority = null;
+  if (data.refused) return; // just refused twice: the banner offers to send again, and so does the next request
+  try {
+    await pushKitchen();
+  } catch {
+    // kept in app.data.refused and shown on every view
+  }
 }
 
 export async function refresh() {
+  const data = app.data;
   try {
+    await checkRules(data);
     const [list, queue] = await Promise.all([api().orders(), api().approvals()]);
-    app.data.orders = list;
-    app.data.approvals = queue;
-    app.data.problem = null;
+    data.orders = list;
+    data.approvals = queue;
+    data.problem = null;
   } catch (error) {
-    app.data.problem = error;
+    data.problem = error;
   }
   render();
 }

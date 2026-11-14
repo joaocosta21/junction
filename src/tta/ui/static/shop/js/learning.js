@@ -19,18 +19,19 @@ function inScope(rule, line) {
 
 const carriesBrand = (rule, line) => lower(`${line.vendor_name} ${line.name}`).includes(lower(rule.brand));
 
-// The request as the gateway will get it, and the chips that say what the kitchen's own data added to it.
-export function prepare(request, kitchen, mine) {
+// The request as the gateway will get it, and the chips that say what applies to it: the rules in force as the
+// gateway stated them (`profile`, from its answer to the settings call), and what the buyer confirmed here.
+export function prepare(request, kitchen, mine, profile) {
   const out = structuredClone(request);
   const applied = [];
-  const s = mine.settings;
-  if (s.excluded_allergens?.length) {
+  const p = profile || {};
+  if (p.excluded_allergens?.length) {
     for (const rule of ["STRICT", "DECLARED_ONLY"]) {
-      const codes = s.excluded_allergens.filter((code) => allergenRule(s, code) === rule);
+      const codes = p.excluded_allergens.filter((code) => allergenRule(p, code) === rule);
       if (codes.length) applied.push({ tone: "info", text: `${ALLERGEN_RULES[rule].name}: no ${codes.map(allergenName).join(", ").toLowerCase()}` });
     }
   }
-  if (s.require_confirmed) applied.push({ tone: "info", text: "Confirmed data only" });
+  if (p.require_confirmed) applied.push({ tone: "info", text: "Confirmed data only" });
   for (const rule of brandRules(mine.learned)) {
     if (rule.state !== "confirmed") continue;
     let used = false;
