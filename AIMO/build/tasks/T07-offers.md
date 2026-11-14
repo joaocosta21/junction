@@ -23,3 +23,16 @@
 
 ## Note
 If the capture's stock differs from Friday's numbers in the plan, the structure still has to hold. Report which products the scenarios select tonight.
+
+## Notes from wave 1 (read the hand-backs in `AIMO/build/handback/` for T01 to T05)
+- **Entry points:** `ProductCatalog.from_settings(settings)` (`tta.catalog.catalog`, about 1.3 s: build it once per test session in your own `tests/offers/conftest.py`) · `ReplayGateway(settings.replay_capture_dir)` and its pinned `.clock` (`tta.valio`) · `classify`, `is_late`, `late_sentence`, `verify` (`tta.availability`) · `check_exclusions`, `check_substitute`, `is_known_code` (`tta.allergens`; they take allergen statements, not products) · `RulePolicyEngine.from_files()` (`tta.policy`).
+- `verify(line, price, product, *, quantity, needed_by, allergen_outcome, now)`: `quantity` is the line's quantity in sales units.
+- **The day's spend.** `PolicyEngine.evaluate` needs `PolicyContext(now=..., day_committed_net_eur=...)`; with `None` every option reads `APPROVAL` by F-03. Your builder takes a dependency `day_spend: Callable[[str], Decimal]` (profile id → net EUR committed today). T09 wires it to the order book; your tests pass a function.
+- **Allergens and the policy.** For a buyer or request with exclusions every line needs an `AllergenCheck` with one finding per excluded code and the strictness set, or F-03 fires. Exclusions are the profile's plus the request line's. A request line with exclusions, no strictness, and a profile that sets none is `InvalidRequest`.
+- Pass `Product.variable_weight` through to `OfferLine.variable_weight` as it is (`None` included: it is a missing fact for the policy).
+- **Pack size and units:** `catalog.pack_size(product, price_line, unit)`. When the API line's sales unit differs from the product file's (7 of 797 lines in Friday's sample) and the source is not `PRICE_RATIO`, treat the pack size as unknown (`PACK_SIZE_UNKNOWN`). Lot rounding: `catalog.round_to_lot(product, quantity)`.
+- **Which claims gate** (SPEC §4): `require_confirmed` keeps only options whose every line satisfies `OfferLine.confirmed_for_order(dated=request.needed_by is not None)`. A product that fails only this is excluded with the matching reason (`ALLERGEN_NOT_STATED` for an unsettled allergen claim).
+- **A cut-off that has passed** excludes a product (`CUTOFF_PASSED`) whether or not the request has a date: the delivery Valio states can no longer be ordered (T04's reading).
+- **The builder stores nothing and records no audit event.** T09's service stores the offer and writes the events. Ids: `off_` + 12 hex characters; options `opt_1`, `opt_2`, `opt_3` in rank order.
+- A request for 1,000 litres tonight: the three confirmed milks cover it together (384 + 51 + 565 of `463380`), net about €2,580.64, so the verdict is `APPROVAL` by P-01 for `hotel-kitchen`. `472492` drops out with `PACK_SIZE_UNKNOWN` (priced per kg).
+- Coverage runs: set `COVERAGE_FILE` to a file in your scratch directory; agents running in parallel share `.coverage` in the repository root.
