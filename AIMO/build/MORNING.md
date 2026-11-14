@@ -22,7 +22,7 @@ GEMINI_API_KEY= TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --facto
 ```
 Replay answers from the capture of Saturday 02:52 (769 products) with the clock pinned, and needs no key. Live mode is `TTA_MODE=live` with the Valio key in `.env`; every offer says `live` or `replay`. Script for the 90-second demo: `docs/DEMO.md`.
 
-Two local copies are running now, both replay with no keys: port **8000** is `e7e1cb2` (before FIX-11, FIX-12 and FEAT-1; the almond drink still passes there), port **8001** is `71f13f4` (current code). Use 8001 for the booth.
+Two local copies are running now, both replay with no keys: port **8000** is `e7e1cb2` (before FIX-11, FIX-12 and FEAT-1; the almond drink still passes there), port **8001** is `284fee8` (current code, restarted at 11:32). Use 8001 for the booth.
 
 ## 3. What is blocked, and the command that unblocks it
 
