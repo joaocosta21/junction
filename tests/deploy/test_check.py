@@ -43,7 +43,7 @@ def test_every_check_passes_against_the_gateway(check: ModuleType, client: TestC
     assert [result.name for result in results] == list(EVERY_CHECK)
     assert all(result.ok for result in results), [result for result in results if not result.ok]
     by_name = {result.name: result.detail for result in results}
-    assert "ORDERED" in by_name["order"]
+    assert "PENDING_APPROVAL" in by_name["order"]  # every order waits for a person (F-10)
     assert "replay" in by_name["offer"]
     assert "8 tools" in by_name["mcp tools"]
 

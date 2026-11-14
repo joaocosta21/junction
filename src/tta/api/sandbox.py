@@ -95,9 +95,12 @@ _FIXED_PARTS: Mapping[str, Any] = {
     "profile_id": KITCHEN_PROFILE_ID,
     "description": KITCHEN_DESCRIPTION,
     "illustrative": True,
-    "auto_order_enabled": True,  # the gateway requires approval; the kitchen adds no extra P-00 signature
     "approver_roles": {role.value: [one.id for one in KITCHEN_APPROVERS if role in one.roles] for role in ApproverRole},
 }
+
+# What a page may leave out. The old kitchen page no longer shows the ordering setting; the shop page sends it.
+# Either way every order needs a person today (F-10, tta.policy.human_approval).
+_UNSENT_PARTS: Mapping[str, Any] = {"auto_order_enabled": True}
 
 
 @functools.cache
@@ -112,7 +115,7 @@ def kitchen_profile(policy: RulePolicyEngine, settings: Mapping[str, Any]) -> Bu
     problems = _page_problems(settings)
     if problems:
         raise PolicyLoadError(KITCHEN_SOURCE, problems)
-    profile = policy.check_custom_profile({**settings, **_FIXED_PARTS})
+    profile = policy.check_custom_profile({**_UNSENT_PARTS, **settings, **_FIXED_PARTS})
     over = [
         f"{name}: at most €{MAX_LIMIT_EUR:,} on this page (got €{getattr(profile, name):,})"
         for name in LIMIT_SETTINGS if getattr(profile, name) > MAX_LIMIT_EUR

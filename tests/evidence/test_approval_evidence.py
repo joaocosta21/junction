@@ -170,7 +170,7 @@ def test_the_verdict_and_every_status_are_the_same_with_and_without_evidence(
     assert decided[0].status is OrderStatus.ORDERED
 
 
-def test_an_order_the_agent_places_alone_asks_for_no_evidence(
+def test_an_order_that_waits_only_for_a_person_to_confirm_asks_for_no_evidence(
     make_stack: Make, make_finder: Make, fake_answers: Make, agent_ward: Identity,
 ) -> None:
     answers = fake_answers({})
@@ -182,7 +182,7 @@ def test_an_order_the_agent_places_alone_asks_for_no_evidence(
 
     order = _place(stack, agent_ward, request)
 
-    assert order.status is OrderStatus.ORDERED
+    assert order.status is OrderStatus.PENDING_APPROVAL  # F-10 alone: no allergen doubt, so nothing to look up
     assert answers.asked == []
 
 

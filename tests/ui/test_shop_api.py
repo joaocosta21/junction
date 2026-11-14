@@ -103,7 +103,7 @@ def test_each_kitchen_has_a_book_of_its_own(client: TestClient) -> None:
             "key": "test.bakery.1",
         },
     ).json()
-    assert order["status"] == "ORDERED"
+    assert order["status"] == "PENDING_APPROVAL"  # every order needs a person (F-10), inside the limit too
     assert [o["order_id"] for o in _call(client, "GET", "/orders", "bakery").json()] == [order["order_id"]]
     assert _call(client, "GET", "/orders", "school").json() == []
 

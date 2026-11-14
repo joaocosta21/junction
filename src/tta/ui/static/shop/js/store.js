@@ -2,7 +2,7 @@
 // what its agent has learned, and the conversation. Orders and approvals themselves live in the gateway.
 import { KITCHENS, kitchenById } from "./kitchens.js";
 
-const KEY = "tt-shop-v1";
+const KEY = "tt-shop-v2"; // v2: nothing is ordered or sent without a click by default
 const MAX_TURNS = 8;
 
 function fresh() {
