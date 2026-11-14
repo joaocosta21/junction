@@ -20,7 +20,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30 (usage limit 05:40–07:40). Task file ready for the day |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30. Task file ready for the day |
-| T14 | Deployment on Modal | T13 | running | files only; the orchestrator deploys once after the final review |
+| T14 | Deployment on Modal | T13 | review | files built and committed (49 tests); deploy after the final review fixes |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
@@ -71,6 +71,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:17 Gemini live check passed: `gemini-3.6-flash` read scenario 2 (plant drink, 200 L, AM and AW excluded, confirmed only, by 16 Nov) and ran it (authority → offer → order of option 1 → ORDERED by the agent, €402.00). 'Some milk for Monday' refused for the missing quantity. 17 of 20 model requests used tonight.
 - 08:21 T13 done and committed. Tonight's capture gives a full fill for scenario 1 (partial fill at 1,500 L, tested). T16 final round started: three reviewers on the agent, pages, MCP surface and FIX-8.
 - 08:22 T15 done and committed (10 standards checked against their specification pages; 74 assumptions on the page). Flagged for the team: the four partner data files are tracked in the repository, which will be public.
+- 08:33 T14 files committed: secret of three values read at deploy time, image without `.env`, SQLite on local disk with a copy on the Volume. Final review round: silent-failure report in (2 high: a second order when a run fails after placing one; a reading from a recording not labelled as such); two reports to come.
 
 ## Live API calls used
 10 of 150 (T00 capture 2, T01 live check 2, T13 live run 6)
