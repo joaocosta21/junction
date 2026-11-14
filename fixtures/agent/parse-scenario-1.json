@@ -4,7 +4,7 @@
   "profile_id": "hotel-kitchen",
   "model": "gemini-3.6-flash",
   "source": "live",
-  "recorded_at": "2026-11-14T06:14:08.168025Z",
+  "recorded_at": "2026-11-14T07:13:24.396101Z",
   "today": "2026-11-14",
   "proposal": {
     "needed_by": "2026-11-16",
@@ -17,7 +17,7 @@
         "required_claims": [
           "FREE_FROM_LACTOSE"
         ],
-        "quantity": 1000.0,
+        "quantity": 1000,
         "unit": "L",
         "exclude_allergens": [],
         "allergen_strictness": null,
