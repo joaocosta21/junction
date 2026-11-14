@@ -308,6 +308,11 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "Which is right?"
 - **Built:** the allergen declaration counts; the almond-drink page found on the web was dropped as not matching.
 
+**ALMOND-1 · `465793` Alpro Barista Almond drink declares tree nuts "free from", but its ingredient list names almond** (from the use-case check, Saturday)
+- **We got:** the `nonAllergen` group says `AN` FREE_FROM; `keyIngredients` say "Water, ALMOND (2.5%) … MAY CONTAIN REMAINS FROM NUTS".
+- **Ask:** "Which is right, the declaration or the ingredient list? Is this a data error in the hackathon file?"
+- **Built until now:** the declaration counts, so a buyer that excludes tree nuts could have it ordered alone. Being fixed: a conflict between the ingredient list and the declaration sends the product to a dietitian.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)

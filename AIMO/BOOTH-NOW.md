@@ -13,6 +13,7 @@ The full wording, with a worked example for each, is in `AIMO/OPEN-QUESTIONS.md`
 5. **Q4** — When you accept an order today, what is committed at that moment: the price, the quantity, the delivery date?
 
 **Reading the data**
+5b. **ALMOND-1 — ask this one** — `465793` Alpro Barista Almond drink 1L declares tree nuts (`AN`) as *free from*, but its own ingredient list says "Water, ALMOND (2.5%), Sugar, Fructose, Acidity regulators (Potassium phosphates), Calcium…". Which is right? *(Today our gateway trusts the declaration, so a no-nuts buyer's agent would order it alone.)*
 6. **Q2** — Do `X99` ("no declarable allergens") and `UNDECLARED` have their GS1 meanings in your data?
 7. **T03-2** — 176 products say a family is "free from" while declaring one of its members (a gluten-free loaf with wheat; Toblerone "free from tree nuts" with almonds). Gluten-free wheat starch, and a data error?
 8. **Q5** — 46% of the catalog has no allergen statement. Does no data mean "declared nothing", so an agent must treat it as unknown?
