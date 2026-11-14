@@ -55,6 +55,11 @@ DEFAULT_SCHEMA = "tta"
 # A local run (TTA_ENV=dev) with the same DATABASE_URL never writes into the deployed demo's order book, whose
 # audit trail cannot be cleaned afterwards.
 SCHEMA_BY_ENVIRONMENT = {"dev": "tta_dev"}
+# The setting `TTA_DB_SCHEMA` (AP-2): a schema of the operator's choice instead of the environment's. Audit events
+# cannot be removed, so a build whose models can no longer read an old trail starts a new one in a new schema and
+# the old one stays as it is. Read with `getattr`, so the store works before the setting exists in `tta.config`.
+SCHEMA_SETTING = "tta_db_schema"
+BAD_SCHEMA_SETTING = "TTA_DB_SCHEMA must be a plain lower-case identifier of at most 41 characters."
 SCHEMA_NAME = re.compile(r"[a-z_][a-z0-9_]{0,40}")  # leaves room for the "_supplier" of the role's name
 SUPPLIER_ROLE_SUFFIX = "_supplier"
 # How long a thread waits for the connection while another thread uses it or has a block open, and how long a
@@ -368,13 +373,26 @@ class PostgresStore:
 
 
 def schema_for(settings: Settings) -> str:
-    """`tta` for the deployed gateway (demo, prod), `tta_dev` for a local run."""
-    return SCHEMA_BY_ENVIRONMENT.get(settings.tta_env, DEFAULT_SCHEMA)
+    """The schema `TTA_DB_SCHEMA` names when it is set; else `tta` for the deployed gateway (demo, prod) and
+    `tta_dev` for a local run. Raises `ValueError` for a name the store's pattern refuses."""
+    chosen = getattr(settings, SCHEMA_SETTING, None)
+    name = chosen.strip() if isinstance(chosen, str) else ""
+    if not name:
+        return SCHEMA_BY_ENVIRONMENT.get(settings.tta_env, DEFAULT_SCHEMA)
+    if not SCHEMA_NAME.fullmatch(name):
+        raise ValueError(BAD_SCHEMA_SETTING)
+    return name
 
 
 def open_postgres_store(settings: Settings) -> PostgresStore:
-    """The store on the database `DATABASE_URL` names, in the schema of the environment (`schema_for`). Raises
-    `SupplierUnavailable` when it cannot be reached or prepared; the URL is not repeated."""
+    """The store on the database `DATABASE_URL` names, in the schema `schema_for` gives. Raises
+    `SupplierUnavailable` when it cannot be reached or prepared, or when `TTA_DB_SCHEMA` holds a name the store
+    refuses; the URL is not repeated."""
     if settings.database_url is None:
         raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL)
-    return PostgresStore(settings.database_url, schema=schema_for(settings))
+    try:
+        schema = schema_for(settings)
+    except ValueError as refused:  # a wrong name never writes anywhere: the caller falls back and says so
+        logger.warning("%s The PostgreSQL store was not opened.", refused)
+        raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from refused
+    return PostgresStore(settings.database_url, schema=schema)

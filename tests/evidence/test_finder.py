@@ -12,7 +12,7 @@ import pytest
 
 from tta.catalog import ProductCatalog
 from tta.config import Settings
-from tta.contracts.common import AllergenRelation, Identity
+from tta.contracts.common import AllergenOutcome, AllergenRelation, Identity
 from tta.contracts.offer import OfferOption
 from tta.evidence import EvidenceFinder, build_evidence_finder, products_needing_evidence
 from tta.evidence.answers import AnswersClient
@@ -59,7 +59,8 @@ def test_without_a_key_only_stored_answers_are_read(
 
     assert not nothing.found
     assert nothing.sentence == (
-        "No evidence was found on the web for product 469512: no Context.dev key is set, so nothing was looked up."
+        "No evidence was found on the web for product 469512: no recorded page of this product is stored and no "
+        "Context.dev key is set, so nothing was looked up."
     )
     assert stored.found
 
@@ -105,7 +106,7 @@ def test_a_stored_answer_that_cannot_be_read_is_said(
     assert evidence.sentence.endswith(": the stored result could not be read.")
 
 
-def test_only_a_line_sent_to_the_dietitian_for_a_missing_statement_gets_evidence(
+def test_every_line_sent_to_the_dietitian_for_an_allergen_doubt_gets_evidence_and_no_other_line(
     make_stack: Make, requests: SimpleNamespace, agent_hotel: Identity, ids: SimpleNamespace
 ) -> None:
     option = _elovena_option(make_stack, requests, agent_hotel)
@@ -116,13 +117,20 @@ def test_only_a_line_sent_to_the_dietitian_for_a_missing_statement_gets_evidence
     no_p04 = option.decision.model_copy(update={"fired": others})
     assert products_needing_evidence(option, no_p04) == ()
 
+    # AP-4: every kind of doubt that goes to a person gets evidence, not only a missing statement.
     line = option.lines[0]
-    stated = line.allergen_check.model_copy(update={"findings": tuple(
-        finding.model_copy(update={"relation": AllergenRelation.MAY_CONTAIN})
-        for finding in line.allergen_check.findings
+    for relation in (AllergenRelation.MAY_CONTAIN, AllergenRelation.UNDECLARED, AllergenRelation.FREE_FROM):
+        doubted = line.allergen_check.model_copy(update={"findings": tuple(
+            finding.model_copy(update={"relation": relation}) for finding in line.allergen_check.findings
+        )})
+        other_doubt = option.model_copy(update={"lines": (line.model_copy(update={"allergen_check": doubted}),)})
+        assert products_needing_evidence(other_doubt, option.decision) == (ids.elovena,)
+
+    passed = line.allergen_check.model_copy(update={"findings": tuple(
+        finding.model_copy(update={"outcome": AllergenOutcome.PASS}) for finding in line.allergen_check.findings
     )})
-    may_contain = option.model_copy(update={"lines": (line.model_copy(update={"allergen_check": stated}),)})
-    assert products_needing_evidence(may_contain, option.decision) == ()
+    ruled_out = option.model_copy(update={"lines": (line.model_copy(update={"allergen_check": passed}),)})
+    assert products_needing_evidence(ruled_out, option.decision) == ()
 
     unchecked = option.model_copy(update={"lines": (line.model_copy(update={"allergen_check": None}),)})
     assert products_needing_evidence(unchecked, option.decision) == ()

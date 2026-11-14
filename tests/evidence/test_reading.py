@@ -38,7 +38,7 @@ def test_a_matching_page_becomes_evidence_with_its_link_hash_and_time(
     canonical = json.dumps(bodies.elovena["json_content"], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     assert evidence.content_hash == hashlib.sha256(canonical.encode()).hexdigest()
     assert evidence.sentence == (
-        "The page “Elovena Kaurajuoma kahviin” on elovena.fi says: contains KAURA; "
+        "The manufacturer's page “Elovena Kaurajuoma kahviin” on elovena.fi says: contains KAURA; "
         "free from Gluteeniton, Laktoositon, Maidoton, Kananmunaton."
     )
 

@@ -14,13 +14,14 @@ from tta.evidence.reading import read_answer
 
 RECORDINGS = Settings.for_tests().tta_fixtures_dir / "evidence"
 EXPECTED = {
-    "469512": "The page “Elovena Kaurajuoma kahviin” on raisiofoodsolutions.fi says: contains KAURA; "
+    "469512": "The manufacturer's page “Elovena Kaurajuoma kahviin” on raisiofoodsolutions.fi says: contains KAURA; "
               "free from Gluteeniton, Laktoositon, Maidoton, Kananmunaton.",
-    "468465": "The page “Oddlygood® kaurajuoma 1 l UHT gluteeniton” on oddlygood.com says: contains gluteeniton "
-              "kaura; free from gluteeniton, ei sisällä maitoa.",
-    "473609": "The page “Oddlygood® Barista kaurajuoma 1 l UHT gluteeniton” on oddlygood.com says: contains "
-              "Gluteeniton kaura; free from Gluteeniton.",
-    "475224": "The page “Fazer Aito Professional Barista Oat Drink 1L UHT” on fazer.com names no allergen in its text.",
+    "468465": "The manufacturer's page “Oddlygood® kaurajuoma 1 l UHT gluteeniton” on oddlygood.com says: contains "
+              "gluteeniton kaura; free from gluteeniton, ei sisällä maitoa.",
+    "473609": "The manufacturer's page “Oddlygood® Barista kaurajuoma 1 l UHT gluteeniton” on oddlygood.com says: "
+              "contains Gluteeniton kaura; free from Gluteeniton.",
+    "475224": "The manufacturer's page “Fazer Aito Professional Barista Oat Drink 1L UHT” on fazer.com names no "
+              "allergen in its text.",
     # The English name says almond drink, the Finnish name soya drink, and the product declares soya (AY); the page
     # is the almond drink ("mantelijuoma"), which neither name carries, so it is dropped.
     "474864": "No evidence was found on the web for product 474864: the page found is for another product "

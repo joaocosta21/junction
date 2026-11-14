@@ -51,6 +51,12 @@ def _load(path: Path, name: str) -> ModuleType:
     return module
 
 
+@pytest.fixture(autouse=True)
+def no_supplier_login_in_the_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The witness reads `SUPPLIER_DATABASE_URL` from the shell: no test depends on the developer's own."""
+    monkeypatch.delenv("SUPPLIER_DATABASE_URL", raising=False)
+
+
 @pytest.fixture
 def sentinels() -> Sentinels:
     return Sentinels()

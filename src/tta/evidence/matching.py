@@ -19,6 +19,17 @@ from tta.contracts.product import Product
 MIN_SHARE_OF_NAME = 0.6
 # Words that say nothing about which product it is: the packing method and the units of a pack size.
 NOISE_WORDS = frozenset({"uht", "l", "ml", "cl", "dl", "kg", "g", "x", "pcs", "kpl"})
+# Brand word -> the hosts we take to be the brand owner's own site (AP-4). Our list, written on 14 Nov 2026 from
+# the recorded pages (fixtures/evidence/) and the brands of the demo products; it is not Valio Aimo data and no
+# registry was consulted. A page on any other host is shown as "a web page whose owner was not checked".
+BRAND_OWNER_HOSTS: dict[str, tuple[str, ...]] = {
+    "elovena": ("elovena.fi", "raisiofoodsolutions.fi"),
+    "oddlygood": ("oddlygood.com",),
+    "fazer": ("fazer.com",),
+    "valio": ("valio.fi", "valio.com"),
+    "arla": ("arla.fi", "arla.com"),
+    "alpro": ("alpro.com",),
+}
 _WORD = re.compile(r"\w+")
 _HAS_DIGIT = re.compile(r"\d")
 
@@ -58,3 +69,10 @@ def names_match(page_name: str | None, page_title: str | None, url: str, product
         return False
     page = _significant(page_name, brand)
     return any(_names_this_product(page, _significant(name, brand)) for name in (product.name_en, product.name_fi))
+
+
+def is_brand_owner_page(url: str, product: Product) -> bool:
+    """True when the page's host is one listed for a word of the product's brand, or a subdomain of it."""
+    host = (urlsplit(url).hostname or "").casefold()
+    listed = (domain for word in _words(product.brand) for domain in BRAND_OWNER_HOSTS.get(word, ()))
+    return any(host == domain or host.endswith(f".{domain}") for domain in listed)

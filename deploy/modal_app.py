@@ -6,8 +6,10 @@ production" (one command, the secrets kept out of the code and the image, the da
     .venv/bin/modal deploy --strategy recreate deploy/modal_app.py
 
 One container at most: the database is SQLite and the rate limiter and the pages' run log live in one process.
-It takes many requests at once. `TTA_ENV=demo`, `TTA_MODE=live`; the app answers from the recorded capture by
-itself, labelled replay, when the mock cannot be reached or the call budget is spent.
+It takes many requests at once. `TTA_ENV=demo`, `TTA_MODE=replay`, `TTA_DEMO_CLOCK=2026-11-12T14:15:00+02:00`: the
+public link answers from the recorded capture and judges order deadlines against the demo clock (Thursday
+12 Nov 2026 14:15, Helsinki; Valio Aimo said on 14 Nov that its test data is static and the date is ours to
+choose). The clock setting is honoured in replay only and refused outside dev and demo (AIMO/build/handback/B0.md).
 
 Data: the call budget and the recordings of live answers are written straight to a Volume mounted at the data
 directory. SQLite works on the container's own disk and a whole copy of the database is kept on the Volume: it is
@@ -20,6 +22,13 @@ Names used, as documented by the Modal client this was written with (1.6.4): `mo
 `.uv_pip_install`, `.env`, `.add_local_dir`, `.add_local_file`, `modal.Volume.from_name`, `.commit`,
 `modal.Secret.from_dict`, `modal.is_local`, `@app.function(max_containers=..., min_containers=...,
 scaledown_window=..., cpu=..., memory=...)`, `@modal.concurrent(max_inputs=...)`, `@modal.asgi_app(label=...)`.
+
+The witness (AP-10): when `SUPPLIER_DATABASE_URL` is set on the deploying machine, a second function runs every
+hour, reads the head of the audit trail from the supplier's view with the supplier's read-only login, and checks
+that the head it noted at its last run is still at its place (`deploy/witness.py`); its notes are kept in a
+`modal.Dict`. Without that value no such function exists and nothing is scheduled. Names used for it, checked
+with `inspect` on the installed client (1.6.4; no Modal page was read): `@app.function(schedule=...)`,
+`modal.Period(hours=...)`, `modal.Dict.from_name(..., create_if_missing=True)`, `Dict.get`, `Dict.put`.
 """
 
 from __future__ import annotations
@@ -31,10 +40,11 @@ import shutil
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import modal
 
@@ -89,15 +99,35 @@ PINNED = (
     "google-genai==3.3.0",
     "mcp==2.3.0",
     "psycopg[binary]==3.3.9",
+    "cryptography==50.0.2",  # declared in pyproject.toml on 14 Nov for src/tta/api/signing.py
 )
 NOT_INSTALLED = ("modal", "uvicorn")
 
 DEPLOYED_CALL_BUDGET = 120
+# The public link's settings (AP-2): the recorded capture, at the clock the demo is told at.
+DEPLOYED_MODE = "replay"
+DEMO_CLOCK = "2026-11-12T14:15:00+02:00"
+# Settings that are no secret and are the deploying machine's to choose: they travel with the Secret because that is
+# the one channel from that machine's environment to the container. `TTA_DB_SCHEMA` names a new PostgreSQL schema
+# when the deployed audit trail can no longer be read by this build (the old trail stays, untouched).
+OPTIONAL_SETTINGS = {"TTA_DB_SCHEMA": "tta_db_schema"}
+# The witness of the audit head (AP-10). The supplier's read-only login is read from `tta.config` when it carries
+# the field, else from the deploying shell's environment; `.env` is never opened here.
+SUPPLIER_URL_NAME = "SUPPLIER_DATABASE_URL"
+SUPPLIER_URL_FIELD = "supplier_database_url"
+SCHEMA_NAME_IN_CONTAINER = "TTA_DB_SCHEMA"
+WITNESS_NOTES = "trusted-trade-agents-witness"  # a modal.Dict: one note per schema
+WITNESS_EVERY_HOURS = 1
+WITNESS_CPU_CORES = 0.25
+WITNESS_FILE = "witness.py"
+WITNESS_REMOTE = f"/root/{WITNESS_FILE}"  # beside this file in the container, so `import witness` finds it
+WITNESS_CONNECT_TIMEOUT_SECONDS = 5
 
 IMAGE_ENV = {
     "PYTHONPATH": f"{APP_ROOT}/src",
     "TTA_ENV": "demo",
-    "TTA_MODE": "live",
+    "TTA_MODE": DEPLOYED_MODE,
+    "TTA_DEMO_CLOCK": DEMO_CLOCK,
     "TTA_DATA_DIR": VOLUME_MOUNT,
     "TTA_DB_PATH": LOCAL_DB,
     "TTA_FIXTURES_DIR": f"{APP_ROOT}/fixtures",
@@ -105,7 +135,7 @@ IMAGE_ENV = {
     "TTA_RELIABILITY_FILE": f"{APP_ROOT}/{RELIABILITY_FILE}",
     "TTA_CARBON_FILE": f"{APP_ROOT}/{CARBON_FILE}",
     # The human approved 150 calls to the Valio mock for the overnight run; 10 were used before the deployment.
-    # The deployed app may make at most this many, then answers from the recorded capture, labelled replay.
+    # In replay no call is made; if the mode is ever set to live again, the app may make at most this many.
     "TTA_VALIO_CALL_BUDGET": str(DEPLOYED_CALL_BUDGET),
 }
 
@@ -117,6 +147,36 @@ SECRET_NAMES = (
 
 
 # --- the secret ---------------------------------------------------------------------------------------------------
+
+
+def supplier_url(settings: Settings, environ: Mapping[str, str]) -> str | None:
+    """The supplier's read-only database URL, when one is set: the setting first, then the shell's environment."""
+    chosen = getattr(settings, SUPPLIER_URL_FIELD, None)  # the field may not exist yet in `tta.config`
+    value = chosen.get_secret_value() if hasattr(chosen, "get_secret_value") else chosen
+    if not isinstance(value, str) or not value.strip():
+        value = environ.get(SUPPLIER_URL_NAME, "")
+    return value.strip() or None
+
+
+def witness_secret_values(settings: Settings, environ: Mapping[str, str]) -> dict[str, str]:
+    """What the witness alone receives: the supplier's read-only URL and the schema to read, when one was chosen.
+    Empty without the URL. The gateway's own Secret never holds the supplier's login, nor the witness the gateway's."""
+    url = supplier_url(settings, environ)
+    if url is None:
+        return {}
+    chosen = {name: getattr(settings, field, None) for name, field in OPTIONAL_SETTINGS.items()}
+    return {SUPPLIER_URL_NAME: url, **{n: v.strip() for n, v in chosen.items() if isinstance(v, str) and v.strip()}}
+
+
+def witness_env(*, is_local: bool, read_settings: Callable[[], Settings] | None = None) -> dict[str, str]:
+    """As `secret_env`, for the witness: read on the deploying machine only."""
+    if not is_local:
+        return {}
+    if read_settings is None:
+        from tta.config import get_settings  # looked up when called, so a test can replace it
+
+        read_settings = get_settings
+    return witness_secret_values(read_settings(), os.environ)
 
 
 def secret_values(settings: Settings) -> dict[str, str]:
@@ -134,6 +194,10 @@ def secret_values(settings: Settings) -> dict[str, str]:
         values["DATABASE_URL"] = settings.database_url.get_secret_value()
     if settings.has_context_dev_key and settings.context_dev_api_key is not None:
         values["CONTEXT_DEV_API_KEY"] = settings.context_dev_api_key.get_secret_value()
+    for name, field in OPTIONAL_SETTINGS.items():
+        chosen = getattr(settings, field, None)  # the field may not exist yet in `tta.config`
+        if isinstance(chosen, str) and chosen.strip():
+            values[name] = chosen.strip()
     return values
 
 
@@ -169,8 +233,9 @@ def skipped(path: Path) -> bool:
 
 
 def image_sources(repo_root: Path = REPO_ROOT) -> tuple[Source, ...]:
-    """The package with its YAML, templates and static files, the product file and the two CSV files, the agent and
-    Valio fixtures, and the assumptions page when it exists. Nothing else of the repository."""
+    """The package with its YAML, templates and static files, the product file and the two CSV files, the agent,
+    Valio and evidence fixtures, the witness's module, and the assumptions page when it exists. Nothing else of the
+    repository."""
     sources = [
         Source(repo_root / "src" / "tta", f"{APP_ROOT}/src/tta", is_dir=True),
         *(Source(repo_root / name, f"{APP_ROOT}/{name}", is_dir=False)
@@ -178,6 +243,7 @@ def image_sources(repo_root: Path = REPO_ROOT) -> tuple[Source, ...]:
         *(Source(repo_root / "fixtures" / name, f"{APP_ROOT}/fixtures/{name}", is_dir=True)
           for name in ("valio", "agent", "evidence")),
     ]
+    sources.append(Source(repo_root / "deploy" / WITNESS_FILE, WITNESS_REMOTE, is_dir=False))
     if (repo_root / ASSUMPTIONS_FILE).is_file():
         sources.append(Source(repo_root / ASSUMPTIONS_FILE, f"{APP_ROOT}/{ASSUMPTIONS_FILE}", is_dir=False))
     return tuple(sources)
@@ -359,3 +425,84 @@ def web() -> SaveAfterRequests:
     saver = DatabaseSaver(working, kept, volume.commit)
     saver.start()
     return SaveAfterRequests(gateway, saver)
+
+
+# --- the witness of the audit head (AP-10) -------------------------------------------------------------------------
+
+
+def witness_is_wanted(*, is_local: bool, secret_env: Mapping[str, str], environ: Mapping[str, str]) -> bool:
+    """True when the supplier's login is there to read with: in the Secret on the deploying machine, in the
+    environment inside the container. Without it the witness is not defined and nothing is scheduled."""
+    return bool((secret_env if is_local else environ).get(SUPPLIER_URL_NAME, "").strip())
+
+
+class DictNotes(MutableMapping[str, Any]):
+    """A `modal.Dict` as the mapping the witness writes its notes to."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def __getitem__(self, key: str) -> Any:
+        value = self._store.get(key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._store.put(key, value)
+
+    def __delitem__(self, key: str) -> None:
+        raise TypeError("A note of the witness is never removed.")
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._store.keys())
+
+    def __len__(self) -> int:
+        return int(self._store.len())
+
+
+def run_witness(connect: Callable[[], Any], notes: MutableMapping[str, Any], environ: Mapping[str, str]) -> str:
+    """One run of the witness. Returns its sentence; raises `RuntimeError` with the sentence when the trail was
+    shortened or rewritten, so the run shows as failed in Modal's dashboard. The URL is never logged or raised."""
+    import witness  # deploy/witness.py: beside this file in the container
+
+    schema = environ.get(SCHEMA_NAME_IN_CONTAINER, "").strip() or witness.DEFAULT_SCHEMA
+    connection = connect()
+    try:
+        verdict = witness.witness_once(connection, notes, schema, datetime.now(UTC))
+    finally:
+        connection.close()
+    if not verdict.ok:
+        logger.error("Audit witness, schema %s: %s", schema, verdict.sentence)
+        raise RuntimeError(verdict.sentence)
+    logger.info("Audit witness, schema %s: %s", schema, verdict.sentence)
+    return verdict.sentence
+
+
+def _supplier_connection() -> Any:
+    """The supplier's read-only login, inside the container. A failure is reported by its class only: libpq's own
+    message can repeat the URL."""
+    import psycopg
+
+    try:
+        return psycopg.connect(
+            os.environ[SUPPLIER_URL_NAME], autocommit=True, connect_timeout=WITNESS_CONNECT_TIMEOUT_SECONDS,
+            application_name="tta-audit-witness",
+        )
+    except psycopg.Error as error:
+        raise RuntimeError(f"The supplier's login could not connect ({type(error).__name__}).") from None
+
+
+WITNESS_ENV = witness_env(is_local=modal.is_local())
+WITNESS_WANTED = witness_is_wanted(is_local=modal.is_local(), secret_env=WITNESS_ENV, environ=os.environ)
+
+if WITNESS_WANTED:
+
+    @app.function(
+        image=build_image(), secrets=[modal.Secret.from_dict(WITNESS_ENV)],
+        schedule=modal.Period(hours=WITNESS_EVERY_HOURS), cpu=WITNESS_CPU_CORES, max_containers=1,
+    )
+    def witness_audit_head() -> str:
+        """Every hour: is the head noted last time still at its place in the supplier's view?"""
+        notes = DictNotes(modal.Dict.from_name(WITNESS_NOTES, create_if_missing=True))
+        return run_witness(_supplier_connection, notes, os.environ)

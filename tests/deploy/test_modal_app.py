@@ -9,9 +9,10 @@ import os
 import subprocess
 import sys
 import tomllib
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import version
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import modal
@@ -20,6 +21,7 @@ import pytest
 from tta.config import REPO_ROOT, Settings
 from tta.contracts.common import DataSource
 
+THURSDAY = 4
 THREE_NAMES = {"VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY", "DATABASE_URL", "CONTEXT_DEV_API_KEY"}
 NEVER_IN_THE_IMAGE = (".env", ".claude", "var", ".git", ".venv")
 PRODUCT_FILE = "valio_aimo_junction26_product_data.json"
@@ -129,14 +131,17 @@ def test_no_secret_is_in_the_image_environment(modal_app: ModuleType, sentinels:
         assert all(sentinel not in value for value in environment.values())
 
 
-def test_the_image_environment_is_the_public_demo_in_live_mode(modal_app: ModuleType) -> None:
+def test_the_image_environment_is_the_public_demo_in_replay_at_the_demo_clock(modal_app: ModuleType) -> None:
     settings = Settings.for_tests(
         **{name.lower(): value for name, value in modal_app.IMAGE_ENV.items() if name.startswith("TTA_")}
     )
     app_root = Path(modal_app.APP_ROOT)
 
     assert settings.tta_env == "demo" and settings.is_demo_environment
-    assert settings.tta_mode is DataSource.LIVE
+    assert settings.tta_mode is DataSource.REPLAY
+    # Thursday 12 Nov 2026 14:15 Helsinki, honoured because the mode is replay and the environment demo (B0).
+    assert settings.demo_clock == datetime(2026, 11, 12, 14, 15, tzinfo=timezone(timedelta(hours=2)))
+    assert settings.demo_clock.isoweekday() == THURSDAY
     assert settings.tta_data_dir == Path(modal_app.VOLUME_MOUNT)
     assert settings.db_path == Path(modal_app.LOCAL_DB)
     assert not settings.db_path.is_relative_to(modal_app.VOLUME_MOUNT)  # SQLite works on local disk
@@ -167,6 +172,7 @@ def test_the_image_holds_the_package_the_data_files_and_the_fixtures(modal_app: 
         ("fixtures/valio", f"{app_root}/fixtures/valio", True),
         ("fixtures/agent", f"{app_root}/fixtures/agent", True),
         ("fixtures/evidence", f"{app_root}/fixtures/evidence", True),
+        ("deploy/witness.py", "/root/witness.py", False),  # AP-10: beside modal_app.py in the container
     }
     if (REPO_ROOT / "docs" / "ASSUMPTIONS.md").is_file():
         expected.add(("docs/ASSUMPTIONS.md", f"{app_root}/docs/ASSUMPTIONS.md", False))
@@ -252,3 +258,20 @@ def test_every_library_the_package_declares_is_pinned(modal_app: ModuleType) -> 
 def test_the_deployed_app_spends_at_most_120_live_calls(modal_app: ModuleType) -> None:
     assert modal_app.IMAGE_ENV["TTA_VALIO_CALL_BUDGET"] == "120"
 
+
+
+# --- the schema of the audit trail (AP-2) -----------------------------------------------------------------------
+
+
+def test_a_schema_chosen_on_the_deploying_machine_travels_to_the_container(modal_app: ModuleType) -> None:
+    chosen = SimpleNamespace(
+        has_valio_key=False, has_gemini_key=False, has_database_url=False, has_context_dev_key=False,
+        model_fields_set=set(), tta_db_schema=" tta_nov15 ",
+    )
+
+    assert modal_app.secret_values(chosen) == {"TTA_DB_SCHEMA": "tta_nov15"}
+
+
+def test_without_a_chosen_schema_none_is_sent_and_the_default_stays(modal_app: ModuleType) -> None:
+    assert "TTA_DB_SCHEMA" not in modal_app.secret_values(Settings.for_tests())
+    assert "TTA_DB_SCHEMA" not in modal_app.IMAGE_ENV

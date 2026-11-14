@@ -71,8 +71,9 @@ def test_an_approval_for_an_unstated_allergen_carries_the_evidence_and_names_it(
     assert approval.reasons[0].startswith("Elovena 1l oat drink barista (469512) does not rule out")  # P-04, as before
     assert approval.reasons[1] == (
         "Web evidence for product 469512 is attached for the dietitian, and it is not Valio Aimo's data: "
-        "The page “Elovena Kaurajuoma kahviin” on elovena.fi says: contains KAURA; free from Gluteeniton, "
-        "Laktoositon, Maidoton, Kananmunaton. It changes no verdict: a human decides."
+        "The manufacturer's page “Elovena Kaurajuoma kahviin” on elovena.fi says: contains KAURA; free from "
+        "Gluteeniton, Laktoositon, Maidoton, Kananmunaton. Asked about milk (AM): Valio Aimo's data states nothing; "
+        "the page says free from, in its words “Maidoton”. It changes no verdict: a human decides."
     )
 
 

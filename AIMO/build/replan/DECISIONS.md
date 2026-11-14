@@ -60,6 +60,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | C3 | A brand word before the product ("Arla milk") is dropped silently by the reader. Ask about it, or add a brand field? | Dropped, as before |
 | C4 | Savoury flavours (garlic, smoke, herbs, cheese) are read only through the word "flavoured". Extend the list? | Not extended |
 | C5 | With no like-for-like candidate, the last-resort list for a coffee milk includes sour milks. Should another product type never be offered, even as a last resort for a person? | Offered as last resort |
+| C6 | The list of hosts treated as "the manufacturer's page" is ours and unverified: elovena → `elovena.fi`, `raisiofoodsolutions.fi`; oddlygood → `oddlygood.com`; fazer → `fazer.com`; valio → `valio.fi`, `valio.com`; arla → `arla.fi`, `arla.com`; alpro → `alpro.com`. Confirm or correct | Any other host reads "a web page whose owner was not checked" |
 
 ## D. Questions for Valio's mentors (booth shape: context → what we did → what we got → is that expected?)
 

@@ -161,6 +161,10 @@ The page's customer values equal the profile files (`tests/ui/test_shop_customer
 - Standing-order page: `standing_order_trends(...)`; school: "… a median of 84 L against 70 L for the 3 before (+20%) … The standing order still says 60 L. Store 84 L?" Standing orders at start: `so_demo_hotel_milk` (8 renewals), `so_ward_plant_drinks` (16), `so_school_weekly` (8), `so_bakery_weekly` (8); `standing.html:29` still says "six synthetic past weeks".
 - "Why not" under a list (buyer's view only): `dropped[].sentence`.
 
+### L4-2c — evidence
+- `approval.evidence[]` is present for any allergen doubt that goes to a person. Found, listed host: "The manufacturer's page “Elovena Kaurajuoma kahviin” on raisiofoodsolutions.fi says: contains KAURA; free from Gluteeniton, Laktoositon, Maidoton, Kananmunaton. Asked about milk (AM): Valio Aimo's data states nothing; the page says free from, in its words “Maidoton”." · unlisted host: "A web page whose owner was not checked, “…” on shop.example says: …" · a page that names an excluded allergen: "… check the product before approving. What a page says can add a doubt and never removes one."
+- Headings (`tta.evidence.wording.heading`): "Manufacturer's page, not Valio Aimo data" / "A web page that names this product, not Valio Aimo data (its owner was not checked)". The fixed heading in `_evidence.html` and `shop/js/views/approvals.js` is untrue for an unlisted host: use a neutral heading until `Evidence.is_owner_page` exists.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |
