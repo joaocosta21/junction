@@ -23,7 +23,7 @@ from tta.contracts.offer import Offer, OfferOption, SubstituteQuery
 from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers import OfferDeps, OfferService, find_substitutes
 
-A, B, C = "469363", "462775", "463380"  # lactose-free milks of category 10400, 1-litre cartons
+A, B, C = "469363", "462775", "464073"  # lactose-free milks of category 10400, 1-litre cartons
 # 475224 Fazer Aito Professional Barista Oat drink keeps the dietary claims of the oat drink 473609
 # (gluten-free, vegan); it lacks FREE_FROM_PRESERVATIVES, which does not count as a claim lost.
 OAT_ORIGINAL, OAT_ADDS_GLUTEN, OAT_PASSES = "473609", "464320", "475224"
@@ -223,7 +223,7 @@ def test_a_quantity_in_the_query_is_checked_against_the_stock(
 
 # --- the backup scenario and the totals flags --------------------------------------------------------------
 
-def test_tonight_30_kg_of_beef_chuck_respects_the_lot_step_and_gives_a_ceiling(
+def test_tonight_30_kg_of_beef_chuck_respects_the_lot_step_and_gives_an_estimate(
     service: OfferService, make_request: Any, agent_hotel: Identity
 ) -> None:
     offer = service.build_offer(make_request(30, Unit.KG, product_type="beef_chuck", needed_by=None), agent_hotel)
@@ -236,7 +236,12 @@ def test_tonight_30_kg_of_beef_chuck_respects_the_lot_step_and_gives_a_ceiling(
     assert option.lines[0].variable_weight is True
     assert option.totals.is_ceiling is True
     assert option.totals.net == Decimal("506.40")
-    assert "ceiling" in option.summary.lower()
+    # Valio Aimo invoices the weight delivered (answer Q16): an estimate, said with "about", never a ceiling.
+    assert option.summary == (
+        "1 confirmed product covers the 30 kg asked for, for about €506.40 before tax. The total is an estimate: "
+        "a product is sold by weight, and Valio Aimo invoices the weight delivered."
+    )
+    assert "ceiling" not in option.summary and "never higher" not in option.summary
     assert option.decision.verdict is Verdict.APPROVAL
     assert "P-06" in option.decision.rule_ids
 

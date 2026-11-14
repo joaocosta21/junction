@@ -28,7 +28,7 @@ from tta.contracts.common import (
     UnitPrice,
 )
 from tta.contracts.policy import PolicyDecision
-from tta.contracts.product import FormulaCheck, PackSize
+from tta.contracts.product import FormulaCheck, PackSize, ReplaceCheck
 from tta.contracts.request import MAX_QUANTITY, PurchaseRequest
 from tta.contracts.suggestion import Suggestion
 
@@ -47,8 +47,12 @@ class SubstituteInfo(Contract):
     claims_lost: tuple[str, ...] = ()  # nutritional claims of the original that the substitute does not carry
     gives_up: str  # one sentence: what the buyer gives up
     formula: FormulaCheck | None = None  # its composition measured against the original's (`tta.offers.formula`)
-    # It loses a dietary claim and stands in only because no product that keeps them all can be ordered.
+    # It loses a dietary claim or is another kind of product, and stands in only because no product that keeps
+    # every claim and is the same kind can be ordered.
     last_resort: bool = False
+    # Can it take the original's place like for like: type, flavour, use, formula, claims (`tta.offers.substitutes`).
+    # None on a line stored before the field existed.
+    replaceable: ReplaceCheck | None = None
 
 
 class OfferLine(Contract):
@@ -85,6 +89,11 @@ class OfferLine(Contract):
     # MENU-1, rule F-09). None: the line stands in for nothing.
     stands_in_for: str | None = Field(default=None, description="The recipe's product type this line replaces")
     stands_in_role: str | None = Field(default=None, description="The job that ingredient does in the dish")
+    # Copied from the request line (P10 item F5): the request's own word that the formula matters. Rule F-11
+    # reads it by this name. None: the request did not say, and the buyer profile's setting decides.
+    keep_formula: bool | None = Field(
+        default=None, description="The formula matters for this line: a substitute must keep it (rule F-11)"
+    )
 
     @property
     def quantity_confirmed(self) -> bool:
@@ -109,7 +118,9 @@ class Totals(Contract):
     gross: Money
     currency: str = CURRENCY_EUR
     excludes_deposits: bool = False  # a line carries deposits that the total does not include
-    is_ceiling: bool = False  # variable weight: the invoiced total can be lower, never higher
+    # Variable weight: the total is an estimate, because Valio Aimo invoices the weight delivered (answer Q16 of
+    # 14 Nov 2026). It is not a ceiling; the field keeps its name so stored offers and clients still read it.
+    is_ceiling: bool = False
 
 
 class Coverage(Contract):
@@ -193,6 +204,26 @@ class Exclusion(Contract):
     sentence: str
 
 
+PROOF_ALGORITHM = "EdDSA"  # RFC 8037: Ed25519 in JSON Web Signatures
+PROOF_CANONICALIZATION = "RFC 8785"  # the JSON Canonicalization Scheme the signed bytes are written in
+
+
+class Proof(Contract):
+    """The gateway's signature of an offer or an order record (P12 W8). It says that this gateway answered this
+    record; it does not say Valio Aimo signed anything, and it is not a Verifiable Credential. To check it: remove
+    `proof` from the record, write the rest as RFC 8785 says, and verify the detached JSON Web Signature with the
+    key of `key_id` in the key set at `jwks_path`."""
+
+    type: str = Field(default="JsonWebSignature", description="A detached JSON Web Signature (RFC 7515, appendix F)")
+    algorithm: str = Field(default=PROOF_ALGORITHM, description="EdDSA over Ed25519 (RFC 8037)")
+    canonicalization: str = Field(default=PROOF_CANONICALIZATION, description="How the signed bytes are written")
+    key_id: str = Field(description="The `kid` of the signing key: its RFC 7638 thumbprint")
+    jws: str = Field(description="`<protected header>..<signature>`, base64url; the payload is the record itself")
+    jwks_path: str = Field(description="Where this gateway publishes its public key, as a JSON Web Key set")
+    demo_key: bool = Field(description="True: the key was generated when the gateway started and proves nothing later")
+    note: str
+
+
 class Offer(Contract):
     offer_id: str
     created_at: datetime
@@ -211,6 +242,8 @@ class Offer(Contract):
     # Computed from the customer's past orders or the catalog (`tta.suggestions`). A suggestion is in no option
     # and in no total, and never adds itself to an order. Empty on an offer stored before the field existed.
     suggestions: tuple[Suggestion, ...] = ()
+    # Set on the copy a REST route or an MCP tool answers (`tta.api.signing`); never stored, never in the trail.
+    proof: Proof | None = Field(default=None, description="The gateway's signature of this offer without `proof`")
 
     def option(self, option_id: str) -> OfferOption | None:
         return next((option for option in self.options if option.option_id == option_id), None)
@@ -245,13 +278,17 @@ class SubstituteCandidate(Contract):
     unit_net_price: UnitPrice | None = None
     price_difference: UnitPrice | None = None  # substitute minus original, per sales unit
     formula: FormulaCheck | None = None  # its composition measured against the original's (`tta.offers.formula`)
-    # It loses a dietary claim and is shown only because no candidate that keeps them all can be ordered.
+    # It loses a dietary claim or is another kind of product, and is shown only because no candidate that keeps
+    # every claim and is the same kind can be ordered.
     last_resort: bool = False
-    # The same difference per litre, kilogram or sales unit of the query, so a case is never compared with a
-    # carton (review P2, item W7). None: no quantity unit was asked for, or a pack size is not known.
+    # The same difference per litre or kilogram of content: each price divided by what one sales unit holds, so
+    # a case is never compared with a carton (review P2, item W7). None: a pack size is not known, or the two
+    # are not in the same measure.
     price_difference_per_requested_unit: UnitPrice | None = Field(
-        default=None, description="Substitute minus original, per unit of the query (L, KG or sales unit)"
+        default=None, description="Substitute minus original, per litre or kilogram of content"
     )
+    # Can it take the original's place like for like: type, flavour, use, formula, claims.
+    replaceable: ReplaceCheck | None = None
 
 
 class SubstituteResult(Contract):

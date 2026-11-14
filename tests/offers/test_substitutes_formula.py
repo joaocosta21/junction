@@ -67,7 +67,8 @@ def test_what_is_given_up_is_said_in_numbers(service: OfferService, agent_hotel:
         "different formula (fat 15 g, not 38 g, saturated fat 8.8 g, not 22 g, carbohydrate 5.3 g, not 2.8 g). "
         "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list it as a substitute; Valio "
         "does not confirm the quantity in stock. Different formula: fat 15 g, not 38 g; saturated fat 8.8 g, not "
-        "22 g; carbohydrate 5.3 g, not 2.8 g per 100 g."
+        "22 g; carbohydrate 5.3 g, not 2.8 g per 100 g. Only this product's ingredient list names a modified "
+        "starch. Only the original's ingredient list names a stabiliser."
     )
     assert by_id["463837"].gives_up.endswith(
         "The data shows no difference in formula: same brand, and the six nutrition figures per 100 g are equal."
@@ -84,10 +85,17 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
 
     confirmed = next(option for option in offer.options if option.kind is OptionKind.BEST_CONFIRMED)
     substitute = next(option for option in offer.options if option.kind is OptionKind.SUBSTITUTE)
-    stand_in = substitute.lines[1]
+    alternative = next(option for option in offer.options if option.kind is OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert [(line.product_id, line.quantity) for line in confirmed.lines] == [(ARLA_PRO_WHIPPING, 48)]
     assert VEGETABLE_MIX not in {line.product_id for option in offer.options for line in option.lines}
-    # The 52 L that are missing are filled with another whipping cream that keeps the formula, and it says so.
+    # Lane L2a-2: confirmed stock of the same formula first. 464727 (Arla, 37 L confirmed) fills the gap as far
+    # as it goes and 15 L stay missing; the cream whose quantity Valio does not confirm is the labelled
+    # alternative for the whole 52 L. Before, that one was the stand-in.
+    confirmed_stand_in = substitute.lines[1]
+    assert (confirmed_stand_in.product_id, confirmed_stand_in.quantity) == ("464727", 37)
+    assert substitute.coverage[0].missing == 15
+    assert str(substitute.totals.net) == "549.65"
+    stand_in = alternative.lines[1]
     assert (stand_in.product_id, stand_in.quantity) == (VALIO_WHIPPING, 52)
     assert stand_in.substitute.gives_up == (
         "Replaceable: same type, same use, not flavoured, same formula within tolerance. "
@@ -97,7 +105,7 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
         "23 g; protein 2 g against 2.2 g; carbohydrate 2.8 g against 2.9 g; sugars 2.8 g against 2.9 g; salt "
         "0.07 g against 0.06 g per 100 g."
     )
-    assert str(substitute.totals.net) == "480.28"
+    assert str(alternative.totals.net) == "480.28"
 
 
 def test_the_formula_never_lifts_a_candidate_over_a_lost_dietary_claim(
@@ -149,8 +157,11 @@ def test_every_judged_candidate_carries_its_formula_check(
         ("473609", "471690", "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml. Figures per "
                              "100 g compared with per 100 ml as they stand: for a drink the two are about 3% "
                              "apart (our rule)."),
-        ("473609", "475224", "Different formula: carbohydrate 7.8 g, not 6.6 g; sugars 1.6 g, not 3.5 g per 100 ml."),
-        ("473609", "468465", "Different formula: fat 1 g, not 3 g per 100 ml."),
+        # Lane L2a-2 (P10 item F9): an additive only one ingredient list names is said after the figures.
+        ("473609", "475224", "Different formula: carbohydrate 7.8 g, not 6.6 g; sugars 1.6 g, not 3.5 g per 100 ml. "
+                             "Only this product's ingredient list names a stabiliser."),
+        ("473609", "468465", "Different formula: fat 1 g, not 3 g per 100 ml. Only the original's ingredient list "
+                             "names an acidity regulator."),
     ],
 )
 def test_scenario_3_says_the_formula_of_each_candidate(

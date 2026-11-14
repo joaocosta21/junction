@@ -15,6 +15,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from tta.allergens import check_exclusions
+from tta.allergens.claims import claim_contradictions, contradiction_sentence
 from tta.allergens.exclusion import rule_or_strict
 from tta.availability import classify, is_late, late_sentence, verify
 from tta.availability.wording import format_amount, format_validity
@@ -89,6 +90,11 @@ class Need:
     strictness_by_code: Mapping[str, AllergenStrictness] = field(default_factory=dict)
     # The excluded allergens nobody gave a rule for: read as STRICT, and the offer says so (review P4, item M3).
     read_as_strict: tuple[str, ...] = ()
+    # The request line's own word that the formula matters (P10 item F5), copied onto each offer line.
+    keep_formula: bool | None = None
+    # The nutritional claims the request line requires: each is measured against the product's own allergen
+    # data (review P4, item F4). The product type's own claims are the search's business and are not here.
+    required_claims: tuple[str, ...] = ()
 
     @property
     def dated(self) -> bool:
@@ -160,6 +166,8 @@ def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: B
         stands_in_role=line.stands_in_role,
         strictness_by_code=by_code,
         read_as_strict=tuple(code for code in excluded if code not in given),
+        keep_formula=line.keep_formula,
+        required_claims=tuple(line.required_claims),
     )
 
 
@@ -331,6 +339,14 @@ def _allergen_declared(candidate: Candidate, _need: Need, _now: datetime) -> Dro
     return ExclusionReason.ALLERGEN_DECLARED, " ".join(sentences) or "The product declares an excluded allergen."
 
 
+def _claim_contradicted(candidate: Candidate, need: Need, _now: datetime) -> Dropped | None:
+    """A claim the request requires, carried by the product and contradicted by its own allergen statements:
+    the data wins over the label (review P4, item F4). `ExclusionReason` has no code of its own for it, so the
+    reason is ALLERGEN_DECLARED and the sentence says what was found."""
+    found = claim_contradictions(need.required_claims, candidate.product.allergen_statements)
+    return (ExclusionReason.ALLERGEN_DECLARED, contradiction_sentence(found)) if found else None
+
+
 def _pack_preference(candidate: Candidate, need: Need, _now: datetime) -> Dropped | None:
     if need.pack is PackPreference.BULK and candidate.is_portion_pack:
         return ExclusionReason.PORTION_PACK, f"{_portion_fact(candidate.pack)} The request is for bulk packs."
@@ -411,6 +427,7 @@ def _not_confirmed(candidate: Candidate, need: Need, now: datetime) -> Dropped |
 
 _CHECKS: tuple[Callable[[Candidate, Need, datetime], Dropped | None], ...] = (
     _allergen_declared,
+    _claim_contradicted,
     _pack_preference,
     _not_in_recording,
     _pack_size_unknown,

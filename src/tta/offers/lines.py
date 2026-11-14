@@ -55,6 +55,7 @@ def line_for(
         labels=product.labels,
         stands_in_for=need.stands_in_for,
         stands_in_role=need.stands_in_role,
+        keep_formula=need.keep_formula,
     )
 
 
@@ -67,7 +68,9 @@ def totals_of(lines: Sequence[OfferLine]) -> Totals:
         tax=tax,
         gross=net + tax,
         excludes_deposits=any(line.has_deposits for line in lines),
-        # Variable weight: the price is per kilogram and the weight delivered can be lower, never higher.
+        # Variable weight: the price is per kilogram and Valio Aimo invoices the weight delivered, which can be
+        # under or over the weight ordered (answer Q16 of 14 Nov 2026). The total is an estimate; the field
+        # keeps its name in the contract.
         is_ceiling=any(line.variable_weight is True for line in lines),
     )
 

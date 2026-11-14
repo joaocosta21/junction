@@ -1,17 +1,31 @@
 """The SUBSTITUTE option's lines: a stand-in for a product named by id that confirmed stock does not supply in
 full (SPEC section 5, step 3). The ranking itself is `tta.offers.substitutes`.
+
+Which candidate of the ranking stands in (ours, decided on 14 Nov 2026):
+
+1. Safe first (review P4, item M1): a candidate whose data rules out every excluded allergen.
+2. Where the request line says the formula matters (`RequestLine.keep_formula`, P10 item F5): a candidate that
+   keeps the formula. When none can be ordered the SUBSTITUTE option gets no stand-in for the line, the offer
+   says so, and the formula-changing candidate is a labelled alternative that rule F-11 sends to a person.
+3. Confirmed stock that replaces the original like for like (`ReplaceVerdict.REPLACEABLE`) before a product
+   whose quantity Valio does not confirm. It fills the gap as far as its stock goes; the unconfirmed product
+   that would fill the whole gap is then the labelled alternative.
+4. The ranking's own order.
+
+A request in pieces is converted by content before anything is ranked (`Ranking.per_piece`; review P9b, item
+Q14-1): 100 cartons of 1 L are 100 L, so 10 cases of 10 L stand in, not 100 cases.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from tta.contracts.common import AvailabilityState
 from tta.contracts.offer import OfferLine, SubstituteInfo
-from tta.contracts.product import Product
-from tta.offers.candidates import Need, units_needed
+from tta.contracts.product import Product, ReplaceVerdict
+from tta.offers.candidates import units_needed
 from tta.offers.combining import Fill, floor_to_step, with_picks
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
@@ -19,30 +33,54 @@ from tta.offers.outcome import LineOutcome
 from tta.offers.safety import ruled_out
 from tta.offers.substitute_wording import gives_up
 from tta.offers.substitutes import Judged, Ranking, rank_substitutes
-from tta.offers.wording import counted, line_label, plain_name
+from tta.offers.wording import counted, line_label, measured, plain_name
 
 ZERO = Decimal(0)
+NO_FORMULA_KEEPER = "no substitute that keeps the formula can be ordered"
 
 
-def substitute_lines(
-    outcomes: Sequence[LineOutcome], fills: Sequence[Fill], deps: OfferDeps
-) -> tuple[list[OfferLine | None], tuple[str, ...]]:
+@dataclass(frozen=True)
+class StandIns:
+    """What the stand-in search found, one entry per request line."""
+
+    lines: tuple[OfferLine | None, ...]  # the stand-in of the SUBSTITUTE option
+    # A second stand-in for the whole gap, never the suggestion: a product whose quantity is not confirmed where
+    # confirmed stock fills only part of the gap, or a formula-changing one where the formula matters.
+    alternatives: tuple[OfferLine | None, ...]
+    # Per request line, for the option that offers only the named product: "" when there is nothing to say.
+    said: tuple[str, ...]
+    notes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _Found:
+    line: OfferLine | None = None
+    alternative: OfferLine | None = None
+    said: str = ""
+    notes: tuple[str, ...] = ()
+
+
+def substitute_lines(outcomes: Sequence[LineOutcome], fills: Sequence[Fill], deps: OfferDeps) -> StandIns:
     """One stand-in line per request line that needs one, in order. Stock is counted once: what the
     confirmed fills of the other lines take, and what the stand-ins of earlier lines took."""
-    lines: list[OfferLine | None] = []
-    notes: list[str] = []
+    found: list[_Found] = []
     stood_in: Mapping[str, Decimal] = {}
     for index, (outcome, picked) in enumerate(zip(outcomes, fills, strict=True)):
         if not outcome.asked.product_ids or picked.missing <= 0:
-            lines.append(None)  # only when the request named products by id and they cannot be supplied in full
+            found.append(_Found())  # only when the request named products by id and they cannot be supplied in full
             continue
         used_elsewhere = _used_by([each for other, each in enumerate(fills) if other != index], stood_in)
-        line, note = _substitute_line(outcome, picked, used_elsewhere, deps)
-        if line is not None:
-            stood_in = {**stood_in, line.product_id: stood_in.get(line.product_id, ZERO) + line.quantity}
-        lines.append(line)
-        notes.extend(note)
-    return lines, tuple(notes)
+        each = _substitute_line(outcome, picked, used_elsewhere, deps)
+        for line in (each.line, each.alternative):
+            if line is not None and line.availability.state is AvailabilityState.CONFIRMED:
+                stood_in = {**stood_in, line.product_id: stood_in.get(line.product_id, ZERO) + line.quantity}
+        found.append(each)
+    return StandIns(
+        lines=tuple(each.line for each in found),
+        alternatives=tuple(each.alternative for each in found),
+        said=tuple(each.said for each in found),
+        notes=tuple(note for each in found for note in each.notes),
+    )
 
 
 def _used_by(fills: Sequence[Fill], stood_in: Mapping[str, Decimal]) -> Mapping[str, Decimal]:
@@ -55,30 +93,93 @@ def _used_by(fills: Sequence[Fill], stood_in: Mapping[str, Decimal]) -> Mapping[
 
 def _substitute_line(
     outcome: LineOutcome, picked: Fill, used_elsewhere: Mapping[str, Decimal], deps: OfferDeps
-) -> tuple[OfferLine | None, tuple[str, ...]]:
+) -> _Found:
     original = _original(outcome, picked, deps)
     # The substitute is asked to fill what the named products leave missing, not the whole line.
     gap = replace(outcome.need, quantity=picked.missing)
     ranking = rank_substitutes(original, gap, deps, skip=outcome.asked.product_ids)
+    keep = outcome.asked.keep_formula is True
+    lines = [(judged, _line_from(judged, ranking, used_elsewhere)) for judged in _in_order(outcome, ranking, keep)]
+    orderable = [(judged, line) for judged, line in lines if line is not None]
+    named = f"{plain_name(original.display_name)} ({original.id})"
+    label = line_label(outcome.need.index)
+    if not orderable:
+        note = (
+            f"{label}: no substitute for {named} passes the allergen rules, fits the "
+            f"request and can be ordered; {counted(len(ranking.ranked), 'candidate')} ranked."
+        )
+        return _Found(notes=(note,))
+    judged, line = orderable[0]
+    if keep and not judged.formula.keeps_formula:
+        # The formula matters and nothing that keeps it can be ordered: the formula-changing candidate is never
+        # the stand-in of the SUBSTITUTE option. It is a labelled alternative, and rule F-11 sends it to a person.
+        offered = (outcome.need.quantity or ZERO) - picked.missing
+        rest = (
+            f"{measured(offered, outcome.need.unit)} are offered and the rest is left for a person" if offered > 0
+            else "the line is left for a person"
+        )
+        said = f"{NO_FORMULA_KEEPER}: {rest}"
+        note = (
+            f"{label}: the request says the formula matters, and {NO_FORMULA_KEEPER} for {named}. "
+            f"{plain_name(line.name)} ({line.product_id}) does not keep it and is offered only as a labelled "
+            "alternative for a person to decide."
+        )
+        return _Found(alternative=line, said=said[0].upper() + said[1:] + ".", notes=(note,))
+    return _Found(line=line, alternative=_unconfirmed_for_the_rest(line, ranking, orderable, keep))
+
+
+def _in_order(outcome: LineOutcome, ranking: Ranking, keep: bool) -> list[Judged]:
+    """The candidates that fit the request line, in the order the module's docstring gives."""
     required = frozenset(claim.strip().upper() for claim in outcome.asked.required_claims)
     labels = frozenset(label.strip().upper() for label in outcome.asked.required_labels)
-    # Safe first (review P4, item M1): a candidate whose data rules out every excluded allergen comes before one
-    # whose data leaves a doubt; within each group the ranking's own order holds (the sort is stable).
-    for judged in sorted(ranking.ranked, key=lambda each: not ruled_out(each.candidate.allergen_check)):
-        # A stand-in must carry every nutritional claim and certificate label the request line requires (SPEC
-        # section 3, step 4; task SUST-1).
-        product = judged.candidate.product
-        if not required.issubset(product.nutritional_claims) or not labels.issubset(product.labels):
-            continue
-        line = _line_from(judged, gap, ranking, used_elsewhere)
-        if line is not None:
-            return line, ()
-    named = f"{plain_name(original.display_name)} ({original.id})"
-    note = (
-        f"{line_label(outcome.need.index)}: no substitute for {named} passes the allergen rules, fits the "
-        f"request and can be ordered; {counted(len(ranking.ranked), 'candidate')} ranked."
+    # A stand-in must carry every nutritional claim and certificate label the request line requires (SPEC
+    # section 3, step 4; task SUST-1).
+    fitting = [
+        judged for judged in ranking.ranked
+        if required.issubset(judged.candidate.product.nutritional_claims)
+        and labels.issubset(judged.candidate.product.labels)
+    ]
+    return sorted(  # stable: within each group the ranking's own order holds
+        fitting,
+        key=lambda each: (
+            not ruled_out(each.candidate.allergen_check),
+            keep and not each.formula.keeps_formula,
+            not _confirmed_like_for_like(each),
+        ),
     )
-    return None, (note,)
+
+
+def _confirmed_like_for_like(judged: Judged) -> bool:
+    return (
+        judged.candidate.state is AvailabilityState.CONFIRMED
+        and judged.replaceable.verdict is ReplaceVerdict.REPLACEABLE
+        and not judged.last_resort
+    )
+
+
+def _unconfirmed_for_the_rest(
+    line: OfferLine, ranking: Ranking, orderable: Sequence[tuple[Judged, OfferLine]], keep: bool
+) -> OfferLine | None:
+    """Confirmed stock stands in and leaves part of the gap open: the first product whose quantity Valio does
+    not confirm, for the whole gap, as the labelled alternative. Under `keep` only one that keeps the formula."""
+    gap = ranking.need.quantity
+    if line.availability.state is not AvailabilityState.CONFIRMED or gap is None:
+        return None
+    if _content(line, ranking) >= gap:
+        return None
+    return next(
+        (
+            other for judged, other in orderable
+            if judged.candidate.state is AvailabilityState.QUANTITY_NOT_CONFIRMED
+            and (judged.formula.keeps_formula or not keep)
+        ),
+        None,
+    )
+
+
+def _content(line: OfferLine, ranking: Ranking) -> Decimal:
+    """What the line covers in the unit the candidates were ranked in (litres or kilograms for pieces)."""
+    return line.covers * (ranking.per_piece or Decimal(1))
 
 
 def _original(outcome: LineOutcome, picked: Fill, deps: OfferDeps) -> Product:
@@ -92,15 +193,13 @@ def _original(outcome: LineOutcome, picked: Fill, deps: OfferDeps) -> Product:
     return product
 
 
-def _line_from(
-    judged: Judged, need: Need, ranking: Ranking, used_elsewhere: Mapping[str, Decimal]
-) -> OfferLine | None:
+def _line_from(judged: Judged, ranking: Ranking, used_elsewhere: Mapping[str, Decimal]) -> OfferLine | None:
     """An offer line for the substitute, or `None` when it cannot be ordered for this line.
 
     Under confirmed-only a candidate with a claim that is not confirmed is not orderable: it was judged
     with the same need (`candidates.exclusion_for`), and `_confirmed_only` checks the finished lines again.
     """
-    candidate = judged.candidate
+    candidate, need = judged.candidate, ranking.need
     if not judged.orderable or need.quantity is None or candidate.per_unit is None:
         return None
     units = units_needed(candidate, need.quantity)
@@ -120,5 +219,8 @@ def _line_from(
         gives_up=gives_up(judged, ranking),
         formula=judged.formula,
         last_resort=judged.last_resort,
+        replaceable=judged.replaceable,
     )
-    return line_for(candidate, need, units, min(units * candidate.per_unit, need.quantity), now, info)
+    # `covers` is in the request's unit: content turned back into pieces where the request was in pieces.
+    covers = min(units * candidate.per_unit, need.quantity) / (ranking.per_piece or Decimal(1))
+    return line_for(candidate, ranking.asked, units, covers, now, info)

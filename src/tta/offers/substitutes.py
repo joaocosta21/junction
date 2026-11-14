@@ -33,7 +33,7 @@ from tta.allergens import check_substitute
 from tta.catalog.kinds import flavours_of, is_other_use, is_same_type, product_types_of, uses_of
 from tta.contracts.allergen import SubstituteAllergenCheck
 from tta.contracts.availability import ClaimCheck, PriceLine
-from tta.contracts.common import ExclusionReason, PackPreference
+from tta.contracts.common import ExclusionReason, PackPreference, Unit
 from tta.contracts.offer import SubstituteCandidate, SubstituteQuery, SubstituteResult
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -53,8 +53,14 @@ from tta.offers.candidates import (
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.formula import compare_formula
-from tta.offers.substitute_wording import gives_up, replace_reasons, replace_sentence, why
-from tta.offers.wording import counted
+from tta.offers.substitute_wording import (
+    gives_up,
+    per_measure_difference,
+    replace_reasons,
+    replace_sentence,
+    why,
+)
+from tta.offers.wording import counted, measured
 
 # One price call and one availability call hold 1,000 ids (SPEC section 5), the original included.
 MAX_POOL = MAX_PRODUCT_IDS - 1
@@ -146,6 +152,11 @@ class Ranking:
     ranked: tuple[Judged, ...]
     lookup: Lookup
     notes: tuple[str, ...]
+    asked: Need  # the need as it was asked
+    # The need the candidates were judged against: `asked`, or its quantity turned into litres or kilograms
+    # when it was in pieces and the original's content is known (`_by_content`).
+    need: Need
+    per_piece: Decimal | None = None  # litres or kilograms in one sales unit of the original, when converted
 
 
 def find_substitutes(
@@ -183,6 +194,8 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
     """Judge and rank the candidates for `original`; `skip` names products that must not stand in."""
     pool = _pool(original, deps.catalog, frozenset(skip))
     lookup = look_up(deps, (original.id, *(product.id for product, _, _ in pool)))
+    asked = need
+    need, per_piece = _by_content(evaluate(original, asked, lookup, deps.catalog), asked)
     original_seen = evaluate(original, need, lookup, deps.catalog)
     judged = [_judge(product, is_listed, distance, original, need, lookup, deps.catalog)
               for product, is_listed, distance in pool]
@@ -195,7 +208,31 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
         original_pack=original_seen.pack,
         ranked=tuple(sorted(shown, key=key)),
         lookup=lookup,
-        notes=(*notes, *held_back, *_pool_notes(pool)),
+        notes=(*notes, *held_back, *_pool_notes(pool), *_content_note(asked, need, per_piece)),
+        asked=asked,
+        need=need,
+        per_piece=per_piece,
+    )
+
+
+def _by_content(original: Candidate, need: Need) -> tuple[Need, Decimal | None]:
+    """A quantity in pieces of the original, as litres or kilograms (Valio, answer Q14 of 14 Nov 2026: "the
+    goal is to satisfy the prompt"; review P9b, item Q14-1). 100 cartons of 1 L are 100 L: a case of 10 L
+    stands in 10 times, not 100. A candidate whose content is not known in that measure can then not be
+    ordered (`PACK_SIZE_UNKNOWN`). Where the original's own content is not known, pieces stay pieces.
+    """
+    pack = original.pack
+    if need.unit is not Unit.UNIT or need.quantity is None or not pack.is_known or not pack.value or not pack.unit:
+        return need, None
+    return replace(need, quantity=need.quantity * pack.value, unit=pack.unit), pack.value
+
+
+def _content_note(asked: Need, need: Need, per_piece: Decimal | None) -> tuple[str, ...]:
+    if per_piece is None or asked.quantity is None or need.quantity is None:
+        return ()
+    return (
+        f"{measured(asked.quantity, asked.unit)} of the product asked for hold {measured(need.quantity, need.unit)}"
+        f": each candidate is counted by its content, not one sales unit for one.",
     )
 
 
@@ -382,9 +419,16 @@ def _other_kind_note(judged: Sequence[Judged]) -> tuple[str, ...]:
 
 
 def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[list[Judged], tuple[str, ...]]:
-    """Every listed candidate, and the best of the same 5-digit category, `MAX_UNLISTED_SHOWN` at most."""
+    """Every listed candidate, and the best of the same 5-digit category, `MAX_UNLISTED_SHOWN` at most.
+
+    A candidate Valio lists that fails the allergen rule is shown with its reason: the buyer should see why
+    Valio's own substitute is not offered. One that Valio does not list and that fails the rule is left out
+    and counted in a note, so the list does not spend its places on products the buyer can never take (ours,
+    decided on 14 Nov 2026).
+    """
     shown = [each for each in judged if each.listed]
-    unlisted = [each for each in judged if not each.listed]
+    failing = [each for each in judged if not each.listed and not each.passes]
+    unlisted = [each for each in judged if not each.listed and each.passes]
     # Those that can be ordered first, so the limit never hides one behind candidates that cannot.
     kept = sorted(unlisted, key=lambda each: (not each.orderable, rank_key(each)))[:MAX_UNLISTED_SHOWN]
     notes = [f"{counted(checked, 'candidate')} checked for price, availability and allergens."]
@@ -392,6 +436,13 @@ def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[l
         notes.append(
             f"{len(unlisted) - len(kept)} more of the same category are not shown: "
             "they cannot be ordered or rank lower."
+        )
+    if failing:
+        fail = "fails" if len(failing) == 1 else "fail"
+        are = "is" if len(failing) == 1 else "are"
+        notes.append(
+            f"{counted(len(failing), 'candidate')} of the same category that Valio does not list {fail} the "
+            f"allergen rule and {are} not shown: each adds an allergen or declares one this buyer excludes."
         )
     return [*shown, *kept], tuple(notes)
 
@@ -465,8 +516,12 @@ def _candidate(rank: int, judged: Judged, ranking: Ranking) -> SubstituteCandida
     unit_price = candidate.unit_price if usable_price else None
     original_price = ranking.original_price
     difference = None
+    per_measure = None
     if unit_price is not None and original_price is not None and original_price.catalog_price is not None:
-        difference = unit_price - original_price.catalog_price.value
+        ours = original_price.catalog_price.value
+        difference = unit_price - ours
+        gap = per_measure_difference(ours, ranking.original_pack, unit_price, candidate.pack)
+        per_measure = gap[0] if gap is not None else None
     return SubstituteCandidate(
         rank=rank,
         product_id=candidate.product.id,
@@ -487,4 +542,6 @@ def _candidate(rank: int, judged: Judged, ranking: Ranking) -> SubstituteCandida
         price_difference=difference,
         formula=judged.formula,
         last_resort=judged.last_resort,
+        price_difference_per_requested_unit=per_measure,
+        replaceable=judged.replaceable,
     )

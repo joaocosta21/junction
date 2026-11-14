@@ -26,6 +26,7 @@ from tta.offers.checks import constraint_checks
 from tta.offers.comparison import compare, gain
 from tta.offers.deps import OfferDeps, standing_history_of
 from tta.offers.lines import coverage_of, lowest_fill_ratio, totals_of, valid_until_of
+from tta.offers.mixed import mixed_formulas
 from tta.offers.preference import (
     KEY_WORDS,
     MAX_PREFERENCE_PREMIUM,
@@ -58,10 +59,19 @@ TITLES = {
 ALTERNATIVE = "Alternative: "
 QUANTITY_NOT_CONFIRMED = "quantity not confirmed"
 ALLERGEN_NOT_RULED_OUT = "allergen not ruled out"
+# A substitute that does not keep the formula on a line whose request says the formula matters (P10 item F5).
+FORMULA_NOT_KEPT = "a substitute that does not keep the formula"
+FORMULA_NOTE = (
+    " The request says the formula matters, and no substitute that keeps it can be ordered: this one does not "
+    "keep it, so a person decides."
+)
 # The option ranked by a preference, when its premium put it after the cheapest one (review A2b, finding H2).
 DEMOTED_TITLE = "Confirmed option"
 PARTIAL_SUFFIX = " (partial fill)"
-CEILING_NOTE = " The total is a ceiling: a product is sold by weight, so the invoice can be lower, never higher."
+# Valio Aimo, 14 Nov 2026 (answer Q16): "what is actually delivered. like in a normal store". The weight
+# delivered can be under or over the weight ordered, so the total is an estimate and never a ceiling.
+ESTIMATE_NOTE = " The total is an estimate: a product is sold by weight, and Valio Aimo invoices the weight delivered."
+ABOUT = "about "
 DEPOSIT_NOTE = " Deposits are not included in the total."
 
 
@@ -71,6 +81,7 @@ class Draft:
 
     kind: OptionKind
     lines: tuple[OfferLine, ...]
+    said: str = ""  # a sentence for the summary that only the planning knows: what the stand-in search found
 
 
 @dataclass(frozen=True)
@@ -98,6 +109,12 @@ class _Assembled:
     @property
     def allergen_doubt(self) -> bool:
         return any(has_doubt(line) for line in self.draft.lines)
+
+    @property
+    def formula_changed(self) -> bool:
+        """A line whose request says the formula matters holds a substitute that does not keep it, or one that
+        cannot be compared: not known is never read as the same formula."""
+        return any(_changes_formula(line) for line in self.draft.lines)
 
 
 def finish_options(
@@ -134,8 +151,17 @@ def _assemble(draft: Draft, request: PurchaseRequest, needs: Sequence[Need], dep
     checks = constraint_checks(request, needs, draft.lines, coverage, deps.catalog)
     return _Assembled(
         draft=draft, totals=totals_of(draft.lines), coverage=coverage, checks=checks, asked=tuple(request.lines),
-        comparison=compare(draft.lines), named=_variants_named(draft.lines, request.lines, coverage, deps.catalog),
+        comparison=compare(draft.lines),
+        named=_variants_named(draft.lines, request.lines, coverage, deps.catalog)
+        + mixed_formulas(draft.lines, deps.catalog),
+        extra=draft.said,
     )
+
+
+def _changes_formula(line: OfferLine) -> bool:
+    if line.keep_formula is not True or line.substitute is None:
+        return False
+    return line.substitute.formula is None or not line.substitute.formula.keeps_formula
 
 
 def _variants_named(
@@ -177,10 +203,11 @@ def _cheaper_only(assembled: list[_Assembled]) -> list[_Assembled]:
     """The cheapest confirmed option stays only when it costs less than the preferred one: otherwise there is no
     trade-off to show."""
     best = _of_kind(assembled, OptionKind.BEST_CONFIRMED)
-    ceiling = best.totals.net if best is not None else None
+    preferred = best.totals.net if best is not None else None
     return [
         each for each in assembled
-        if each.draft.kind is not OptionKind.CHEAPEST_CONFIRMED or (ceiling is not None and each.totals.net < ceiling)
+        if each.draft.kind is not OptionKind.CHEAPEST_CONFIRMED
+        or (preferred is not None and each.totals.net < preferred)
     ]
 
 
@@ -240,7 +267,7 @@ def _safe_first(ranked: list[_Assembled]) -> list[_Assembled]:
     return [replace(first, extra=first.extra + said), *ranked[1:]]
 
 
-def _rank_key(assembled: _Assembled) -> tuple[bool, bool, int, int, int, Decimal]:
+def _rank_key(assembled: _Assembled) -> tuple[bool, bool, bool, int, int, int, Decimal]:
     """Allergen safety, then constraint fit, then verification status, then the kind, then the net total (SPEC
     section 5, step 3).
 
@@ -254,12 +281,18 @@ def _rank_key(assembled: _Assembled) -> tuple[bool, bool, int, int, int, Decimal
     An option that holds an unconfirmed quantity is never first: a quantity that is not confirmed is
     never the suggestion (SPEC section 4), so such an option comes after every option that holds none,
     whatever else it fits and however little it costs. The price is the last key and cannot change that.
+
+    Where the request says the formula matters, an option whose substitute does not keep it comes after every
+    option that changes no formula (P10 item F5): it is a labelled alternative, never the suggestion while
+    another option exists. This is the one case where an option with an unconfirmed quantity can come first:
+    the product asked for, quantity not confirmed, before a confirmed stand-in of another formula. Both go to a
+    person (rules F-01 and F-11).
     """
     not_met = sum(check.result is CheckResult.NOT_MET for check in assembled.checks)
     unverified = sum(check.result is CheckResult.UNVERIFIED for check in assembled.checks)
     return (
-        assembled.allergen_doubt, assembled.quantity_unconfirmed, not_met, unverified, _kind_order(assembled),
-        assembled.totals.net,
+        assembled.allergen_doubt, assembled.formula_changed, assembled.quantity_unconfirmed, not_met, unverified,
+        _kind_order(assembled), assembled.totals.net,
     )
 
 
@@ -282,8 +315,11 @@ def _title(assembled: _Assembled, prefer: Preference, fill_ratio: Decimal) -> st
         doubts = [
             *([QUANTITY_NOT_CONFIRMED] if assembled.quantity_unconfirmed else []),
             *([ALLERGEN_NOT_RULED_OUT] if assembled.allergen_doubt else []),
+            *([FORMULA_NOT_KEPT] if assembled.formula_changed else []),
         ]
         title = ALTERNATIVE + ", ".join(doubts or [QUANTITY_NOT_CONFIRMED])
+    elif assembled.formula_changed:
+        title = ALTERNATIVE + FORMULA_NOT_KEPT
     return title + (PARTIAL_SUFFIX if fill_ratio < 1 else "")
 
 
@@ -309,7 +345,7 @@ def _option(rank: int, assembled: _Assembled, prefer: Preference) -> OfferOption
 
 def _summary(assembled: _Assembled) -> str:
     lines, totals = assembled.draft.lines, assembled.totals
-    money = f"{eur(totals.net)} before tax"
+    money = f"{ABOUT if totals.is_ceiling else ''}{eur(totals.net)} before tax"
     covered = _covered_phrase(assembled.coverage)
     if assembled.draft.kind in (OptionKind.BEST_CONFIRMED, OptionKind.CHEAPEST_CONFIRMED):
         verb = "covers" if len(lines) == 1 else "cover"
@@ -324,7 +360,9 @@ def _summary(assembled: _Assembled) -> str:
         kept = len(lines) > len(stand_ins)
         stands_in = "fills what is missing of" if kept else "in place of"
         text = f"{_names(stand_ins)} {stands_in} {originals}: {covered}, for {money}."
-    notes = (CEILING_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
+    if assembled.formula_changed:
+        text += FORMULA_NOTE
+    notes = (ESTIMATE_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
     return text + assembled.extra + _per_line(assembled.coverage, assembled.asked) + notes + assembled.named
 
 
@@ -335,7 +373,10 @@ def _alternative_summary(assembled: _Assembled, covered: str, money: str) -> str
     open_lines = [
         line for line in lines if line.availability.state is not AvailabilityState.CONFIRMED or has_doubt(line)
     ]
-    text = f"{_names(open_lines)} for {covered}, {money}."
+    stand_ins = [line.substitute for line in open_lines if line.substitute is not None]
+    originals = ", ".join(dict.fromkeys(_original_name(each) for each in stand_ins))
+    in_place = f", a substitute for {originals}," if stand_ins else ""
+    text = f"{_names(open_lines)}{in_place} for {covered}, {money}."
     if assembled.quantity_unconfirmed or not assembled.allergen_doubt:
         text += " Valio does not confirm the quantity in stock, so a human must approve this option."
     if assembled.allergen_doubt:

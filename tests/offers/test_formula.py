@@ -14,6 +14,7 @@ from tta.offers.formula import (
     ABSOLUTE_TOLERANCE_G,
     RELATIVE_TOLERANCE,
     SALT_TOLERANCE_G,
+    additives_on_one_side,
     compare_formula,
     names_vegetable_fat,
 )
@@ -141,7 +142,9 @@ def test_a_different_formula_is_said_in_numbers(check) -> None:  # noqa: ANN001
 
     assert found.sentence == (
         "Different formula: fat 15 g, not 36 g; saturated fat 1.3 g, not 23 g; carbohydrate 4.9 g, not 2.9 g "
-        "per 100 g. Its ingredient list names a vegetable oil or fat; the original's does not."
+        "per 100 g. Its ingredient list names a vegetable oil or fat; the original's does not. Only this "
+        "product's ingredient list names an emulsifier and a modified starch. Only the original's ingredient "
+        "list names a stabiliser."
     )
     assert found.fat_source_differs is True
     assert [(each.nutrient, each.within_tolerance) for each in found.differences] == [
@@ -268,3 +271,33 @@ def test_listed_by_valio_does_not_mean_the_same_formula(catalog: ProductCatalog)
     assert {outcome: outcomes.count(outcome) for outcome in FormulaOutcome} == {
         SAME: 41, BRAND: 26, OTHER: 33, DIFFERENT: 68, NOT_KNOWN: 81,
     }
+
+
+# --- the ingredient text beyond the fat source (P10 item F9; lane L2a-2) -----------------------------------
+
+def test_an_additive_named_on_one_side_only_is_said_and_changes_no_outcome(catalog: ProductCatalog) -> None:
+    # 469346: "CREAM, lactase enzyme, stabilizer (carrageenan)."; 463797: "CREAM, MILK PRODUCTS, modified maize
+    # starch, stabilizers (E471, E466)."; 463975 names a modified starch and an emulsifier and no stabiliser.
+    whipping, cooking, blend = (catalog.get_product(each) for each in ("469346", "463797", "463975"))
+
+    assert additives_on_one_side(whipping.key_ingredients, cooking.key_ingredients) == ((), ("a modified starch",))
+    assert additives_on_one_side(whipping.key_ingredients, blend.key_ingredients) == (
+        ("a stabiliser",), ("an emulsifier", "a modified starch"),
+    )
+    check = compare_formula(whipping, cooking)
+    assert check.sentence.endswith(" Only this product's ingredient list names a modified starch.")
+    assert check.outcome is FormulaOutcome.DIFFERENT  # by its figures, as before
+
+
+def test_the_same_additives_in_english_and_in_finnish_are_no_difference() -> None:
+    english = "CREAM, stabilizer (carrageenan), emulsifier (E471), thickener"
+    finnish = "KERMA, stabilointiaine (karrageeni), emulgointiaine (E471), sakeuttamisaine"
+
+    assert additives_on_one_side(english, finnish) == ((), ())
+
+
+def test_two_creams_with_the_same_additives_get_no_extra_sentence(catalog: ProductCatalog) -> None:
+    check = compare_formula(catalog.get_product("469346"), catalog.get_product("464727"))
+
+    assert check.keeps_formula
+    assert "ingredient list names" not in check.sentence

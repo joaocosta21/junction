@@ -50,10 +50,13 @@ def test_the_ward_gets_no_plant_drink_for_a_dairy_product(
 
     result = service.find_substitutes(product_id, agent_ward, SubstituteQuery(needed_by=date(2026, 11, 16)))
 
-    assert result.candidates
     assert {catalog.get_product(candidate.product_id).category for candidate in result.candidates
             if not candidate.listed_by_supplier} <= {original.category}
-    assert not any(candidate.orderable for candidate in result.candidates)  # each declares milk: said, not hidden
+    assert not any(candidate.orderable for candidate in result.candidates)
+    # Each declares milk. One that Valio lists is shown with its reason; the others are counted in a note
+    # (lane L2a-2: the list does not spend its places on products that fail the buyer's allergen rule).
+    assert all(candidate.listed_by_supplier for candidate in result.candidates if not candidate.passes)
+    assert any("fail the allergen rule and are not shown" in note for note in result.notes)
 
 
 def test_coconut_cream_no_longer_stands_in_for_milk_powder(service: OfferService, agent_hotel: Identity) -> None:

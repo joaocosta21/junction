@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from tta.catalog import ProductCatalog
-from tta.contracts.common import Identity, OptionKind, Unit, Verdict
+from tta.contracts.common import ExclusionReason, Identity, OptionKind, Unit, Verdict
 from tta.contracts.offer import SubstituteQuery
 from tta.offers import OfferDeps, OfferService, find_substitutes
 from tta.offers.substitutes import DIETARY_CLAIMS, claims_lost
@@ -58,3 +58,34 @@ def test_a_claim_that_is_not_dietary_is_named_and_changes_neither_rank_nor_verdi
     assert "FREE_FROM_PRESERVATIVES" in option.lines[0].substitute.gives_up
     assert option.decision.verdict is Verdict.APPROVAL
     assert "F-08" not in option.decision.rule_ids
+
+
+# --- a required claim against the product's own allergen data (review P4, item F4; lane L2a-2) -------------
+
+def test_a_required_claim_that_the_allergen_data_contradicts_excludes_the_product(
+    fake_gateway: Any, deps_for: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # 471881 carries FREE_FROM_GLUTEN and declares "contains" for cereals containing gluten (AW).
+    service = OfferService(deps_for(fake_gateway([price("471881", "12.50")], [stock("471881", 500, sales_unit="KI")])))
+
+    offer = service.build_offer(
+        make_request(10, Unit.UNIT, product_ids=("471881",), required_claims=("FREE_FROM_GLUTEN",)), agent_hotel
+    )
+
+    assert "471881" not in {line.product_id for option in offer.options for line in option.lines}
+    exclusion = next(each for each in offer.excluded if each.product_id == "471881")
+    assert exclusion.reason is ExclusionReason.ALLERGEN_DECLARED
+    assert exclusion.sentence == (
+        "The product carries the claim FREE_FROM_GLUTEN, but its allergen data says it contains cereals "
+        "containing gluten (AW). The data is taken as it stands, so the claim the request requires is not met."
+    )
+
+
+def test_without_the_required_claim_the_same_product_is_offered(
+    fake_gateway: Any, deps_for: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    service = OfferService(deps_for(fake_gateway([price("471881", "12.50")], [stock("471881", 500, sales_unit="KI")])))
+
+    offer = service.build_offer(make_request(10, Unit.UNIT, product_ids=("471881",)), agent_hotel)
+
+    assert [line.product_id for line in offer.options[0].lines] == ["471881"]

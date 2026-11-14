@@ -71,6 +71,19 @@ _LECITHIN = re.compile(
     r"|le[cs]it\w+ \((?:from )?(?:rape ?seed|sunflower|rapsi|rypsi|auringonkukka)\w*\)?",
     re.IGNORECASE,
 )
+# Functional additives an ingredient list can name, in English and in Finnish (P10 item F9). One that only one
+# of the two lists names is said in the sentence and changes no outcome: the text is free text in two languages,
+# and the dose is not in the data. The list is ours.
+_ADDITIVES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (words, re.compile(pattern, re.IGNORECASE))
+    for words, pattern in (
+        ("an acidity regulator", r"acidity regulator|happamuudensäätöaine"),
+        ("a stabiliser", r"stabili[sz]er|stabilointiaine"),
+        ("an emulsifier", r"emulsifier|emulgointiaine"),
+        ("a modified starch", r"modified [\w ]{0,30}?starch|muunnettu[\w ]{0,30}?tärkkelys"),
+        ("a thickener", r"thickener|thickening agent|sakeuttamisaine"),
+    )
+)
 _TOLERANCE_WORDS = (
     f"our tolerance of {format_amount(RELATIVE_TOLERANCE * 100)}% or {format_amount(ABSOLUTE_TOLERANCE_G)} g per "
     f"nutrient (salt {format_amount(SALT_TOLERANCE_G)} g)"
@@ -84,7 +97,38 @@ _NAMES_NO_FAT = "The original's ingredient list names a vegetable oil or fat; th
 
 
 def compare_formula(original: Product, other: Product) -> FormulaCheck:
-    """The formula of `other` measured against `original`'s: the outcome, the differences, and a sentence."""
+    """The formula of `other` measured against `original`'s: the outcome, the differences, and a sentence.
+
+    The sentence ends with the functional additives only one of the two ingredient lists names (item F9)."""
+    check = _compare(original, other)
+    said = _additives_sentence(original.key_ingredients, other.key_ingredients)
+    return check.model_copy(update={"sentence": f"{check.sentence}{said}"}) if said else check
+
+
+def additives_on_one_side(original: str | None, other: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """(named by the original's list only, named by the other's list only), in words for a sentence. Nothing
+    when a list is missing: a missing list says nothing."""
+    if not original or not other:
+        return (), ()
+    ours = [words for words, pattern in _ADDITIVES if pattern.search(original)]
+    theirs = [words for words, pattern in _ADDITIVES if pattern.search(other)]
+    return tuple(each for each in ours if each not in theirs), tuple(each for each in theirs if each not in ours)
+
+
+def _additives_sentence(original: str | None, other: str | None) -> str:
+    only_original, only_other = additives_on_one_side(original, other)
+    parts = [
+        f" Only {whose} ingredient list names {_and(found)}."
+        for whose, found in (("this product's", only_other), ("the original's", only_original)) if found
+    ]
+    return "".join(parts)
+
+
+def _and(items: tuple[str, ...]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _compare(original: Product, other: Product) -> FormulaCheck:
     mixed = _mixed_basis_of_two_drinks(original, other)
     unknown = _not_comparable(original.nutrition, other.nutrition, mixed)
     if unknown is not None:

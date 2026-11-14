@@ -33,7 +33,7 @@ from tta.offers.options import Draft
 from tta.offers.outcome import LineOutcome
 from tta.offers.preference import tiers
 from tta.offers.safety import open_allergens, ruled_out, who_decides
-from tta.offers.stand_ins import substitute_lines
+from tta.offers.stand_ins import StandIns, substitute_lines
 from tta.offers.variants import variant_word
 from tta.offers.wording import counted, eur, line_label, listed
 
@@ -73,8 +73,9 @@ def plan_options(
     by_price = fills if prefer is Preference.PRICE else _confirmed_fills(outcomes, pools, Preference.PRICE)
     cheapest = confirmed if prefer is Preference.PRICE else _all_confirmed_lines(outcomes, pools, by_price, now)
     alternatives, dear_notes = _unconfirmed_lines(outcomes, pools, cheapest, now)
-    substitutes, substitute_notes = substitute_lines(outcomes, fills, deps)
-    drafts = [Draft(OptionKind.BEST_CONFIRMED, _flatten(confirmed))]
+    stand_ins = substitute_lines(outcomes, fills, deps)
+    substitutes, substitute_notes = stand_ins.lines, stand_ins.notes
+    drafts = [Draft(OptionKind.BEST_CONFIRMED, _flatten(confirmed), said=_said(outcomes, stand_ins.said))]
     if [each.picks for each in by_price] != [each.picks for each in fills]:
         # Whether the price fill is also cheaper is judged on the totals (`tta.offers.options`).
         drafts.append(Draft(OptionKind.CHEAPEST_CONFIRMED, _flatten(cheapest)))
@@ -83,10 +84,34 @@ def plan_options(
         drafts.append(Draft(OptionKind.ALTERNATIVE_UNCONFIRMED, _swapped(confirmed, alternatives)))
     if any(substitutes):
         drafts.append(Draft(OptionKind.SUBSTITUTE, _extended(confirmed, substitutes)))
+    drafts.extend(_labelled_stand_ins(confirmed, stand_ins))
     kept, filter_notes = _confirmed_only(outcomes, [draft for draft in drafts if draft.lines])
     notes = [note for pool in pools for note in pool.notes]
     safety_notes = _no_safe_notes(outcomes, pools, substitutes)
     return Plan(drafts=tuple(kept), notes=(*notes, *safety_notes, *dear_notes, *substitute_notes, *filter_notes))
+
+
+def _labelled_stand_ins(confirmed: Sequence[tuple[OfferLine, ...]], stand_ins: StandIns) -> tuple[Draft, ...]:
+    """The option with the second stand-ins (`StandIns.alternatives`): a product whose quantity is not confirmed
+    for the whole gap, or a formula-changing one where the formula matters. A request line that has none keeps
+    its own stand-in. `tta.offers.options` labels the option and never ranks it first among its like."""
+    if not any(stand_ins.alternatives):
+        return ()
+    lines = [other or own for own, other in zip(stand_ins.lines, stand_ins.alternatives, strict=True)]
+    unconfirmed = any(
+        line is not None and line.availability.state is not AvailabilityState.CONFIRMED for line in lines
+    )
+    kind = OptionKind.ALTERNATIVE_UNCONFIRMED if unconfirmed else OptionKind.SUBSTITUTE
+    return (Draft(kind, _extended(confirmed, lines)),)
+
+
+def _said(outcomes: Sequence[LineOutcome], said: Sequence[str]) -> str:
+    """What the stand-in search has to say on the option that offers only the named products."""
+    several = len(outcomes) > 1
+    return "".join(
+        f" {line_label(outcome.need.index)}: {each[0].lower()}{each[1:]}" if several else f" {each}"
+        for outcome, each in zip(outcomes, said, strict=True) if each
+    )
 
 
 def _confirmed_only(outcomes: Sequence[LineOutcome], drafts: Sequence[Draft]) -> tuple[list[Draft], tuple[str, ...]]:

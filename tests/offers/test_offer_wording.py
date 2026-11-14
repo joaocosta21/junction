@@ -105,6 +105,9 @@ def test_a_one_line_partial_fill_keeps_its_wording_and_gains_the_amounts(
 
     assert option.summary == (
         "2 confirmed products cover 435 L of the 1,500 L asked for (1,065 L missing), for €1,083.39 before tax."
+        # Lane L2a-2 (P10 item F11): two products fill the line and differ in formula, and the option says so.
+        " Arla Milkdrink 1L lactose free fat free UHT Suomesta (462775) differs in formula from Arla Semi skimmed "
+        "milkdrink 1 L UHT lactose free Suomesta (469363), which fills the same request line: fat 0 g, not 1.5 g."
         + COFFEE
     )
     assert p03(option).sentence == (

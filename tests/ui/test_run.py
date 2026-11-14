@@ -113,7 +113,8 @@ def test_scenario_3_shows_which_listed_substitutes_fail_the_allergen_rule(
     assert "With a substitute" in page and "475224" in page
     for product_id in ("471690", "471881", "464320"):
         assert product_id in substitutes
-    assert substitutes.count("Fails the allergen rule") == 2
+    assert substitutes.count("Fails the allergen rule") == 2  # the two Valio lists; unlisted ones are counted in a note
+    assert "that Valio does not list fail the allergen rule and are not shown" in substitutes
     assert "cereals containing gluten (AW, contains)" in substitutes
     assert "Listed by Valio Aimo" in substitutes
     assert "Cannot be ordered" in substitutes and "Can be ordered" in substitutes

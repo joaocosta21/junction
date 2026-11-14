@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from tta.availability.wording import format_amount
 from tta.catalog.kinds import FLAVOURED, flavour_words, type_words, use_words
-from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason
+from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason, Unit
 from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, ReplaceCheck, ReplaceVerdict
 from tta.offers.candidates import price_problem
 from tta.offers.wording import UNIT_WORDS, eur, plain_name
@@ -190,17 +190,29 @@ def _pack_part(original: PackSize, other: PackSize) -> list[str]:
     return [f"one sales unit holds {_size(other)}, not {_size(original)}"]
 
 
+def per_measure_difference(
+    ours: Decimal, original: PackSize, theirs: Decimal, other: PackSize
+) -> tuple[Decimal, Unit] | None:
+    """Substitute minus original, per litre or kilogram: each price divided by what one sales unit holds, so
+    a case is never compared with a carton (review P2, item W7). `None` when either pack size is not known
+    or the two are not in the same measure."""
+    if not (_comparable(original, other) and original.value and other.value and other.unit):
+        return None
+    return theirs / other.value - ours / original.value, other.unit
+
+
 def _price_part(judged: Judged, ranking: Ranking) -> list[str]:
     original_price, candidate = ranking.original_price, judged.candidate
     if original_price is None or original_price.catalog_price is None:
         return []
     if price_problem(candidate.price, ranking.lookup.now) is not None:
         return []
-    ours, theirs = original_price.catalog_price.value, candidate.unit_price
-    per = "sales unit"
-    original_pack, pack = ranking.original_pack, candidate.pack
-    if _comparable(original_pack, pack) and original_pack.value and pack.value and pack.unit:
-        ours, theirs, per = ours / original_pack.value, theirs / pack.value, UNIT_WORDS[pack.unit]
-    if theirs - ours < _LEAST_SAID:
+    more, per = candidate.unit_price - original_price.catalog_price.value, "sales unit"
+    gap = per_measure_difference(
+        original_price.catalog_price.value, ranking.original_pack, candidate.unit_price, candidate.pack
+    )
+    if gap is not None:
+        more, per = gap[0], UNIT_WORDS[gap[1]]
+    if more < _LEAST_SAID:
         return []
-    return [f"it costs {eur(theirs - ours)} more per {per}"]
+    return [f"it costs {eur(more)} more per {per}"]

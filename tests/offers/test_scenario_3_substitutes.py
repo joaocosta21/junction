@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from decimal import Decimal
 
 import pytest
 
 from tta.contracts.common import AvailabilityState, DataSource, ExclusionReason, Identity
 from tta.contracts.errors import NotAuthorised, UnknownProduct
 from tta.contracts.offer import SubstituteCandidate, SubstituteQuery, SubstituteResult
-from tta.offers import OfferDeps, OfferService
+from tta.offers import OfferDeps, OfferService, find_substitutes
 from tta.offers.substitutes import MAX_UNLISTED_SHOWN
 
 ORIGINAL = "473609"
@@ -197,3 +198,56 @@ def test_losing_a_claim_does_not_reorder_the_candidates_that_fail_the_allergen_r
     assert by_id["464320"].claims_lost and not by_id["471881"].claims_lost
     assert failing[:2] == ["471881", "464320"]
     assert not by_id["471881"].orderable and not by_id["464320"].orderable
+
+
+# --- lane L2a-2: the list, the replaceable check and the price per litre -----------------------------------
+
+def test_an_unlisted_candidate_that_fails_the_allergen_rule_is_counted_and_not_shown(
+    result: SubstituteResult,
+) -> None:
+    failing = [candidate for candidate in result.candidates if not candidate.passes]
+
+    # The two Valio lists are shown with the reason; the 29 of the category that add gluten or another
+    # allergen take no place in the list (default clock, hotel).
+    assert {candidate.product_id for candidate in failing} == set(FAIL)
+    assert all(candidate.listed_by_supplier for candidate in failing)
+    assert (
+        "29 candidates of the same category that Valio does not list fail the allergen rule and are not shown: "
+        "each adds an allergen or declares one this buyer excludes."
+    ) in result.notes
+
+
+def test_each_candidate_carries_the_replaceable_check_its_sentence_starts_with(result: SubstituteResult) -> None:
+    for candidate in result.candidates:
+        assert candidate.replaceable is not None
+        assert candidate.gives_up.startswith(candidate.replaceable.sentence)
+
+
+def test_the_price_difference_per_litre_compares_a_case_with_a_carton(
+    by_id: dict[str, SubstituteCandidate]
+) -> None:
+    case, carton = by_id[PASSES], by_id["475224"]
+
+    # 471690 is a case of 10 litres at EUR 15.55; the original is a 1-litre carton at EUR 1.37.
+    assert case.price_difference == Decimal("14.18")  # per sales unit: a case against a carton
+    assert case.price_difference_per_requested_unit == Decimal("0.185")  # 1.555 a litre against 1.37
+    assert carton.price_difference_per_requested_unit == carton.price_difference == Decimal("0.37")
+    assert "it costs €0.19 more per L" in case.gives_up
+
+
+def test_no_price_difference_per_litre_when_the_two_sizes_are_not_in_the_same_measure(
+    fake_gateway: Callable[..., object], deps_for: Callable[..., OfferDeps], policy: object,
+    price: Callable[..., object], stock: Callable[..., object],
+) -> None:
+    # Hand-built: the comparison price of 462775 is per kilogram, the original's per litre. A weight is never
+    # turned into a volume, so there is no figure per litre to compare.
+    gateway = fake_gateway(
+        [price("469363", "2.48"), price("462775", "2.57", measure="KG")],
+        [stock("469363", 500), stock("462775", 500)],
+    )
+
+    found = find_substitutes("469363", policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
+
+    other = next(candidate for candidate in found.candidates if candidate.product_id == "462775")
+    assert other.price_difference == Decimal("0.09")
+    assert other.price_difference_per_requested_unit is None
