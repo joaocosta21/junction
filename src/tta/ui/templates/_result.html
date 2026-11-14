@@ -8,11 +8,11 @@
 
 <section id="glance" class="glance" aria-label="At a glance">
   <div id="glance-confirmed" class="glance-cell glance-ok">
-    <h2>Confirmed</h2>
-    {% for option in result.confirmed %}<p>{{ option.summary }}</p>{% else %}<p>No option rests on confirmed data only.</p>{% endfor %}
+    <h2>Every claim confirmed</h2>
+    {% for option in result.confirmed %}<p>{{ option.summary }}</p>{% else %}<p>No option has every claim confirmed: price, quantity, allergens, and the date when one was asked for.</p>{% endfor %}
   </div>
   <div id="glance-unconfirmed" class="glance-cell glance-warn">
-    <h2>Not confirmed</h2>
+    <h2>A claim not confirmed</h2>
     {% for option in result.unconfirmed %}<p>{{ option.summary }}</p>{% else %}<p>Nothing unconfirmed is offered.</p>{% endfor %}
   </div>
   <div id="glance-excluded" class="glance-cell glance-bad">
