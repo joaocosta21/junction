@@ -18,7 +18,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from tta.audit import phrases
-from tta.contracts.common import ConstraintKind, OptionKind, OrderStatus, PlacedBy, Preference
+from tta.contracts.common import ConstraintKind, OptionKind, OrderStatus, Preference
 from tta.ui import view
 from tta.ui.examples import example_by_key, example_for_text
 
@@ -58,7 +58,7 @@ def test_the_example_orders_the_reliable_product_and_shows_the_cheaper_one(
     assert "Best confirmed option, ranked by delivery reliability" in page
     assert "Cheapest confirmed option" in page
     assert "€7.00 more than the cheapest confirmed option" in page
-    assert (order.status, order.placed_by) == (OrderStatus.ORDERED, PlacedBy.AGENT)
+    assert (order.status, order.placed_by) == (OrderStatus.PENDING_APPROVAL, None)
     assert order.option.product_ids == (RELIABLE_OAT,)
 
 

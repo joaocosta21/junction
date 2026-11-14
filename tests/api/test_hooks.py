@@ -120,13 +120,13 @@ def test_agent_run_gives_the_runner_the_gateway_itself_and_returns_its_trace(
     assert response.status_code == 200
     run = AgentRun.model_validate(response.json())
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]
-    assert run.order_status is not None and run.order_status.value == "ORDERED"
+    assert run.order_status is not None and run.order_status.value == "PENDING_APPROVAL"
     order = with_agent.get(f"/v1/orders/{run.order_id}", headers=auth("agent_ward")).json()
-    assert order["status"] == "ORDERED"
+    assert order["status"] == "PENDING_APPROVAL"
     types_seen = [event["type"] for event in with_agent.get("/v1/audit", headers=auth("agent_ward")).json()["events"]]
     assert types_seen[0] == "tta.v1.request.received"
     assert types_seen.count("tta.v1.request.received") == 1  # written with the offer, not a second time by the run
-    assert "tta.v1.order.placed_by_agent" in types_seen
+    assert "tta.v1.approval.requested" in types_seen
     # And it is in the trail of the order, which is found through its offer.
     trail = with_agent.get("/v1/audit", params={"order_id": run.order_id}, headers=auth("agent_ward")).json()
     assert trail["events"][0]["type"] == "tta.v1.request.received"

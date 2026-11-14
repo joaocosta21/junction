@@ -85,11 +85,11 @@ def test_a_run_through_the_gateway_orders_and_records_the_pasted_text_once(
 ) -> None:
     run = parts.service.run_agent(agent_ward, texts["scenario_2"])
 
-    assert run.order_status is OrderStatus.ORDERED and run.recorded is True
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and run.recorded is True
     types = [str(event.type) for event in parts.service.get_audit(agent_ward).events]
     assert types[0].endswith("request.received")
     assert sum(1 for name in types if name.endswith("request.received")) == 1  # the runner parses on its own
-    assert any(name.endswith("order.placed_by_agent") for name in types)
+    assert any(name.endswith("approval.requested") for name in types)
 
 
 # --- through the REST routes ------------------------------------------------------------------------------
@@ -114,5 +114,5 @@ def test_the_routes_of_the_buyer_agent_answer_from_a_pasted_sentence_without_a_k
     assert missing.status_code == 422 and missing.json()["type"].endswith("invalid-request")
     assert missing.json()["missing"] == ["lines[0].quantity"]
     run = AgentRun.model_validate(ran.json())
-    assert ran.status_code == 200 and run.order_status is OrderStatus.ORDERED
+    assert ran.status_code == 200 and run.order_status is OrderStatus.PENDING_APPROVAL
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]

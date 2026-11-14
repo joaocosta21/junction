@@ -43,7 +43,7 @@ def test_one_browsers_orders_are_not_on_another_browsers_pages(
     assert orders(other) == ()
 
 
-def test_every_browser_sees_scenario_2_ordered_by_the_agent_alone_however_often_others_ran_it(
+def test_every_browser_has_its_own_scenario_2_approval_rules(
     client: TestClient, run_example: Post, orders: Callable[..., Any]
 ) -> None:
     for _ in range(4):
@@ -52,8 +52,10 @@ def test_every_browser_sees_scenario_2_ordered_by_the_agent_alone_however_often_
 
     page = run_example(other, "scenario-2").text
 
-    assert [order.status for order in orders(client, "agent:allergy-ward")].count(OrderStatus.PENDING_APPROVAL) == 1
-    assert "Ordered by the agent" in page and "spend would be €402.00 of the €1,500 limit per day" in page
+    local_orders = orders(client, "agent:allergy-ward")
+    assert all(order.status is OrderStatus.PENDING_APPROVAL for order in local_orders)
+    assert sum("P-02" in order.decision.rule_ids for order in local_orders) == 1
+    assert "Sent for approval" in page and "F-10" in page
 
 
 def test_every_page_says_the_book_is_the_visitors_own_and_offers_to_start_again(

@@ -199,13 +199,13 @@ def get_offer(request: Request, caller: Caller, offer_id: StoredId) -> Offer:
     responses=docs.problems(
         *CALLER, InvalidRequest, NotFound, OfferExpired, OfferStale, PolicyBlocked, RateLimited, SupplierUnavailable
     ),
-    summary="Commit one option of an offer",
+    summary="Submit one offer option for human approval",
 )
 def place_order(
     request: Request, caller: Caller, order: PlaceOrderRequest, idempotency_key: IdempotencyKey
 ) -> Order:
-    """Price and availability are checked again, then the policy decides: `AUTO` gives an `ORDERED` order
-    placed by the agent, `APPROVAL` a `PENDING_APPROVAL` order that waits for the roles named, `BLOCK` a
+    """Price and availability are checked again. An eligible option becomes a `PENDING_APPROVAL`
+    order that waits for the roles named. `BLOCK` gives a
     `policy-blocked` problem and no order. When something changed or ran out (`offer-stale`, `offer-expired`)
     the problem carries `fresh_offer_id`: a new offer for the same request. `ORDERED` means recorded in this
     gateway's order book; the mock has no order endpoint."""

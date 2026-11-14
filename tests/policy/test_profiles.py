@@ -245,7 +245,7 @@ def test_the_most_permissive_profile_orders_alone_only_what_no_fixed_rule_catche
     lines = (make_line(variable_weight=True, has_deposits=True),)
     option = make_option(lines, net="250000.00", fill_ratio="0.1", is_ceiling=True, excludes_deposits=True)
 
-    assert engine.evaluate(option, permissive, make_context(day_committed="900000")).verdict is Verdict.AUTO
+    assert engine.evaluate(option, permissive, make_context(day_committed="900000")).verdict is Verdict.APPROVAL
 
 
 @pytest.mark.parametrize("needed_by", [CheckResult.NOT_MET, CheckResult.UNVERIFIED])

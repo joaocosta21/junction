@@ -72,7 +72,7 @@ def test_a_renewal_at_the_usual_quantity_is_ordered_alone(
 ) -> None:
     decision = engine.evaluate(renewal_option(100), hotel, _context(_history()))
 
-    assert decision.verdict is Verdict.AUTO and decision.fired == ()
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 def test_290_litres_against_a_median_of_100_goes_to_the_purchasing_manager(
@@ -110,7 +110,7 @@ def test_a_drift_within_the_tolerance_does_not_fire(
 ) -> None:
     decision = engine.evaluate(renewal_option(125), hotel, _context(_history()))  # exactly 25%: not more
 
-    assert decision.verdict is Verdict.AUTO
+    assert decision.verdict is Verdict.APPROVAL
 
 
 def test_a_request_that_renews_nothing_never_fires_p08_nor_a_missing_fact(
@@ -120,7 +120,7 @@ def test_a_request_that_renews_nothing_never_fires_p08_nor_a_missing_fact(
 
     for profile in (hotel, no_tolerance):
         decision = engine.evaluate(renewal_option(290), profile, _context(None))
-        assert decision.verdict is Verdict.AUTO and decision.fired == ()
+        assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 def test_a_history_too_short_to_judge_does_not_fire_and_the_report_says_so(
@@ -132,7 +132,7 @@ def test_a_history_too_short_to_judge_does_not_fire_and_the_report_says_so(
     decision = engine.evaluate(option, hotel, _context(short))
     report = assess_drift(option, short, hotel.standing_order_drift_ratio)
 
-    assert decision.verdict is Verdict.AUTO
+    assert decision.verdict is Verdict.APPROVAL
     assert report.judged is False and report.checks == ()
     assert report.sentence == (
         "Standing order so_milk has too short a history to judge drift: 2 past renewals on record, at least 3 are "

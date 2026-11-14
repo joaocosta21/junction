@@ -65,7 +65,7 @@ def test_the_same_key_sent_twice_at_the_same_moment_places_one_order(book, sampl
     )
 
     assert first == second and len(book.store.list_orders()) == 1
-    assert len(book.revalidator.calls) == 1 and book.event_types() == ["order.placed_by_agent"]
+    assert len(book.revalidator.calls) == 1 and book.event_types() == ["approval.requested"]
 
 
 def test_two_orders_at_the_same_moment_cannot_both_pass_under_the_daily_limit(
@@ -75,7 +75,8 @@ def test_two_orders_at_the_same_moment_cannot_both_pass_under_the_daily_limit(
     option = samples.option("opt_1", (samples.line("463380", "250", "2.80"),))  # €700.00
     for key in ("a", "b", "c"):  # €2,100.00 committed
         offer = book.offer(option)
-        assert book.service.place_order(offer.offer_id, "opt_1", agent_hotel, key).status is OrderStatus.ORDERED
+        order = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, key)
+        assert order.status is OrderStatus.PENDING_APPROVAL
     offers = (book.offer(option), book.offer(option))
     book.revalidator.delay_seconds = SLOW_CHECK_SECONDS
 
@@ -84,4 +85,5 @@ def test_two_orders_at_the_same_moment_cannot_both_pass_under_the_daily_limit(
         lambda: book.service.place_order(offers[1].offer_id, "opt_1", agent_hotel, "e"),
     )
 
-    assert sorted(result.status for result in results) == [OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL]
+    assert all(result.status is OrderStatus.PENDING_APPROVAL for result in results)
+    assert {result.decision.rule_ids for result in results} == {("F-10",), ("P-02",)}

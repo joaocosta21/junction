@@ -69,12 +69,12 @@ def test_each_sandbox_has_its_own_orders_and_its_own_day_of_spend(
 ) -> None:
     one, other = parts.sandboxes.open("visitor-one"), parts.sandboxes.open("visitor-two")
 
-    verdicts = [_order_scenario_2(one, agent_ward, ward_request, f"k-{n}").decision.verdict for n in range(4)]
+    rules = [_order_scenario_2(one, agent_ward, ward_request, f"k-{n}").decision.rule_ids for n in range(4)]
     elsewhere = _order_scenario_2(other, agent_ward, ward_request, "k-0")
 
     # Four times €402 is above the ward's illustrative €1,500 a day: the fourth goes to a human, in one book.
-    assert verdicts == [Verdict.AUTO] * 3 + [Verdict.APPROVAL]
-    assert (elsewhere.decision.verdict, elsewhere.status) == (Verdict.AUTO, OrderStatus.ORDERED)
+    assert rules == [("F-10",)] * 3 + [("P-02",)]
+    assert (elsewhere.decision.verdict, elsewhere.status) == (Verdict.APPROVAL, OrderStatus.PENDING_APPROVAL)
     assert len(one.service.list_orders(agent_ward)) == 4 and len(other.service.list_orders(agent_ward)) == 1
     with pytest.raises(NotFound):
         other.service.get_order(agent_ward, one.service.list_orders(agent_ward)[0].order_id)

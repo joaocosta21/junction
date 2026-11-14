@@ -170,7 +170,7 @@ def test_a_run_that_breaks_after_its_order_is_answered_with_the_order_never_a_50
     assert response.status_code == 200, response.text
     run = AgentRun.model_validate(response.json())
     assert [order["order_id"] for order in orders] == [run.order_id]
-    assert run.order_status is OrderStatus.ORDERED and run.offer_id == orders[0]["offer_id"]
+    assert run.order_status is OrderStatus.PENDING_APPROVAL and run.offer_id == orders[0]["offer_id"]
     assert run.report.startswith("The buyer agent stopped on an error")
     assert type(error).__name__ in run.report and run.order_id in run.report
     assert SECRET_LOOKING not in response.text

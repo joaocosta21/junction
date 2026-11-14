@@ -24,15 +24,6 @@ class OutcomeWriter:
         self._store = store
         self._audit = audit
 
-    def placed_alone(self, order: Order, check: OrderTimeCheck, agent: Actor) -> None:
-        with self._store.atomic():
-            self._bind_key(order)
-            self._store.save_order(order)
-            self._audit.record(
-                AuditEventType.ORDER_PLACED_BY_AGENT, agent,
-                AuditContext(order=order, decision=order.decision, revalidation=check.revalidation),
-            )
-
     def sent_to_a_human(self, order: Order, approval: Approval, check: OrderTimeCheck, agent: Actor) -> None:
         with self._store.atomic():
             self._bind_key(order)

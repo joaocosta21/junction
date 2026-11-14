@@ -223,7 +223,7 @@ def test_a_request_in_sales_units_needs_no_pack_size(
     assert ConstraintKind.NEEDED_BY not in kinds  # no date was asked for
     assert ConstraintKind.PACK not in kinds  # sales units: any pack
     assert option.decision is not None
-    assert option.decision.verdict is Verdict.AUTO  # 59.52 EUR, every gating claim confirmed, no date asked
+    assert option.decision.verdict is Verdict.APPROVAL  # 59.52 EUR, every gating claim confirmed, no date asked
 
 
 def test_two_request_lines_are_covered_in_one_option_with_the_lowest_fill_ratio(
@@ -253,7 +253,7 @@ def test_the_days_spend_reaches_the_policy(build: Build, price: Any, stock: Any,
     quiet = build([price(A, "2.48")], [stock(A, 5000)], request)
     busy = build([price(A, "2.48")], [stock(A, 5000)], request, day_spend=Decimal("2900"))
 
-    assert best(quiet).decision.verdict is Verdict.AUTO
+    assert best(quiet).decision.verdict is Verdict.APPROVAL
     assert "P-02" in best(busy).decision.rule_ids  # 2,900 + 248 is above the 3,000 EUR a day of hotel-kitchen
     assert best(busy).decision.verdict is Verdict.APPROVAL
 

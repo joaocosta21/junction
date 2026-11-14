@@ -64,7 +64,7 @@ def test_a_new_book_starts_with_a_copy_of_the_hotel_kitchen_under_its_own_id_and
     }
 
 
-def test_scenario_1_is_ordered_alone_within_3000_and_goes_to_the_purchasing_manager_at_750(
+def test_scenario_1_requires_approval_at_both_spend_limits(
     parts: Parts, milk: PurchaseRequest, agent_hotel: Identity
 ) -> None:
     generous, careful = parts.sandboxes.open("generous"), parts.sandboxes.open("careful")
@@ -76,7 +76,7 @@ def test_scenario_1_is_ordered_alone_within_3000_and_goes_to_the_purchasing_mana
     hotel = _order_milk(generous, agent_hotel, milk, "k-2")  # the hotel's own agent in the same browser
 
     assert (alone.status, alone.decision.verdict, str(alone.decision.policy_hash)) == (
-        OrderStatus.ORDERED, Verdict.AUTO, generous.service.get_authority(KITCHEN_AGENT).policy_hash
+        OrderStatus.PENDING_APPROVAL, Verdict.APPROVAL, generous.service.get_authority(KITCHEN_AGENT).policy_hash
     )
     assert alone.profile_id == KITCHEN_PROFILE_ID and alone.option.totals.net == Decimal("2580.64")
     assert [(line.product_id, line.quantity) for line in alone.option.lines] == [

@@ -13,7 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from tta.contracts.common import OptionKind, OrderStatus, PlacedBy, Verdict
+from tta.contracts.common import OptionKind, OrderStatus, Verdict
 
 ORIGINAL = "473609"
 PASSES = "471690"
@@ -21,7 +21,7 @@ ADDS_GLUTEN = ("471881", "464320")
 BEST_ORDERABLE = "475224"  # Fazer Aito Professional Barista oat drink, confirmed, same category
 SCENARIO_3_EVENTS = [
     "request.received", "request.parsed", "lookup.performed", "offer.created",
-    "policy.evaluated", "policy.evaluated", "order.placed_by_agent",
+    "policy.evaluated", "policy.evaluated", "approval.requested",
 ]
 
 
@@ -73,9 +73,9 @@ def test_scenario_3_typed_request_orders_a_substitute_that_passes_and_never_one_
     offered = {line["product_id"] for option in offer["options"] for line in option["lines"]}
     assert not offered & {PASSES, *ADDS_GLUTEN}
 
-    assert (substitute["decision"]["verdict"], fired(substitute)) == (Verdict.AUTO, set())
+    assert (substitute["decision"]["verdict"], fired(substitute)) == (Verdict.APPROVAL, {"F-10"})
     order = demo.order("hotel", offer)
-    assert (order["status"], order["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.AGENT)
+    assert (order["status"], order["placed_by"]) == (OrderStatus.PENDING_APPROVAL, None)
     trail = demo.audit("hotel", order["order_id"])
     assert event_types(trail) == SCENARIO_3_EVENTS
     assert all(event["sentence"].strip() for event in trail["events"])

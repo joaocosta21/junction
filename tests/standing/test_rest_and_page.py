@@ -54,7 +54,7 @@ def test_the_rest_routes_set_up_list_read_and_renew_a_standing_order(client: Tes
     renewed = client.post(f"/v1/standing-orders/{standing_id}/renew", json={"quantities": [290]}, headers=AGENT)
     assert renewed.status_code == 201, renewed.text
     body = renewed.json()
-    assert body["order"]["status"] == "ORDERED" and body["drift"]["judged"] is False
+    assert body["order"]["status"] == "PENDING_APPROVAL" and body["drift"]["judged"] is False
     assert body["offer"]["request"]["standing_order_id"] == standing_id
     detail = client.get(f"/v1/standing-orders/{standing_id}", headers=AGENT).json()
     assert [renewal["order_id"] for renewal in detail["renewals"]] == [body["order"]["order_id"]]
@@ -94,7 +94,7 @@ def test_the_page_loads_the_demo_renews_it_and_shows_the_drift_and_the_outcome(c
     usual = client.post("/standing-orders/so_demo_hotel_milk/renew",
                         data={"csrf": _csrf(client), "quantity_0": "100"}, follow_redirects=False)
     page = client.get("/standing-orders").text
-    assert usual.status_code == 303 and "is within the 25% tolerance" in page and "Ordered" in page
+    assert usual.status_code == 303 and "is within the 25% tolerance" in page and "Waiting for approval" in page
 
     drift = client.post("/standing-orders/so_demo_hotel_milk/renew",
                         data={"csrf": _csrf(client), "quantity_0": "290"}, follow_redirects=False)

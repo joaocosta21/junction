@@ -56,7 +56,7 @@ def test_substitutes_the_gateway_refuses_to_list_do_not_hide_the_offer(
     page = run_example(client, "scenario-3").text
 
     assert "Too many searches right now." in page[page.index('id="substitutes"'):page.index('id="excluded"')]
-    assert "With a substitute" in page and "Ordered by the agent" in page
+    assert "With a substitute" in page and "Sent for approval" in page
 
 
 def test_a_refusal_of_the_gateway_while_a_page_is_built_is_an_error_page(
@@ -100,10 +100,10 @@ def test_a_form_sent_again_while_it_is_still_running_runs_once(
 
     first = client.post("/run", data=fields)
 
-    assert first.status_code == 200 and "Ordered by the agent" in first.text
+    assert first.status_code == 200 and "Sent for approval" in first.text
     assert [response.status_code for response in second] == [409]
     assert "already running" in second[0].text
-    assert only_order(client, "agent:allergy-ward").status is OrderStatus.ORDERED
+    assert only_order(client, "agent:allergy-ward").status is OrderStatus.PENDING_APPROVAL
 
 
 def test_a_run_that_breaks_on_an_unexpected_fault_is_not_run_again_by_the_same_form(
@@ -123,7 +123,7 @@ def test_a_run_that_breaks_on_an_unexpected_fault_is_not_run_again_by_the_same_f
     assert "a fault nobody expected" not in again.text
     assert orders(client, "agent:allergy-ward") == ()
     fresh = client.post("/run", data={**form_fields(client), "example": "scenario-2"})  # a new form runs
-    assert "Ordered by the agent" in fresh.text
+    assert "Sent for approval" in fresh.text
 
 
 def test_a_card_whose_offer_can_no_longer_be_read_still_takes_a_decision(

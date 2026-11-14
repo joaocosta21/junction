@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from tta.catalog import ProductCatalog
 from tta.config import Settings
-from tta.contracts.common import OrderStatus, PlacedBy
+from tta.contracts.common import OrderStatus
 from tta.valio import ReplayGateway
 
 Post = Callable[..., Any]
@@ -58,8 +58,8 @@ def test_scenario_2_is_run_by_the_agent_and_ordered_by_it_alone(
     order = only_order(agent_client, "agent:allergy-ward")
 
     assert AGENT_STEPS in page
-    assert "Ordered by the agent" in page
-    assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.AGENT
+    assert "Sent for approval" in page
+    assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
 
 
 def test_scenario_3_has_no_recording_so_the_page_goes_on_with_its_typed_request(
@@ -69,8 +69,8 @@ def test_scenario_3_has_no_recording_so_the_page_goes_on_with_its_typed_request(
 
     assert "The buyer agent could not run" in page and "typed request of this example" in page
     assert AGENT_STEPS not in page
-    assert "Ordered by the agent" in page
-    assert only_order(agent_client).status is OrderStatus.ORDERED
+    assert "Sent for approval" in page
+    assert only_order(agent_client).status is OrderStatus.PENDING_APPROVAL
 
 
 def test_with_the_parser_alone_the_page_says_the_request_was_read_from_its_recording(

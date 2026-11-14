@@ -94,7 +94,7 @@ def test_f08_is_silent_for_a_substitute_that_keeps_every_claim(
 ) -> None:
     decision = engine.evaluate(make_option((regular_for_lactose_free(()),)), hotel, make_context())
 
-    assert decision.verdict is Verdict.AUTO and decision.fired == ()
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 def test_a_line_that_is_not_a_substitute_never_fires_f08(

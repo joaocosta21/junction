@@ -38,7 +38,7 @@ def test_a_plain_confirmed_order_within_every_limit_fires_nothing(
 ) -> None:
     decision = engine.evaluate(make_option(), hotel, make_context())
 
-    assert decision.verdict is Verdict.AUTO and decision.fired == ()
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
 
 
 # --- F-01 ---------------------------------------------------------------------------------------------------
@@ -120,7 +120,7 @@ def test_f02_and_p04_are_silent_when_every_excluded_allergen_is_free_from(
 
     decision = engine.evaluate(make_option((make_line(allergen_check=check),)), ward, make_context())
 
-    assert decision.verdict is Verdict.AUTO
+    assert decision.verdict is Verdict.APPROVAL
 
 
 @pytest.mark.parametrize(
@@ -169,7 +169,7 @@ def test_p04_applies_to_exclusions_that_came_with_the_request_of_a_profile_witho
     passes = engine.evaluate(make_option((make_line(allergen_check=lenient),)), hotel, make_context())
     to_human = engine.evaluate(make_option((make_line(allergen_check=strict),)), hotel, make_context())
 
-    assert passes.verdict is Verdict.AUTO  # DECLARED_ONLY: no statement passes, shown as unverified
+    assert passes.verdict is Verdict.APPROVAL  # DECLARED_ONLY: no statement passes, shown as unverified
     assert to_human.rule_ids == ("P-04",)
 
 
@@ -224,7 +224,7 @@ def test_f05_is_silent_for_a_substitute_that_adds_no_allergen(
 ) -> None:
     option = make_option((make_line("471690", "Oat drink", substitute=make_substitute()),))
 
-    assert engine.evaluate(option, hotel, make_context()).verdict is Verdict.AUTO
+    assert engine.evaluate(option, hotel, make_context()).verdict is Verdict.APPROVAL
 
 
 @pytest.mark.parametrize(
@@ -251,7 +251,7 @@ def test_p05_sends_a_substitute_outside_the_profile_scope_to_the_purchasing_mana
 
     decision = engine.evaluate(option, profile, make_context())
 
-    assert decision.rule_ids == (("P-05",) if fires else ())
+    assert decision.rule_ids == (("P-05",) if fires else ("F-10",))
     if fires:
         assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
 
@@ -265,7 +265,7 @@ def test_p05_is_silent_for_a_line_that_replaces_nothing(
 
     decision = engine.evaluate(make_option((make_line(allergen_check=check),)), ward, make_context())
 
-    assert ward.substitution_without_approval is SubstitutionScope.NONE and decision.fired == ()
+    assert ward.substitution_without_approval is SubstitutionScope.NONE and decision.rule_ids == ("F-10",)
 
 
 # --- P-00 to P-03 -------------------------------------------------------------------------------------------
@@ -287,7 +287,7 @@ def test_p01_fires_only_above_the_limit_per_order(
     net: str, fires: bool, engine: RulePolicyEngine, hotel: BuyerProfile, make_option: Callable[..., OfferOption],
     make_context: Callable[..., PolicyContext],
 ) -> None:
-    assert engine.evaluate(make_option(net=net), hotel, make_context()).rule_ids == (("P-01",) if fires else ())
+    assert engine.evaluate(make_option(net=net), hotel, make_context()).rule_ids == (("P-01",) if fires else ("F-10",))
 
 
 @pytest.mark.parametrize(("committed", "fires"), [("2900.00", False), ("2900.01", True), ("0", False)])
@@ -297,7 +297,7 @@ def test_p02_fires_only_when_the_day_with_this_order_passes_the_limit_per_day(
 ) -> None:
     decision = engine.evaluate(make_option(net="100.00"), hotel, make_context(day_committed=committed))
 
-    assert decision.rule_ids == (("P-02",) if fires else ())
+    assert decision.rule_ids == (("P-02",) if fires else ("F-10",))
     if fires:
         assert decision.required_roles == (ApproverRole.FINANCE,)
 
@@ -309,7 +309,7 @@ def test_p03_fires_only_below_the_minimum_fill_ratio(
 ) -> None:
     decision = engine.evaluate(make_option(fill_ratio=fill), hotel, make_context())
 
-    assert decision.rule_ids == (("P-03",) if fires else ())
+    assert decision.rule_ids == (("P-03",) if fires else ("F-10",))
 
 
 # --- P-06 and P-07 ------------------------------------------------------------------------------------------
@@ -334,7 +334,7 @@ def test_p06_variable_weight_follows_the_profile_setting(
 
     decision = engine.evaluate(option, profile, make_context())
 
-    assert decision.rule_ids == (("P-06",) if fires else ())
+    assert decision.rule_ids == (("P-06",) if fires else ("F-10",))
     if fires:
         assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
 
@@ -358,6 +358,6 @@ def test_p07_deposits_follow_the_profile_setting(
 
     decision = engine.evaluate(option, profile, make_context())
 
-    assert decision.rule_ids == (("P-07",) if fires else ())
+    assert decision.rule_ids == (("P-07",) if fires else ("F-10",))
     if fires:
         assert decision.required_roles == (ApproverRole.FINANCE,)

@@ -95,6 +95,7 @@ _FIXED_PARTS: Mapping[str, Any] = {
     "profile_id": KITCHEN_PROFILE_ID,
     "description": KITCHEN_DESCRIPTION,
     "illustrative": True,
+    "auto_order_enabled": True,  # the gateway requires approval; the kitchen adds no extra P-00 signature
     "approver_roles": {role.value: [one.id for one in KITCHEN_APPROVERS if role in one.roles] for role in ApproverRole},
 }
 

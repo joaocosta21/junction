@@ -56,7 +56,7 @@ async def test_get_offer_returns_the_same_offer_as_the_rest_route_for_scenario_2
     assert json.loads(answer.content[0].text) == over_mcp  # what the model reads is the same document
 
 
-async def test_the_offer_of_scenario_2_is_the_one_the_agent_may_order_alone(
+async def test_the_offer_of_scenario_2_requires_human_approval(
     connect: Connect, scenario_2: dict[str, Any]
 ) -> None:
     async with connect("agent_ward") as client:
@@ -66,7 +66,7 @@ async def test_the_offer_of_scenario_2_is_the_one_the_agent_may_order_alone(
     [option] = offer["options"]
     assert [(line["product_id"], line["quantity"]) for line in option["lines"]] == [(PLANT_DRINK, 200.0)]
     assert option["totals"]["net"] == 402.0
-    assert option["decision"]["verdict"] == "AUTO"
+    assert option["decision"]["verdict"] == "APPROVAL"
     assert offer["excluded"]  # what dropped out is listed, with reasons
 
 
@@ -85,7 +85,7 @@ async def test_the_whole_flow_runs_over_mcp_and_the_order_is_the_one_rest_shows(
 
     assert authority.structured_content["profile"]["profile_id"] == "allergy-ward"
     assert not placed.is_error
-    assert (order["status"], order["placed_by"], order["offer_id"]) == ("ORDERED", "AGENT", offer["offer_id"])
+    assert (order["status"], order["placed_by"], order["offer_id"]) == ("PENDING_APPROVAL", None, offer["offer_id"])
     assert read.structured_content == order
     assert over_rest.json() == order
     assert not trail.is_error

@@ -30,7 +30,8 @@ def test_guard_the_same_idempotency_key_twice_places_one_order(demo: Any, texts:
     second = demo.order("ward", offer, key="retry-of-one-order")
 
     assert first["order_id"] == second["order_id"]
-    assert first["status"] == second["status"] == OrderStatus.ORDERED
+    assert first["status"] == second["status"] == OrderStatus.PENDING_APPROVAL
+    assert first["approval_id"] == second["approval_id"]
     assert [order["order_id"] for order in demo.orders("ward")] == [first["order_id"]]
-    assert event_types(demo.audit("ward", first["order_id"])).count("order.placed_by_agent") == 1
+    assert event_types(demo.audit("ward", first["order_id"])).count("approval.requested") == 1
 

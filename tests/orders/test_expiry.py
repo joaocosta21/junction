@@ -87,13 +87,14 @@ def test_reading_an_approval_past_its_time_expires_it(
     assert book.store.get_order(pending.order_id).status is OrderStatus.EXPIRED
 
 
-def test_an_order_that_was_placed_never_expires(book, samples, agent_hotel: Identity) -> None:
+def test_an_order_that_was_placed_never_expires(book, samples, agent_hotel, approver_purchasing) -> None:
     offer = book.offer(samples.within_authority())
-    ordered = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-1")
+    pending = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-1")
+    ordered = book.service.decide(pending.approval_id, approver_purchasing, samples.approve())
     book.clock.advance(AFTER_ORDER_BY)
 
     assert book.service.get_order(ordered.order_id, agent_hotel) == ordered
-    assert book.event_types() == ["order.placed_by_agent"]
+    assert book.event_types() == ["approval.requested", "approval.decided", "order.confirmed"]
 
 
 def test_a_retry_with_the_same_key_after_the_time_passed_returns_the_expired_order(

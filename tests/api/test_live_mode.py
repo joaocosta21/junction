@@ -118,7 +118,7 @@ def test_in_live_mode_without_a_key_the_app_answers_from_the_capture_and_says_so
 
     assert offer.status_code == 201
     assert offer.json()["source"] == "replay"
-    assert offer.json()["options"][0]["decision"]["verdict"] == "AUTO"
+    assert offer.json()["options"][0]["decision"]["verdict"] == "APPROVAL"
     assert (health["mode"], health["source"], health["status"]) == ("live", "replay", "degraded")
 
 

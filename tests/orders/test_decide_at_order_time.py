@@ -99,10 +99,8 @@ def test_when_the_policy_asks_for_nobody_any_more_any_listed_approver_of_the_buy
     order = book.service.decide(small.approval_id, approver_purchasing, samples.approve())
 
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
-    assert order.decision.verdict is Verdict.AUTO
-    assert order.status_sentence == (
-        "Ordered for €700.00 net with approval by Purchasing manager (demo) (purchasing manager)."
-    )
+    assert order.decision.verdict is Verdict.APPROVAL
+    assert order.decision.rule_ids == ("F-10",)
 
 
 def test_a_rejection_still_needs_a_role_the_approval_is_waiting_for(

@@ -24,7 +24,7 @@ def test_f04_is_silent_at_order_time_when_nothing_changed_and_nothing_expired(
 ) -> None:
     context = make_context(at_order_time=True, revalidation=make_revalidation())
 
-    assert engine.evaluate(make_option(), hotel, context).verdict is Verdict.AUTO
+    assert engine.evaluate(make_option(), hotel, context).verdict is Verdict.APPROVAL
 
 
 @pytest.mark.parametrize(
@@ -83,7 +83,7 @@ def test_f04_is_an_order_time_rule_and_stays_silent_while_the_offer_is_built(
     option = make_option(valid_until=now - timedelta(minutes=1))
     context = make_context(at_order_time=False, revalidation=make_revalidation(ok=False, expired=True))
 
-    assert engine.evaluate(option, hotel, context).verdict is Verdict.AUTO
+    assert engine.evaluate(option, hotel, context).verdict is Verdict.APPROVAL
 
 
 def test_f04_says_so_when_the_fresh_check_only_reports_an_expiry(
@@ -169,12 +169,12 @@ def test_the_clock_of_the_context_decides_not_the_wall_clock(
         option, hotel, make_context(at_order_time=True, revalidation=make_revalidation(), at=later)
     )
 
-    assert before.verdict is Verdict.AUTO and before.evaluated_at == now
+    assert before.verdict is Verdict.APPROVAL and before.evaluated_at == now
     assert after.verdict is Verdict.BLOCK and after.evaluated_at == later
 
 
 @pytest.mark.parametrize(
-    ("seconds_left", "verdict"), [(0, Verdict.BLOCK), (1, Verdict.AUTO), (-1, Verdict.BLOCK)],
+    ("seconds_left", "verdict"), [(0, Verdict.BLOCK), (1, Verdict.APPROVAL), (-1, Verdict.BLOCK)],
     ids=["at valid-until", "one second before", "one second after"],
 )
 def test_an_option_is_expired_from_the_moment_of_its_valid_until_as_a_cut_off_is(
@@ -189,4 +189,4 @@ def test_an_option_is_expired_from_the_moment_of_its_valid_until_as_a_cut_off_is
     decision = engine.evaluate(option, hotel, context)
 
     assert decision.verdict is verdict
-    assert decision.rule_ids == (("F-04",) if verdict is Verdict.BLOCK else ())
+    assert decision.rule_ids == (("F-04",) if verdict is Verdict.BLOCK else ("F-10",))

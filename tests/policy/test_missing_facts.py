@@ -124,7 +124,7 @@ def test_no_allergen_check_is_not_a_missing_fact_when_nobody_excluded_anything(
 ) -> None:
     decision = engine.evaluate(make_option((make_line(allergen_check=None),)), hotel, make_context())
 
-    assert hotel.excluded_allergens == () and decision.verdict is Verdict.AUTO
+    assert hotel.excluded_allergens == () and decision.verdict is Verdict.APPROVAL
 
 
 def test_an_order_without_a_fresh_check_goes_to_a_human(
@@ -167,7 +167,7 @@ def test_the_order_time_facts_are_not_needed_while_the_offer_is_built(
 ) -> None:
     decision = engine.evaluate(make_option(valid_until=None), hotel, make_context(at_order_time=False))
 
-    assert decision.verdict is Verdict.AUTO
+    assert decision.verdict is Verdict.APPROVAL
 
 
 def test_every_missing_fact_is_listed_once_per_line_next_to_the_rules_that_fired(

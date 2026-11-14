@@ -72,7 +72,7 @@ def test_under_confirmed_only_the_ward_excludes_it_with_the_same_sentence(
     offer = service.build_offer(_request(make_request, require_confirmed=True), agent_ward)
 
     assert not any(
-        option.decision is not None and option.decision.verdict is Verdict.AUTO
+        option.decision is not None and option.decision.verdict is Verdict.APPROVAL
         for option in offer.options
         if ALMOND_DRINK in {line.product_id for line in option.lines}
     )

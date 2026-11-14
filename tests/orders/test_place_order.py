@@ -12,7 +12,6 @@ from tta.contracts.common import (
     DataSource,
     Identity,
     OrderStatus,
-    PlacedBy,
     Verdict,
 )
 from tta.contracts.errors import (
@@ -34,25 +33,24 @@ def test_the_service_satisfies_the_order_service_port(book) -> None:
     assert isinstance(book.service, OrderService)
 
 
-def test_an_option_within_authority_is_ordered_by_the_agent_and_no_approval_is_created(
+def test_an_option_within_authority_still_waits_for_human_approval(
     book, samples, agent_hotel: Identity
 ) -> None:
     offer = book.offer(samples.within_authority())
 
     order = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, KEY)
 
-    assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.AGENT
-    assert order.approval_id is None and book.store.list_approvals() == ()
-    assert order.decision.verdict is Verdict.AUTO and order.option.decision == order.decision
+    assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
+    approval = book.store.get_approval(order.approval_id)
+    assert approval is not None and approval.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+    assert order.decision.verdict is Verdict.APPROVAL and order.option.decision == order.decision
     assert (order.offer_id, order.option_id, order.profile_id) == (offer.offer_id, "opt_1", "hotel-kitchen")
     assert order.agent_id == agent_hotel.id and order.idempotency_key == KEY
     assert order.order_id.startswith("ord_") and len(order.order_id) == len("ord_") + 12
     assert order.created_at == order.updated_at == book.clock.now()
-    assert order.status_sentence == (
-        "The agent placed this order alone for €265.00 net: no rule of profile hotel-kitchen asked for a human."
-    )
+    assert "F-10" in order.status_sentence
     assert book.store.get_order(order.order_id) == order
-    assert book.event_types() == ["order.placed_by_agent"]
+    assert book.event_types() == ["approval.requested"]
 
 
 def test_the_order_record_keeps_the_statements_it_relied_on_and_says_the_mock_has_no_order_endpoint(
@@ -204,7 +202,7 @@ def test_a_ward_order_with_every_excluded_allergen_stated_free_from_is_placed_by
 
     order = book.service.place_order(offer.offer_id, "opt_1", agent_ward, KEY)
 
-    assert order.status is OrderStatus.ORDERED and order.profile_id == "allergy-ward"
+    assert order.status is OrderStatus.PENDING_APPROVAL and order.profile_id == "allergy-ward"
 
 
 def test_the_same_key_twice_returns_the_first_order_and_creates_nothing(book, samples, agent_hotel: Identity) -> None:
@@ -261,7 +259,7 @@ def test_a_key_is_free_again_after_an_attempt_that_placed_nothing(book, samples,
 
     order = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, KEY)
 
-    assert order.status is OrderStatus.ORDERED and book.store.list_orders() == (order,)
+    assert order.status is OrderStatus.PENDING_APPROVAL and book.store.list_orders() == (order,)
 
 
 @pytest.mark.parametrize("key", ["", "   "])

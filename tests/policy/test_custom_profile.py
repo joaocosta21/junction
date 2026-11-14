@@ -95,5 +95,5 @@ def test_the_engine_judges_a_custom_profile_with_its_own_limits_and_its_own_hash
     alone = engine.evaluate(option, within, context)
 
     assert (to_a_human.verdict, to_a_human.rule_ids, to_a_human.profile_id) == (Verdict.APPROVAL, ("P-01",), CUSTOM_ID)
-    assert alone.verdict is Verdict.AUTO
+    assert alone.verdict is Verdict.APPROVAL
     assert len({engine.policy_hash(hotel), alone.policy_hash, to_a_human.policy_hash}) == 3

@@ -68,10 +68,6 @@ def _approvers(approval: Approval) -> str:
     return joined(person(entry.approver_name, entry.roles) for entry in given)
 
 
-def placed_alone(net: Decimal, profile_id: str) -> str:
-    return f"The agent placed this order alone for {money(net)} net: no rule of profile {profile_id} asked for a human."
-
-
 def waiting(approval: Approval, decision: PolicyDecision) -> str:
     approvers = _approvers(approval)
     start = f"Approved by {approvers}; still waiting" if approvers else "Waiting"

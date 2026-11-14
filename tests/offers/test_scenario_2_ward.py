@@ -125,9 +125,9 @@ def test_the_agent_may_order_alone(offer: Offer) -> None:
     decision = offer.options[0].decision
 
     assert decision is not None
-    assert decision.verdict is Verdict.AUTO
-    assert decision.fired == ()
-    assert decision.required_roles == ()
+    assert decision.verdict is Verdict.APPROVAL
+    assert decision.rule_ids == ("F-10",)
+    assert decision.required_roles == ("purchasing_manager",)
 
 
 def test_the_profile_alone_makes_the_offer_confirmed_only(

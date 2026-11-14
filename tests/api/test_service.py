@@ -58,7 +58,7 @@ def test_create_app_alone_builds_everything_from_the_settings(
         offer = client.post("/v1/offers", json=scenario_2, headers=auth("agent_ward"))
 
     assert offer.status_code == 201
-    assert offer.json()["options"][0]["decision"]["verdict"] == "AUTO"
+    assert offer.json()["options"][0]["decision"]["verdict"] == "APPROVAL"
     assert settings.db_path.exists()
     assert len(app.state.parts.catalog.products) > 17_000
 

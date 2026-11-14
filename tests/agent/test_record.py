@@ -59,7 +59,7 @@ def test_a_recorded_run_is_served_back_call_for_call(
 
     assert isinstance(live, AgentModel) and (live.model_id, live.recorded) == ("gemini-x", False)
     assert first.model == live.label_for(TEXT) == "gemini-x" and again.model == "recorded"
-    assert first.order_status is OrderStatus.ORDERED
+    assert first.order_status is OrderStatus.PENDING_APPROVAL
     assert [(step.tool, step.ok) for step in again.steps[:2]] == [(step.tool, step.ok) for step in first.steps[:2]]
     assert again.steps[1].arguments == first.steps[1].arguments  # the same typed request
     assert again.steps[2].tool == "place_order" and again.recorded is True

@@ -71,7 +71,7 @@ def test_no_status_changes_without_an_audit_event_in_the_same_call(
         offer = book.offer(option)
         return book.service.place_order(offer.offer_id, option.option_id, agent_hotel, key)
 
-    step(lambda: place(samples.within_authority(), "auto"))
+    step(lambda: place(samples.within_authority(), "within-limits"))
     step(lambda: place(samples.above_order_limit(), "approve"))
     approved = book.store.list_orders()[-1]
     step(lambda: book.service.decide(approved.approval_id, approver_purchasing, samples.approve()))
@@ -87,7 +87,7 @@ def test_no_status_changes_without_an_audit_event_in_the_same_call(
         OrderStatus.PENDING_APPROVAL, OrderStatus.ORDERED, OrderStatus.REJECTED, OrderStatus.EXPIRED,
     )
     assert walked == [
-        (None, ordered, ["order.placed_by_agent"]),
+        (None, pending, ["approval.requested"]),
         (None, pending, ["approval.requested"]),
         (pending, ordered, ["approval.decided", "order.confirmed"]),
         (None, pending, ["approval.requested"]),

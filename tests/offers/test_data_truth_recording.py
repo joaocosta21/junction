@@ -122,7 +122,7 @@ def test_scenario_2_is_unchanged(service: OfferService, make_request: Build, age
     (option,) = offer.options
     assert [(line.product_id, line.quantity) for line in option.lines] == [("464013", Decimal(200))]
     assert option.totals.net == Decimal("402.00")
-    assert option.decision is not None and option.decision.verdict is Verdict.AUTO
+    assert option.decision is not None and option.decision.verdict is Verdict.APPROVAL
 
 
 def test_scenario_3_reads_nothing_outside_the_recording(
