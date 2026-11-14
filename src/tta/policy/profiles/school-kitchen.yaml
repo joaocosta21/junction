@@ -26,6 +26,9 @@ variable_weight: APPROVAL         # the cautious value (P-06)
 deposits: APPROVAL                # the cautious value (P-07)
 require_confirmed: false          # true: the offer holds fully confirmed options only
 standing_order_drift_ratio: 0.25  # a renewal 25% above or below the median of its history goes to a human (P-08)
+formula_mode: LEARN               # ALWAYS · LEARN · WHEN_ASKED: the agent works out per product, from this
+                                  # buyer's decisions, past requests and customer file, where a substitute
+                                  # must keep the recipe (F-11); where nothing is learned, only when asked
 
 # Who holds each role. The ids are those of the demonstration identities; the people are named in the
 # customer file.

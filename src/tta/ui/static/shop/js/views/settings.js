@@ -38,6 +38,24 @@ on("set", (el) => {
   render();
 });
 
+// When a substitute must keep the recipe, as the gateway reads it: the mode set, or what the old switch alone means.
+export const recipeMode = (settings) => settings.formula_mode || (settings.formula_matters ? "ALWAYS" : "WHEN_ASKED");
+
+const RECIPE_MODES = [
+  ["ALWAYS", "Always", "A substitute with different ingredients or nutrition is never chosen for you; you decide."],
+  ["LEARN", "Learn from my orders (recommended)", "The agent works out, product by product, where the recipe matters: from substitutes you rejected or accepted, from requests that said what a product is for, and from how you use your usual products. Each offer says what it applied and why."],
+  ["WHEN_ASKED", "Only when I say so", "Only when your request says so (for example “for baking”)."],
+];
+
+// The mode and the switch it replaces are sent together: the gateway refuses the two when they disagree.
+on("recipe-mode", (el) => {
+  const d = ensureDraft();
+  d.settings.formula_mode = el.value;
+  d.settings.formula_matters = el.value === "ALWAYS";
+  message = null;
+  render();
+});
+
 on("allergen", (el) => {
   const d = ensureDraft();
   const code = el.dataset.code;
@@ -251,7 +269,10 @@ export function view() {
               ["LISTED_BY_SUPPLIER", "Only ones Valio Aimo lists", "The agent may take a substitute the wholesaler lists for the product."],
               ["SAME_CATEGORY", "Same kind of product", "Any product of the same category that passes the allergen check."],
             ])}</div><span></span></div>
-          <div class="field" id="s-recipe"><div><label for="f-formula_matters">Substitutes must keep the recipe</label><div class="help">On: when the product you asked for is not available, a substitute with different ingredients or nutrition is never chosen for you; you decide. Off: only when your request says so (for example “for baking”).</div></div>${toggle("formula_matters", s.formula_matters, "set", "Substitutes must keep the recipe")}</div>
+          <div class="field" id="s-recipe"><div><span class="label">Substitutes must keep the recipe</span><div class="help">When the product you asked for is not available: may a substitute with different ingredients or nutrition be chosen for you?</div>
+            <div class="radio-cards" role="radiogroup" aria-label="Substitutes must keep the recipe">${RECIPE_MODES.map(
+              ([value, title, text]) => html`<label class="radio-card ${recipeMode(s) === value ? "on" : ""}"><input type="radio" name="formula_mode" value="${value}" data-change="recipe-mode" ${recipeMode(s) === value ? "checked" : ""}><span><b>${title}</b><span>${text}</span></span></label>`
+            )}</div></div><span></span></div>
           <div class="field" id="s-premium"><div><label for="f-max_preference_premium_ratio">A greener or more reliable choice may cost up to</label><div class="help">More than the cheapest. Above this, the cheapest option is shown first and you choose.</div></div>${premiumSelect(s.max_preference_premium_ratio)}</div>
           <div class="field"><div><label for="f-variable_weight">Sold by weight</label><div class="help">Meat and cheese by the kilo: the total is an estimate, because Valio Aimo invoices the weight delivered.</div></div>
             <select id="f-variable_weight" data-change="set" data-key="variable_weight"><option value="APPROVAL" ${s.variable_weight === "APPROVAL" ? "selected" : ""}>Ask a person</option><option value="AUTO_WITH_CEILING" ${s.variable_weight === "AUTO_WITH_CEILING" ? "selected" : ""}>Agent may order</option></select></div>

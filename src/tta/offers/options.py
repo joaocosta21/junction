@@ -35,6 +35,7 @@ from tta.offers.preference import (
     share,
     title_suffix,
 )
+from tta.offers.safe_swap import SAFE_SWAP_TITLE, safe_swap_said
 from tta.offers.safety import has_doubt, open_allergens, who_decides
 from tta.offers.variants import regular_words, variant_word
 from tta.offers.wording import counted, eur, line_label, line_words, measured, plain_name
@@ -98,6 +99,7 @@ class _Assembled:
     net_above_cheapest: Decimal | None = None  # on the preferred option, when a cheaper confirmed one is offered
     demoted: bool = False  # the preferred option costs too much over the cheapest one to come first
     promoted: bool = False  # the cheapest confirmed option, when the preferred one is demoted
+    safe_swap: str = ""  # the substitute was chosen for an excluded allergen, said (`tta.offers.safe_swap`)
     # Per request line where the formula matters, who says so (`Need.formula_said`).
     formula_said: Mapping[int, str] = field(default_factory=dict)
 
@@ -151,7 +153,7 @@ def finish_options(
     request's product type left out."""
     assembled = _cheaper_only([_assemble(draft, request, needs, deps) for draft in drafts if draft.lines])
     priced = _traded_off(assembled, request.prefer)
-    ranked = _safe_first(sorted(priced, key=_rank_key)[: _cap(priced)])
+    ranked = _safe_swaps(_safe_first(sorted(priced, key=_rank_key)[: _cap(priced)]))
     if ranked and headline:
         ranked = [replace(ranked[0], named=f"{ranked[0].named} {headline}"), *ranked[1:]]
     # The day's committed spend must reach the policy, or every option reads APPROVAL for a missing fact.
@@ -289,6 +291,17 @@ def _safe_first(ranked: list[_Assembled]) -> list[_Assembled]:
     return [replace(first, extra=first.extra + said), *ranked[1:]]
 
 
+def _safe_swaps(ranked: list[_Assembled]) -> list[_Assembled]:
+    """A SUBSTITUTE option whose stand-ins were chosen because the product asked for leaves a doubt about an
+    excluded allergen says that, not that the product cannot be supplied."""
+    return [
+        replace(each, safe_swap=safe_swap_said(
+            each.draft.lines, [other.draft.lines for other in ranked if other is not each]
+        )) if each.draft.kind is OptionKind.SUBSTITUTE else each
+        for each in ranked
+    ]
+
+
 def _rank_key(assembled: _Assembled) -> tuple[bool, bool, bool, int, int, int, Decimal]:
     """Allergen safety, then constraint fit, then verification status, then the kind, then the net total (SPEC
     section 5, step 3).
@@ -350,6 +363,8 @@ def _title(assembled: _Assembled, prefer: Preference, fill_ratio: Decimal) -> st
         title = ALTERNATIVE + FORMULA_NOT_KEPT
     elif assembled.last_resort:
         title = ALTERNATIVE + LAST_RESORT_SUBSTITUTE
+    elif assembled.safe_swap:
+        title = SAFE_SWAP_TITLE
     return title + (PARTIAL_SUFFIX if fill_ratio < 1 else "")
 
 
@@ -389,7 +404,7 @@ def _summary(assembled: _Assembled) -> str:
         originals = ", ".join(dict.fromkeys(_original_name(line.substitute) for line in stand_ins if line.substitute))
         kept = len(lines) > len(stand_ins)
         stands_in = "fills what is missing of" if kept else "in place of"
-        text = f"{_names(stand_ins)} {stands_in} {originals}: {covered}, for {money}."
+        text = f"{_names(stand_ins)} {stands_in} {originals}: {covered}, for {money}.{assembled.safe_swap}"
     if assembled.formula_changed:
         said = assembled.formula_changed_said
         text += FORMULA_NOTE.format(said=said[0].upper() + said[1:])

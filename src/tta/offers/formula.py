@@ -19,11 +19,17 @@ figures and is the noisiest field. A list does not show protein type, heat treat
 stabiliser, so the wording is "the data shows no difference", never "identical". Missing data is `NOT_KNOWN`
 and never read as the same (Valio, V5: not sure means ask).
 
+**A word of origin or farming is no difference (decision B49).** "organic CREAM" against "CREAM", "WHEAT (EU)"
+against "WHEAT (Finland)": the components are the same, and the sentence says which were read so. The words are
+measured from the catalog's own statements when it is loaded (`tta.catalog.qualifiers`), never typed. A word of
+processing ("pasteurised", "dried") stays a difference unless both lists carry it.
+
 **The one word list left, and why.** `names_vegetable_fat` no longer decides between two lists that can be
-compared: there the components themselves say it. It is kept for two things the comparison cannot carry: two
-lists with no language in common (an English-only list against a Finnish-only one), where the words of both
-languages still show that one names a vegetable oil or fat and the other does not; and the field
-`FormulaCheck.fat_source_differs`, which the policy facts and the mixed-order sentence still read.
+compared: there the components themselves say it, and the readers of the check (rule F-11's facts, the
+mixed-order sentence, the page) name the components. It is kept for the one case the comparison cannot carry:
+two lists with no language in common (an English-only list against a Finnish-only one), where the words of
+both languages still show that one names a vegetable oil or fat and the other does not. Only there do the
+readers still say "another fat source", from `FormulaCheck.fat_source_differs`.
 
 **Per 100 g against per 100 ml (our rule, decided by the team on 14 Nov 2026).** For a drink the two are read
 as they stand: a litre of milk weighs 1.03 kg, so a figure per 100 ml is about 3% above the same figure per
@@ -40,6 +46,7 @@ from decimal import Decimal
 
 from tta.availability.wording import format_amount
 from tta.catalog.kinds import drink_evidence
+from tta.catalog.qualifiers import Qualifiers
 from tta.contracts.product import (
     FormulaCheck,
     FormulaOutcome,
@@ -70,8 +77,9 @@ NUTRIENTS = (
 _WORDS = dict(NUTRIENTS)
 _BASIS_WORDS = {NutritionBasis.G: "per 100 g", NutritionBasis.ML: "per 100 ml"}
 # Words of an ingredient list that name a vegetable oil or fat, in English and in Finnish. Kept only for two
-# lists with no language in common and for `FormulaCheck.fat_source_differs` (see the module's note). "palm"
-# must start a word and be followed by a fat word or stand alone, so "retinyl palmitate" (a vitamin) is not one.
+# lists with no language in common, which is all `FormulaCheck.fat_source_differs` is read for (the module's
+# note). "palm" must start a word and be followed by a fat word or stand alone, so "retinyl palmitate" (a
+# vitamin) is not one.
 _VEGETABLE_FAT = re.compile(
     r"\bvegetable (?:oil|fat)|\brape ?seed|\bpalm(?:\b| ?oil| ?fat| ?kernel)|\bcoconut|\bshea|\bsunflower"
     r"|\bolive oil|kasviöljy|kasvirasva|\brapsi|\brypsi|palmuöljy|palmurasva|kookos|auringonkukka|oliiviöljy",
@@ -96,18 +104,22 @@ _NAMES_FAT = "Its ingredient list names a vegetable oil or fat; the original's d
 _NAMES_NO_FAT = "The original's ingredient list names a vegetable oil or fat; this one's does not."
 _SAME_CONTENTS = "The two ingredient lists name the same components."
 _WITHIN = f"The six nutrition figures are within {_TOLERANCE_WORDS}."
+_SAME_BUT_ORIGIN = "Read as the same ingredient, a word of origin or farming apart"
 COMPONENTS_SAID = 3  # of each side, in a sentence; the fields of the check carry every one
 
 
-def compare_formula(original: Product, other: Product) -> FormulaCheck:
+def compare_formula(original: Product, other: Product, qualifiers: Qualifiers | None = None) -> FormulaCheck:
     """The formula of `other` measured against `original`'s: the outcome, the differences, and a sentence.
 
     The contents decide first: a component only one ingredient list has is a different formula whatever the
-    figures say, and the sentence names the components before the figures."""
-    contents = compare_contents(original, other)
+    figures say, and the sentence names the components before the figures. A word of origin or farming is no
+    difference (`tta.catalog.qualifiers`; `qualifiers` left out: the table of the loaded catalog), and the
+    sentence says which components were read as the same on that ground."""
+    contents = compare_contents(original, other, qualifiers)
     check = _compare(original, other, contents)
     return check.model_copy(
         update={
+            "sentence": f"{check.sentence}{_origin_note(contents)}",
             "contents_compared": contents.compared,
             "only_in_original": contents.only_in_original,
             "only_in_other": contents.only_in_other,
@@ -175,6 +187,16 @@ def _contents_sentence(contents: ContentsCheck) -> str:
         parts.append(f"{more} more such {'pair' if more == 1 else 'pairs'}")
     said = "; ".join(parts)
     return f"Different contents: {said}."
+
+
+def _origin_note(contents: ContentsCheck) -> str:
+    """ " Read as the same ingredient, a word of origin or farming apart: organic CREAM against CREAM." """
+    pairs = contents.same_but_for_origin[:COMPONENTS_SAID]
+    if not pairs:
+        return ""
+    said = "; ".join(f"{_quote(yours)} against {_quote(mine)}" for mine, yours in pairs)
+    more = len(contents.same_but_for_origin) - len(pairs)
+    return f" {_SAME_BUT_ORIGIN}: {said}{f' and {more} more' if more else ''}."
 
 
 def _quote(words: str) -> str:

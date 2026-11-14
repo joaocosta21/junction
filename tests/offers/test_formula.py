@@ -12,6 +12,7 @@ import pytest
 
 from tta.catalog import ProductCatalog
 from tta.catalog.kinds import drink_evidence
+from tta.catalog.qualifiers import NO_QUALIFIERS
 from tta.contracts.product import (
     FormulaCheck,
     FormulaOutcome,
@@ -375,6 +376,8 @@ def test_listed_by_valio_does_not_mean_the_same_formula(catalog: ProductCatalog)
     # Before lane FC, on the figures and the fat-source words: 41 / 26 / 33 kept (100), 68 differed, 81 not known.
     # Of those 100, 50 have a component only one ingredient list names (8 of them only as a wording "not shown
     # to be the same"); 28 pairs with no comparable figures now differ by their lists.
+    # Lane FC2 (words of origin and farming read from the catalog): 146 different became 145 and 10 of another
+    # brand 11, by 468876 with 462281 ("Finnish chicken fillet" against "chicken fillet").
     outcomes = [
         compare_formula(product, catalog.get_product(other)).outcome
         for product in catalog.products
@@ -383,5 +386,24 @@ def test_listed_by_valio_does_not_mean_the_same_formula(catalog: ProductCatalog)
 
     assert len(outcomes) == 249
     assert {outcome: outcomes.count(outcome) for outcome in FormulaOutcome} == {
-        SAME: 38, BRAND: 2, OTHER: 10, DIFFERENT: 146, NOT_KNOWN: 53,
+        SAME: 38, BRAND: 2, OTHER: 11, DIFFERENT: 145, NOT_KNOWN: 53,
     }
+
+
+def test_a_word_of_origin_keeps_the_formula_and_the_sentence_says_which_ingredient(catalog: ProductCatalog) -> None:
+    # Lane FC2, decision B49. Valio lists 462281 for 468876; the lists differ by the word "Finnish" alone.
+    found = compare_formula(catalog.get_product("468876"), catalog.get_product("462281"))
+
+    assert found.outcome is OTHER
+    assert found.keeps_formula
+    assert found.sentence.endswith(
+        "The two ingredient lists name the same components. Read as the same ingredient, a word of origin or "
+        "farming apart: Finnish chicken fillet against chicken fillet."
+    )
+
+
+def test_an_explicit_table_overrides_the_catalogs(catalog: ProductCatalog) -> None:
+    found = compare_formula(catalog.get_product("468876"), catalog.get_product("462281"), NO_QUALIFIERS)
+
+    assert found.outcome is DIFFERENT
+    assert "not shown to be the same" in found.sentence

@@ -87,7 +87,7 @@ def test_the_listed_substitute_that_passes_is_ranked_by_its_formula_like_any_oth
     assert passing[0] == PASSES
     assert by_id[PASSES].gives_up.startswith(
         "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
-        "for like: its name adds “Delight”, which the data does not explain. Compared with "
+        "for like: its name adds Delight, which the data does not explain. Compared with "
     )
     assert "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml." in by_id[PASSES].gives_up
     # Before, the first three were the same brand's flavoured barista drinks (pumpkin spice, gingerbread, nutty

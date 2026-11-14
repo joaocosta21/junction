@@ -71,6 +71,8 @@ KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest
     "variable_weight", "deposits", "require_confirmed", "standing_order_drift_ratio",
     # Kept when a kitchen starts from a copy of a profile file: the ward's 10% premium, the bakery's formula rule.
     "formula_matters", "max_preference_premium_ratio",
+    # When a substitute must keep the recipe: ALWAYS, LEARN (from this buyer's past) or WHEN_ASKED (lane LF).
+    "formula_mode",
 )
 LIMIT_SETTINGS = ("max_order_net_eur", "max_daily_net_eur")
 MAX_LIMIT_EUR = Decimal(100_000)

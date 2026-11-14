@@ -32,6 +32,7 @@ from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
 from tta.offers.preference import KEY_WORDS
+from tta.offers.recorded import later_recorded_note
 from tta.offers.variants import regular_words, variant_claims_for, variant_word
 from tta.offers.wording import counted, joined, line_label, line_words, listed, reason_words
 
@@ -78,8 +79,16 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
             *_strict_notes(needs), *_variant_notes(request.lines, options, deps.catalog),
             *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options, request.prefer),
             *_empty_notes(outcomes, late, options, lookup.now),
+            *_later_recorded(deps, options),
         ),
     )
+
+
+def _later_recorded(deps: OfferDeps, options: Sequence[OfferOption]) -> tuple[str, ...]:
+    """The last note, only when an offered product was answered from a recording made after the first one."""
+    offered = tuple(dict.fromkeys(line.product_id for option in options for line in option.lines))
+    note = later_recorded_note(deps.gateway, offered)
+    return (note,) if note else ()
 
 
 def _judge_line(

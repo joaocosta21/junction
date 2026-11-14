@@ -25,6 +25,7 @@ from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
 from tta.api.health import public
+from tta.api.insight_routes import insight_router
 from tta.api.keys import keys
 from tta.api.limits import ClientKeyMiddleware
 from tta.api.menu_routes import menu_router
@@ -154,6 +155,7 @@ def _application(parts: Parts) -> FastAPI:
     app.include_router(router)
     app.include_router(menu_router())  # recipes and menus (task MENU-1)
     app.include_router(customer_router)  # who the caller's customer is (review C2, finding F5)
+    app.include_router(insight_router)  # Valio Aimo's back office: what the agent channel sold (lane BO)
     app.include_router(public)
     app.include_router(keys)  # /.well-known/jwks.json: the key offers and orders are signed with (P12 W8)
     app.include_router(discovery)  # /.well-known/api-catalog (RFC 9727) and /llms.txt, before the pages (P12 W2)

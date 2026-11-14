@@ -23,6 +23,7 @@ from tta.valio import ReplayGateway
 DEMO_CLOCK = datetime.fromisoformat("2026-11-12T14:15:00+02:00")
 LACTOSE_FREE_MILK = "469363"
 BARISTA, LISTED_DELIGHT = "473609", "471690"
+CONFIRMED_BARISTA = "475224"  # Fazer Aito barista oat drink: 130 confirmed in the recording
 GONE = "479999"  # an id the product file does not hold
 
 
@@ -58,12 +59,15 @@ def test_a_listed_substitute_that_is_not_in_the_product_file_is_said(
 def test_an_option_whose_stand_in_quantity_is_not_confirmed_is_an_alternative_and_says_how_much(
     service: OfferService, make_request: Callable[..., Any], policy: Any
 ) -> None:
-    # The Python review's case: the bakery, 1,000 L of 469363. Before: kind SUBSTITUTE, "With a substitute
-    # for a product that cannot be supplied in full", a summary that read as a confirmed full fill.
-    bakery = Identity.model_validate({"kind": "AGENT", "id": "agent:bakery-cafe", "display_name": "x",
-                                      "profile_id": "bakery-cafe"})
+    # The Python review's case: 1,000 L of 469363. Before: kind SUBSTITUTE, "With a substitute for a product
+    # that cannot be supplied in full", a summary that read as a confirmed full fill. The review asked as the
+    # bakery; since the contents decide the formula (lanes FC, FC2) no milk keeps the formula of 469363 for a
+    # buyer whose formula matters, and the bakery's only stand-in is the confirmed 462775, labelled as not
+    # keeping it. The hotel still gets the option the review was about: 616 L of 464306, quantity not confirmed.
+    hotel = Identity.model_validate({"kind": "AGENT", "id": "agent:hotel-kitchen", "display_name": "x",
+                                     "profile_id": "hotel-kitchen"})
     offer = service.build_offer(
-        make_request(quantity=Decimal(1000), unit=Unit.L, product_ids=(LACTOSE_FREE_MILK,)), bakery
+        make_request(quantity=Decimal(1000), unit=Unit.L, product_ids=(LACTOSE_FREE_MILK,)), hotel
     )
 
     for option in offer.options:
@@ -97,10 +101,16 @@ def test_at_the_demo_clock_the_listed_barista_drink_is_still_offered_now_as_an_a
         make_request(quantity=Decimal(100), unit=Unit.UNIT, product_ids=(BARISTA,)), agent_hotel
     )
 
-    stand_in = next(option for option in offer.options if any(line.substitute for line in option.lines))
-    assert [line.product_id for line in stand_in.lines] == [LISTED_DELIGHT]
-    assert stand_in.kind is OptionKind.ALTERNATIVE_UNCONFIRMED  # its quantity is not confirmed at this clock
-    assert stand_in.title == "Alternative: quantity not confirmed"
+    # Lane FC2: confirmed stock of the same kind that covers the line stands in first (100 of 475224, another
+    # barista oat drink), and Valio's listed drink, whose quantity is not confirmed at this clock, is still
+    # offered, as the labelled alternative. Before, it took the one stand-in slot and no confirmed option was
+    # offered.
+    confirmed, listed = (option for option in offer.options if any(line.substitute for line in option.lines))
+    assert [(line.product_id, line.quantity) for line in confirmed.lines] == [(CONFIRMED_BARISTA, 100)]
+    assert (confirmed.kind, confirmed.rank) == (OptionKind.SUBSTITUTE, 1)
+    assert [line.product_id for line in listed.lines] == [LISTED_DELIGHT]
+    assert listed.kind is OptionKind.ALTERNATIVE_UNCONFIRMED  # its quantity is not confirmed at this clock
+    assert listed.title == "Alternative: quantity not confirmed"
 
 
 class _Counting:

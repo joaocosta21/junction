@@ -70,9 +70,11 @@ def test_a_flavoured_drink_is_not_a_like_for_like_replacement_for_a_plain_one(ju
     assert check.verdict is ReplaceVerdict.NOT_LIKE_FOR_LIKE
     assert check.plain_against_flavoured is True and check.leaves_the_list is True
     assert (check.original_flavours, check.flavours) == ((), ("nut", "vanilla"))
-    # The formula is no reason here: the six figures are within tolerance. The name is.
+    # The name says it, and since the contents decide the formula (lane FC) so does the ingredient list: the
+    # six figures are within tolerance, and the flavoured drink names flavourings the plain one does not.
     assert check.sentence == (
-        "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured."
+        "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured; "
+        "a different formula (contains flavourings, which the product asked for does not)."
     )
 
 
@@ -106,10 +108,16 @@ def test_a_coffee_milk_is_not_a_like_for_like_replacement_for_a_milk(judge: Call
 
 
 def test_a_replaceable_candidate_says_so_in_the_owners_words(judge: Callable[..., Any]) -> None:
-    assert judge("469346", "464194").sentence == (  # Arla Pro whipping cream and Valio whipping cream
+    assert judge("464727", "464194").sentence == (  # Arla whipping cream and Valio whipping cream, 1 litre each
         "Replaceable: same type, same use, no flavour named, same formula within tolerance."
     )
-    assert judge("469346", "464194").verdict is ReplaceVerdict.REPLACEABLE
+    assert judge("464727", "464194").verdict is ReplaceVerdict.REPLACEABLE
+    # Lane FC2: until the contents decided the formula this example was Arla Pro's 469346, whose six figures
+    # agree with Valio's; its ingredient list names a lactase enzyme that Valio's does not.
+    assert judge("469346", "464194").sentence == (
+        "Not a like-for-like replacement: a different formula (lacks lactase enzyme, which the product asked for "
+        "contains)."
+    )
     # Where no product type of ours covers the original, the type is not judged. Before review finding S11
     # this pair read "Replaceable: same category, same use, not flavoured, same formula within tolerance.";
     # "high heat" against "instant" is now said (tests/offers/test_substitutes_unknown.py).
@@ -124,11 +132,12 @@ def test_a_different_formula_another_use_and_a_lost_claim_are_each_a_reason_with
     # Since review finding S11 the listed pair also says the variant word of its name.
     assert judge(BARISTA, LISTED_DELIGHT, listed=True).sentence == (
         "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
-        "for like: its name adds “Delight”, which the data does not explain."
+        "for like: its name adds Delight, which the data does not explain."
     )
     assert judge(BARISTA, PLAIN_OAT).sentence == (
         "Not a like-for-like replacement: not made for coffee, as the product asked for is; a different formula "
-        "(fat 1 g, not 3 g)."
+        "(contains gluten-free OAT (10 %), which the product asked for does not; lacks gluten-free OAT flour 10 %, "
+        "acidity regulator (potassium phosphates), which the product asked for contains; fat 1 g, not 3 g)."
     )
     assert judge("464194", "464249").reasons[0] == "made for cooking; the product asked for is made for whipping"
     assert "it does not carry the claim FREE_FROM_LACTOSE" in judge("469363", "463149").reasons  # regular milk
@@ -190,14 +199,18 @@ def test_at_the_demo_clock_the_suggestion_is_valios_listed_drink_and_not_the_nut
     # 474724 for €235.45.
     assert (first.product_id, first.orderable, first.listed_by_supplier) == (LISTED_DELIGHT, True, True)
     assert first.formula is not None and first.formula.mixed_basis is True
-    # Its quantity is not confirmed at the demo clock, so the option is an alternative (Python review, P2).
-    option = next(each for each in offer.options if any(line.substitute for line in each.lines))
+    # Lane FC2: confirmed stock of the same kind that covers the line comes first: 100 of another barista oat
+    # drink, 475224. Valio's listed drink is the labelled alternative, because its quantity is not confirmed at
+    # the demo clock (Python review, P2). Before, it was the only stand-in and no confirmed option was offered.
+    confirmed, option = (each for each in offer.options if any(line.substitute for line in each.lines))
+    assert (confirmed.kind, confirmed.rank, str(confirmed.totals.net)) == (OptionKind.SUBSTITUTE, 1, "174.00")
+    assert [(line.product_id, int(line.quantity)) for line in confirmed.lines] == [("475224", 100)]
     assert (option.kind, option.title) == (OptionKind.ALTERNATIVE_UNCONFIRMED, "Alternative: quantity not confirmed")
     assert [(line.product_id, int(line.quantity)) for line in option.lines] == [(LISTED_DELIGHT, 10)]
     assert str(option.totals.net) == "155.50"
     assert option.lines[0].substitute.gives_up.startswith(
         "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
-        "for like: its name adds “Delight”, which the data does not explain. Compared with "
+        "for like: its name adds Delight, which the data does not explain. Compared with "
     )
 
 
@@ -263,7 +276,8 @@ def test_when_only_a_flavoured_drink_can_be_ordered_it_is_a_last_resort_and_says
     assert orderable[0].last_resort is True
     assert orderable[0].sentence.endswith(LAST_RESORT_OTHER_KIND)
     assert orderable[0].gives_up.startswith(
-        "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured."
+        "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured; "
+        "a different formula (contains flavourings, which the product asked for does not). "
     )
     assert not any("held back" in note for note in result.notes)
     option = next(each for each in offer.options if each.kind is OptionKind.SUBSTITUTE)
@@ -295,8 +309,8 @@ def test_a_price_difference_under_half_a_cent_is_not_said_as_dearer(demo_deps: O
     # Before: "it costs €0.00 more per kg" (€2.7120 against €2.7115 per kg).
     assert "more per kg" not in same_powder.gives_up
     assert same_powder.gives_up.startswith(
-        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in “high heat” "
-        "against “instant”, which the data does not explain. Compared with "
+        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in high heat "
+        "against instant, which the data does not explain. Compared with "
     )
 
 
@@ -319,9 +333,11 @@ def test_how_the_pairs_valio_lists_split_under_our_rules(catalog: ProductCatalog
     assert sum(check.other_type for check in checks) == 2  # both stay in the list: Valio lists them
     assert sum(check.other_use for check in checks) == 2
     assert {verdict: sum(check.verdict is verdict for check in checks) for verdict in ReplaceVerdict} == {
-        ReplaceVerdict.REPLACEABLE: 32, ReplaceVerdict.NOT_SHOWN: 95, ReplaceVerdict.NOT_LIKE_FOR_LIKE: 122,
+        ReplaceVerdict.REPLACEABLE: 17, ReplaceVerdict.NOT_SHOWN: 68, ReplaceVerdict.NOT_LIKE_FOR_LIKE: 164,
     }
-    # Review finding S11. Before: 73 replaceable, 72 not shown, 104 not like for like.
+    # Review finding S11. Before: 73 replaceable, 72 not shown, 104 not like for like. Then 32, 95 and 122
+    # while the six figures alone decided the formula; since the two ingredient lists are compared first
+    # (lanes FC and FC2: 145 of the 249 pairs differ in formula, 53 cannot be compared) 17, 68 and 164.
     assert sum(check.name_difference for check in checks) == 46  # each stays listed and says the words
     assert sum(check.type_not_judged for check in checks) == 164  # the original is of none of our product types
     assert sum(check.no_shared_word for check in checks) == 13  # and the two names share no product word

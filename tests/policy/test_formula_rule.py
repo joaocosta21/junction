@@ -103,6 +103,76 @@ def test_a_substitute_with_a_different_formula_goes_to_a_person_at_the_bakery_wi
     assert "fat 15 g, not 36 g" in decision.sentence and "(F-11)" in decision.sentence
 
 
+# The bakery's own case since the contents decide (lanes FC and FC2): the cream asked for lists a lactase enzyme.
+BY_CONTENTS = FormulaCheck(
+    outcome=FormulaOutcome.DIFFERENT,
+    differences=(
+        NutrientDifference(nutrient="fat", original=Decimal(36), other=Decimal(38), within_tolerance=True),
+    ),
+    contents_compared=True, only_in_original=("lactase enzyme",), fat_source_differs=False,
+    sentence=(
+        "Different contents: the ingredient list of the product asked for names lactase enzyme, which this "
+        "product's does not. The six nutrition figures are within our tolerance of 15% or 1 g per nutrient "
+        "(salt 0.25 g)."
+    ),
+)
+
+
+def test_a_difference_of_contents_names_the_components_in_the_sentence_and_in_the_recorded_facts(
+    engine: RulePolicyEngine, bakery: BuyerProfile, blend_for_cream: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
+) -> None:
+    decision = engine.evaluate(make_option((blend_for_cream(BY_CONTENTS),), net="40.00"), bakery, make_context())
+
+    f11 = next(rule for rule in decision.fired if rule.rule_id == "F-11")
+    assert f11.sentence.endswith(
+        "and the data does not show the same formula: it lacks lactase enzyme, which the product asked for contains."
+    )
+    assert f11.facts["line.substitute_formula_differences"] == ["lacks lactase enzyme"]
+
+
+def test_components_on_both_sides_and_figures_are_all_said(
+    bakery: BuyerProfile, blend_for_cream: Callable[..., OfferLine], make_option: Callable[..., OfferOption],
+    make_context: Callable[..., PolicyContext],
+) -> None:
+    check = DIFFERENT.model_copy(update={
+        "contents_compared": True, "only_in_original": ("CREAM",),
+        "only_in_other": ("buttermilk", "vegetable oil (rapeseed)", "E 407 (in stabiliser)"),
+    })
+    line = blend_for_cream(check)
+    scope = OrderScope(make_option((line,), net="40.00"), bakery, make_context(), {})
+
+    assert read_fact("line.substitute_formula", scope, line) == (
+        "it lacks CREAM, which the product asked for contains; contains buttermilk, vegetable oil (rapeseed) and "
+        "E 407 (in stabiliser), which the product asked for does not; figures outside our tolerance: fat 15 g, "
+        "not 36 g, saturated fat 1.3 g, not 23 g"
+    )
+    # The fat source is said by the components themselves, not a second time in our words.
+    assert read_fact("line.substitute_formula_differences", scope, line) == (
+        "lacks CREAM", "contains buttermilk", "contains vegetable oil (rapeseed)", "contains E 407 (in stabiliser)",
+        "fat 15 g, not 36 g", "saturated fat 1.3 g, not 23 g",
+    )
+
+
+def test_a_long_list_of_components_is_cut_after_a_whole_component_and_says_how_many_more(
+    bakery: BuyerProfile, blend_for_cream: Callable[..., OfferLine], make_option: Callable[..., OfferOption],
+    make_context: Callable[..., PolicyContext],
+) -> None:
+    many = tuple(f"component number {index} of the other list" for index in range(1, 31))
+    coating = "coating (rice and maize flours, modified potato starch, dextrin, salt, raising agents, colours)"
+    check = BY_CONTENTS.model_copy(update={"only_in_other": many, "only_in_original": (coating, "lactase enzyme")})
+    line = blend_for_cream(check)
+    scope = OrderScope(make_option((line,), net="40.00"), bakery, make_context(), {})
+
+    said = read_fact("line.substitute_formula", scope, line)
+
+    assert isinstance(said, str) and len(said) <= 400 and "…" not in said
+    # A component too long for a sentence is said by its name; both sides are said, each cut after a whole one.
+    assert said.startswith("it lacks coating and lactase enzyme, which the product asked for contains; contains ")
+    assert said.endswith("component number 4 of the other list and 26 more, which the product asked for does not")
+    assert len(read_fact("line.substitute_formula_differences", scope, line)) == 32  # the record holds every one
+
+
 def test_a_formula_that_cannot_be_compared_goes_to_a_person_too(
     engine: RulePolicyEngine, bakery: BuyerProfile, blend_for_cream: Callable[..., OfferLine],
     make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],

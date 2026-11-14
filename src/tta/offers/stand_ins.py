@@ -11,7 +11,13 @@ Which candidate of the ranking stands in (ours, decided on 14 Nov 2026):
 3. Confirmed stock that replaces the original like for like (`ReplaceVerdict.REPLACEABLE`) before a product
    whose quantity Valio does not confirm. It fills the gap as far as its stock goes; the unconfirmed product
    that would fill the whole gap is then the labelled alternative.
-4. The ranking's own order.
+4. Confirmed stock of the same kind (the same product type, use and flavour, and not a last resort) before a
+   product whose quantity Valio does not confirm, even one Valio lists (lane FC2, 14 Nov 2026: a confirmed
+   option comes first); stock that covers the whole gap before stock that covers part of it. The unconfirmed
+   product the ranking puts before it, or the one that would fill the whole gap, is then the labelled
+   alternative. Scenario 3 at the demo clock: 100 confirmed litres of another barista oat drink (475224)
+   before 10 cases of Valio's listed 471690, whose quantity is not confirmed.
+5. The ranking's own order.
 
 A request in pieces is converted by content before anything is ranked (`Ranking.per_piece`; review P9b, item
 Q14-1): 100 cartons of 1 L are 100 L, so 10 cases of 10 L stand in, not 100 cases.
@@ -146,6 +152,7 @@ def _in_order(outcome: LineOutcome, ranking: Ranking, keep: bool) -> list[Judged
             not ruled_out(each.candidate.allergen_check),
             keep and not each.formula.keeps_formula,
             not _confirmed_like_for_like(each),
+            _confirmed_same_kind(each, ranking),
         ),
     )
 
@@ -158,21 +165,45 @@ def _confirmed_like_for_like(judged: Judged) -> bool:
     )
 
 
+def _confirmed_same_kind(judged: Judged, ranking: Ranking) -> int:
+    """0: confirmed stock of a product of the same type, use and flavour that covers all that is missing; 1:
+    such stock that covers part of it; 2: anything else. Another brand, another formula or a claim that is
+    not dietary do not keep it back; where the formula matters the group before this one already did."""
+    candidate, gap, check = judged.candidate, ranking.need.quantity, judged.replaceable
+    if candidate.state is not AvailabilityState.CONFIRMED or judged.last_resort or gap is None:
+        return 2
+    if check.other_type or check.other_use or check.other_flavour or check.plain_against_flavoured:
+        return 2
+    usable = candidate.assessment.usable_amount
+    covers = usable is not None and candidate.per_unit is not None and usable * candidate.per_unit >= gap
+    return 0 if covers else 1
+
+
 def _unconfirmed_for_the_rest(
     line: OfferLine, ranking: Ranking, orderable: Sequence[tuple[Judged, OfferLine]], keep: bool
 ) -> OfferLine | None:
     """Confirmed stock stands in and leaves part of the gap open: the first product whose quantity Valio does
-    not confirm, for the whole gap, as the labelled alternative. Under `keep` only one that keeps the formula."""
+    not confirm, for the whole gap, as the labelled alternative. Confirmed stock that covers the gap and is
+    not a like-for-like replacement: the unconfirmed product the ranking puts before it, if there is one.
+    Under `keep` only one that keeps the formula."""
     gap = ranking.need.quantity
     if line.availability.state is not AvailabilityState.CONFIRMED or gap is None:
         return None
-    if _content(line, ranking) >= gap:
+    unconfirmed = [
+        (judged, other) for judged, other in orderable
+        if judged.candidate.state is AvailabilityState.QUANTITY_NOT_CONFIRMED
+        and (judged.formula.keeps_formula or not keep)
+    ]
+    if _content(line, ranking) < gap:
+        return next((other for _, other in unconfirmed), None)
+    place = {each.candidate.product.id: index for index, each in enumerate(ranking.ranked)}
+    chosen = next(judged for judged, other in orderable if other is line)
+    if chosen.replaceable.verdict is ReplaceVerdict.REPLACEABLE:
         return None
     return next(
         (
-            other for judged, other in orderable
-            if judged.candidate.state is AvailabilityState.QUANTITY_NOT_CONFIRMED
-            and (judged.formula.keeps_formula or not keep)
+            other for judged, other in unconfirmed
+            if place[judged.candidate.product.id] < place[chosen.candidate.product.id]
         ),
         None,
     )

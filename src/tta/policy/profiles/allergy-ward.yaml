@@ -22,6 +22,9 @@ variable_weight: APPROVAL         # not set for this profile by SPEC section 7; 
 deposits: APPROVAL                # not set for this profile by SPEC section 7; the cautious value (P-07)
 require_confirmed: true           # the offer holds fully confirmed options only
 standing_order_drift_ratio: 0.1   # a ward's diet changes slowly: 10% from the median of its history goes to a human (P-08)
+formula_mode: LEARN               # ALWAYS · LEARN · WHEN_ASKED: the agent works out per product, from this
+                                  # buyer's decisions, past requests and customer file, where a substitute
+                                  # must keep the recipe (F-11); where nothing is learned, only when asked
 max_preference_premium_ratio: 0.1 # the ward prefers reliability; more than 10% above the cheapest confirmed
                                   # option goes to a human (P-09). At most 0.25, where the offer stops ranking
                                   # the preferred option first

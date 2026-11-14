@@ -14,9 +14,15 @@ from tta.contracts.common import AvailabilityState, Identity, OptionKind, Unit
 from tta.contracts.offer import Offer, OfferOption, SubstituteQuery
 from tta.offers import OfferDeps, OfferService, find_substitutes
 
-# Lactose-free creams of one category. ARLA and VALIO keep the formula of the cream asked for (fat 35 g and
-# 38 g against 36 g); COOKING is a 10 % cooking cream: a different formula.
+# Lactose-free creams of one category. COOKING is a 10 % cooking cream: a different formula from every other.
+# Lane FC2, since the contents decide the formula: CREAM (Arla Pro) lists a lactase enzyme that neither ARLA
+# nor VALIO lists, so no cream keeps its formula, although the figures agree (fat 35 g and 38 g against 36 g).
+# Where a test is about a stand-in that keeps the formula, the cream asked for is ARLA: VALIO keeps its formula
+# (another brand, the same components, fat 38 g against 35 g) and so does VALIO_10_L (Valio's cream in a
+# 10-litre box). The other way round VALIO loses nothing either, but ARLA does not carry VALIO's claim
+# VEGETARIAN, so it is no like-for-like replacement for it.
 CREAM, ARLA, VALIO, COOKING = "469346", "464727", "464194", "463797"
+VALIO_10_L = "463366"
 PLACEHOLDER = 999_999  # the amount Valio reports when it does not know the stock
 OAT, OAT_CASE = "473609", "471690"  # a 1-litre carton, and the case of 10 litres Valio lists as its substitute
 
@@ -49,27 +55,27 @@ def test_confirmed_stock_of_the_same_formula_stands_in_before_an_unconfirmed_pro
     serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
 ) -> None:
     service = serve(
-        [price(CREAM, "5.77"), price(ARLA, "7.37"), price(VALIO, "3.91")],
-        [stock(CREAM, 48), stock(ARLA, 37), stock(VALIO, PLACEHOLDER)],
+        [price(ARLA, "7.37"), price(VALIO, "3.91"), price(VALIO_10_L, "36.00")],
+        [stock(ARLA, 48), stock(VALIO, 37), stock(VALIO_10_L, PLACEHOLDER)],
     )
 
-    offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,)), agent_hotel)
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=(ARLA,)), agent_hotel)
 
     assert [option.kind for option in offer.options] == [
         OptionKind.BEST_CONFIRMED, OptionKind.SUBSTITUTE, OptionKind.ALTERNATIVE_UNCONFIRMED,
     ]
     _, with_substitute, alternative = offer.options
     # The 37 confirmed litres fill the gap as far as they go, and the option says what is still missing.
-    assert picked(with_substitute) == [(CREAM, 48), (ARLA, 37)]
+    assert picked(with_substitute) == [(ARLA, 48), (VALIO, 37)]
     assert with_substitute.coverage[0].missing == 15
     assert "85 L of the 100 L asked for (15 L missing)" in with_substitute.summary
     assert all(line.availability.state is AvailabilityState.CONFIRMED for line in with_substitute.lines)
     # Only then the product whose quantity Valio does not confirm, for the whole gap, labelled.
-    assert picked(alternative) == [(CREAM, 48), (VALIO, 52)]
+    assert picked(alternative) == [(ARLA, 48), (VALIO_10_L, 52)]
     assert alternative.title == "Alternative: quantity not confirmed"
-    assert f"({VALIO}), a substitute for" in alternative.summary
+    assert f"({VALIO_10_L}), a substitute for" in alternative.summary
     assert "Valio does not confirm the quantity in stock" in alternative.summary
-    assert alternative.lines[1].substitute.original_id == CREAM
+    assert alternative.lines[1].substitute.original_id == ARLA
 
 
 def test_with_no_confirmed_like_for_like_stock_the_unconfirmed_product_stands_in_as_before(
@@ -168,14 +174,14 @@ def test_where_the_formula_matters_a_substitute_that_keeps_it_stands_in_as_usual
     serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
 ) -> None:
     service = serve(
-        [price(CREAM, "5.77"), price(COOKING, "3.31"), price(VALIO, "3.91")],
-        [stock(CREAM, 48), stock(COOKING, 500), stock(VALIO, PLACEHOLDER)],
+        [price(ARLA, "7.37"), price(COOKING, "3.31"), price(VALIO, "3.91")],
+        [stock(ARLA, 48), stock(COOKING, 500), stock(VALIO, PLACEHOLDER)],
     )
 
-    offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,), keep_formula=True), agent_hotel)
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=(ARLA,), keep_formula=True), agent_hotel)
 
     with_substitute = with_stand_in(offer)
-    assert picked(with_substitute) == [(CREAM, 48), (VALIO, 52)]
+    assert picked(with_substitute) == [(ARLA, 48), (VALIO, 52)]
     assert with_substitute.title == "Alternative: quantity not confirmed"  # 52 L of it are not confirmed
     assert COOKING not in {line.product_id for option in offer.options for line in option.lines}
     assert "F-11" not in with_substitute.decision.rule_ids
@@ -252,8 +258,9 @@ def test_two_products_that_fill_a_line_and_differ_in_formula_are_said(
     assert picked(option) == [(COOKING, 40), (VALIO, 30)]
     assert (
         " Valio whipping cream 1 l UHT lactose free (464194) differs in formula from Arla Pro Cooking cream 10% 1 L "
-        "UHT lactose free (463797), which fills the same request line: fat 38 g, not 10 g, saturated fat 22 g, not "
-        "6.5 g, carbohydrate 2.8 g, not 5.1 g, sugars 2.8 g, not 4.2 g."
+        "UHT lactose free (463797), which fills the same request line: contains stabiliser (carrageenan) and lacks "
+        "MILK PRODUCTS, modified maize starch, stabilizers (E471, E466); fat 38 g, not 10 g, saturated fat 22 g, "
+        "not 6.5 g, carbohydrate 2.8 g, not 5.1 g, sugars 2.8 g, not 4.2 g."
     ) in option.summary
 
 
@@ -272,3 +279,17 @@ def test_where_the_formula_matters_the_unconfirmed_product_asked_for_comes_befor
     ]
     # Without the request's word the confirmed stand-in is the suggestion, as before.
     assert [picked(option) for option in without.options] == [[(COOKING, 100)], [(CREAM, 100)]]
+
+
+def test_two_products_that_differ_only_in_contents_name_the_components(
+    serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # Lane FC2. 469346 lists a lactase enzyme and 464727 does not; their six figures are within tolerance, so
+    # the sentence used to end "…the same request line: ." with nothing after the colon.
+    cream, other = "469346", "464727"
+    service = serve([price(cream, "5.32"), price(other, "5.40")], [stock(cream, 40), stock(other, 40)])
+
+    option = service.build_offer(make_request(70, Unit.L, product_ids=(cream, other)), agent_hotel).options[0]
+
+    assert "which fills the same request line: lacks lactase enzyme." in option.summary
+    assert "request line: ." not in option.summary

@@ -53,6 +53,7 @@ from starlette.concurrency import run_in_threadpool
 
 from tta.agent.dishes import read_dishes
 from tta.api.customers import customer_view
+from tta.api.insights import Period, insights, is_recorded
 from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, KITCHEN_PROFILE_ID, Sandbox, file_profile
 from tta.api.standing_routes import with_set_up_limits
 from tta.config import Settings
@@ -581,6 +582,13 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
 
         return answer(request, call)
 
+    @app.get(API + "/learned")
+    def learned(request: Request) -> Response:
+        """Where the recipe matters for the shop's selected customer, as the gateway learns it now from the book's
+        decisions on substitutes, its past requests and the customer file (`tta.customers.learned`): the mode in
+        force, one finding per usual product with its source and evidence, and one line for the side card."""
+        return answer(request, lambda one: one.service.get_learned(KITCHEN_AGENT), needs_settings=True)
+
     def own_profile(one: Sandbox, customer_id: str) -> BuyerProfile:
         """The book's own settings once the shop sent them; the customer's profile file until then."""
         return one.kitchen.profile if one.kitchen.is_set_up else file_profile(customer_id)
@@ -654,6 +662,20 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         return answer(
             request, lambda one: one.service.get_audit(KITCHEN_APPROVERS[0], reader=reader, order_id=order_id)
         )
+
+    @app.get(API + "/backoffice")
+    def backoffice(request: Request, period: Period = Period.TODAY) -> Response:
+        """Valio Aimo's back office of this demonstration (`tta.api.insights`, as `GET /v1/insights`): the figures of
+        this browser's order books of the shop's four customers together, counted from Valio Aimo's view of each
+        event, as "What Valio Aimo sees" reads one order. It is Valio Aimo's screen, not the customer's. It opens no
+        book: a customer nobody shopped as adds nothing."""
+        refused = _guard(request)
+        if refused is not None:
+            return refused
+        books = [site.sandboxes.find(f"{security.book_key(request)}.{each}") for each in SHOP_KITCHENS.values()]
+        events = [event for one in books if one is not None for event in one.store.list_audit_events()]
+        now = data_clock(site.settings, replay).now()
+        return _json(insights(events, now=now, period=period, recorded=is_recorded(site.settings)))
 
     @app.post(API + "/start-again")
     def start_again(request: Request) -> Response:

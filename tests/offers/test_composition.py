@@ -9,6 +9,7 @@ from decimal import Decimal
 import pytest
 
 from tta.catalog import ProductCatalog
+from tta.catalog.qualifiers import Qualifiers
 from tta.contracts.product import IngredientStatement, Product
 from tta.offers.composition import ContentsCheck, compare_contents, normalise, parse_statement
 
@@ -228,8 +229,11 @@ def test_the_demo_products(
 
 def test_the_pairs_valio_lists_by_what_their_ingredient_lists_show(catalog: ProductCatalog) -> None:
     # Whole catalog, the 249 pairs Valio lists: compared and the same, compared and different, not compared
-    # (43 originals and 6 substitutes with no list). Of the 140 that differ, 18 differ only in pairs "not shown
-    # to be the same" (a wording that may name the same component).
+    # (43 originals and 6 substitutes with no list). Of the 138 that differ, 16 differ only in pairs "not shown
+    # to be the same" (a wording that may name the same component). Before lane FC2 read the words of origin
+    # and farming from the catalog: 60 the same, 140 different, 18 unsure only. The two that moved: 468876
+    # with 462281 ("Finnish chicken fillet") and 469369 with 469532 ("Dried organic apples"). Five more
+    # differ by a word of processing ("pasteurised", "unpasteurised cow's", "frozen") and stay differences.
     found = [
         compare_contents(product, catalog.get_product(other))
         for product in catalog.products
@@ -243,10 +247,10 @@ def test_the_pairs_valio_lists_by_what_their_ingredient_lists_show(catalog: Prod
     ]
 
     assert len(found) == 249
-    assert sum(each.compared and not each.differs for each in found) == 60
-    assert sum(each.differs for each in found) == 140
+    assert sum(each.compared and not each.differs for each in found) == 62
+    assert sum(each.differs for each in found) == 138
     assert sum(not each.compared for each in found) == 49
-    assert len(unsure_only) == 18
+    assert len(unsure_only) == 16
 
 
 def test_every_statement_of_the_catalog_can_be_read(catalog: ProductCatalog) -> None:
@@ -256,3 +260,76 @@ def test_every_statement_of_the_catalog_can_be_read(catalog: ProductCatalog) -> 
 
     assert len(statements) == 38_330
     assert empty < 60
+
+
+# --- words of origin and farming (lane FC2, decision B49) --------------------------------------------------
+
+ORIGIN = Qualifiers(origin_words=frozenset({"organic", "finnish"}), places=frozenset({"eu", "finland", "non eu"}))
+
+
+def _with_origin(original: str, other: str) -> ContentsCheck:
+    return compare_contents(_product(("en", original)), _product(("en", other)), ORIGIN)
+
+
+def test_without_a_table_a_word_of_origin_is_still_not_shown_to_be_the_same() -> None:
+    found = _compare("organic CREAM, salt", "CREAM, salt")  # no catalog loaded: no qualifier is known
+
+    assert found.not_shown_same == (("organic CREAM", "CREAM"),)
+    assert found.differs
+
+
+@pytest.mark.parametrize(
+    ("original", "other", "said"),
+    [
+        ("organic CREAM, salt", "CREAM, salt", ("organic CREAM", "CREAM")),
+        ("CREAM, salt", "Finnish CREAM, salt", ("CREAM", "Finnish CREAM")),
+        ("Dried organic apples", "Dried apples", ("Dried organic apples", "Dried apples")),
+        ("WHEAT (EU), salt", "WHEAT (Finland), salt", ("WHEAT (EU)", "WHEAT (Finland)")),
+        ("MILK (origin Finland), salt", "MILK, salt", ("MILK (origin Finland)", "MILK")),
+        ("PECAN NUT 3,5% (non-EU)", "PECAN NUTS 3.5%", ("PECAN NUT 3,5% (non-EU)", "PECAN NUTS 3.5%")),
+        ("WHEAT: EU, salt", "WHEAT, salt", ("WHEAT: EU", "WHEAT")),
+    ],
+)
+def test_a_word_of_origin_or_farming_is_no_difference_and_is_said(
+    original: str, other: str, said: tuple[str, str]
+) -> None:
+    found = _with_origin(original, other)
+
+    assert not found.differs
+    assert found.same_but_for_origin == (said,)
+
+
+@pytest.mark.parametrize(
+    ("original", "other"),
+    [
+        ("pasteurised MILK", "MILK"),  # processing: it can change how the ingredient behaves
+        ("organic pasteurised MILK", "organic MILK"),
+        ("vegetable oil (rapeseed)", "vegetable oil (EU)"),  # what the brackets hold is not an origin
+        ("organic CREAM", "organic MILK"),
+    ],
+)
+def test_a_word_of_processing_and_another_component_stay_differences(original: str, other: str) -> None:
+    assert _with_origin(original, other).differs
+
+
+def test_the_same_word_of_processing_on_both_is_the_same_component() -> None:
+    found = _with_origin("organic pasteurised MILK, salt", "pasteurised MILK, salt")
+
+    assert not found.differs
+    assert found.same_but_for_origin == (("organic pasteurised MILK", "pasteurised MILK"),)
+
+
+def test_a_pair_not_shown_to_be_the_same_is_not_also_said_as_the_same() -> None:
+    found = _with_origin("Organic Chia seeds (Salvia hispanica)", "Chia seeds")
+
+    assert found.not_shown_same == (("Organic Chia seeds (Salvia hispanica)", "Chia seeds"),)
+    assert found.same_but_for_origin == ()
+
+
+def test_the_real_catalogs_words_are_read_when_no_table_is_given(catalog: ProductCatalog) -> None:
+    # 468876 lists "chicken fillet", Valio's listed 462281 "Finnish chicken fillet": the word was found from
+    # the catalog (393 products use it, 73% of them carry the Finnish-origin mark).
+    found = compare_contents(catalog.get_product("468876"), catalog.get_product("462281"))
+
+    assert not found.differs
+    assert ("chicken fillet", "Finnish chicken fillet") in found.same_but_for_origin

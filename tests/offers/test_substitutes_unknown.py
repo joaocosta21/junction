@@ -65,7 +65,7 @@ def test_a_variant_word_the_data_does_not_explain_is_never_replaceable() -> None
     assert check.name_difference is True
     assert (check.original_name_words, check.name_words) == (("Xyzzy",), ("Vanilla",))
     assert check.reasons[-1] == (
-        "it cannot be shown to be like for like: the names differ in “Xyzzy” against “Vanilla”, which the data "
+        "it cannot be shown to be like for like: the names differ in Xyzzy against Vanilla, which the data "
         "does not explain"
     )
     # The flavour reason no longer claims the original is plain: its name has a word nobody can read.
@@ -77,8 +77,8 @@ def test_the_milk_powders_high_heat_and_instant_are_no_longer_called_replaceable
 
     assert check.verdict is ReplaceVerdict.NOT_LIKE_FOR_LIKE
     assert check.sentence == (
-        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in “high heat” "
-        "against “instant”, which the data does not explain."
+        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in high heat "
+        "against instant, which the data does not explain."
     )
 
 
@@ -88,7 +88,7 @@ def test_a_pair_valio_lists_says_the_difference_and_stays(judge: Callable[..., A
 
     assert check.sentence == (
         "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
-        "for like: its name adds “Delight”, which the data does not explain."
+        "for like: its name adds Delight, which the data does not explain."
     )
     profile = policy.get_profile("hotel-kitchen")
     result = find_substitutes(BARISTA, profile, demo_deps, SubstituteQuery(quantity=Decimal(100)))

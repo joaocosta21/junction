@@ -8,11 +8,13 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from decimal import Decimal
+from functools import cached_property
 
 from tta.catalog import lots, pack
 from tta.catalog import search as catalog_search
 from tta.catalog.loader import load_products
 from tta.catalog.product_types import ProductType, load_product_types
+from tta.catalog.qualifiers import Qualifiers, derive_qualifiers, provide_qualifiers
 from tta.config import Settings
 from tta.contracts.availability import PriceLine
 from tta.contracts.common import Unit
@@ -42,7 +44,16 @@ class ProductCatalog:
     def from_settings(cls, settings: Settings) -> ProductCatalog:
         """Load the product file, the two comparison files and the product-type table. About a second."""
         products = load_products(settings.tta_product_file, settings.tta_reliability_file, settings.tta_carbon_file)
-        return cls(products, load_product_types())
+        catalog = cls(products, load_product_types())
+        # The comparison of two ingredient lists reads the qualifiers of the product file. Measured on first
+        # use (about 3 seconds for 38,330 statements), not at load, and once per catalog.
+        provide_qualifiers(lambda: catalog.qualifiers)
+        return catalog
+
+    @cached_property
+    def qualifiers(self) -> Qualifiers:
+        """The words of origin and farming, measured from this catalog's own ingredient statements."""
+        return derive_qualifiers(self._products)
 
     @property
     def products(self) -> tuple[Product, ...]:

@@ -129,8 +129,10 @@ def _plain_against_flavoured(check: ReplaceCheck) -> str:
 
 
 def _quoted(words: Sequence[str]) -> str:
-    """Words of a product name inside a sentence: text of the product file, entered like a name."""
-    return f"“{plain_name(' '.join(words))}”"
+    """Words of a product name inside a sentence: text of the product file, entered like a name, with no
+    quotation mark around it: no sentence of an offer carries one, so that no file text can close one
+    (`tests/offers/test_untrusted_names.py`)."""
+    return plain_name(" ".join(words))
 
 
 def _name_difference(check: ReplaceCheck) -> str:

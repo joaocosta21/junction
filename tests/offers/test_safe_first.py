@@ -150,3 +150,40 @@ def test_a_doubtful_product_named_by_id_comes_after_a_safe_substitute_for_it(
     assert allergen_status(first) == {ClaimStatus.CONFIRMED}
     assert (second.title, second.product_ids) == (DOUBT_TITLE, ("469512",))
     assert not any("no option is suggested as safe" in note for note in offer.notes)
+
+
+# --- a safe substitute is titled by its real reason (lane FC2) ----------------------------------------------
+
+SAFE_SWAP_TITLE = "With a substitute whose data rules out the allergen you exclude"
+
+
+def test_a_substitute_chosen_for_an_allergen_is_not_titled_as_a_supply_problem(
+    service: OfferService, make_request: Callable[..., Any], agent_hotel: Identity
+) -> None:
+    """The hotel, 100 L of Elovena barista oat drink 469512 without milk. 100 of it are confirmed in stock: it
+    can be supplied. It was replaced because its data states nothing about milk. Before, the first option was
+    titled "With a substitute for a product that cannot be supplied in full"."""
+    request = make_request(
+        100, Unit.L, product_ids=("469512",), exclude_allergens=("AM",), allergen_strictness=AllergenStrictness.STRICT
+    )
+
+    first, second = service.build_offer(request, agent_hotel).options[:2]
+
+    assert (first.kind, first.title, first.product_ids) == (OptionKind.SUBSTITUTE, SAFE_SWAP_TITLE, ("473424",))
+    assert first.summary == (
+        "Alpro Rice drink 1L (473424) in place of Elovena 1l oat drink barista (469512): the 100 L asked for, for "
+        "€236.00 before tax. Elovena 1l oat drink barista (469512) states nothing about milk (AM), which is "
+        "excluded; Alpro Rice drink 1L (473424) is free from it. Its data rules out every excluded allergen; the "
+        "alternative whose data does not costs €28.00 less."
+    )
+    assert (second.title, second.product_ids) == (DOUBT_TITLE, ("469512",))  # the product asked for can be supplied
+
+
+def test_a_substitute_for_a_product_that_cannot_be_supplied_keeps_its_title(
+    service: OfferService, make_request: Callable[..., Any], agent_hotel: Identity
+) -> None:
+    # Scenario 3 without an exclusion: 473609 has no confirmed stock, and that is why it is replaced.
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=("473609",)), agent_hotel)
+
+    assert offer.options[0].title == "With a substitute for a product that cannot be supplied in full"
+    assert "is free from it" not in offer.options[0].summary

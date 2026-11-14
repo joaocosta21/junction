@@ -28,6 +28,7 @@ deposits: APPROVAL                # the cautious value (P-07)
 require_confirmed: false          # true: the offer holds fully confirmed options only
 standing_order_drift_ratio: 0.25  # a renewal 25% above or below the median of its history goes to a human (P-08)
 formula_matters: true             # its products are ingredients: the formula check holds on every line
+formula_mode: ALWAYS              # ALWAYS · LEARN · WHEN_ASKED; ALWAYS goes with formula_matters: true
 max_preference_premium_ratio: 0.1 # the bakery prefers reliability; more than 10% above the cheapest confirmed
                                   # option goes to a human (P-09). At most 0.25, where the offer stops ranking
                                   # the preferred option first

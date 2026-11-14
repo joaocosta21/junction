@@ -195,10 +195,12 @@ def test_substitutes_rank_by_formula_then_pack_size_then_verification_then_price
     result = find_substitutes(A, policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
 
     orderable = [candidate.product_id for candidate in result.candidates if candidate.orderable]
-    # Same category and none listed. Lane L2a (P10 F3): the formula ranks before the pack size, so the two with
-    # the original's formula come first (the 10-litre box, then the carton whose quantity is not confirmed),
-    # then the other 1-litre cartons, the cheaper before the dearer.
-    assert orderable == ["464179", "464306", B, C]
+    # Same category and none listed. Lane L2a (P10 F3): the formula ranks before the pack size, so the one with
+    # the original's formula comes first (the 10-litre box: the same components and the same figures). Then
+    # the 1-litre cartons of another formula: the two with confirmed stock, the cheaper before the dearer,
+    # then the one whose quantity is not confirmed. Lane FC2: 464306 came second while the figures alone
+    # decided; its ingredient list lacks the "MILK PRODUCT" the original's names, so it keeps no formula.
+    assert orderable == ["464179", B, C, "464306"]
     by_id = {candidate.product_id: candidate for candidate in result.candidates}
     assert by_id[B].price_difference == Decimal("0.09")
     assert by_id["464306"].price_difference == Decimal("-1.47")

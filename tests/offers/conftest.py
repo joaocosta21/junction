@@ -6,7 +6,7 @@ No test here calls a live service.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from tta.catalog import ProductCatalog
+from tta.catalog.qualifiers import no_qualifiers, provide_qualifiers
 from tta.config import Settings
 from tta.contracts.availability import (
     AvailabilityLine,
@@ -170,6 +171,19 @@ def _request(
         require_confirmed=require_confirmed,
         lines=(RequestLine(quantity=Decimal(quantity), unit=unit, **line),),
     )
+
+
+@pytest.fixture(autouse=True)
+def _qualifiers_of_this_test(request: pytest.FixtureRequest) -> Iterator[None]:
+    """The words of origin and farming a comparison reads (`tta.catalog.qualifiers`): the real catalog's for a
+    test that uses the catalog, none for any other, so that no test depends on which one ran before it."""
+    if "catalog" in request.fixturenames:
+        loaded = request.getfixturevalue("catalog")
+        provide_qualifiers(lambda: loaded.qualifiers)
+    else:
+        provide_qualifiers(no_qualifiers)
+    yield
+    provide_qualifiers(no_qualifiers)
 
 
 @pytest.fixture(scope="session")

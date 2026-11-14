@@ -13,8 +13,9 @@ from tta.contracts.common import Identity, IdentityKind, OptionKind, Unit
 from tta.contracts.offer import Offer, OfferOption
 from tta.offers import OfferDeps, OfferService
 
-# As in test_stand_in_formula.py: VALIO keeps the formula of CREAM, COOKING (10 % fat) does not.
-CREAM, VALIO, COOKING = "469346", "464194", "463797"
+# As in test_stand_in_formula.py: VALIO keeps the formula of ARLA; nothing keeps the formula of CREAM (it lists a
+# lactase enzyme, lane FC2); COOKING (10 % fat) keeps neither.
+CREAM, VALIO, COOKING, ARLA = "469346", "464194", "463797", "464727"
 LIGHT_CREME_FRAICHE = "468277"  # Valio Hyvä suomalainen Arki créme fraîche 12 % 180 g lactose free
 PLACEHOLDER = 999_999  # the amount Valio reports when it does not know the stock
 CREME_FRAICHE, TZATZIKI = "477055", "470260"
@@ -43,16 +44,19 @@ def of_kind(offer: Offer, kind: OptionKind) -> OfferOption | None:
 def test_the_bakery_gets_the_formula_keeper_first_without_saying_the_word(
     serve: Any, price: Any, stock: Any, make_request: Any, agent_bakery: Identity
 ) -> None:
+    # Lane FC2: the cream asked for is Arla's 464727. VALIO keeps its formula (the same components, fat 38 g
+    # against 35 g, another brand). Arla Pro's CREAM lists a lactase enzyme no other cream lists, so since the
+    # contents decide no stand-in keeps its formula: that case is the next test.
     service = serve(
-        [price(CREAM, "5.77"), price(COOKING, "3.31"), price(VALIO, "3.91")],
-        [stock(CREAM, 48), stock(COOKING, 500), stock(VALIO, PLACEHOLDER)],
+        [price(ARLA, "7.37"), price(COOKING, "3.31"), price(VALIO, "3.91")],
+        [stock(ARLA, 48), stock(COOKING, 500), stock(VALIO, PLACEHOLDER)],
     )
 
-    offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,)), agent_bakery)
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=(ARLA,)), agent_bakery)
 
     # The stand-in's quantity is not confirmed: the option is an alternative (Python review, item P2).
     with_substitute = of_kind(offer, OptionKind.ALTERNATIVE_UNCONFIRMED)
-    assert [(line.product_id, line.quantity) for line in with_substitute.lines] == [(CREAM, 48), (VALIO, 52)]
+    assert [(line.product_id, line.quantity) for line in with_substitute.lines] == [(ARLA, 48), (VALIO, 52)]
     assert with_substitute.title == "Alternative: quantity not confirmed"
     assert COOKING not in {line.product_id for option in offer.options for line in option.lines}
     assert "F-11" not in with_substitute.decision.rule_ids

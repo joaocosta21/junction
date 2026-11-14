@@ -1,13 +1,14 @@
 // The side panel of the request page: the rules in force as the gateway states them (its answer to this
 // customer's settings call, never this browser's copy), the coming deliveries and what the agent knows.
-import { app, dataToday, deliveryOf, pendingApprovals, spendToday } from "../core.js";
+import { app, dataToday, deliveryOf, pendingApprovals, render, spendToday } from "../core.js";
 import { customerOf } from "../customer.js";
 import { html, isoDay, money, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { allergenName, allergenRule } from "../kitchens.js";
-import { active, mine } from "../store.js";
+import { active, memory, mine } from "../store.js";
 import { plain } from "../words.js";
 import { netTotal } from "./parts.js";
+import { recipeMode } from "./settings.js";
 
 function allergensText(profile) {
   const codes = profile.excluded_allergens || [];
@@ -17,7 +18,29 @@ function allergensText(profile) {
 
 // Two settings as a person says them, as the gateway applies them to this customer now (the rule ids stay in each
 // order's log and on the developer pages).
-const recipeText = (profile) => (profile.formula_matters ? "yes" : "when the request says so");
+const RECIPE_WORDS = { ALWAYS: "always", LEARN: "learned from your orders", WHEN_ASKED: "only when you say so" };
+const recipeText = (profile) => RECIPE_WORDS[recipeMode(profile)];
+
+// What the gateway has learned for this customer (GET /shop/api/learned), computed there on every call and stored
+// nowhere. Read again when the mode or an order's state changes: a decision on a substitute teaches the agent.
+const learned = {}; // key -> the route's answer, or null while it is on its way or when it failed
+const learnedKey = (profile) => [memory.active, recipeMode(profile), ...app.data.orders.map((o) => `${o.order_id}:${o.status}`)].join("|");
+
+function learnedLine(profile) {
+  if (recipeMode(profile) !== "LEARN") return "";
+  const key = learnedKey(profile);
+  if (!(key in learned)) {
+    learned[key] = null;
+    fetch("/shop/api/learned", { headers: { "X-Shop-Request": "1", "X-Shop-Kitchen": memory.active }, credentials: "same-origin" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((view) => {
+        learned[key] = view;
+        if (view) render();
+      })
+      .catch(() => {}); // the card stays without the line; the offers still say what was applied
+  }
+  return learned[key]?.summary ? html`<p class="small muted">${plain(learned[key].summary)}</p>` : "";
+}
 
 function premiumText(profile) {
   const ratio = profile.max_preference_premium_ratio;
@@ -55,6 +78,7 @@ function rulesCard() {
     <div class="kv"><span>Agent orders alone</span><b>${p.auto_order_enabled ? "when all is confirmed" : "never: you confirm"}</b></div>
     <div class="kv"><span>Allergens kept out</span><b>${allergensText(p)}</b></div>
     <div class="kv"><span>Substitutes must keep the recipe</span><b>${recipeText(p)}</b></div>
+    ${learnedLine(p)}
     <div class="kv"><span>A preference may cost</span><b>${premiumText(p)}</b></div>
     ${waitingRow}
     <p class="small muted">As the gateway applies them to this customer's orders now.${authority.note ? html` ${plain(authority.note)}` : ""}</p>

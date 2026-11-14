@@ -64,14 +64,19 @@ def test_what_is_given_up_is_said_in_numbers(service: OfferService, agent_hotel:
     # it as a substitute; Valio does not confirm the quantity in stock."
     assert by_id[COOKING_CREAM].gives_up == (
         "Not a like-for-like replacement: made for cooking; the product asked for is made for whipping; a "
-        "different formula (fat 15 g, not 38 g, saturated fat 8.8 g, not 22 g, carbohydrate 5.3 g, not 2.8 g). "
+        "different formula (contains water, modified starch, which the product asked for does not; lacks "
+        "stabiliser (carrageenan), which the product asked for contains; fat 15 g, not 38 g, saturated fat 8.8 g, "
+        "not 22 g, carbohydrate 5.3 g, not 2.8 g). "
         "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list it as a substitute; Valio "
-        "does not confirm the quantity in stock. Different formula: fat 15 g, not 38 g; saturated fat 8.8 g, not "
-        "22 g; carbohydrate 5.3 g, not 2.8 g per 100 g. Only this product's ingredient list names a modified "
-        "starch. Only the original's ingredient list names a stabiliser."
+        "does not confirm the quantity in stock. Different contents: this product's ingredient list names water "
+        "and modified starch, which the list of the product asked for does not; the ingredient list of the "
+        "product asked for names stabiliser (carrageenan), which this product's does not. Figures outside our "
+        "tolerance: fat 15 g, not 38 g; saturated fat 8.8 g, not 22 g; carbohydrate 5.3 g, not 2.8 g per 100 g."
     )
+    # Lanes FC and FC2: the contents are said before the figures, and a kept formula says the lists agree.
     assert by_id["463837"].gives_up.endswith(
-        "The data shows no difference in formula: same brand, and the six nutrition figures per 100 g are equal."
+        "The data shows no difference in formula: same brand, and the six nutrition figures per 100 g are equal. "
+        "The two ingredient lists name the same components."
     )
     assert "Same formula within our tolerance of 15% or 1 g per nutrient (salt 0.25 g): fat 35 g against 38 g" in (
         by_id["465193"].gives_up
@@ -88,9 +93,11 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
     alternative = next(option for option in offer.options if option.kind is OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert [(line.product_id, line.quantity) for line in confirmed.lines] == [(ARLA_PRO_WHIPPING, 48)]
     assert VEGETABLE_MIX not in {line.product_id for option in offer.options for line in option.lines}
-    # Lane L2a-2: confirmed stock of the same formula first. 464727 (Arla, 37 L confirmed) fills the gap as far
-    # as it goes and 15 L stay missing; the cream whose quantity Valio does not confirm is the labelled
-    # alternative for the whole 52 L. Before, that one was the stand-in.
+    # Lane L2a-2: confirmed stock first. 464727 (Arla, 37 L confirmed) fills the gap as far as it goes and 15 L
+    # stay missing; the cream whose quantity Valio does not confirm is the labelled alternative for the whole
+    # 52 L. Before, that one was the stand-in. Lane FC2: neither keeps the formula of 469346, which lists a
+    # lactase enzyme they do not list; both are whipping creams, so for the hotel the confirmed one of the same
+    # kind still stands in first, and each says what it lacks.
     confirmed_stand_in = substitute.lines[1]
     assert (confirmed_stand_in.product_id, confirmed_stand_in.quantity) == ("464727", 37)
     assert substitute.coverage[0].missing == 15
@@ -98,13 +105,13 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
     stand_in = alternative.lines[1]
     assert (stand_in.product_id, stand_in.quantity) == (VALIO_WHIPPING, 52)
     assert stand_in.substitute.gives_up == (
-        "Replaceable: same type, same use, no flavour named, same formula within tolerance. "
-        "Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; Valio does "
-        "not list it as a substitute; Valio does not confirm the quantity in stock. Same formula within our "
-        "tolerance of 15% or 1 g per nutrient (salt 0.25 g): fat 38 g against 36 g; saturated fat 22 g against "
-        "23 g; protein 2 g against 2.2 g; carbohydrate 2.8 g against 2.9 g; sugars 2.8 g against 2.9 g; salt "
-        "0.07 g against 0.06 g per 100 g."
+        "Not a like-for-like replacement: a different formula (lacks lactase enzyme, which the product asked for "
+        "contains). Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; "
+        "Valio does not list it as a substitute; Valio does not confirm the quantity in stock. Different contents: "
+        "the ingredient list of the product asked for names lactase enzyme, which this product's does not. The "
+        "six nutrition figures are within our tolerance of 15% or 1 g per nutrient (salt 0.25 g)."
     )
+    assert confirmed_stand_in.substitute.formula.only_in_original == ("lactase enzyme",)
     assert str(alternative.totals.net) == "480.28"
 
 
@@ -146,22 +153,36 @@ def test_every_judged_candidate_carries_its_formula_check(
     by_id = {judged.candidate.product.id: judged for judged in ranking.ranked}
     assert VEGETABLE_MIX not in by_id  # product type vegetable_cream: held back while a cream can be ordered
     assert all(judged.replaceable.sentence for judged in ranking.ranked)
-    assert by_id[VALIO_WHIPPING].formula.outcome is FormulaOutcome.OTHER_BRAND
-    assert by_id["464727"].formula.keeps_formula
+    # Lane FC2: the six figures of both are within tolerance of 469346's, and neither lists its lactase enzyme.
+    for other in (VALIO_WHIPPING, "464727"):
+        assert by_id[other].formula.outcome is FormulaOutcome.DIFFERENT
+        assert by_id[other].formula.only_in_original == ("lactase enzyme",)
+        assert all(each.within_tolerance for each in by_id[other].formula.differences)
+    assert not any(judged.formula.keeps_formula for judged in ranking.ranked)
 
 
 @pytest.mark.parametrize(
     ("original", "other", "words"),
     [
         # Scenario 3. The listed substitute's figures are per 100 g and the original's per 100 ml: two drinks.
-        ("473609", "471690", "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml. Figures per "
-                             "100 g compared with per 100 ml as they stand: for a drink the two are about 3% "
-                             "apart (our rule)."),
-        # Lane L2a-2 (P10 item F9): an additive only one ingredient list names is said after the figures.
-        ("473609", "475224", "Different formula: carbohydrate 7.8 g, not 6.6 g; sugars 1.6 g, not 3.5 g per 100 ml. "
-                             "Only this product's ingredient list names a stabiliser."),
-        ("473609", "468465", "Different formula: fat 1 g, not 3 g per 100 ml. Only the original's ingredient list "
-                             "names an acidity regulator."),
+        # Its ingredient list names the components of the original's: only the fat differs.
+        ("473609", "471690", "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml. The two "
+                             "ingredient lists name the same components. Figures per 100 g compared with per "
+                             "100 ml as they stand: for a drink the two are about 3% apart (our rule)."),
+        # Lanes FC and FC2: the components only one ingredient list names are said before the figures, in the
+        # labels' own words (before: "Only this product's ingredient list names a stabiliser").
+        ("473609", "475224", "Different contents: this product's ingredient list names OAT base (water, "
+                             "gluten-free OAT 10%) and stabilizer (gellan gum), which the list of the product "
+                             "asked for does not; the ingredient list of the product asked for names gluten-free "
+                             "OAT flour 10 % and iodine, which this product's does not; iodized salt against "
+                             "salt: not shown to be the same; riboflavin against riboflavin (B2): not shown to "
+                             "be the same; vitamins (riboflavin, D3, B12) against vitamins (riboflavin (B2), "
+                             "B12, D2): not shown to be the same. Figures outside our tolerance: carbohydrate "
+                             "7.8 g, not 6.6 g; sugars 1.6 g, not 3.5 g per 100 ml."),
+        ("473609", "468465", "Different contents: the ingredient list of the product asked for names acidity "
+                             "regulator (potassium phosphates), which this product's does not; gluten-free OAT "
+                             "(10 %) against gluten-free OAT flour 10 %: not shown to be the same. Figures "
+                             "outside our tolerance: fat 1 g, not 3 g per 100 ml."),
     ],
 )
 def test_scenario_3_says_the_formula_of_each_candidate(

@@ -25,11 +25,13 @@ from tta.api.suggesting import (
     OfferSuggestions,
     OfferSuggestionsView,
     acceptance_not_recorded,
+    customer_on_file,
     without_acceptance,
 )
 from tta.contracts.agent import AgentRun, Reading
 from tta.contracts.audit import SYSTEM_ACTOR, AuditContext, AuditEventType, AuditView
 from tta.contracts.common import ApprovalStatus, AuditReader, Identity, OrderStatus
+from tta.contracts.customer import Customer
 from tta.contracts.errors import (
     InvalidRequest,
     NotAuthorised,
@@ -55,6 +57,7 @@ from tta.contracts.ports import (
 )
 from tta.contracts.product import Product, SearchResult
 from tta.contracts.request import MAX_PRODUCT_IDS, ProductQuery, PurchaseRequest
+from tta.customers.learned import APPLIED_FACT, LearnedView, Prepared, learned_view, prepare, said_on
 from tta.orders.access import actor_of
 
 MAX_LIST_ITEMS = 100  # the most a list answers: orders, approvals, audit events, products of a search
@@ -100,6 +103,11 @@ A_PHOTO = "A photo of an order list ({media_type}, {size:,} bytes) that could no
 NO_AGENT_RUNNER = (
     "This gateway has no buyer agent running, so it cannot act on free text. "
     "Send the typed request to POST /v1/offers and the chosen option to POST /v1/orders instead."
+)
+
+LEARNING_FAILED = (
+    "What the gateway learned about where the recipe matters was not applied to this request: working it out "
+    "failed inside the gateway, and the failure is logged. The offer is built from the request as it was sent."
 )
 
 TEXT_OF_LINES = "; "  # between the words of two request lines, in "request received"
@@ -232,8 +240,35 @@ class Gateway:
         self._deps.limiter.check(identity, CallKind.LOOKUP)
         return self._offer(identity, request)
 
+    def get_learned(self, identity: Identity) -> LearnedView:
+        """Where the recipe matters for the caller's buyer, as the gateway learns it now from its decisions, its
+        past requests and its customer file (`tta.customers.learned`). The buyer's own view: computed, not stored."""
+        profile = self._deps.policy.get_profile(_require_buyer_side(identity))
+        return learned_view(profile=profile, customer=self._customer(identity), store=self._deps.store,
+                            catalog=self._deps.catalog)
+
+    def _customer(self, identity: Identity) -> Customer | None:
+        suggesting = self._deps.suggestions
+        return suggesting.customer_of(identity) if suggesting is not None else customer_on_file(identity)
+
+    def _prepared(self, identity: Identity, request: PurchaseRequest) -> tuple[Prepared, tuple[str, ...]]:
+        """The request as the offer is built from it: in the buyer's mode LEARN, each line whose product's recipe is
+        learned to matter says so (`keep_formula`). A failure here never fails the offer: it is built from the
+        request as sent, and a note says so."""
+        try:
+            profile = self._deps.policy.get_profile(_require_buyer_side(identity))
+            return prepare(request, profile=profile, customer=self._customer(identity), store=self._deps.store,
+                           catalog=self._deps.catalog), ()
+        except Exception:
+            logger.exception("What is learned for %s could not be applied to a request.", identity.profile_id)
+            return Prepared(request=request, original=request), (LEARNING_FAILED,)
+
     def _offer(self, identity: Identity, request: PurchaseRequest) -> Offer:
-        offer = self._deps.offers.build_offer(request, identity)
+        prepared, problems = self._prepared(identity, request)
+        # The offer keeps the request as the buyer sent it; what the gateway applied is a note and an audit fact.
+        offer = said_on(self._deps.offers.build_offer(prepared.request, identity), prepared)
+        if problems:
+            offer = offer.model_copy(update={"notes": (*offer.notes, *problems)})
         suggesting = self._deps.suggestions
         # Suggestions are computed on the finished offer and change none of its options or totals. A failure
         # there leaves the offer without them, with a note.
@@ -244,7 +279,7 @@ class Gateway:
             offer = acceptance_not_recorded(offer)  # suggestions are off: an acceptance is said, not dropped
         with self._deps.store.atomic():  # the offer and its events together, or neither
             self._deps.store.save_offer(offer)
-            self._record_offer(identity, offer)
+            self._record_offer(identity, offer, prepared)
             if suggesting is not None and outcome is not None:
                 suggesting.record(identity, offer, outcome)
         budget = self._deps.limiter.storage
@@ -253,10 +288,14 @@ class Gateway:
         note_offer(offer.offer_id)  # inside a run of the buyer agent: its "request received" is written now
         return offer
 
-    def _record_offer(self, identity: Identity, offer: Offer) -> None:
+    def _record_offer(self, identity: Identity, offer: Offer, prepared: Prepared) -> None:
         record, scope = self._deps.audit.record, {"offer_id": offer.offer_id, "profile_id": offer.profile_id}
         record(AuditEventType.REQUEST_RECEIVED, actor_of(identity), self._received(offer, scope))
-        record(AuditEventType.REQUEST_PARSED, actor_of(identity), AuditContext(request=offer.request, **scope))
+        # The request as the buyer sent it; what the gateway applied from learning is a fact beside it, with its
+        # source. A caller fact is the buyer's own: Valio Aimo's view does not hold it (`tta.audit.facts`).
+        applied = {APPLIED_FACT: prepared.facts} if prepared.applied else {}
+        parsed = AuditContext(request=offer.request, facts=applied, **scope)
+        record(AuditEventType.REQUEST_PARSED, actor_of(identity), parsed)
         looked_up = {
             "products_looked_up": offer.candidates_considered, "source": offer.source.value,
             "time_now": offer.time_now.isoformat(),

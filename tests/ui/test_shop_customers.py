@@ -168,3 +168,59 @@ def test_the_fixed_rules_are_not_listed_to_the_customer() -> None:
 
     assert "Always, whatever you set" not in settings and "s-fixed" not in settings
     assert "What the agent never does on its own, whatever you set" in settings and 'href="/docs"' in settings
+
+
+# --- where the recipe matters: three choices, and what the agent learned (lane LF) --------------------------------
+
+CREAM_100 = {"needed_by": "2026-11-16", "lines": [
+    {"text": "100 L of whipping cream 469346", "product_ids": ["469346"], "quantity": 100, "unit": "L"}]}
+
+
+def _hotel(client: TestClient, shop_profile_settings: dict[str, dict[str, Any]], mode: str | None) -> dict[str, str]:
+    """The hotel's book with the page's settings in one mode (None: as the page sends them when it names no mode)."""
+    headers = {**HEADERS, "X-Shop-Kitchen": "hotel-kitchen"}
+    settings = dict(shop_profile_settings["hotel-kitchen"])
+    if mode is not None:
+        settings |= {"formula_mode": mode, "formula_matters": mode == "ALWAYS"}
+    else:
+        settings.pop("formula_mode", None)
+    assert client.put("/shop/api/kitchen", headers=headers, json=settings).status_code == 200
+    return headers
+
+
+def test_settings_offer_three_choices_for_the_recipe_and_send_the_mode_with_the_switch() -> None:
+    settings, side = _read("views/settings.js"), _read("views/side.js")
+
+    for words in ('"Always"', '"Learn from my orders (recommended)"', '"Only when I say so"'):
+        assert words in settings, words
+    assert 'data-change="recipe-mode"' in settings and 'd.settings.formula_matters = el.value === "ALWAYS"' in settings
+    assert "Substitutes must keep the recipe" in settings and "Substitutes must keep the recipe" in side
+    assert "/shop/api/learned" in side and "learned from your orders" in side
+
+
+def test_the_shop_says_what_the_agent_learned_for_the_customer_and_in_which_mode(
+    client: TestClient, shop_profile_settings: dict[str, dict[str, Any]]
+) -> None:
+    learned = client.get("/shop/api/learned", headers=_hotel(client, shop_profile_settings, "LEARN")).json()
+
+    assert (learned["mode"], learned["applied"]) == ("LEARN", True)
+    assert learned["summary"].startswith("Learned so far: Arla Pro Cooking cream 10% 1 L UHT lactose free, ")
+    assert learned["summary"].endswith("(you use them as ingredients). From your customer file, which is synthetic.")
+    assert [each["product_id"] for each in learned["findings"] if each["matters"]] == ["463797", "466988"]
+    assert all(each["source"] == "USE" and each["synthetic"] for each in learned["findings"])
+
+    asked = client.get("/shop/api/learned", headers=_hotel(client, shop_profile_settings, "WHEN_ASKED")).json()
+    assert (asked["mode"], asked["applied"]) == ("WHEN_ASKED", False)
+
+
+def test_an_offer_of_the_shop_in_learn_mode_says_what_the_gateway_applied(
+    client: TestClient, shop_profile_settings: dict[str, dict[str, Any]]
+) -> None:
+    learn = client.post("/shop/api/offers", headers=_hotel(client, shop_profile_settings, "LEARN"), json=CREAM_100)
+    assert learn.status_code in (200, 201), learn.text
+    applied = [note for note in learn.json()["notes"] if "The gateway applied this" in note]
+    assert len(applied) == 1 and applied[0].startswith("Request line 1: You use cream as an ingredient (")
+    assert learn.json()["request"]["lines"][0]["keep_formula"] is None
+
+    asked = client.post("/shop/api/offers", headers=_hotel(client, shop_profile_settings, "WHEN_ASKED"), json=CREAM_100)
+    assert not [note for note in asked.json()["notes"] if "The gateway applied this" in note]

@@ -2,8 +2,9 @@
 
 BEST_CONFIRMED uses confirmed stock only, ranked by the buyer's preference and then price (task SUST-1).
 CHEAPEST_CONFIRMED is the price fill of the same stock, when a preference other than price chose another one.
-ALTERNATIVE_UNCONFIRMED is the cheapest fitting product whose quantity Valio does not confirm. SUBSTITUTE keeps
-the confirmed stock of a product named by id and fills what is missing with the best substitute.
+ALTERNATIVE_UNCONFIRMED is the fitting product whose quantity Valio does not confirm with the lowest total for
+the quantity asked. SUBSTITUTE keeps the confirmed stock of a product named by id and fills what is missing
+with the best substitute.
 
 Safe first (review P4, item M1): with an allergen excluded, the three kinds above take only products whose data
 rules it out. Confirmed stock whose data leaves a doubt goes into a second ALTERNATIVE_UNCONFIRMED draft, the
@@ -293,21 +294,29 @@ def _unconfirmed_lines(
 
 
 def _unconfirmed_line(outcome: LineOutcome, pool: _Pools, now: datetime) -> OfferLine | None:
-    """The cheapest fitting product in state QUANTITY_NOT_CONFIRMED, for the whole quantity asked: among the
-    products whose data rules out every excluded allergen if there is one, and a regular product before a
-    variant nobody asked for."""
+    """The fitting product in state QUANTITY_NOT_CONFIRMED with the lowest total for the whole quantity asked,
+    whole packs counted, as the confirmed fill chooses (`tta.offers.combining`): 0.4 kg of sugar is one 500 g
+    pack at €1.98, not a 25 kg sack at €24.27 that costs less per kilogram. The price per kilogram or litre
+    only breaks a tie. Among the products whose data rules out every excluded allergen if there is one, and a
+    regular product before a variant nobody asked for."""
     need = outcome.need
     if not pool.unconfirmed or need.quantity is None:
         return None
+    quantity = need.quantity
     cheapest = min(
         pool.unconfirmed,
         key=lambda each: (
-            not ruled_out(each.allergen_check), _is_variant(outcome.asked, each), _price_per_requested_unit(each),
-            each.product.id,
+            not ruled_out(each.allergen_check), _is_variant(outcome.asked, each), _total_for(each, quantity),
+            _price_per_requested_unit(each), each.product.id,
         ),
     )
     # The quantity is the one asked for. The amount Valio reports is a placeholder and is never read here.
     return line_for(cheapest, need, units_needed(cheapest, need.quantity), need.quantity, now)
+
+
+def _total_for(candidate: Candidate, quantity: Decimal) -> Decimal:
+    """What the quantity costs in whole sales units of the product, net."""
+    return units_needed(candidate, quantity) * candidate.unit_price
 
 
 def _price_per_requested_unit(candidate: Candidate) -> Decimal:

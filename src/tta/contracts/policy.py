@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
+from typing import Any
 
 from pydantic import Field, model_validator
 
@@ -28,6 +30,14 @@ MAX_DRIFT_RATIO = 1  # a tolerance of 100%: a quantity or a price may double bef
 # (`tta.offers.preference.MAX_PREFERENCE_PREMIUM`; a test of `tests/policy` fails when the two differ), so an
 # option the agent may take alone for its preference is always one the offer suggests first.
 MAX_PREFERENCE_PREMIUM_RATIO = Decimal("0.25")
+
+
+class FormulaMode(StrEnum):
+    """When a substitute must keep the formula (the "recipe") of the product it replaces (rule F-11)."""
+
+    ALWAYS = "ALWAYS"  # on every line: as `formula_matters: true`
+    LEARN = "LEARN"  # per product, from what the buyer's past shows (`tta.customers.learned`); else as WHEN_ASKED
+    WHEN_ASKED = "WHEN_ASKED"  # only on a line whose request says so
 
 
 class BuyerProfile(Contract):
@@ -68,12 +78,46 @@ class BuyerProfile(Contract):
         "differs from the original's, or cannot be compared, goes to a human (F-11). False: only where the request "
         "line says the formula matters. A profile can add the check and can never remove it",
     )
+    formula_mode: FormulaMode | None = Field(
+        default=None,
+        description="When a substitute must keep the formula: ALWAYS (on every line, with formula_matters true), "
+        "LEARN (per product, from this buyer's own decisions on substitutes, the words of its past requests and how "
+        "its customer file says it uses the product; where nothing is learned, only when the request says so) or "
+        "WHEN_ASKED (only when the request says so). None: not set, and formula_matters alone decides (true reads "
+        "ALWAYS, false reads WHEN_ASKED). Whatever the mode, a request line can add the check and nothing removes it",
+    )
     max_preference_premium_ratio: Ratio | None = Field(
         default=None, ge=0, le=MAX_PREFERENCE_PREMIUM_RATIO,
         description="How much more than the cheapest confirmed option an option ranked by a preference (most "
         "reliable, lowest carbon, earliest) may cost, as a share of the cheapest one's net total, before it goes to "
         "a human (P-09). None: the profile sets no limit of its own and P-09 never fires",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _always_sets_the_boolean(cls, data: Any) -> Any:
+        """`formula_mode: ALWAYS` alone also sets `formula_matters`, which the offer and rule F-11 read."""
+        if not isinstance(data, dict) or "formula_matters" in data:
+            return data
+        if data.get("formula_mode") in (FormulaMode.ALWAYS, FormulaMode.ALWAYS.value):
+            return {**data, "formula_matters": True}
+        return data
+
+    @model_validator(mode="after")
+    def _one_formula_setting(self) -> BuyerProfile:
+        if self.formula_mode is not None and self.formula_matters is not (self.formula_mode is FormulaMode.ALWAYS):
+            raise ValueError(
+                f"formula_mode {self.formula_mode.value} and formula_matters {str(self.formula_matters).lower()} "
+                "say different things: formula_matters is true with ALWAYS and false with LEARN or WHEN_ASKED"
+            )
+        return self
+
+    @property
+    def formula_mode_in_force(self) -> FormulaMode:
+        """The mode set, or the one `formula_matters` alone reads as."""
+        if self.formula_mode is not None:
+            return self.formula_mode
+        return FormulaMode.ALWAYS if self.formula_matters else FormulaMode.WHEN_ASKED
 
     @model_validator(mode="after")
     def _exclusions_need_a_strictness(self) -> BuyerProfile:

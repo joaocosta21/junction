@@ -31,55 +31,27 @@ How two lists are compared:
   what is in it ("riboflavin (B2)" against "riboflavin", "vegetable oil (rapeseed)" against "vegetable oil
   (palm)"), the pair is said as "not shown to be the same" and still counts as a difference: not sure is never
   read as the same.
+- A word that only says where or how an ingredient was farmed is not a difference (decision B49): "organic
+  CREAM" against "CREAM", "WHEAT (EU)" against "WHEAT (Finland)". Which words those are is measured from the
+  catalog (`tta.catalog.qualifiers`), not typed; each such pair is carried in `same_but_for_origin` so that a
+  sentence can say it. A word of processing ("pasteurised", "dried") stays part of the name: it is the same
+  only when both lists carry it.
 - The two lists must be in the same language (English, else Finnish, else any other both have). No shared
   language, or a product with no list: the contents cannot be compared.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
+from tta.catalog.ingredient_list import Component, forms, normalise, parse_statement, spellings
+from tta.catalog.qualifiers import Qualifiers, current_qualifiers
 from tta.contracts.product import Product
 
 # The languages a comparison prefers, in order; any other language both products carry comes after.
 PREFERRED_LANGUAGES = ("en", "fi")
 # For a product built without `ingredient_statements` (a test, an older record): the language is not known.
 UNKNOWN_LANGUAGE = "und"
-# Label grammar, not ingredients: the word that closes a list, in the languages of the file's statements.
-CONJUNCTIONS = ("and", "ja", "sekä", "och", "samt", "og", "und")
-# Label grammar: what opens an allergen note. "contains" also opens "contains naturally occurring sugars".
-TRAILER_OPENERS = (
-    "may contain", "may also contain", "may include", "contains", "contain", "saattaa sisältää", "voi sisältää",
-    "sisältää", "kan innehålla", "innehåller",
-)
-LIST_SENTENCE_COMMAS = 2  # a later sentence with this many top-level commas is read as more of the list
-
-_OPEN, _CLOSE = "([{", ")]}"
-_PERCENT = re.compile(r"(?:[<>≥≤~]|min\.?|max\.?|vähintään|enintään)?\s*\d+(?:[.,]\d+)?\s*%")
-_E_NUMBER = re.compile(r"\be[\s-]?(\d{3,4}(?:[a-z]|[ivx]{1,4})?)\b")
-_E_KEY = re.compile(r"e\d{3,4}[a-z]{0,4}")
-# "E340(ii)" is one E-number with its subclass, not a component "E340" that holds "ii": read as "E340ii".
-_E_SUBCLASS = re.compile(r"\b(E[\s-]?\d{3,4})\s?\(([ivx]{1,4})\)", re.IGNORECASE)
-_NOT_A_WORD = re.compile(r"[^\w]+")
-_CONJUNCTION = re.compile(rf"(?<![-‐])\s+(?:{'|'.join(CONJUNCTIONS)}|&)\s+", re.IGNORECASE)
-_TRAILER = re.compile(rf"(?:{'|'.join(TRAILER_OPENERS)})\b", re.IGNORECASE)
-_EDGES = " \t\r\n.,;:*¹²³•-–\u200e"
-_NO_BREAK_SPACE = "\u00a0"
-# A line break inside a statement, real or written out as backslash-n (176 English statements, whole catalog):
-# labels wrap in the middle of a list, so it is spacing, not the end of a sentence.
-_LINE_BREAK = re.compile(r"\\n|[\r\n]+")
-_MIN_WORD_FOR_SINGULAR = 4
-
-
-@dataclass(frozen=True)
-class Component:
-    """One component of an ingredient list: its own words, its form for comparison, its sub-components."""
-
-    words: str  # as the label writes it, with what stands in its parentheses
-    name: str  # the words in front of the parentheses, as written
-    key: str  # `name`, normalised for comparison only
-    parts: tuple[Component, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -95,6 +67,8 @@ class ContentsCheck:
     # (the original's words, the other's): the words of one are all among the other's. Each is also in the two
     # tuples above: not shown to be the same counts as a difference.
     not_shown_same: tuple[tuple[str, str], ...] = ()
+    # (the original's words, the other's): read as the same component, a word of origin or farming apart.
+    same_but_for_origin: tuple[tuple[str, str], ...] = ()
 
     @property
     def differs(self) -> bool:
@@ -108,8 +82,10 @@ def statements_of(product: Product) -> dict[str, str]:
     return {UNKNOWN_LANGUAGE: product.key_ingredients} if product.key_ingredients else {}
 
 
-def compare_contents(original: Product, other: Product) -> ContentsCheck:
-    """What the two ingredient lists show: the components only one has, and the ones both have."""
+def compare_contents(original: Product, other: Product, qualifiers: Qualifiers | None = None) -> ContentsCheck:
+    """What the two ingredient lists show: the components only one has, and the ones both have. `qualifiers`:
+    the words of origin and farming; left out, the table of the loaded catalog (`current_qualifiers`)."""
+    table = current_qualifiers() if qualifiers is None else qualifiers
     ours, theirs = statements_of(original), statements_of(other)
     for texts, whose in ((ours, "the product asked for has"), (theirs, "this product has")):
         if not texts:
@@ -122,153 +98,8 @@ def compare_contents(original: Product, other: Product) -> ContentsCheck:
     for parsed, whose in ((first, "the product asked for"), (second, "this product")):
         if not parsed:
             return ContentsCheck(compared=False, why_not=f"the ingredient list of {whose} names no component")
-    return _compare(first, second, language)
+    return _compare(first, second, language, table)
 
-
-# --- reading one statement ---------------------------------------------------------------------------------
-
-
-def parse_statement(text: str) -> tuple[Component, ...]:
-    """The components of one ingredient statement, in the label's order."""
-    text = _E_SUBCLASS.sub(r"\1\2", _LINE_BREAK.sub(" ", text.replace(_NO_BREAK_SPACE, " ")))
-    sentences = _sentences(text)
-    kept = [
-        sentence for index, sentence in enumerate(sentences)
-        if not _TRAILER.match(sentence.lstrip(_EDGES))
-        and (index == 0 or len(_split(sentence, ",;")) > LIST_SENTENCE_COMMAS)
-    ]
-    return tuple(component for sentence in kept for component in _components(sentence))
-
-
-def _sentences(text: str) -> list[str]:
-    """The text cut at each full stop outside parentheses. A full stop ends a sentence only when a space
-    follows it, so a decimal point ("1.5 %") is not one."""
-    found, depth, start = [], 0, 0
-    for index, character in enumerate(text):
-        depth = _depth(depth, character)
-        if depth:
-            continue
-        if character == "." and text[index + 1: index + 2].isspace():
-            found.append(text[start:index])
-            start = index + 1
-    found.append(text[start:])
-    return [each for each in found if each.strip(_EDGES)]
-
-
-def _depth(depth: int, character: str) -> int:
-    if character in _OPEN:
-        return depth + 1
-    return max(depth - 1, 0) if character in _CLOSE else depth
-
-
-def _split(text: str, separators: str) -> list[str]:
-    """The text cut at each separator outside parentheses. A comma between two digits is a decimal comma."""
-    found, depth, start = [], 0, 0
-    for index, character in enumerate(text):
-        depth = _depth(depth, character)
-        if depth or character not in separators:
-            continue
-        if character == "," and text[index - 1: index].isdigit() and text[index + 1: index + 2].isdigit():
-            continue
-        found.append(text[start:index])
-        start = index + 1
-    found.append(text[start:])
-    return found
-
-
-def _components(text: str) -> list[Component]:
-    pieces = [last for piece in _split(text, ",;") for last in _at_conjunctions(piece)]
-    return [component for piece in pieces if (component := _component(piece)) is not None]
-
-
-def _at_conjunctions(text: str) -> list[str]:
-    """ "CREAM and stabiliser (carrageenan)" is two components; "mono- and diglycerides" is one."""
-    found, start = [], 0
-    for match in _CONJUNCTION.finditer(text):
-        if _depth_at(text, match.start()) == 0:
-            found.append(text[start:match.start()])
-            start = match.end()
-    found.append(text[start:])
-    return found
-
-
-def _depth_at(text: str, end: int) -> int:
-    depth = 0
-    for character in text[:end]:
-        depth = _depth(depth, character)
-    return depth
-
-
-def _component(text: str) -> Component | None:
-    """One piece of a list: the words in front, then what its parentheses (or its colon) hold."""
-    words = " ".join(text.split()).strip(_EDGES)
-    if not words or _TRAILER.match(words):
-        return None
-    name, inner = _name_and_inner(words)
-    parts = tuple(_components(inner)) if inner else ()
-    key = normalise(name)
-    if not key:
-        # Nothing in front of the parentheses ("(10 %)" alone, or "(water, OAT)"): its parts stand for it.
-        return Component(words=words, name=words, key="", parts=parts) if parts else None
-    return Component(words=words, name=name.strip(_EDGES), key=key, parts=parts)
-
-
-def _name_and_inner(words: str) -> tuple[str, str]:
-    """ "stabiliser (carrageenan)" -> ("stabiliser", "carrageenan"). What follows the parentheses stays in the
-    name ("OAT flour (10 %) wholegrain"); every parenthesis of the piece is read as its sub-components."""
-    name, inner, depth, start = [], [], 0, 0
-    for index, character in enumerate(words):
-        if character in _OPEN:
-            if depth == 0:
-                name.append(words[start:index])
-                start = index + 1
-            depth += 1
-        elif character in _CLOSE and depth:
-            depth -= 1
-            if depth == 0:
-                inner.append(words[start:index])
-                start = index + 1
-    (inner if depth else name).append(words[start:])  # a parenthesis the label never closes
-    in_front = " ".join(" ".join(name).split())
-    if not inner and ":" in in_front:
-        head, _, rest = in_front.partition(":")
-        if head.strip() and rest.strip():
-            return head, rest
-    return in_front, ", ".join(inner)
-
-
-def normalise(words: str) -> str:
-    """The words as they are compared: never shown to a person."""
-    text = _E_NUMBER.sub(r"e\1", _PERCENT.sub(" ", words.casefold()))
-    return " ".join(_singular(word).replace("z", "s") for word in _NOT_A_WORD.sub(" ", text).split())
-
-
-def _forms(key: str) -> set[str]:
-    """Every form under which a key is matched: without its spaces ("soya beans", "SOYAbeans"; "rape seed",
-    "rapeseed"), where the label gives an E-number beside a name ("calcium carbonate E170") each alone, and
-    with the plural in "-es" undone."""
-    if not key:
-        return set()
-    words = key.split()
-    numbers = [word for word in words if _E_KEY.fullmatch(word)]
-    forms = {key}
-    if numbers and len(numbers) < len(words):
-        forms |= {*numbers, " ".join(word for word in words if word not in numbers)}
-    return {spelling for form in forms for spelling in _spellings(form)}
-
-
-def _spellings(form: str) -> set[str]:
-    """Without spaces, and with the plural in "-es" undone: "starches" was read as "starche" and "olives" as
-    "olive", so both are tried."""
-    return {form.replace(" ", ""), "".join(_without_e(word) for word in form.split())}
-
-
-def _without_e(word: str) -> str:
-    return word[:-1] if len(word) > _MIN_WORD_FOR_SINGULAR and word.endswith("e") else word
-
-
-def _singular(word: str) -> str:
-    return word[:-1] if len(word) >= _MIN_WORD_FOR_SINGULAR and word.endswith("s") and not word[-2].isdigit() else word
 
 
 # --- comparing two statements ------------------------------------------------------------------------------
@@ -281,6 +112,7 @@ class _Atom:
     component: Component
     parent: Component | None
     keys: frozenset[str]
+    origin_said: bool = False  # its words say an origin or a way of farming, which is not compared
 
     @property
     def said(self) -> str:
@@ -288,22 +120,48 @@ class _Atom:
         return self.component.words if self.parent is None else f"{self.component.words} (in {self.parent.name})"
 
 
-def _atoms(components: tuple[Component, ...], parent: Component | None = None) -> list[_Atom]:
+def _without_origin_tails(
+    components: tuple[Component, ...], table: Qualifiers, lost: set[int]
+) -> tuple[Component, ...]:
+    """The components without what their brackets say of origin only ("WHEAT (EU)" is "WHEAT"); the words
+    stay as the label writes them. `lost` collects the components a tail was taken from."""
+    found = []
+    for component in components:
+        kept = tuple(part for part in component.parts if part.parts or not table.says_origin_only(part.key))
+        pruned = Component(
+            words=component.words, name=component.name, key=component.key,
+            parts=_without_origin_tails(kept, table, lost),
+        )
+        if len(kept) != len(component.parts):
+            lost.add(id(pruned))
+        found.append(pruned)
+    return tuple(found)
+
+
+def _atoms(
+    components: tuple[Component, ...], table: Qualifiers, lost: set[int], parent: Component | None = None
+) -> list[_Atom]:
     found: list[_Atom] = []
     for component in components:
-        keys = _forms(component.key)
-        if parent is not None and parent.key and component.key:
+        plain = table.without_origin(component.key)
+        keys = forms(plain)
+        if parent is not None and parent.key and plain:
             # "vegetable oil (rapeseed)" is "rapeseed oil"; "vitamins (D)" is "vitamin D".
             # Spellings only: an E-number under a class name ("stabiliser (E407)") never names the class.
-            keys |= _spellings(f"{component.key} {parent.key.split()[-1]}")
-            keys |= _spellings(f"{parent.key} {component.key}")
-        found.append(_Atom(component=component, parent=parent, keys=frozenset(keys)))
-        found.extend(_atoms(component.parts, component))
+            keys |= spellings(f"{plain} {parent.key.split()[-1]}")
+            keys |= spellings(f"{parent.key} {plain}")
+        origin_said = plain != component.key or id(component) in lost
+        found.append(_Atom(component=component, parent=parent, keys=frozenset(keys), origin_said=origin_said))
+        found.extend(_atoms(component.parts, table, lost, component))
     return found
 
 
-def _compare(first: tuple[Component, ...], second: tuple[Component, ...], language: str) -> ContentsCheck:
-    ours, theirs = _atoms(first), _atoms(second)
+def _compare(
+    first: tuple[Component, ...], second: tuple[Component, ...], language: str, table: Qualifiers
+) -> ContentsCheck:
+    lost: set[int] = set()
+    ours = _atoms(_without_origin_tails(first, table, lost), table, lost)
+    theirs = _atoms(_without_origin_tails(second, table, lost), table, lost)
     our_keys = frozenset(key for atom in ours for key in atom.keys)
     their_keys = frozenset(key for atom in theirs for key in atom.keys)
     only_ours, refined_ours = _unmatched(ours, theirs, their_keys)
@@ -312,12 +170,29 @@ def _compare(first: tuple[Component, ...], second: tuple[Component, ...], langua
         (mine.said, yours.said) for mine in only_ours for yours in only_theirs if _one_within_the_other(mine, yours)
     ]
     pairs = list(dict.fromkeys([*within, *refined_ours, *((mine, yours) for yours, mine in refined_theirs)]))
+    only_in_original = _once([*(atom.said for atom in only_ours), *(mine for mine, _ in pairs)])
+    only_in_other = _once([*(atom.said for atom in only_theirs), *(yours for _, yours in pairs)])
     return ContentsCheck(
-        compared=True, language=language,
-        only_in_original=_once([*(atom.said for atom in only_ours), *(mine for mine, _ in pairs)]),
-        only_in_other=_once([*(atom.said for atom in only_theirs), *(yours for _, yours in pairs)]),
+        compared=True, language=language, only_in_original=only_in_original, only_in_other=only_in_other,
         in_both=_once([atom.said for atom in ours if atom.keys & their_keys]), not_shown_same=tuple(pairs),
+        # A pair already said as "not shown to be the same" is not also said as the same.
+        same_but_for_origin=tuple(
+            (mine, yours) for mine, yours in _same_but_for_origin(ours, theirs)
+            if mine not in only_in_original and yours not in only_in_other
+        ),
     )
+
+
+def _same_but_for_origin(ours: list[_Atom], theirs: list[_Atom]) -> tuple[tuple[str, str], ...]:
+    """The components both lists name where one says an origin or a way of farming the other does not."""
+    found = []
+    for mine in ours:
+        yours = next((each for each in theirs if each.keys & mine.keys), None)
+        if yours is None or not (mine.origin_said or yours.origin_said):
+            continue
+        if normalise(mine.component.words) != normalise(yours.component.words):
+            found.append((mine.said, yours.said))
+    return tuple(dict.fromkeys(found))
 
 
 def _once(said: list[str]) -> tuple[str, ...]:

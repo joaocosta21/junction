@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from tta.contracts.offer import OfferLine
 from tta.contracts.product import FormulaCheck
 from tta.policy.reading import Missing, Reading
-from tta.policy.text import format_number, plain_name
+from tta.policy.text import format_number, join_words, plain_name
 
 if TYPE_CHECKING:  # facts.py imports this module; OrderScope is only named in annotations
     from tta.policy.facts import OrderScope
@@ -30,8 +30,14 @@ PROFILE_SAYS = "{buyer} uses its products as ingredients"
 NOBODY_SAYS = "neither the request nor the buyer profile says the formula matters"
 NO_SUBSTITUTE = "the line replaces no product"
 NO_COMPARISON = "the offer carries no formula comparison for this substitute"
+# Said only where the two ingredient lists could not be compared component by component (no shared language):
+# there the words of both languages still show that one names a vegetable oil or fat and the other does not.
 OTHER_FAT_SOURCE = "another fat source"
-SENTENCE_MAX_CHARACTERS = 400  # of the offer's formula sentence inside a rule sentence: six figures and a note fit
+SENTENCE_MAX_CHARACTERS = 400  # of the formula's part of a rule sentence: six figures and a note fit
+COMPONENT_MAX_CHARACTERS = 60  # of one component in a sentence; a longer one is said by its name alone
+LACKS = "lacks"
+CONTAINS = "contains"
+_ASKED_FOR = {LACKS: "which the product asked for contains", CONTAINS: "which the product asked for does not"}
 
 
 def _line_says(line: OfferLine) -> bool:
@@ -74,24 +80,66 @@ def _outcome(_: OrderScope, line: OfferLine) -> Reading:
 
 
 def _sentence(_: OrderScope, line: OfferLine) -> Reading:
-    """The offer's own sentence, with its numbers. It can name a brand, so it is read as data, and it stands at
-    the end of a clause, so its full stop is left to the rule's sentence."""
+    """What the comparison found, for the end of a clause (its full stop is left to the rule's sentence).
+
+    Where the two ingredient lists were compared and differ, the sentence is built here from the components
+    and the figures, so that the cut falls after a whole component and says how many more there are. Otherwise
+    it is the offer's own sentence. Either can name a brand, so the text is read as data."""
     check = _check(line)
     if isinstance(check, Missing):
         return check
-    return plain_name(check.sentence, SENTENCE_MAX_CHARACTERS).rstrip(".")
+    if not (check.contents_compared and (check.only_in_other or check.only_in_original)):
+        return plain_name(check.sentence, SENTENCE_MAX_CHARACTERS).rstrip(".")
+    figures = _figures(check)
+    after = f"; figures outside our tolerance: {', '.join(figures)}" if figures else ""
+    sides = [(LACKS, check.only_in_original), (CONTAINS, check.only_in_other)]
+    budget = (SENTENCE_MAX_CHARACTERS - len(after)) // sum(1 for _, found in sides if found)
+    said = "; ".join(_side(verb, found, budget) for verb, found in sides if found)
+    return f"it {said}{after}"
 
 
-def _differences(_: OrderScope, line: OfferLine) -> Reading:
-    """Every figure outside the tolerance as "fat 15 g, not 36 g", then the fat source when it differs."""
-    check = _check(line)
-    if isinstance(check, Missing):
-        return ()
-    outside = [
+def _side(verb: str, components: tuple[str, ...], budget: int) -> str:
+    """ "lacks lactase enzyme, which the product asked for contains": whole components while they fit the
+    budget, then "and N more". The first is always said."""
+    said: list[str] = []
+    for component in components:
+        words = _component(component)
+        if said and len(", ".join((*said, words))) + len(_ASKED_FOR[verb]) + len(verb) > budget:
+            break
+        said.append(words)
+    more = len(components) - len(said)
+    listed = ", ".join(said) if more else join_words(said)
+    return f"{verb} {listed}{f' and {more} more' if more else ''}, {_ASKED_FOR[verb]}"
+
+
+def _component(words: str) -> str:
+    """One component as data. One too long for a sentence is said by its name, without what its brackets hold."""
+    shown = plain_name(words, len(words) or 1)
+    if len(shown) <= COMPONENT_MAX_CHARACTERS:
+        return shown
+    return plain_name(shown.split(" (")[0], COMPONENT_MAX_CHARACTERS)
+
+
+def _figures(check: FormulaCheck) -> list[str]:
+    return [
         f"{each.nutrient.replace('_', ' ')} {format_number(each.other)} g, not {format_number(each.original)} g"
         for each in check.differences if not each.within_tolerance
     ]
-    return (*outside, *((OTHER_FAT_SOURCE,) if check.fat_source_differs else ()))
+
+
+def _differences(_: OrderScope, line: OfferLine) -> Reading:
+    """Every component only one ingredient list names, as "lacks lactase enzyme" or "contains carrageenan" (of
+    the substitute, against the product asked for), then every figure outside the tolerance as "fat 15 g, not
+    36 g", then the fat source where the lists could not be compared and their words show it differs."""
+    check = _check(line)
+    if isinstance(check, Missing):
+        return ()
+    components = (
+        *(f"{LACKS} {_component(each)}" for each in check.only_in_original),
+        *(f"{CONTAINS} {_component(each)}" for each in check.only_in_other),
+    ) if check.contents_compared else ()
+    by_words = (OTHER_FAT_SOURCE,) if check.fat_source_differs and not check.contents_compared else ()
+    return (*components, *_figures(check), *by_words)
 
 
 FORMULA_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
