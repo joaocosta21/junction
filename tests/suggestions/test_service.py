@@ -64,7 +64,7 @@ def test_a_suggestion_never_adds_itself_it_carries_the_request_to_post(world: An
 def test_the_schools_forgotten_yoghurt_states_nothing_about_nuts_or_sesame_and_is_not_suggested(world: Any) -> None:
     found = world.suggest(SCHOOL, SCHOOL_OAT)
 
-    assert all(each.product_id != "464517" for each in (*found.shown, *found.held_back))
+    assert all(each.product_id != "464517" for each in (*found.shown, *(held.suggestion for held in found.held_back)))
     yoghurt = next(each for each in found.dropped if each.product_id == "464517")
     assert (yoghurt.kind, yoghurt.reason) == (SuggestionKind.FORGOTTEN_ITEM, DropReason.ALLERGEN_NOT_RULED_OUT)
     for allergen in ("tree nuts (AN)", "peanuts (AP)", "sesame seeds (AS)"):
@@ -127,20 +127,19 @@ def test_a_quantity_far_from_the_usual_one_is_told_the_usual_quantity(world: Any
     assert all(each.kind is not SuggestionKind.USUAL_QUANTITY for each in world.suggest(HOTEL, HOTEL_MILK).shown)
 
 
-def test_at_most_three_are_shown_in_the_decided_order_and_the_rest_is_held_back(world: Any) -> None:
+def test_at_most_three_are_shown_in_the_decided_order_one_per_kind_and_the_rest_is_held_back(world: Any) -> None:
     found = world.suggest(BAKERY, BAKERY_IKAFFE)
 
     assert len(found.shown) == MAX_SUGGESTIONS
     ranks = [KIND_ORDER.index(each.kind) for each in found.shown]
-    assert ranks == sorted(ranks)
-    assert {each.kind for each in found.held_back} >= {SuggestionKind.CHEAPER_SAME_FORMULA,
-                                                       SuggestionKind.LARGER_PACK}
+    assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks)  # decision B32: one per kind
+    assert [each.suggestion.kind for each in found.held_back][:2] == [SuggestionKind.FORGOTTEN_ITEM] * 2
     assert len({each.product_id for each in found.shown}) == len(found.shown)
 
 
 def test_the_cheaper_product_states_both_prices_and_that_the_formula_is_kept(world: Any) -> None:
     found = world.suggest(BAKERY, BAKERY_IKAFFE)
-    cheaper = next(each for each in found.held_back if each.kind is SuggestionKind.CHEAPER_SAME_FORMULA)
+    cheaper = next(each for each in found.shown if each.kind is SuggestionKind.CHEAPER_SAME_FORMULA)
 
     assert (cheaper.product_id, cheaper.replaces_product_id, cheaper.quantity) == ("473278", "468319", Decimal(30))
     assert cheaper.effect is not None and cheaper.effect.net_change_eur == Decimal("-42.00")
@@ -155,7 +154,7 @@ def test_the_cheaper_product_states_both_prices_and_that_the_formula_is_kept(wor
 
 def test_the_larger_pack_is_the_same_product_and_not_the_cheaper_kind(world: Any) -> None:
     found = world.suggest(BAKERY, BAKERY_IKAFFE)
-    larger = next(each for each in found.held_back if each.kind is SuggestionKind.LARGER_PACK)
+    larger = next(each for each in found.shown if each.kind is SuggestionKind.LARGER_PACK)
 
     assert (larger.product_id, larger.replaces_product_id) == ("464320", "468319")
     assert larger.effect is not None and larger.effect.net_change_eur == Decimal("-33.00")

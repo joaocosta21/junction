@@ -2,12 +2,15 @@
 any product (P15 R3).
 
     found = suggestions_for(customer, request, offer, profile=profile, ports=SuggestionPorts(catalog, gateway, clock))
-    found.shown      at most 3, in the decided order of kinds, each with price, confirmed stock and `accept_request`
-    found.dropped    what the guard did not let through, with the reason, for the audit trail
-    found.held_back  what passed the guard and is beyond the three
+    found.shown      at most 3, one per kind, in the decided order of kinds, each with price, confirmed stock and
+                     `accept_request`
+    found.dropped    what the guard did not let through, and Valio Aimo's own suggestion when it stays silent,
+                     each with the reason, for the audit trail
+    found.held_back  what passed the guard and is not shown, each with the reason a page can show
 
 The decided order of kinds: the forgotten item, the usual product and quantity, a cheaper product with the same
 formula, a larger pack, a trend, a new or related product (Valio Aimo's own, last and never more than one).
+Decision B32: one per kind and three in all (`ranking`).
 Nothing here adds anything to an order: a suggestion carries `accept_request`, a new request for POST /v1/offers,
 which meets every rule again and a person's confirmation. No model picks, ranks or words a suggestion.
 """
@@ -32,8 +35,8 @@ from tta.suggestions.alternatives import alternatives, offered_products
 from tta.suggestions.companions import forgotten_items
 from tta.suggestions.guard import DroppedSuggestion, GuardContext, Proposal, check
 from tta.suggestions.history import OrderHistory, history_of
-from tta.suggestions.ranking import first_suggestions
-from tta.suggestions.supplier import related_products
+from tta.suggestions.ranking import HeldBackSuggestion, ranked
+from tta.suggestions.supplier import related_products, silenced
 from tta.suggestions.thresholds import MAX_SUPPLIER_SUGGESTIONS, SUPPLIER_MAX_TRIES
 from tta.suggestions.trend import standing_order_trends
 from tta.suggestions.usual import usual_products_for_request, usual_quantities_for_request
@@ -56,7 +59,7 @@ class SuggestionList(Contract):
 
     shown: tuple[Suggestion, ...] = ()
     dropped: tuple[DroppedSuggestion, ...] = ()
-    held_back: tuple[Suggestion, ...] = ()  # passed the guard, beyond the three a list shows
+    held_back: tuple[HeldBackSuggestion, ...] = ()  # passed the guard and is not shown, with the reason
     notes: tuple[str, ...] = ()  # why nothing was computed, when the supplier could not be asked
 
 
@@ -97,11 +100,10 @@ def _suggestions(
     checked = [check(proposal, context) for proposal in proposals]
     if supplier_suggestions and customer is not None and history is not None:
         checked += _from_supplier(customer, history, request, in_request, profile, ports, already_ordered)
-    passed = [each for each in checked if isinstance(each, Suggestion)]
-    shown = first_suggestions(passed)
+    found = ranked(each for each in checked if isinstance(each, Suggestion))
     return SuggestionList(
-        shown=shown, dropped=tuple(each for each in checked if isinstance(each, DroppedSuggestion)),
-        held_back=tuple(each for each in passed if each not in shown),
+        shown=found.shown, dropped=tuple(each for each in checked if isinstance(each, DroppedSuggestion)),
+        held_back=found.held_back,
     )
 
 
@@ -178,7 +180,8 @@ def _from_supplier(customer: Customer, history: OrderHistory, request: PurchaseR
                    already_ordered: Collection[str]) -> list[Suggestion | DroppedSuggestion]:
     """Valio Aimo's related products through the same guard, best first, until `MAX_SUPPLIER_SUGGESTIONS` pass.
     Price and stock are asked once for the whole pool; only products with confirmed stock are put to the guard,
-    at most `SUPPLIER_MAX_TRIES` of them, so the log holds a few drops and not the catalog."""
+    at most `SUPPLIER_MAX_TRIES` of them, so the log holds a few drops and not the catalog. One that passes and
+    stays silent (decision B32, `supplier.silenced`) is a drop like the others, and the next one is tried."""
     pool = related_products(customer, history, request, in_request, ports.catalog)
     if not pool:
         return []
@@ -191,6 +194,8 @@ def _from_supplier(customer: Customer, history: OrderHistory, request: PurchaseR
     passed = 0
     for each in in_stock[:SUPPLIER_MAX_TRIES]:
         result = check(Proposal(suggestion=each.suggestion, like_product_id=each.anchor_id), context)
+        if isinstance(result, Suggestion):
+            result = silenced(each, result) or result
         checked.append(result)
         passed += isinstance(result, Suggestion)
         if passed >= MAX_SUPPLIER_SUGGESTIONS:

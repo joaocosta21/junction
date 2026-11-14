@@ -32,6 +32,9 @@ leaves its clause out, and where that would mislead the sentence says what is no
     order.not_placed        option · offer_id · revalidation
     authorisation.refused   approval or approval_id · facts["reason"] when the caller is not an agent
     evidence.attached       approval · evidence
+    suggestions.shown       offer_id · facts["suggestions"] and facts["supplier_view"]["suggestions"]
+    suggestion.accepted     offer_id · facts["suggestion"] and facts["supplier_view"]["suggestion"]
+                            (both written by `tta.suggestions.events`; the supplier's view reaches only Valio Aimo)
 
 Give `offer_id` on the request and lookup events as well: the trail of an order is found through its offer.
 An event given ids only takes its buyer profile from the stored order, approval or offer, so the buyer's view

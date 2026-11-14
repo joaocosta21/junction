@@ -35,6 +35,7 @@ from tta.offers.candidates import Candidate, Need, evaluate, exclusion_for, need
 from tta.offers.deps import Lookup
 from tta.offers.formula import compare_formula
 from tta.offers.substitutes import COVERED_BY, claims_lost
+from tta.suggestions import reasons
 from tta.suggestions.wording import amount, day, euros, number, sentence
 
 # The kinds whose product is a line the request did not have: accepting adds its cost to the order.
@@ -55,6 +56,9 @@ class DropReason(StrEnum):
     FORMULA_NOT_KEPT = "FORMULA_NOT_KEPT"
     STOCK_NOT_CONFIRMED = "STOCK_NOT_CONFIRMED"
     STOCK_TOO_LOW = "STOCK_TOO_LOW"
+    # Valio Aimo's own suggestion only (decision B32): it passed every check above and still stays silent.
+    OTHER_PACK_KIND = "OTHER_PACK_KIND"  # a portion pack for a usual bulk product, or the other way round
+    ONE_UNIT_IN_STOCK = "ONE_UNIT_IN_STOCK"  # one sales unit confirmed in stock is not a suggestion
 
 
 class DroppedSuggestion(Contract):
@@ -66,6 +70,16 @@ class DroppedSuggestion(Contract):
     name: str
     reason: str  # a `DropReason`, or the `ExclusionReason` of the offer's own check
     sentence: str
+    summary: str = ""  # the reason in a few words for a list or a log line (`tta.suggestions.reasons`)
+
+
+@dataclass(frozen=True)
+class Failure:
+    """The first check a suggestion fails: the reason code, the check's sentence, the reason in a few words."""
+
+    reason: str
+    sentence: str
+    summary: str
 
 
 @dataclass(frozen=True)
@@ -94,19 +108,20 @@ def check(proposal: Proposal, context: GuardContext) -> Suggestion | DroppedSugg
     suggestion = proposal.suggestion
     product = _product(context.catalog, suggestion.product_id)
     if product is None:
-        return _dropped(suggestion, DropReason.UNKNOWN_PRODUCT, "The product is not in the catalog.")
+        return dropped(suggestion, Failure(DropReason.UNKNOWN_PRODUCT, "The product is not in the catalog.",
+                                           reasons.UNKNOWN_PRODUCT))
     if suggestion.kind in ADDS_A_LINE and suggestion.product_id in context.already_ordered:
         said = "The product is already in an order placed or waiting for the same delivery date."
-        return _dropped(suggestion, DropReason.ALREADY_ORDERED, said)
+        return dropped(suggestion, Failure(DropReason.ALREADY_ORDERED, said, reasons.ALREADY_ORDERED))
     index, line, accept = _line_to_judge(suggestion, context.request)
     try:
         need = need_for(index, line, accept, context.profile)
     except InvalidRequest as error:
-        return _dropped(suggestion, DropReason.ALLERGEN_NOT_RULED_OUT, str(error))
+        return dropped(suggestion, Failure(DropReason.ALLERGEN_NOT_RULED_OUT, str(error), reasons.ALLERGEN_DOUBT))
     candidate = evaluate(product, need, context.lookup, context.catalog)
     failed = _first_failure(proposal, candidate, need, line, context)
     if failed is not None:
-        return _dropped(suggestion, *failed)
+        return dropped(suggestion, failed)
     return _complete(suggestion, candidate, need, context)
 
 
@@ -131,11 +146,12 @@ def _line_to_judge(suggestion: Suggestion, request: PurchaseRequest) -> tuple[in
 
 
 def _first_failure(proposal: Proposal, candidate: Candidate, need: Need, line: RequestLine,
-                   context: GuardContext) -> tuple[str, str] | None:
-    """The first check the product fails, as (reason, sentence); None when it passes them all."""
-    dropped = exclusion_for(candidate, need, context.lookup.now)
-    if dropped is not None:
-        return dropped[0].value, dropped[1]
+                   context: GuardContext) -> Failure | None:
+    """The first check the product fails; None when it passes them all."""
+    excluded = exclusion_for(candidate, need, context.lookup.now)
+    if excluded is not None:
+        summary = reasons.exclusion_summary(excluded[0], candidate.allergen_check)
+        return Failure(excluded[0].value, excluded[1], summary)
     return (
         _allergen_doubt(candidate)
         or _claims(proposal, candidate.product, line, context.catalog)
@@ -144,57 +160,67 @@ def _first_failure(proposal: Proposal, candidate: Candidate, need: Need, line: R
     )
 
 
-def _allergen_doubt(candidate: Candidate) -> tuple[str, str] | None:
+def _allergen_doubt(candidate: Candidate) -> Failure | None:
     check_ = candidate.allergen_check
     if check_ is None or check_.outcome is AllergenOutcome.PASS:
         return None
     doubts = [finding.sentence for finding in check_.findings if finding.outcome is not AllergenOutcome.PASS]
     said = sentence(*doubts, "A product whose data does not rule out an excluded allergen is not suggested.")
-    return DropReason.ALLERGEN_NOT_RULED_OUT.value, said
+    return Failure(DropReason.ALLERGEN_NOT_RULED_OUT.value, said, reasons.allergen_summary(check_))
 
 
-def _claims(proposal: Proposal, product: Product, line: RequestLine, catalog: Catalog) -> tuple[str, str] | None:
+def _claims(proposal: Proposal, product: Product, line: RequestLine, catalog: Catalog) -> Failure | None:
     """The claims the line requires, and the dietary claims of the product it replaces or resembles."""
     carried = frozenset(product.nutritional_claims)
     missing = [claim for claim in line.required_claims
                if claim not in carried and not COVERED_BY.get(claim, frozenset()) & carried]
     if missing:
         said = f"The request line requires {', '.join(missing)}, which this product does not carry."
-        return DropReason.DIETARY_CLAIM_MISSING.value, said
+        summary = reasons.CLAIM_NOT_CARRIED.format(claims=", ".join(missing))
+        return Failure(DropReason.DIETARY_CLAIM_MISSING.value, said, summary)
     other_id = proposal.suggestion.replaces_product_id or proposal.like_product_id
     other = _product(catalog, other_id) if other_id is not None else None
     lost = claims_lost(other, product) if other is not None else ()
     if lost:
         said = f"Product {other_id} carries {', '.join(lost)}, which this product does not."
-        return DropReason.DIETARY_CLAIM_MISSING.value, said
+        summary = reasons.CLAIM_LOST.format(claims=", ".join(lost), product_id=other_id)
+        return Failure(DropReason.DIETARY_CLAIM_MISSING.value, said, summary)
     return None
 
 
-def _replacement(suggestion: Suggestion, product: Product, context: GuardContext) -> tuple[str, str] | None:
+def _replacement(suggestion: Suggestion, product: Product, context: GuardContext) -> Failure | None:
     """A suggestion that replaces a product adds no allergen to it and, where the formula matters, keeps it."""
     if suggestion.replaces_product_id is None:
         return None
     original = _product(context.catalog, suggestion.replaces_product_id)
+    replaced = suggestion.replaces_product_id
     if original is None:
-        return DropReason.UNKNOWN_PRODUCT.value, "The product it would replace is not in the catalog."
+        said = "The product it would replace is not in the catalog."
+        return Failure(DropReason.UNKNOWN_PRODUCT.value, said, f"{replaced}, which it would replace, is not in the "
+                                                                "catalog")
     added = check_substitute(original.allergen_statements, product.allergen_statements)
     if not added.passes:
-        return DropReason.ADDS_ALLERGEN.value, added.sentence
+        summary = reasons.ADDS_ALLERGEN.format(product_id=replaced)
+        return Failure(DropReason.ADDS_ALLERGEN.value, added.sentence, summary)
     if suggestion.kind not in ALWAYS_KEEPS_FORMULA and not context.profile.formula_matters:
         return None
     formula = compare_formula(original, product)
-    return None if formula.keeps_formula else (DropReason.FORMULA_NOT_KEPT.value, formula.sentence)
+    if formula.keeps_formula:
+        return None
+    summary = reasons.FORMULA_NOT_KEPT.format(product_id=replaced)
+    return Failure(DropReason.FORMULA_NOT_KEPT.value, formula.sentence, summary)
 
 
-def _stock(candidate: Candidate, need: Need) -> tuple[str, str] | None:
+def _stock(candidate: Candidate, need: Need) -> Failure | None:
     """Only confirmed stock that covers the whole quantity is suggested (P15 section 4.3, rules 6 and 7)."""
     if candidate.state is not AvailabilityState.CONFIRMED:
-        return DropReason.STOCK_NOT_CONFIRMED.value, candidate.assessment.sentence
+        said = candidate.assessment.sentence
+        return Failure(DropReason.STOCK_NOT_CONFIRMED.value, said, reasons.STOCK_NOT_CONFIRMED)
     units, usable = _units(candidate, need), candidate.assessment.usable_amount or Decimal(0)
     if usable < units:
-        said = (f"{_sales_units(usable)} confirmed in stock and {number(units)} are needed for "
-                f"{amount(need.quantity or Decimal(0), need.unit)}.")
-        return DropReason.STOCK_TOO_LOW.value, said
+        stock = f"{_sales_units(usable)} confirmed in stock and {number(units)} are needed"
+        said = f"{stock} for {amount(need.quantity or Decimal(0), need.unit)}."
+        return Failure(DropReason.STOCK_TOO_LOW.value, said, stock)
     return None
 
 
@@ -242,7 +268,8 @@ def _check_sentences(suggestion: Suggestion, candidate: Candidate, context: Guar
     return tuple(said)
 
 
-def _dropped(suggestion: Suggestion, reason: str, said: str) -> DroppedSuggestion:
+def dropped(suggestion: Suggestion, failure: Failure) -> DroppedSuggestion:
+    """The suggestion as the log keeps it once a check stopped it."""
     return DroppedSuggestion(suggestion_id=suggestion.suggestion_id, kind=suggestion.kind,
-                             product_id=suggestion.product_id, name=suggestion.name, reason=str(reason),
-                             sentence=said)
+                             product_id=suggestion.product_id, name=suggestion.name, reason=str(failure.reason),
+                             sentence=failure.sentence, summary=failure.summary)

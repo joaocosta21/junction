@@ -12,7 +12,10 @@ product of the same product type and the same brand as one the customer usually 
 customer's past orders and not in this request. Ranked by facts of the product file only: the anchor the request
 asks for first, then the same kind of pack (bulk or portions), the same flavour and the same use as the anchor,
 then a certificate label the anchor does not carry.
-It is a proposal like any other: the guard checks it, and accepting posts a new request.
+It is a proposal like any other: the guard checks it, and accepting posts a new request. One that passes still
+stays silent (decision B32) when it is another pack kind than the usual product it resembles (a portion milk for
+a school's bulk milk) or when one sales unit is confirmed in stock: it is dropped with the reason, for the
+buyer's log only.
 """
 
 from __future__ import annotations
@@ -36,13 +39,15 @@ from tta.contracts.suggestion import (
     SuggestionKind,
     suggestion_id_for,
 )
+from tta.suggestions.guard import DroppedSuggestion, DropReason, Failure, dropped
 from tta.suggestions.history import OrderHistory
 from tta.suggestions.requests import with_line_added
-from tta.suggestions.thresholds import ALTERNATIVES_MAX_POOL, SUPPLIER_MAX_POOL
-from tta.suggestions.wording import sentence, type_words
+from tta.suggestions.thresholds import ALTERNATIVES_MAX_POOL, SUPPLIER_MAX_POOL, SUPPLIER_MIN_CONFIRMED_UNITS
+from tta.suggestions.wording import number, sentence, type_words
 
 ONE_SALES_UNIT = Decimal(1)  # rounded up to the lot: the smallest whole quantity a kitchen can try
 NOT_FROM_YOUR_ORDERS = "Suggested by Valio Aimo from its catalog, not from your orders."
+STAYS_SILENT = "Valio Aimo's own suggestion stays silent: "
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,37 @@ class Related:
 
     suggestion: Suggestion
     anchor_id: str  # the usual product it is related to: the guard holds it to that product's dietary claims
+    anchor_label: str = ""  # "Arla Milkdrink 1L lactose free fat free UHT Suomesta (462775)", for the log
+    anchor_type: str = ""  # the usual product's type: "milk"
+    portion_pack: bool = False  # the product is a pack of portions
+    other_pack: bool = False  # a portion pack for a usual product that is not one, or the other way round
+
+
+def silenced(related: Related, passed: Suggestion) -> DroppedSuggestion | None:
+    """Why a related product that passed the guard is still not Valio Aimo's suggestion (decision B32); None
+    when it may be shown."""
+    if related.other_pack:
+        return dropped(passed, _other_pack(related))
+    usable = passed.availability.usable_amount if passed.availability is not None else None
+    if usable is not None and usable < SUPPLIER_MIN_CONFIRMED_UNITS:
+        units = f"{number(usable)} sales unit{'' if usable == 1 else 's'}"
+        said = f"{STAYS_SILENT}{units} of {passed.name} ({passed.product_id}) {'is' if usable == 1 else 'are'} " \
+               "confirmed in stock."
+        summary = f"only {units} {'is' if usable == 1 else 'are'} confirmed in stock"
+        return dropped(passed, Failure(DropReason.ONE_UNIT_IN_STOCK.value, said, summary))
+    return None
+
+
+def _other_pack(related: Related) -> Failure:
+    product = f"{related.suggestion.name} ({related.suggestion.product_id})"
+    kind = type_words(related.anchor_type)
+    if related.portion_pack:
+        said = f"{product} is a portion pack, and the {related.anchor_label} you usually order is not."
+        summary = f"it is a portion pack and your usual {kind} is not"
+    else:
+        said = f"{product} is not a portion pack, and the {related.anchor_label} you usually order is one."
+        summary = f"it is not a portion pack and your usual {kind} is one"
+    return Failure(DropReason.OTHER_PACK_KIND.value, f"{STAYS_SILENT}{said}", summary)
 
 
 def related_products(customer: Customer, history: OrderHistory, request: PurchaseRequest,
@@ -67,6 +103,13 @@ def related_products(customer: Customer, history: OrderHistory, request: Purchas
         if product.id not in seen:
             seen[product.id] = _related(customer, history, request, anchor, product, label, catalog)
     return tuple(seen.values())[:SUPPLIER_MAX_POOL]
+
+
+def _pack_kinds(product: Product, anchor_id: str, catalog: Catalog) -> tuple[bool, bool]:
+    """(the product is a portion pack, it is another pack kind than the anchor)."""
+    anchor = catalog.get_product(anchor_id)
+    portion = catalog.is_portion_pack(product)
+    return portion, anchor is not None and catalog.is_portion_pack(anchor) is not portion
 
 
 def _candidates(customer: Customer, history: OrderHistory, in_request: Collection[str], known: Collection[str],
@@ -126,4 +169,6 @@ def _related(customer: Customer, history: OrderHistory, request: PurchaseRequest
         product_id=product.id, name=name, quantity=quantity, unit=Unit.UNIT, sentence=said, evidence=evidence,
         accept_request=with_line_added(request, line),
     )
-    return Related(suggestion=suggestion, anchor_id=usual.product_id)
+    portion, other_pack = _pack_kinds(product, usual.product_id, catalog)
+    return Related(suggestion=suggestion, anchor_id=usual.product_id, anchor_label=history.label(usual.product_id),
+                   anchor_type=usual.product_type, portion_pack=portion, other_pack=other_pack)

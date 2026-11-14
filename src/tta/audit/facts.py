@@ -45,6 +45,10 @@ SUPPLIER_APPROVAL_DECISION_KEYS = ("decision", "roles", "option_id", "decided_at
 SUPPLIER_EVIDENCE_KEYS = ("product_id", "found")
 # Facts a caller may add that describe a lookup in Valio Aimo's own data. Every other caller fact is buyer-only.
 SUPPLIER_CALLER_KEYS = ("products_looked_up", "product_ids", "source", "time_now", "time_basis")
+# A caller fact that is a whole view written for Valio Aimo: its keys become the supplier's facts as given, and it
+# is left out of the buyer's, who has the full facts beside it. Only the suggestion events write one
+# (`tta.suggestions.events`, which builds that view from an allow-list of its own).
+SUPPLIER_VIEW = "supplier_view"
 
 
 def _dump(model: Contract | None) -> JsonDict | None:
@@ -118,7 +122,8 @@ def _supplier_request(request: PurchaseRequest | None) -> JsonDict | None:
 
 
 def buyer_facts(context: AuditContext, scope: Scope) -> JsonDict:
-    """Everything the buyer may see. A fact added by the caller never replaces an object recorded here."""
+    """Everything the buyer may see. A fact added by the caller never replaces an object recorded here; the view a
+    caller wrote for Valio Aimo is not repeated."""
     recorded = _present({
         "request": _dump(context.request),
         "profile": _dump(context.profile),
@@ -131,7 +136,8 @@ def buyer_facts(context: AuditContext, scope: Scope) -> JsonDict:
         "revalidation": _dump(context.revalidation),
         "evidence": _dump(context.evidence),
     })
-    return to_jsonable_python({**context.facts, **recorded})
+    from_caller = {key: value for key, value in context.facts.items() if key != SUPPLIER_VIEW}
+    return to_jsonable_python({**from_caller, **recorded})
 
 
 def supplier_facts(context: AuditContext, scope: Scope) -> JsonDict:
@@ -149,4 +155,6 @@ def supplier_facts(context: AuditContext, scope: Scope) -> JsonDict:
         "evidence": _pick(_dump(context.evidence), SUPPLIER_EVIDENCE_KEYS),
     })
     from_caller = {key: context.facts[key] for key in SUPPLIER_CALLER_KEYS if key in context.facts}
-    return to_jsonable_python({**from_caller, **recorded})
+    view = context.facts.get(SUPPLIER_VIEW)
+    written = view if isinstance(view, dict) else {}
+    return to_jsonable_python({**written, **from_caller, **recorded})

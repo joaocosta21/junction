@@ -41,6 +41,9 @@ MAX_SUPPLIER_SUGGESTIONS = 1  # P15 section 4.2: the supplier's own suggestion i
 # guard: the first that passes is the one shown.
 SUPPLIER_MAX_POOL = 60
 SUPPLIER_MAX_TRIES = 5
+# Decision B32: Valio Aimo's own suggestion stays silent when one sales unit is confirmed in stock (the ward was
+# offered 460509 with 1 in stock). It needs at least this many sales units confirmed.
+SUPPLIER_MIN_CONFIRMED_UNITS = 2
 
 MAX_SUGGESTIONS = 3  # on one offer (P15 section 4.2: a page of offers is the shop the brief says this is not)
 

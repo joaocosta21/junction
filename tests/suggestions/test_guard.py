@@ -68,8 +68,10 @@ def test_a_product_that_passes_leaves_complete(world_now: Any) -> None:
         (HOTEL, MILK, "463797", {"quantity": "500"}, DropReason.STOCK_TOO_LOW,
          "114 sales units are confirmed in stock and 500 are needed for 500 L."),
         (HOTEL, MILK, "464306", {}, DropReason.STOCK_NOT_CONFIRMED, "Quantity not confirmed: "),
-        (HOTEL, MILK, "463797", {"required_claims": ["VEGAN"]}, DropReason.DIETARY_CLAIM_MISSING,
-         "The request line requires VEGAN, which this product does not carry."),
+        # FREE_FROM_GLUTEN, which no allergen statement of the cream contradicts: since L2a-2 (P4 F4) a VEGAN line
+        # meets the cream's milk in the offer's own check first, and the reason is then ALLERGEN_DECLARED.
+        (HOTEL, MILK, "463797", {"required_claims": ["FREE_FROM_GLUTEN"]}, DropReason.DIETARY_CLAIM_MISSING,
+         "The request line requires FREE_FROM_GLUTEN, which this product does not carry."),
         (SCHOOL, MILK, "464517", {"unit": "KG", "quantity": "20"}, DropReason.ALLERGEN_NOT_RULED_OUT,
          "The product makes no statement about tree nuts (AN): a dietitian must decide."),
         (WARD, MILK, "463797", {}, "ALLERGEN_DECLARED", "milk"),
@@ -88,6 +90,25 @@ def test_a_product_that_fails_a_check_is_dropped_with_the_reason(
     assert isinstance(dropped, DroppedSuggestion)
     assert (dropped.reason, dropped.product_id, dropped.kind) == (reason, product_id, SuggestionKind.FORGOTTEN_ITEM)
     assert said in dropped.sentence
+
+
+def test_a_required_claim_the_products_own_allergen_data_contradicts_is_said_as_such(world_now: Any) -> None:
+    """The offer's own check (L2a-2, P4 F4) names it ALLERGEN_DECLARED with no allergen the buyer excludes: the
+    few words must not say an excluded allergen is open."""
+    request, suggestion = _added(world_now, MILK, "463797", required_claims=["VEGAN"])
+
+    dropped = _check(world_now, HOTEL, request, suggestion)
+
+    assert isinstance(dropped, DroppedSuggestion) and dropped.reason == "ALLERGEN_DECLARED"
+    assert dropped.summary == "its own allergen data contradicts a claim the request requires"
+
+
+def test_every_drop_carries_its_reason_in_a_few_words(world_now: Any) -> None:
+    request, suggestion = _added(world_now, MILK, "463797", "500")
+
+    dropped = _check(world_now, HOTEL, request, suggestion)
+
+    assert dropped.summary == "114 sales units are confirmed in stock and 500 are needed"
 
 
 def test_a_product_whose_cut_off_has_passed_is_dropped_with_the_offers_own_reason(world_now: Any) -> None:

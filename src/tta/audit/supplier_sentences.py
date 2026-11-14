@@ -38,6 +38,7 @@ from tta.audit.sentences import (
     recorded_note,
 )
 from tta.audit.standing_sentences import supplier_standing_order_created, supplier_standing_order_renewed
+from tta.audit.suggestion_sentences import supplier_suggestion_accepted, supplier_suggestions_shown
 from tta.audit.supplier_decisions import buyers_roles, decision_explained, rules_applied
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DecisionKind, PlacedBy, Verdict
@@ -200,6 +201,8 @@ SUPPLIER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {
     AuditEventType.EVIDENCE_ATTACHED: evidence_attached,
     AuditEventType.STANDING_ORDER_CREATED: supplier_standing_order_created,
     AuditEventType.STANDING_ORDER_RENEWED: supplier_standing_order_renewed,
+    AuditEventType.SUGGESTIONS_SHOWN: supplier_suggestions_shown,
+    AuditEventType.SUGGESTION_ACCEPTED: supplier_suggestion_accepted,
 }
 
 
