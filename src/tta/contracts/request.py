@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
-from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Quantity, Unit
+from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Preference, Quantity, Unit
 
 MAX_PRODUCT_IDS = 1000
 MAX_REQUEST_LINES = 20
@@ -58,6 +58,10 @@ class RequestLine(Contract):
         default=(), max_length=MAX_ALLERGEN_CODES,
         description="GS1 codes, added to the profile's exclusions; never removes one",
     )
+    required_labels: tuple[Term, ...] = Field(
+        default=(), max_length=MAX_TERMS,
+        description="Certificate labels (packagingMarkedLabel codes, e.g. EU_ORGANIC_FARMING) every product must carry",
+    )
     allergen_strictness: AllergenStrictness | None = Field(
         default=None,
         description="Required when there is any exclusion and the profile sets none. There is no default.",
@@ -82,6 +86,16 @@ class PurchaseRequest(Contract):
         default=False, description="Offer only options in which every claim is confirmed"
     )
     lines: tuple[RequestLine, ...] = Field(min_length=1, max_length=MAX_REQUEST_LINES)
+    prefer: Preference = Field(
+        default=Preference.PRICE,
+        description="What ranks confirmed products once every constraint is met: price (default), earliest delivery, "
+        "delivery reliability or lower carbon footprint",
+    )
+    standing_order_id: str | None = Field(
+        default=None, max_length=MAX_ID_LENGTH * 2, pattern=r"^[A-Za-z0-9_-]+$",
+        description="The standing order this request renews: its history is checked (rule P-08). It can only add a "
+        "check, never remove one",
+    )
 
 
 class ProductQuery(Contract):

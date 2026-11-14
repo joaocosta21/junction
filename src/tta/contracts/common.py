@@ -66,6 +66,17 @@ class PackPreference(StrEnum):
     PORTION = "PORTION"
 
 
+class Preference(StrEnum):
+    """What the buyer weighs once every constraint is met (task SUST-1). `PRICE` is the default and the brief's
+    "based on price and availability"; the others rank confirmed products by delivery date, delivery reliability
+    or carbon footprint first, then by price."""
+
+    PRICE = "PRICE"
+    EARLIEST = "EARLIEST"
+    RELIABILITY = "RELIABILITY"
+    LOWER_CARBON = "LOWER_CARBON"
+
+
 class PackSizeSource(StrEnum):
     PRICE_RATIO = "PRICE_RATIO"
     UNIT_CONVERSION = "UNIT_CONVERSION"
