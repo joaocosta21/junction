@@ -13,16 +13,16 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T06 | Store and audit trail | T00 | done | 122 tests, 100% coverage |
 | T07 | Offers: options, ranking, combining, substitutes | T01 T02 T03 T04 T05 | done | 143 tests, 98% coverage; a follow-up fills `claims_lost` |
 | T08 | Orders and approvals | T05 T06 | done | 89 tests, 100% coverage; two-thread tests for approvals and idempotency |
-| T09 | API: routes, identity, errors, schemas | T07 T08 | running | |
-| T10 | Buyer agent (Gemini) | T09 | todo | needs `GEMINI_API_KEY` for the live check only |
-| T11 | MCP surface | T09 | todo | first cut if behind |
-| T12 | Pages: demo, approvals, order and audit | T09 | todo | |
+| T09 | API: routes, identity, errors, schemas | T07 T08 | done | 149 tests, 99% coverage; the flow runs over HTTP in replay |
+| T10 | Buyer agent (Gemini) | T09 | running | needs `GEMINI_API_KEY` for the live check only |
+| T11 | MCP surface | T09 | running | first cut if behind |
+| T12 | Pages: demo, approvals, order and audit | T09 | running | |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | todo | |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | todo | only if approved, `DATABASE_URL` set, T13 green before 06:30 |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | todo | only if approved, `CONTEXT_DEV_API_KEY` set, T13 green before 06:30 |
 | T14 | Deployment on Modal | T13 | todo | needs a Modal token |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | todo | |
-| T16 | Review and fixes | each wave | running | round 1 done (FIX-1 to FIX-4 in); round 2 (offers, orders) running; rounds after wave 3 and at the end to come |
+| T16 | Review and fixes | each wave | running | rounds 1 and 2 done (FIX-1 to FIX-7 in); round 3 (API) running; final round to come |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
@@ -55,6 +55,8 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 04:20 T16 round 2 back (offers, orders): no critical finding. High: the re-check missed a moved delivery date, sales unit and tax rate; under confirmed-only, dropped products were not listed; two request lines could take one substitute's stock twice; a failed write between order and approval left an order nobody could decide. Fix tasks FIX-6 (offers) and FIX-7 (orders and store, new port method `Store.atomic()`) started. T07's follow-up (`claims_lost`) committed. Decision: only dietary claims count for rule F-08 (question T07-7).
 - 04:31 FIX-5 done and committed (policy part). The supplier view now names F-07 and F-08.
 - 04:48 FIX-6 and FIX-7 done and committed, with the lock-order change in the audit trail that FIX-7 asked for. Whole suite: 1,693 tests pass (T09's tests included, still being written). Scenario 3's best orderable substitute is `475224` again.
+- 04:57 T09 done and committed. Scenario 1 run over HTTP by the orchestrator: offer → `PENDING_APPROVAL` → agent refused on the approval route (403) → approved by the purchasing manager → `ORDERED`; 9 audit events, chain intact, supplier view redacted. Contracts: every stated decimal is now a JSON number; record ids bounded; `list_orders` on the port. Whole suite: 1,695 tests.
+- 04:57 T10, T11, T12 started. T16 round 3 started on the API (three reviewers), base commit 89e4263.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
