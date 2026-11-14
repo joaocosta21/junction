@@ -19,12 +19,13 @@ from __future__ import annotations
 import re
 import threading
 from decimal import Decimal
+from typing import Protocol
 
 from tta.contracts.common import ApprovalStatus, ApproverRole, DecisionKind, Identity, OrderStatus, Verdict
 from tta.contracts.errors import InvalidRequest, NotAuthorised, NotFound, OfferExpired, TtaError
 from tta.contracts.offer import Offer, OfferOption
-from tta.contracts.order import Approval, DecisionRequest, Order
-from tta.contracts.policy import BuyerProfile
+from tta.contracts.order import Approval, DecisionRequest, Evidence, Order
+from tta.contracts.policy import BuyerProfile, PolicyDecision
 from tta.contracts.ports import AuditSink, Clock, OfferRevalidator, PolicyEngine, Store
 from tta.orders import access, records, wording
 from tta.orders.checking import Attempt, OrderTimeChecker
@@ -37,6 +38,13 @@ from tta.orders.spend import COMMITTED_STATUSES, day_committed_net_eur
 IDEMPOTENCY_KEY_FORM = re.compile(r"[A-Za-z0-9._:-]{1,100}")
 
 
+class EvidenceFinder(Protocol):
+    """Finds evidence outside Valio Aimo's data for the human who decides an approval (task S2, `tta.evidence`).
+    It answers a `found=False` evidence with its reason rather than raise when a lookup fails."""
+
+    def for_approval(self, option: OfferOption, decision: PolicyDecision) -> tuple[Evidence, ...]: ...
+
+
 class OrderBookService:
     """Implements the `OrderService` port over the `Store`, `PolicyEngine`, `OfferRevalidator`, `AuditSink`
     and `Clock` ports. The clock is the data clock (server time, pinned in replay): it dates orders, decides
@@ -44,11 +52,13 @@ class OrderBookService:
     """
 
     def __init__(
-        self, *, store: Store, policy: PolicyEngine, revalidator: OfferRevalidator, audit: AuditSink, clock: Clock
+        self, *, store: Store, policy: PolicyEngine, revalidator: OfferRevalidator, audit: AuditSink, clock: Clock,
+        evidence: EvidenceFinder | None = None,
     ) -> None:
         self._store = store
         self._policy = policy
         self._clock = clock
+        self._evidence = evidence  # None: no approval carries web evidence
         self._checker = OrderTimeChecker(store, policy, revalidator, audit, clock)
         self._write = OutcomeWriter(store, audit)
         # One writer at a time in this process, and every record is read again inside the lock, so two callers
@@ -78,7 +88,11 @@ class OrderBookService:
                 order = records.placed_by_agent(order_id, offer, check, identity, idempotency_key, now)
                 self._write.placed_alone(order, check, agent)
                 return order
-            order, approval = records.awaiting_approval(order_id, offer, check, identity, idempotency_key, now)
+            # The web is asked before the unit of work opens: no outside call sits inside a store transaction.
+            evidence = self._evidence.for_approval(check.option, check.decision) if self._evidence else ()
+            order, approval = records.awaiting_approval(
+                order_id, offer, check, identity, idempotency_key, now, evidence=evidence
+            )
             self._write.sent_to_a_human(order, approval, check, agent)
             return order
 

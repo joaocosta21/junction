@@ -299,6 +299,15 @@ The build agents add questions here in the same shape as above. Empty until the 
   3. "The product file has no field for new or seasonal products, and no recipes. How would your agent know a product is seasonal — is there a field we missed, or should we bring our own small list?"
 - **If no answer, we build:** (a) and (b) first, both in the controls criterion; (c) if time allows; (d) last, with a lower-carbon alternative from the carbon file instead of "seasonal".
 
+**S2-1 · `469512` Elovena barista oat drink states nothing about milk in your file — its maker's page says "Maidoton"** (from the Context.dev evidence)
+- **We got:** your product file has no milk statement for `469512`; Raisio's food-service page for it says *Maidoton* (milk-free). The same for Oddlygood oat drink `468465` ("ei sisällä maitoa").
+- **Ask:** "Is the milk statement missing only in the hackathon file, or at the source too?"
+- **Built:** the statement stays "not stated" and the order goes to a dietitian, with the manufacturer's page shown on the approval card as "not Valio data".
+
+**S2-2 · `474864`: the English name says almond drink, the Finnish name says soya drink, and it declares soya**
+- **Ask:** "Which is right?"
+- **Built:** the allergen declaration counts; the almond-drink page found on the web was dropped as not matching.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)

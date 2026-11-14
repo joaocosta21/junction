@@ -1,0 +1,25 @@
+{# Web evidence on an approval card (task S2). Shown first, under its own heading, and never as Valio Aimo's data:
+   it changes no status and no verdict. Every word of it comes from the web and is escaped like any other text;
+   the link is a plain http(s) address the evidence package checked. #}
+{% if approval.evidence %}
+<section class="banner banner-plain evidence">
+  <h3>Found on the manufacturer's page — not Valio data</h3>
+  {% for found in approval.evidence %}
+  {% if found.found and found.source_url and (found.source_url.startswith("https://") or found.source_url.startswith("http://")) %}
+  <p><strong>Product <span class="id">{{ found.product_id }}</span></strong>{% if found.product_name_on_page %}, named on the page <q>{{ found.product_name_on_page }}</q>{% endif %}</p>
+  <ul class="findings">
+    <li>Contains: {{ found.contains|join(", ") if found.contains else "nothing named" }}</li>
+    <li>May contain: {{ found.may_contain|join(", ") if found.may_contain else "nothing named" }}</li>
+    <li>Free from: {{ found.free_from|join(", ") if found.free_from else "nothing named" }}</li>
+  </ul>
+  <p class="small">Source: <a href="{{ found.source_url }}" rel="noopener noreferrer nofollow" target="_blank">{{ found.source_url }}</a>
+    {%- if found.page_title %} · page title <q>{{ found.page_title }}</q>{% endif %}
+    {%- if found.retrieved_at %} · read {{ found.retrieved_at|moment }}{% endif %}</p>
+  {% else %}
+  <p>{{ found.sentence }}</p>
+  {% endif %}
+  {% endfor %}
+  <p class="small">Read from the web through Context.dev. Valio Aimo's data still states nothing about this allergen, so
+  the claim stays unknown: this changes no status and no verdict, and the human approving decides.</p>
+</section>
+{% endif %}

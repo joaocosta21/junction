@@ -260,3 +260,9 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Every address, all its browsers and callers together, is capped at half of each global ceiling: 60 lookups, 60 orders and decisions, 15 model runs a minute. Global ceilings: 120, 120, 30.
 - At most 30 new demo order books per address in 10 minutes, so one address cannot push the other visitors' books out of the 300.
 - Live supplier looks stay keyed on the address: a room shares 2 a minute (6 for the whole app); above that the recorded capture answers, labelled replay.
+
+## Context.dev evidence (S2)
+- When an approval goes to a dietitian because an excluded allergen is not stated (or undeclared) in Valio's data, the gateway looks for the manufacturer's page with Context.dev's Answers endpoint and shows what it says on the approval card, under "Found on the manufacturer's page — not Valio data", with the link. The claim stays "unknown" and the verdict does not change; a test compares both with and without evidence.
+- A page is dropped when the product name or brand does not match, when the link is not plain http(s), or when the answer failed. Page text is bounded and hashed; the audit trail records the URL and the hash.
+- One lookup per product, stored; recordings for the demo products in `fixtures/evidence/`. At most 40 lookups per process and 3 per approval. Queries carry the product's English and Finnish names and the brand only.
+- A lookup for a product with nothing stored runs inside the order book's lock and can hold it up to 40 s, once per product.

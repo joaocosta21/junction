@@ -41,6 +41,10 @@ class OutcomeWriter:
             self._audit.record(AuditEventType.APPROVAL_REQUESTED, agent, AuditContext(
                 order=order, approval=approval, decision=order.decision, revalidation=check.revalidation,
             ))
+            for found in (item for item in approval.evidence if item.found):  # task S2: its link and hash
+                self._audit.record(
+                    AuditEventType.EVIDENCE_ATTACHED, SYSTEM_ACTOR, AuditContext(approval=approval, evidence=found)
+                )
 
     def approved(
         self, before: Order, changed: Order, signed: Approval, entry: ApprovalDecision, check: OrderTimeCheck,

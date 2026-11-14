@@ -38,6 +38,11 @@ NO_SUCH_ORDER = "No order has this id."
 NO_SUCH_APPROVAL = "No approval has this id."
 ORDER_NOT_IN_BOOK = "The order of approval {approval_id} is not in the order book."
 OFFER_NOT_IN_STORE = "The offer of order {order_id} is no longer stored."
+# Task S2: evidence found on the web, named among the reasons of the approval it was attached to.
+EVIDENCE_REASON = (
+    "Web evidence for product {product_id} is attached for the dietitian, and it is not Valio Aimo's data: "
+    "{sentence} It changes no verdict: a human decides."
+)
 SUPPLIER_READS_THE_AUDIT_VIEW = (
     "The supplier reads no order and no approval here; the audit trail has a view for the supplier."
 )

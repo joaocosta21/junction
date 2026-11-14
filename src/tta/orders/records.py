@@ -21,7 +21,7 @@ from tta.contracts.common import (
     Verdict,
 )
 from tta.contracts.offer import Offer, OfferOption
-from tta.contracts.order import Approval, ApprovalDecision, DecisionRequest, Order, RelianceStatement
+from tta.contracts.order import Approval, ApprovalDecision, DecisionRequest, Evidence, Order, RelianceStatement
 from tta.contracts.policy import PolicyDecision
 from tta.orders import wording
 
@@ -115,6 +115,17 @@ def approval_reasons(decision: PolicyDecision) -> tuple[str, ...]:
     return tuple(rule.sentence for rule in decision.fired if rule.verdict is Verdict.APPROVAL)
 
 
+def evidence_reasons(evidence: tuple[Evidence, ...], option: OfferOption) -> tuple[str, ...]:
+    """One sentence per piece of web evidence found for a product of this option (task S2). Evidence that found
+    nothing is shown on the card, not listed as a reason."""
+    in_option = set(option.product_ids)
+    return tuple(
+        wording.EVIDENCE_REASON.format(product_id=item.product_id, sentence=item.sentence)
+        for item in evidence
+        if item.found and item.product_id in in_option
+    )
+
+
 def placed_by_agent(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
 ) -> Order:
@@ -131,12 +142,15 @@ def placed_by_agent(
 
 def awaiting_approval(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
+    evidence: tuple[Evidence, ...] = (),
 ) -> tuple[Order, Approval]:
-    """The order that waits for a human, and the approval that names the roles it needs."""
+    """The order that waits for a human, and the approval that names the roles it needs. `evidence` was found
+    outside Valio Aimo's data for the human to read; it changes no role and no verdict."""
+    reasons = (*approval_reasons(check.decision), *evidence_reasons(evidence, check.option))
     approval = Approval(
         approval_id=new_approval_id(), order_id=order_id, offer_id=offer.offer_id,
         option_id=check.option.option_id, profile_id=offer.profile_id, status=ApprovalStatus.PENDING,
-        required_roles=check.decision.required_roles, reasons=approval_reasons(check.decision), created_at=now,
+        required_roles=check.decision.required_roles, reasons=reasons, evidence=evidence, created_at=now,
         valid_until=decide_by(check.option, now),
     )
     # The same record as an order placed alone, in the state of one that waits.
@@ -173,7 +187,7 @@ def approved(
     signed = approval.model_copy(update={
         "option_id": check.option.option_id,
         "required_roles": check.decision.required_roles,
-        "reasons": approval_reasons(check.decision),
+        "reasons": (*approval_reasons(check.decision), *evidence_reasons(approval.evidence, check.option)),
         "decisions": (entry,) if other_option else (*approval.decisions, entry),
         "valid_until": decide_by(check.option, approval.created_at),
     })

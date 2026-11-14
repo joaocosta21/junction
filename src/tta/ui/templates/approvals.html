@@ -42,6 +42,8 @@ option of the same offer, or rejects. An agent can never approve: the gateway re
     {{ source_label(card.offer.source) }}</p>
   {% endif %}
 
+  {% include "_evidence.html" %}
+
   <h3>Why a human is needed</h3>
   <ul class="reasons">
     {% for reason in approval.reasons %}<li>{{ reason }}</li>{% endfor %}
@@ -50,9 +52,6 @@ option of the same offer, or rejects. An agent can never approve: the gateway re
     {%- if approval.roles_obtained %} · already approved by: {{ approval.roles_obtained|map("words")|join(", ") }}{% endif %}</p>
   {% for decision in approval.decisions %}
   <p class="small">{{ decision.approver_name }} ({{ decision.roles|map("words")|join(", ") }}): {{ decision.decision.value|words }}{% if decision.note %}. Note: <q>{{ decision.note }}</q>{% endif %}</p>
-  {% endfor %}
-  {% for found in approval.evidence %}
-  <p class="small">Found outside Valio Aimo's data, for product {{ found.product_id }}: {{ found.sentence }}{% if found.source_url %} Source: {{ found.source_url }}{% endif %}</p>
   {% endfor %}
 
   {% if card.can_decide %}
