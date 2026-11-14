@@ -242,6 +242,9 @@ Verified against the live API and the full catalog; detail in [FINDINGS.md](FIND
 
 **Tier 2, only if time remains:** delivery time & sustainability comparison.
 
+**Nice to have (backlog, not planned):**
+- **Voice input** (speech to text): Gemini transcribes a recording, the text is shown, then the same parser and text check read it, as the photo does (T18). About 1–2 h. Scores weakly: the brief says it is "not about replacing today's e-commerce UI with a chatbot", and Gemini's audio understanding infers responses to English speech only, so spoken Finnish would not work. Text to speech scores on no criterion.
+
 **Cut order if behind — announce each cut aloud:**
 1. MCP transport (the auto-generated OpenAPI still carries the openness story)
 2. Delivery and sustainability comparison (keep one sentence on what the data covers)
