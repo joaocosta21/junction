@@ -14,6 +14,13 @@ Written by the orchestrator, Sat 14 Nov. It replaces the start prompt in `RUNBOO
 - **Gemini is dropped.** No model is called and no model work is owed. Existing recordings in `fixtures/agent/` must still parse.
 - **Lanes are split finer than the runbook's table.** Your prompt names your paths; they win over the table.
 
+## The main goal (João, Sat 14 Nov, 22:50): read this before any design choice
+"Never forget the main goal is to be used and intuitive and to improve the sales and the connection." So, for anything a person sees or does:
+- **Used and intuitive:** one obvious next step; plain words; no rule ids, codes or internal terms; nothing a person must learn before they can order. If a step can be removed, remove it. A question comes to the person where they are; they do not go looking for it.
+- **Improve the sales:** a suggestion is worth showing only when a buyer would thank us for it (a saving, a product they forgot, stock when theirs is short). Silence beats a weak suggestion.
+- **Improve the connection** between the kitchen and Valio Aimo: the buyer sees what Valio Aimo can really deliver and why; Valio Aimo sees what was decided without the buyer's private values.
+The guardrails stay (allergens above all, a person confirms), but they must not feel like bureaucracy.
+
 ## Rules
 - **Your paths are in your prompt. Touch nothing else.** Other agents are editing other folders of the same working tree right now. If an item needs a change in a file you do not own, do not make it: write the exact change (file, function, what and why) in your hand-back under "Needed from another lane".
 - `src/tta/contracts/`: only where your prompt says so, and only by adding fields with a default. Name each addition in the hand-back.
