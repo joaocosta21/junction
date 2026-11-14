@@ -63,6 +63,7 @@ class Judged:
     reason_sentence: str
     units: Decimal | None  # sales units for the quantity asked, when one was asked and the pack size is known
     claims: tuple[ClaimCheck, ...]
+    claims_lost: tuple[str, ...]  # nutritional claims of the original that this product does not carry
 
     @property
     def passes(self) -> bool:
@@ -183,7 +184,17 @@ def _judge(
         reason_sentence=dropped[1] if dropped is not None else "",
         units=units,
         claims=claims_of(candidate, need, units, lookup.now),
+        claims_lost=claims_lost(original, product),
     )
+
+
+def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
+    """The original's nutritional claims that `other` does not carry, in the original's order.
+
+    A claim is not an allergen statement, so the allergen rule does not see one that is lost: a
+    lactose-free milk and a regular milk both declare milk (AIMO/docs/SCHEMA-AND-CODES.md section 4).
+    """
+    return tuple(dict.fromkeys(claim for claim in original.nutritional_claims if claim not in other.nutritional_claims))
 
 
 def _shown(judged: Sequence[Judged], rank_key: RankKey) -> tuple[list[Judged], tuple[str, ...]]:
@@ -206,8 +217,11 @@ def _shown(judged: Sequence[Judged], rank_key: RankKey) -> tuple[list[Judged], t
 
 
 def _rank_key(original: Candidate, need: Need) -> RankKey:
-    """Passes the allergen rules, category distance, listed by Valio, pack size closest to the original,
-    verification status, price difference (SPEC section 5, "Ranking")."""
+    """Passes the allergen rules, keeps every claim of the original, category distance, listed by Valio,
+    pack size closest to the original, verification status, price difference (SPEC section 5, "Ranking").
+
+    Losing a claim only orders the candidates that pass the allergen rules; it fails none of them.
+    """
 
     def key(each: Judged) -> tuple[object, ...]:
         candidate = each.candidate
@@ -215,6 +229,7 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         verification = (not each.orderable, unconfirmed, _shortfall(candidate, need))
         return (
             not each.passes,
+            each.passes and bool(each.claims_lost),
             each.distance,
             not each.listed,
             _pack_gap(original.pack, candidate.pack),
@@ -273,6 +288,7 @@ def _candidate(rank: int, judged: Judged, ranking: Ranking) -> SubstituteCandida
         reason=judged.reason,
         sentence=why(judged),
         gives_up=gives_up(judged, ranking),
+        claims_lost=judged.claims_lost,
         listed_by_supplier=judged.listed,
         category_distance=judged.distance,
         pack_size=candidate.pack,

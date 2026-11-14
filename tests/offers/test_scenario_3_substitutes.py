@@ -106,13 +106,32 @@ def test_the_search_widens_to_the_category_when_no_listed_substitute_can_be_orde
     assert result.notes
 
 
-def test_tonight_the_best_orderable_substitute_is_a_gluten_free_barista_oat_drink(result: SubstituteResult) -> None:
+def test_among_those_that_pass_one_that_keeps_every_claim_comes_before_one_that_loses_a_claim(
+    result: SubstituteResult,
+) -> None:
+    passing = [candidate for candidate in result.candidates if candidate.passes]
+    loses = [bool(candidate.claims_lost) for candidate in passing]
+
+    assert loses == sorted(loses)
+    assert True in loses and False in loses
+
+
+def test_tonight_the_best_orderable_substitute_keeps_every_claim_of_the_original(
+    result: SubstituteResult, by_id: dict[str, SubstituteCandidate]
+) -> None:
     best = next(candidate for candidate in result.candidates if candidate.orderable)
 
-    # 475224 Fazer Aito Professional Barista Oat drink, gluten-free: 1 L like the original, confirmed, +0.37.
-    assert best.product_id == "475224"
-    assert best.price_difference is not None
-    assert str(best.price_difference) == "0.37"
+    # 473424 Alpro Rice drink 1 L: gluten-free, no preservatives, vegan like the original; confirmed, +0.99.
+    assert best.product_id == "473424"
+    assert best.claims_lost == ()
+    assert str(best.price_difference) == "0.99"
+    # 475224 Fazer Aito Professional Barista Oat drink is cheaper (+0.37) but does not carry one claim.
+    fazer = by_id["475224"]
+    assert fazer.claims_lost == ("FREE_FROM_PRESERVATIVES",)
+    assert fazer.passes is True and fazer.orderable is True
+    assert fazer.rank > best.rank
+    assert "FREE_FROM_PRESERVATIVES" in fazer.sentence
+    assert by_id[PASSES].claims_lost == ()
 
 
 def test_substitutes_cost_one_price_call_and_one_availability_call(
@@ -148,3 +167,14 @@ def test_the_buyers_own_exclusions_also_fail_a_substitute(service: OfferService,
         if candidate.reason is ExclusionReason.ALLERGEN_DECLARED:
             assert candidate.passes is False
             assert candidate.orderable is False
+
+
+def test_losing_a_claim_does_not_reorder_the_candidates_that_fail_the_allergen_rule(
+    result: SubstituteResult, by_id: dict[str, SubstituteCandidate]
+) -> None:
+    failing = [candidate.product_id for candidate in result.candidates if not candidate.passes]
+
+    # 464320 (1 L, like the original) loses two claims; 471881 (a 5 L case) keeps them all. The pack size
+    # still decides between them: claims only order the candidates that pass.
+    assert by_id["464320"].claims_lost and not by_id["471881"].claims_lost
+    assert failing == ["464320", "471881"]

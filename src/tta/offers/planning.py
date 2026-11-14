@@ -239,6 +239,7 @@ def _line_from(
         listed_by_supplier=judged.listed,
         category_distance=judged.distance,
         allergen_check=judged.rule,
+        claims_lost=judged.claims_lost,
         gives_up=gives_up(judged, ranking),
     )
     return line_for(candidate, need, units, min(units * candidate.per_unit, need.quantity), now, info)

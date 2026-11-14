@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from tta.availability.wording import format_amount
@@ -25,20 +26,20 @@ def why(judged: Judged) -> str:
         return f"{judged.rule.sentence} It can never be ordered as a substitute."
     if judged.reason is ExclusionReason.ALLERGEN_DECLARED:
         return f"{judged.reason_sentence} It cannot be ordered for this buyer."
+    lacks = ""
+    if judged.claims_lost:
+        lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
     if judged.reason is not None:
-        return f"It adds no allergen, but it cannot be ordered now. {judged.reason_sentence}"
-    return f"{judged.rule.sentence} {judged.candidate.assessment.sentence}"
+        return f"It adds no allergen, but it cannot be ordered now. {judged.reason_sentence}{lacks}"
+    return f"{judged.rule.sentence} {judged.candidate.assessment.sentence}{lacks}"
 
 
 def gives_up(judged: Judged, ranking: Ranking) -> str:
     """One sentence on what changes for the buyer who takes this product in place of the original."""
     original, product = ranking.original, judged.candidate.product
     parts: list[str] = []
-    # A nutritional claim is not an allergen statement, so the allergen rule does not see one that is
-    # lost: a lactose-free milk and a regular milk both declare milk (AIMO/docs/SCHEMA-AND-CODES.md section 4).
-    lost = [claim for claim in original.nutritional_claims if claim not in product.nutritional_claims]
-    if lost:
-        parts.append(f"it does not carry the original's nutritional {_claims(lost)}")
+    if judged.claims_lost:
+        parts.append(f"it does not carry the original's nutritional {_claims(judged.claims_lost)}")
     if original.brand and product.brand and original.brand != product.brand:
         parts.append(f"the brand is {product.brand}, not {original.brand}")
     if not judged.listed:
@@ -54,7 +55,7 @@ def gives_up(judged: Judged, ranking: Ranking) -> str:
     return f"Compared with {original.display_name}: {'; '.join(parts)}."
 
 
-def _claims(codes: list[str]) -> str:
+def _claims(codes: Sequence[str]) -> str:
     return f"claim {codes[0]}" if len(codes) == 1 else f"claims {', '.join(codes)}"
 
 

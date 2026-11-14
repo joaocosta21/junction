@@ -390,6 +390,12 @@ The build agents add questions here in the same shape as above. Empty until the 
 - Scenario 3: `471690` passes the allergen rule but its cut-off has passed tonight; `471881` and `464320` fail (they add `AW`). The best stand-in that can be ordered is `475224` Fazer Aito Barista oat drink, gluten-free.
 - Backup: 30 kg → 30 × `466988` = €506.40, a ceiling, needs a human (variable weight).
 
+**T07-7 · Which claims of the original must a substitute keep?** (for the biomedical side of the team)
+- **Context:** rule F-08 sends a substitute to a human when it lacks a nutritional claim the original carries, and such substitutes rank after those that keep every claim. The catalog has 21 claim codes.
+- **Decided overnight:** only dietary claims count — `FREE_FROM_LACTOSE`, `LOW_LACTOSE`, `FREE_FROM_GLUTEN`, `FREE_FROM_WHEAT`, `FREE_FROM_EGGS`, `FREE_FROM_SOY`, `VEGAN`, `VEGETARIAN`. Claims about preservatives, colouring agents, additives, sugars, sweeteners, fibre, protein, salt, fat and GMO are named in the "what the buyer gives up" sentence and change nothing else.
+- **Why:** counting every claim made a rice drink the best stand-in for a gluten-free barista oat drink, ahead of another barista oat drink that only lacks "free from preservatives".
+- **Ask:** "Is that the right list? Should `NO_ADDED_SUGARS` or `LOW_SODIUM_SALT` count for a hospital?" The list is one constant in `src/tta/offers/substitutes.py`.
+
 ---
 
 ## Claims we no longer make

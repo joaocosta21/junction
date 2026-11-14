@@ -24,7 +24,8 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers import OfferDeps, OfferService, find_substitutes
 
 A, B, C = "469363", "462775", "463380"  # lactose-free milks of category 10400, 1-litre cartons
-OAT_ORIGINAL, OAT_ADDS_GLUTEN, OAT_PASSES = "473609", "464320", "475224"
+# 473424 Alpro Rice drink 1 L keeps every nutritional claim of the oat drink 473609.
+OAT_ORIGINAL, OAT_ADDS_GLUTEN, OAT_PASSES = "473609", "464320", "473424"
 
 
 def of_kind(offer: Offer, kind: OptionKind) -> OfferOption | None:
@@ -155,6 +156,7 @@ def test_tonight_an_unconfirmed_named_product_gets_a_confirmed_substitute_ranked
     assert [(line.product_id, line.quantity) for line in substitute.lines] == [(OAT_PASSES, 100)]
     assert substitute.lines[0].availability.state is AvailabilityState.CONFIRMED
     assert substitute.lines[0].substitute.listed_by_supplier is False
+    assert substitute.lines[0].substitute.claims_lost == ()
     assert [(line.product_id, line.quantity) for line in alternative.lines] == [(OAT_ORIGINAL, 100)]
     assert alternative.decision.verdict is Verdict.APPROVAL
 
@@ -170,6 +172,7 @@ def test_the_ward_may_not_take_a_substitute_without_a_human(
     option = of_kind(offer, OptionKind.SUBSTITUTE)
     assert option is not None
     assert option.lines[0].product_id == "464056"
+    assert option.lines[0].substitute.claims_lost == ("FREE_FROM_PRESERVATIVES",)
     assert option.decision.verdict is Verdict.APPROVAL
     assert "P-05" in option.decision.rule_ids
 

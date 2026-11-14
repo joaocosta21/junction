@@ -18,6 +18,7 @@ from tta.contracts.common import (
     OptionKind,
     PackPreference,
     Unit,
+    Verdict,
 )
 from tta.contracts.offer import Offer, OfferOption, SubstituteQuery
 from tta.contracts.request import PurchaseRequest, RequestLine
@@ -30,7 +31,7 @@ from tta.offers.options import Draft
 from tta.offers.planning import LineOutcome, _confirmed_only
 from tta.offers.substitutes import MAX_POOL
 
-A, B = "469363", "462775"  # lactose-free milks, 1-litre cartons
+A, B, C = "469363", "462775", "463380"  # lactose-free milks, 1-litre cartons; only B is also fat-free
 REGULAR_MILK = "463149"  # Valio Plus skimmed milk 1 l: milk without the lactose-free claim
 MONDAY = date(2026, 11, 16)
 
@@ -174,7 +175,60 @@ def test_what_the_buyer_gives_up_names_a_claim_the_substitute_does_not_carry(
 
     regular = next(candidate for candidate in result.candidates if candidate.product_id == REGULAR_MILK)
     assert regular.passes is True  # it adds no allergen: both are milk
+    assert regular.orderable is True
+    assert regular.claims_lost == ("FREE_FROM_LACTOSE",)
     assert "FREE_FROM_LACTOSE" in regular.gives_up
+    assert "FREE_FROM_LACTOSE" in regular.sentence
+
+
+def test_a_substitute_that_keeps_every_claim_ranks_before_a_cheaper_one_that_loses_a_claim(
+    fake_gateway: Any, deps_for: Any, policy: Any, price: Any, stock: Any
+) -> None:
+    gateway = fake_gateway(
+        [price(A, "2.48"), price(REGULAR_MILK, "1.10"), price(B, "2.57")],
+        [stock(A, None), stock(REGULAR_MILK, 500), stock(B, 500)],
+    )
+
+    result = find_substitutes(A, policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
+
+    orderable = [candidate for candidate in result.candidates if candidate.orderable]
+    assert [(candidate.product_id, candidate.claims_lost) for candidate in orderable] == [
+        (B, ()), (REGULAR_MILK, ("FREE_FROM_LACTOSE",)),
+    ]
+
+
+def test_the_stand_in_of_an_offer_keeps_the_claims_of_the_original_when_one_can(
+    serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # The request names the lactose-free milk by id and lists no claim. The regular milk is cheaper.
+    service = serve(
+        [price(A, "2.48"), price(REGULAR_MILK, "1.10"), price(B, "2.57")],
+        [stock(A, None), stock(REGULAR_MILK, 500), stock(B, 500)],
+    )
+
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=(A,)), agent_hotel)
+
+    line = of_kind(offer, OptionKind.SUBSTITUTE).lines[0]
+    assert line.product_id == B
+    assert line.substitute.claims_lost == ()
+
+
+def test_a_stand_in_that_drops_a_claim_of_the_original_goes_to_a_human(
+    serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # Question 1 of T07: regular milk in place of a lactose-free milk named by id. Both declare milk, so
+    # the allergen rule passes; rule F-08 reads `claims_lost` and sends the order to a human.
+    service = serve([price(A, "2.48"), price(REGULAR_MILK, "1.10")], [stock(A, None), stock(REGULAR_MILK, 500)])
+
+    offer = service.build_offer(make_request(100, Unit.L, product_ids=(A,)), agent_hotel)
+
+    option = of_kind(offer, OptionKind.SUBSTITUTE)
+    line = option.lines[0]
+    assert (line.product_id, line.quantity) == (REGULAR_MILK, 100)
+    assert line.substitute.claims_lost == ("FREE_FROM_LACTOSE",)
+    assert "FREE_FROM_LACTOSE" in line.substitute.gives_up
+    assert option.decision.verdict is Verdict.APPROVAL
+    assert "F-08" in option.decision.rule_ids
 
 
 def test_a_substitute_in_an_offer_carries_every_claim_the_request_line_requires(
@@ -192,6 +246,22 @@ def test_a_substitute_in_an_offer_carries_every_claim_the_request_line_requires(
     option = of_kind(offer, OptionKind.SUBSTITUTE)
     assert [line.product_id for line in option.lines] == [B]
     assert results(option)[(0, ConstraintKind.CLAIM, "FREE_FROM_LACTOSE")] is CheckResult.MET
+
+
+def test_a_stand_in_carries_a_required_claim_even_when_the_original_does_not(
+    serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # The request asks for fat-free. C keeps every claim of the original and is cheaper, but only B is fat-free.
+    service = serve(
+        [price(A, "2.48"), price(C, "2.40"), price(B, "2.57")], [stock(A, None), stock(C, 500), stock(B, 500)]
+    )
+    request = make_request(100, Unit.L, product_ids=(A,), required_claims=("FREE_FROM_FAT",))
+
+    offer = service.build_offer(request, agent_hotel)
+
+    option = of_kind(offer, OptionKind.SUBSTITUTE)
+    assert [line.product_id for line in option.lines] == [B]
+    assert results(option)[(0, ConstraintKind.CLAIM, "FREE_FROM_FAT")] is CheckResult.MET
 
 
 def test_the_candidates_of_a_large_category_group_stop_at_one_call(
