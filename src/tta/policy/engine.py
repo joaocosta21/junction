@@ -144,7 +144,7 @@ class RulePolicyEngine:
             title=rule.title,
             fixed=rule.fixed,
             verdict=rule.verdict,
-            approver_role=rule.approver_role,
+            approver_role=_role_of(rule, read),
             sentence=as_sentence(clause),
             facts={name: to_json(read(name), self._type_of(name)) for name in facts_read_by(rule)},
             product_id=line.product_id if line is not None else None,
@@ -228,7 +228,7 @@ class RulePolicyEngine:
         texts = unique([self._text(_first_that_holds(entry.authority, read), read) for entry in entries])
         return RuleSummary(
             rule_id=rule.id, title=rule.title, fixed=rule.fixed, verdict=rule.verdict,
-            approver_role=rule.approver_role, sentence=" ".join(texts),
+            approver_role=_role_of(rule, read), sentence=" ".join(texts),
         )
 
 
@@ -237,6 +237,15 @@ def _targets(rule: RuleSpec, option: OfferOption) -> list[tuple[int | None, Offe
     if rule.scope is Scope.LINE:
         return list(enumerate(option.lines))
     return [(None, None)]
+
+
+def _role_of(rule: RuleSpec, read: Lookup) -> ApproverRole | None:
+    """Who signs: the role of the first `approver_role_when` entry that holds, else the rule's own. An entry
+    left unknown by a missing fact does not hold, so the rule's own role signs."""
+    for entry in rule.approver_role_when:
+        if evaluate(entry.when, read).truth is Truth.TRUE:
+            return entry.role
+    return rule.approver_role
 
 
 def _reason(reading: Reading) -> str:

@@ -211,8 +211,8 @@ def test_the_most_severe_verdict_wins_and_every_fired_rule_is_listed(
     ]
     assert decision.required_roles == ()  # nobody can sign off a blocked order
     assert decision.sentence == (
-        "This order cannot be placed, even with approval: Arla Café milk 1 L UHT (463380) declares an allergen "
-        "this buyer excludes: AM (contains) (F-02)."
+        "This order cannot be placed, even with approval: Arla Café milk 1 L UHT (463380) contains milk, which is "
+        "excluded for City Hospital, Ward 4, so it cannot be ordered (F-02)."
     )
 
 

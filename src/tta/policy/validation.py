@@ -43,6 +43,8 @@ class FixedRule:
     verdict: Verdict
     approver_role: ApproverRole | None  # None: nobody signs off a BLOCK; F-03 takes its role from the missing fact
     scopes: tuple[Scope, ...]  # the rule has one entry per scope; empty for the missing-fact rule, which has none
+    # The other roles the rule may send its question to (`approver_role_when`): exactly these, no more, no fewer.
+    other_roles: tuple[ApproverRole, ...] = ()
 
 
 # SPEC section 7: the rules no profile can switch off and the engine evaluates. F-06 is an access rule.
@@ -55,12 +57,25 @@ FIXED_RULES: Mapping[str, FixedRule] = MappingProxyType({
     "F-04": FixedRule(Verdict.BLOCK, None, (Scope.ORDER,)),
     "F-05": FixedRule(Verdict.BLOCK, None, (Scope.LINE,)),
     "F-07": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE, Scope.ORDER)),
-    "F-08": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
+    # A lost dietary claim is a nutrition question: the dietitian where the buyer names one.
+    "F-08": FixedRule(
+        Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,), other_roles=(ApproverRole.DIETITIAN,)
+    ),
     "F-09": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # task MENU-1
     # F-10 is the buyer's setting, in code (tta.policy.human_approval). F-11: the formula of a substitute.
     "F-11": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
     "F-12": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # a last-resort substitute
 })
+# The fixed rules as five plain statements (the page shows a customer these in place of the list of rules). The
+# keys are pinned here and the statements are in the rules file; every fixed rule and every access rule belongs
+# to exactly one, and a profile rule to none.
+RULE_GROUPS: tuple[str, ...] = (
+    "excluded_allergen_never_ordered",
+    "unconfirmed_goes_to_a_person",
+    "substitute_not_like_for_like",
+    "out_of_date_offer",
+    "agent_never_approves",
+)
 NO_ROLE = "none"  # how a rule without an approver role reads in a load error
 MISSING_FACT_PLACEHOLDERS = frozenset({"missing.what", "missing.reason", "missing.needed_by"})
 DECISION_PLACEHOLDERS = frozenset({"reasons", "roles"})
@@ -73,6 +88,7 @@ def validate_rulebook(rulebook: Rulebook, known_facts: Collection[str]) -> list[
         *_check_header(rulebook),
         *_check_facts(rulebook, known_facts),
         *_check_rule_set(rulebook),
+        *_check_groups(rulebook),
         *(problem for rule in rulebook.rules for problem in _check_rule(rule, rulebook)),
         *_check_texts(rulebook),
     ]
@@ -100,6 +116,37 @@ def _check_header(rulebook: Rulebook) -> list[str]:
     return problems
 
 
+def _check_groups(rulebook: Rulebook) -> list[str]:
+    """The five statements, and one of them for every fixed rule and access rule; none for a profile rule."""
+    problems: list[str] = []
+    if tuple(rulebook.groups) != RULE_GROUPS:
+        problems.append(f"groups must be exactly, in this order: {', '.join(RULE_GROUPS)}")
+    problems.extend(
+        f"groups.{key}: the statement is empty" for key, text in rulebook.groups.items() if not text.strip()
+    )
+    fixed = [(rule.id, rule.group) for rule in rulebook.rules if rule.fixed]
+    fixed.extend((rule.id, rule.group) for rule in rulebook.access_rules)
+    for rule_id, group in dict.fromkeys(fixed):
+        if group is None:
+            problems.append(f"{rule_id}: a fixed rule belongs to one group, and it names none")
+        elif group not in RULE_GROUPS:
+            problems.append(f"{rule_id}: unknown group '{group}'")
+    by_rule: dict[str, set[str | None]] = {}
+    for rule_id, group in fixed:
+        by_rule.setdefault(rule_id, set()).add(group)
+    problems.extend(
+        f"{rule_id}: the entries of one rule must name the same group" for rule_id, found in by_rule.items()
+        if len(found) > 1
+    )
+    problems.extend(
+        f"{rule.id}: a profile rule names no group; the groups are the fixed rules"
+        for rule in rulebook.rules if not rule.fixed and rule.group is not None
+    )
+    used = {group for _, group in fixed}
+    problems.extend(f"groups.{key}: no fixed rule belongs to it" for key in RULE_GROUPS if key not in used)
+    return problems
+
+
 def _check_facts(rulebook: Rulebook, known_facts: Collection[str]) -> list[str]:
     declared, readable = set(rulebook.facts), set(known_facts)
     unreadable = [f"fact '{name}' is declared but the engine cannot read it" for name in sorted(declared - readable)]
@@ -113,7 +160,8 @@ def _check_rule_set(rulebook: Rulebook) -> list[str]:
         entries.setdefault(rule.id, []).append(rule)
     problems = [f"{rule_id}: duplicate id" for rule_id in _duplicate_ids(rulebook, entries)]
     for rule_id, found in entries.items():
-        if len({(rule.fixed, rule.title, rule.verdict, rule.approver_role) for rule in found}) > 1:
+        agreed = {(rule.fixed, rule.title, rule.verdict, rule.approver_role, rule.approver_role_when) for rule in found}
+        if len(agreed) > 1:
             problems.append(f"{rule_id}: the entries of one rule must agree on fixed, title, verdict and approver_role")
     for rule_id, pinned in FIXED_RULES.items():
         problems.extend(_check_fixed_rule(rule_id, pinned, entries.get(rule_id, ())))
@@ -143,6 +191,13 @@ def _check_fixed_rule(rule_id: str, pinned: FixedRule, entries: Sequence[RuleSpe
         problems.append(
             f"{rule_id}: the approver role of a fixed rule is set in code: {_role_name(pinned.approver_role)}, "
             f"not {_role_name(role)}"
+        )
+    named = {entry.role for rule in entries for entry in rule.approver_role_when}
+    if named != set(pinned.other_roles):
+        allowed = ", ".join(role.value for role in pinned.other_roles) or NO_ROLE
+        problems.append(
+            f"{rule_id}: the other roles a fixed rule may ask are set in code: {allowed}, not "
+            f"{', '.join(sorted(role.value for role in named)) or NO_ROLE}"
         )
     listed = {rule.scope for rule in entries}
     problems.extend(
@@ -185,12 +240,33 @@ def _check_rule(rule: RuleSpec, rulebook: Rulebook) -> list[str]:
     for condition in conditions_of(rule.when):
         problems.extend(f"{rule.id}: {problem}" for problem in _check_condition(condition, rulebook))
     problems.extend(_check_facts_used(rule, rulebook))
+    problems.extend(_check_role_when(rule, rulebook))
+    return problems
+
+
+def _check_role_when(rule: RuleSpec, rulebook: Rulebook) -> list[str]:
+    """Another role is named only by a rule that asks for a person, and reads declared facts of its own scope.
+    It may read a profile fact also on a fixed rule: it changes who is asked, never whether a person is."""
+    problems: list[str] = []
+    if rule.approver_role_when and rule.verdict is not Verdict.APPROVAL:
+        problems.append(f"{rule.id}: only a rule that asks for a person can name another role")
+    for entry in rule.approver_role_when:
+        for condition in conditions_of(entry.when):
+            problems.extend(
+                f"{rule.id}: approver_role_when: {problem}" for problem in _check_condition(condition, rulebook)
+            )
+        if rule.scope is Scope.ORDER:
+            problems.extend(
+                f"{rule.id}: an order rule cannot read the line fact '{name}'"
+                for name in facts_in_when(entry.when) if name.startswith(LINE_FACT_PREFIX)
+            )
     return problems
 
 
 def _check_missing_fact_rule(rule: RuleSpec) -> list[str]:
     problems: list[str] = []
-    if rule.when is not None or rule.scope is not None or rule.approver_role is not None:
+    without = rule.when is None and rule.scope is None and rule.approver_role is None and not rule.approver_role_when
+    if not without:
         problems.append(
             f"{rule.id}: the missing-fact rule has no `when`, `scope` or `approver_role`; the role comes from the fact"
         )

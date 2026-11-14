@@ -103,18 +103,19 @@ def test_no_profile_setting_lets_a_last_resort_through(
         assert "F-12" in decision.rule_ids and decision.verdict is Verdict.APPROVAL
 
 
-def test_a_claim_losing_last_resort_fires_both_rules(
+def test_a_last_resort_whose_only_reason_is_the_lost_claim_is_said_once_by_f08(
     engine: RulePolicyEngine, alone: BuyerProfile, nutty_for_oat: Callable[..., OfferLine],
     make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
 ) -> None:
+    """One fact, one sentence: F-08 says the lost claim, so F-12 does not say it again. The line still goes to a
+    person. Every combination is in `test_one_fact_one_sentence.py`."""
     line = nutty_for_oat(sentence=None, claims_lost=("FREE_FROM_GLUTEN",))
 
     decision = engine.evaluate(make_option((line,)), alone, make_context())
 
-    assert decision.rule_ids == ("F-08", "F-12")
-    assert decision.fired[1].sentence == (
-        f"{NUTTY} (474724) would replace {ORIGINAL} as a last resort: it lacks a nutritional claim the original "
-        "carries (FREE_FROM_GLUTEN). A person decides whether it will do."
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-08",)
+    assert decision.fired[0].sentence == (
+        f"{NUTTY} (474724) would replace {ORIGINAL} but is not marked gluten-free, as the product asked for is."
     )
 
 

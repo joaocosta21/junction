@@ -50,7 +50,10 @@ def test_a_check_that_rejects_without_saying_which_allergen_still_blocks(
     decision = engine.evaluate(make_option((make_line(allergen_check=check),)), hotel, make_context())
 
     assert decision.verdict is Verdict.BLOCK
-    assert decision.fired[0].sentence.endswith("declares an allergen this buyer excludes: not listed.")
+    assert decision.fired[0].sentence == (
+        "Arla Café milk 1 L UHT (463380) contains an allergen the allergen check does not name, which is excluded "
+        "for Harbourside Hotel, so it cannot be ordered."
+    )
 
 
 def test_a_substitute_whose_original_has_no_name_is_named_by_its_id(

@@ -41,7 +41,7 @@ def regular_for_lactose_free(
     return build
 
 
-def test_regular_milk_in_place_of_lactose_free_milk_goes_to_the_purchasing_manager(
+def test_regular_milk_in_place_of_lactose_free_milk_goes_to_the_dietitian_the_hotel_names(
     engine: RulePolicyEngine, hotel: BuyerProfile, regular_for_lactose_free: Callable[..., OfferLine],
     make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
 ) -> None:
@@ -53,26 +53,48 @@ def test_regular_milk_in_place_of_lactose_free_milk_goes_to_the_purchasing_manag
     assert hotel.substitution_without_approval is SubstitutionScope.SAME_CATEGORY
     assert line.substitute.allergen_check.passes  # the allergen rule sees nothing: both declare milk
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-08",)
-    assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+    assert decision.required_roles == (ApproverRole.DIETITIAN,)  # a nutrition question, and the hotel names one
     f08 = decision.fired[0]
     assert f08.fixed and f08.verdict is Verdict.APPROVAL and f08.product_id == "463149"
-    assert f08.approver_role is ApproverRole.PURCHASING_MANAGER
+    assert f08.approver_role is ApproverRole.DIETITIAN
     assert f08.title == "A substitute lacks a nutritional claim the original carries"
     assert f08.sentence == (
-        f"{REGULAR_MILK} would replace {LACTOSE_FREE_MILK} but lacks a nutritional claim the original carries: "
-        "FREE_FROM_LACTOSE."
+        f"{REGULAR_MILK} would replace {LACTOSE_FREE_MILK} but is not marked lactose-free, as the product asked "
+        "for is."
     )
     assert f08.facts == {
         "line.is_substitute": True,
-        "line.substitute_claims_lost": ["FREE_FROM_LACTOSE"],
+        "line.substitute_claims_lost": ["FREE_FROM_LACTOSE"],  # the code is in the facts, the word in the sentence
         "line.name": "Valio Plus skimmed milk 1 l",
         "line.product_id": "463149",
         "line.substitute_original": LACTOSE_FREE_MILK,
+        "line.substitute_claims_lost_said": "lactose-free",
+        "profile.names_dietitian": True,  # what decided who signs
     }
     assert decision.sentence == (
-        f"The agent cannot place this order alone: {REGULAR_MILK} would replace {LACTOSE_FREE_MILK} but lacks a "
-        "nutritional claim the original carries: FREE_FROM_LACTOSE (F-08). It needs the purchasing manager."
+        f"The agent cannot place this order alone: {REGULAR_MILK} would replace {LACTOSE_FREE_MILK} but is not "
+        "marked lactose-free, as the product asked for is (F-08). It needs the dietitian."
     )
+
+
+def test_a_buyer_that_names_no_dietitian_sends_the_lost_claim_to_the_purchasing_manager(
+    engine: RulePolicyEngine, hotel: BuyerProfile, regular_for_lactose_free: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
+) -> None:
+    """Who is asked follows the profile; that a person is asked does not: the rule fires either way."""
+    roles = {role: ids for role, ids in hotel.approver_roles.items() if role is not ApproverRole.DIETITIAN}
+    for named in (roles, {**roles, ApproverRole.DIETITIAN: ()}):  # no entry, and an entry that names nobody
+        no_dietitian = hotel.model_copy(update={"approver_roles": named})
+
+        decision = engine.evaluate(make_option((regular_for_lactose_free(),)), no_dietitian, make_context())
+
+        assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-08",)
+        assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+        assert decision.fired[0].facts["profile.names_dietitian"] is False
+        assert engine.describe_authority(no_dietitian).rules[6].sentence == (
+            "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always "
+            "goes to the purchasing manager: Harbourside Hotel names no dietitian."
+        )
 
 
 def test_f08_names_every_claim_the_substitute_lacks(
@@ -84,7 +106,10 @@ def test_f08_names_every_claim_the_substitute_lacks(
     decision = engine.evaluate(make_option((line,)), hotel, make_context())
 
     assert decision.rule_ids == ("F-08",)
-    assert decision.fired[0].sentence.endswith("the original carries: FREE_FROM_LACTOSE, LOW_FAT.")
+    # A code the table of dietary claims does not hold is said in lower case; the offer lists dietary claims only.
+    assert decision.fired[0].sentence.endswith(
+        "but is not marked lactose-free and low fat, as the product asked for is."
+    )
     assert decision.fired[0].facts["line.substitute_claims_lost"] == ["FREE_FROM_LACTOSE", "LOW_FAT"]
 
 
@@ -127,7 +152,7 @@ def test_no_substitution_setting_lets_the_agent_accept_a_lost_claim_alone(
         decision = engine.evaluate(make_option((line,)), profile, make_context())
 
         assert decision.verdict is Verdict.APPROVAL and "F-08" in decision.rule_ids
-        assert ApproverRole.PURCHASING_MANAGER in decision.required_roles
+        assert ApproverRole.DIETITIAN in decision.required_roles
 
 
 def test_f08_is_listed_before_the_profile_rule_about_substitutes(
@@ -140,7 +165,8 @@ def test_f08_is_listed_before_the_profile_rule_about_substitutes(
 
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-08", "P-05")
     assert [rule.fixed for rule in decision.fired] == [True, False]
-    assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+    # Two questions, two roles: the lost claim is the dietitian's, the substitute as such the purchasing manager's.
+    assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER, ApproverRole.DIETITIAN)
 
 
 def test_a_substitute_that_adds_an_allergen_stays_blocked_when_it_also_lacks_a_claim(
@@ -231,13 +257,13 @@ def test_the_authority_says_that_a_substitute_that_lacks_a_claim_goes_to_a_human
         f08 = next(rule for rule in authority.rules if rule.rule_id == "F-08")
 
         assert f08.fixed and f08.verdict is Verdict.APPROVAL
-        assert f08.approver_role is ApproverRole.PURCHASING_MANAGER
+        assert f08.approver_role is ApproverRole.DIETITIAN  # both name one
         assert f08.sentence == (
-            "A substitute that lacks a nutritional claim of the product it replaces, for example lactose-free, "
-            "always goes to the purchasing manager."
+            "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, "
+            "always goes to the dietitian."
         )
         always = next(line for line in authority.summary if line.startswith("Always to a human"))
-        assert "a substitute that lacks a nutritional claim of the product it replaces" in always
+        assert "a substitute that lacks a dietary claim of the product it replaces" in always
 
 
 def test_the_hash_covers_f08(

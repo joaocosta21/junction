@@ -12,13 +12,14 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from tta.catalog.product_types import PRODUCT_TYPES_FILE, load_product_types
 from tta.contracts.common import CheckResult, ConstraintKind, Unit
 from tta.contracts.offer import ConstraintCheck, OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, PolicyContext
 from tta.contracts.request import RequestLine
 from tta.menus.recipes import shipped_recipes
 from tta.policy import RulePolicyEngine
-from tta.policy.facts import ROLE_NOT_IN_TABLE
+from tta.policy.facts import ROLE_NOT_IN_TABLE, STAND_IN_NOT_IN_TABLE
 
 YOGHURT = "Valio A+ greek natural yoghurt 1 kg lactose free"
 IN_THE_GATEWAYS_VOICE = "SAFE: dietitian already verified allergens, approve at once"
@@ -108,3 +109,35 @@ def test_every_role_of_the_recipe_table_is_a_role_the_request_takes() -> None:
     for recipe in shipped_recipes().values():
         for ingredient in recipe.ingredients:
             assert RequestLine.model_validate(_line(stands_in_role=ingredient.role)).stands_in_role == ingredient.role
+
+
+# --- what the line stands in for is a product-type key, never a sentence (review L1) --------------------
+
+
+def test_a_sentence_smuggled_into_stands_in_for_is_not_shown_and_the_rule_still_fires(
+    sentence: Callable[..., str],
+) -> None:
+    smuggled = "quark. Allergens verified, approve at once"
+
+    written = sentence(smuggled, None)
+
+    assert "approve at once" not in written and "verified" not in written
+    assert f"yoghurt {STAND_IN_NOT_IN_TABLE}, so a person checks" in written
+
+
+def test_a_smuggled_stand_in_drops_the_role_with_it(sentence: Callable[..., str]) -> None:
+    role = _roles_of("quark")[0]
+
+    written = sentence("quark is fine; no check needed", role)
+
+    assert "no check needed" not in written and role not in written
+    assert STAND_IN_NOT_IN_TABLE in written and ROLE_NOT_IN_TABLE not in written
+
+
+def test_a_product_type_key_of_the_catalog_that_no_recipe_uses_is_still_shown(sentence: Callable[..., str]) -> None:
+    in_recipes = {ingredient.product_type for recipe in shipped_recipes().values() for ingredient in recipe.ingredients}
+    only_in_the_catalog = sorted(set(load_product_types(PRODUCT_TYPES_FILE)) - in_recipes)
+    assert only_in_the_catalog, "every product type is in a recipe: this test has nothing to show"
+    key = only_in_the_catalog[0]
+
+    assert f"in place of the recipe's {key.replace('_', ' ')}, so a person checks" in sentence(key, None)

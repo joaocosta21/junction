@@ -71,8 +71,15 @@ def test_authority_follows_the_profile_settings(
         hotel.model_copy(update={"substitution_without_approval": SubstitutionScope.LISTED_BY_SUPPLIER})
     )
 
-    assert "AM, AW" in _sentence(ward_authority, "P-04") and "STRICT" in _sentence(ward_authority, "P-04")
-    assert "AM, AW" in _sentence(ward_authority, "F-02")
+    # Allergens in words, the customer by its name: never a code, never "this profile".
+    assert _sentence(ward_authority, "P-04") == (
+        "City Hospital, Ward 4 excludes milk and cereals containing gluten, and each must be confirmed absent: a "
+        "product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
+    )
+    assert _sentence(ward_authority, "F-02") == (
+        "City Hospital, Ward 4 excludes milk and cereals containing gluten. A product that contains one of them "
+        "can never be ordered, even with approval."
+    )
     assert "excludes no allergen" in _sentence(hotel_authority, "P-04")
     assert _sentence(ward_authority, "P-05") == "Every substitute goes to the purchasing manager."
     assert "same product category" in _sentence(hotel_authority, "P-05")

@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from tta.contracts.common import ApproverRole, ClaimName, ClaimStatus, JsonDict, Verdict
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, FiredRule, PolicyDecision, RuleSummary
+from tta.policy.text import plain_name
 
 SETTING = "auto_order_enabled"  # the profile setting that drives the rule
 HUMAN_APPROVAL = FiredRule(
@@ -52,11 +53,11 @@ NAMED_ROLES_SENTENCE = (
 )
 # GET /v1/authority: the rule in plain language, by the value of the setting.
 AUTHORITY_OFF = (
-    "The agent prepares the order, a person confirms it: this profile does not let the agent place an order "
+    "The agent prepares the order, a person confirms it: {buyer} does not let the agent place an order "
     "alone. The purchasing manager confirms when no other rule names a role."
 )
 AUTHORITY_ON = (
-    "This profile lets the agent place an order alone, and only when no rule asks for a human and every statement "
+    "{buyer} lets the agent place an order alone, and only when no rule asks for a human and every statement "
     "of the offer is confirmed: price, quantity, delivery date, allergens and origin of every line. Otherwise the "
     "purchasing manager confirms."
 )
@@ -122,7 +123,10 @@ def authority_summary(profile: BuyerProfile) -> RuleSummary:
     return RuleSummary(
         rule_id=HUMAN_APPROVAL.rule_id, title=HUMAN_APPROVAL.title, fixed=HUMAN_APPROVAL.fixed,
         verdict=HUMAN_APPROVAL.verdict, approver_role=HUMAN_APPROVAL.approver_role,
-        sentence=AUTHORITY_ON if profile.auto_order_enabled else AUTHORITY_OFF,
+        # The buyer is named, never called "this profile"; the name is text a visitor may have typed: data.
+        sentence=(AUTHORITY_ON if profile.auto_order_enabled else AUTHORITY_OFF).format(
+            buyer=plain_name(profile.display_name)
+        ),
     )
 
 

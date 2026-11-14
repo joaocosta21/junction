@@ -143,15 +143,25 @@ class AuthorityText(_Strict):
     text: str = Field(min_length=1)
 
 
+class RoleWhen(_Strict):
+    """Another role for a rule's question, taken when `when` holds: the dietitian where the buyer names one."""
+
+    when: When
+    role: ApproverRole
+
+
 class RuleSpec(_Strict):
     id: str = Field(min_length=1)
     fixed: bool  # True: holds for every buyer; no profile can switch it off
     title: str = Field(min_length=1)
+    group: str | None = None  # the plain statement a fixed rule belongs to (`groups`); None for a profile rule
     scope: Scope | None = None
     trigger: Trigger = Trigger.WHEN
     when: When | None = None
     verdict: Verdict
     approver_role: ApproverRole | None = None
+    # Who signs instead, by the first entry whose `when` holds. It changes who is asked, never whether a person is.
+    approver_role_when: tuple[RoleWhen, ...] = ()
     message: str = Field(min_length=1)
     records: tuple[str, ...] = ()
     authority: tuple[AuthorityText, ...] = ()
@@ -163,6 +173,7 @@ class AccessRule(_Strict):
 
     id: str = Field(min_length=1)
     title: str = Field(min_length=1)
+    group: str | None = None
     enforced_by: str
     outcome: str
     text: str = Field(min_length=1)
@@ -192,6 +203,7 @@ class Rulebook(_Strict):
     defaults: Defaults
     roles: dict[ApproverRole, RoleSpec]
     substitution_scopes: dict[SubstitutionScope, tuple[str, ...]]
+    groups: dict[str, str]  # the fixed rules as a few plain statements: key -> the statement a customer reads
     facts: dict[str, FactSpec]
     rules: tuple[RuleSpec, ...]
     access_rules: tuple[AccessRule, ...] = ()
@@ -238,6 +250,8 @@ def placeholders(template: str) -> tuple[str, ...]:
 
 
 def facts_read_by(rule: RuleSpec) -> tuple[str, ...]:
-    """The facts written to the decision when the rule fires: its conditions, its message, its records."""
+    """The facts written to the decision when the rule fires: its conditions, its message, its records, and
+    what decided who signs."""
     in_message = [name for name in placeholders(rule.message) if not name.startswith("missing.")]
-    return unique([*facts_in_when(rule.when), *in_message, *rule.records])
+    for_role = [name for entry in rule.approver_role_when for name in facts_in_when(entry.when)]
+    return unique([*facts_in_when(rule.when), *in_message, *rule.records, *for_role])

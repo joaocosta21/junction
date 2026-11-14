@@ -61,6 +61,13 @@ def _keeps_formula(_: OrderScope, line: OfferLine) -> Reading:
     return check if isinstance(check, Missing) else check.keeps_formula
 
 
+def formula_rule_fires(scope: OrderScope, line: OfferLine) -> bool:
+    """Whether rule F-11 fires on the line: a substitute, where the formula matters, that does not keep it. Read
+    by rule F-12's facts, so that one difference of formula is said once."""
+    matters = _formula_matters(scope, line) is True
+    return line.substitute is not None and matters and _keeps_formula(scope, line) is False
+
+
 def _outcome(_: OrderScope, line: OfferLine) -> Reading:
     check = _check(line)
     return check if isinstance(check, Missing) else check.outcome.value

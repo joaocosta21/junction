@@ -85,7 +85,7 @@ def test_an_allergen_check_that_skips_an_excluded_allergen_counts_as_missing(
     decision = engine.evaluate(make_option((make_line(allergen_check=only_milk),)), ward, make_context())
 
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-03",)
-    assert decision.fired[0].facts["reason"] == "the allergen check does not cover AW"
+    assert decision.fired[0].facts["reason"] == "the allergen check does not cover cereals containing gluten"
 
 
 def test_an_allergen_check_run_under_a_weaker_rule_than_the_profile_counts_as_missing(
@@ -102,7 +102,10 @@ def test_an_allergen_check_run_under_a_weaker_rule_than_the_profile_counts_as_mi
 
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-03",)
     reason = decision.fired[0].facts["reason"]
-    assert reason == "the allergen check was not run under the profile's STRICT rule for AM, AW"
+    assert reason == (
+        "the allergen check was not run under the strict rule City Hospital, Ward 4 sets for milk and cereals "
+        "containing gluten"
+    )
 
 
 def test_a_declared_allergen_still_blocks_when_part_of_the_check_is_missing(

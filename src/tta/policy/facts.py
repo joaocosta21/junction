@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 
 from tta.contracts.allergen import AllergenFinding
 from tta.contracts.availability import RevalidationChange, RevalidationResult
@@ -24,6 +25,7 @@ from tta.contracts.common import (
 )
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, PolicyContext
+from tta.policy.allergen_words import ALLERGEN_LINE_FACTS, ALLERGEN_PROFILE_FACTS, allergen_words
 from tta.policy.claims import (
     CLAIM_WORDS,
     NEEDED_BY_NOT_ASKED,
@@ -84,7 +86,7 @@ class OrderScope:
 
 def _allergen_strictness(profile: BuyerProfile, _: ScopeTable) -> Reading:
     if profile.allergen_strictness is None:
-        return Missing("the profile excludes no allergen and sets no allergen rule")
+        return Missing(f"{plain_name(profile.display_name)} excludes no allergen and sets no allergen rule")
     return profile.allergen_strictness.value
 
 
@@ -94,7 +96,9 @@ def _scopes_allowed(profile: BuyerProfile, table: ScopeTable) -> Reading:
 
 def _drift_ratio(profile: BuyerProfile, _: ScopeTable) -> Reading:
     ratio = profile.standing_order_drift_ratio
-    return Missing("the profile sets no drift tolerance for standing orders") if ratio is None else ratio
+    if ratio is None:
+        return Missing(f"{plain_name(profile.display_name)} sets no drift tolerance for standing orders")
+    return ratio
 
 
 PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
@@ -116,6 +120,7 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.standing_order_drift_ratio": _drift_ratio,
     "profile.formula_matters": lambda profile, _: profile.formula_matters,
     **PREMIUM_PROFILE_FACTS,  # rule P-09: what a preference may cost
+    **ALLERGEN_PROFILE_FACTS,  # the excluded allergens in words, and whether somebody holds the dietitian's role
 }
 
 
@@ -268,7 +273,7 @@ def _allergen_gap(scope: OrderScope, line: OfferLine) -> str | None:
     covered = {finding.excluded_code for finding in check.findings}
     skipped = [code for code in excluded if code not in covered]
     if skipped:
-        return f"the allergen check does not cover {', '.join(skipped)}"
+        return f"the allergen check does not cover {allergen_words(skipped)}"
     strict = AllergenStrictness.STRICT
     weaker = [
         finding.excluded_code for finding in check.findings
@@ -276,7 +281,10 @@ def _allergen_gap(scope: OrderScope, line: OfferLine) -> str | None:
         and (finding.strictness or check.strictness) is not strict
     ]
     if weaker:
-        return f"the allergen check was not run under the profile's STRICT rule for {', '.join(weaker)}"
+        return (
+            f"the allergen check was not run under the strict rule {plain_name(scope.profile.display_name)} sets "
+            f"for {allergen_words(weaker)}"
+        )
     return None
 
 
@@ -361,6 +369,23 @@ STAND_IN_FIELDS = ("stands_in_for", "stands_in_role")
 OTHER_PRODUCT_TYPE = "another product type"
 ROLE_SEPARATOR = "; "  # between the roles of two dishes, as `tta.menus.needs` joins them
 ROLE_NOT_IN_TABLE = "(the role the request gives for it is not in the recipe table, so it is not shown)"
+STAND_IN_NOT_IN_TABLE = "in place of an ingredient the request names, which is not in the recipe table"
+
+
+@lru_cache(maxsize=1)
+def _known_product_types() -> frozenset[str]:
+    """The keys of the catalog's product-type table and every product type of the recipe table (the second is
+    checked against the first when it loads; both are read here so neither check is assumed)."""
+    # Imported here: tta.catalog and tta.menus are not needed to load the policy package.
+    from tta.catalog.product_types import PRODUCT_TYPES_FILE, load_product_types
+    from tta.menus.recipes import shipped_recipes
+
+    in_recipes = {
+        choice.product_type
+        for recipe in shipped_recipes().values() for ingredient in recipe.ingredients
+        for choice in (ingredient, *ingredient.alternatives)
+    }
+    return frozenset(load_product_types(PRODUCT_TYPES_FILE)) | frozenset(in_recipes)
 
 
 def _stand_in_field(line: OfferLine, name: str) -> str:
@@ -395,10 +420,16 @@ def _recipe_role(line: OfferLine) -> str | None:
 
 def _stands_in_for(scope: OrderScope, line: OfferLine) -> Reading:
     """Rule F-09 (task MENU-1): `yoghurt in place of the recipe's quark, whose role is ...`; empty when the line
-    stands in for nothing. The role is shown only when the recipe table holds it for that product type."""
+    stands in for nothing. The role is shown only when the recipe table holds it for that product type.
+
+    What the line stands in for arrives in the request and the sentence is read by the person who signs (review
+    L1): it is shown only when it is a product-type key of the catalog's table or of the recipe table. Anything
+    else is not repeated, and its role with it; the reading is still not empty, so rule F-09 still fires."""
     recipe_type = _stand_in_field(line, STAND_IN_FIELDS[0])
     if not recipe_type:
         return ""
+    if getattr(line, STAND_IN_FIELDS[0], None) not in _known_product_types():
+        return f"{_line_product_type(scope, line)} {STAND_IN_NOT_IN_TABLE}"
     stands_in = f"{_line_product_type(scope, line)} in place of the recipe's {recipe_type}"
     if not getattr(line, STAND_IN_FIELDS[1], None):
         return stands_in
@@ -427,6 +458,7 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.variable_weight": _variable_weight,
     "line.has_deposits": lambda _, line: line.has_deposits,
     "line.stands_in_for": _stands_in_for,
+    **ALLERGEN_LINE_FACTS,  # allergens and dietary claims in words, for the sentences of F-02, F-05, F-08 and P-04
     **FORMULA_FACTS,  # rule F-11: a substitute's formula where the formula matters
     **LAST_RESORT_FACTS,  # rule F-12: a substitute that is a last resort
 }

@@ -15,6 +15,7 @@ the `hotel-kitchen` profile.
 from tta.policy.custom import profile_in_force
 from tta.policy.engine import RulePolicyEngine
 from tta.policy.errors import PolicyLoadError
+from tta.policy.groups import RuleGroup, rule_groups
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook, parse_rulebook
 from tta.policy.profiles import load_profile, load_profiles
 
@@ -22,10 +23,12 @@ __all__ = [
     "PROFILES_DIR",
     "RULES_PATH",
     "PolicyLoadError",
+    "RuleGroup",
     "RulePolicyEngine",
     "load_profile",
     "load_profiles",
     "load_rulebook",
     "parse_rulebook",
     "profile_in_force",
+    "rule_groups",
 ]

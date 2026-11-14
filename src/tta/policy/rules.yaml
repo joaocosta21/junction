@@ -44,10 +44,22 @@ roles:
     decides: "Spend per order, partial fills, substitutes, variable weight and quantities that are not confirmed"
   dietitian:
     name: "the dietitian"
-    decides: "Products that do not rule out an allergen the buyer excludes"
+    decides: "Products that do not rule out an allergen the buyer excludes, and substitutes that lack a dietary claim of the product they replace"
   finance:
     name: "finance"
     decides: "Spend per day and totals that leave deposits out"
+
+# The fixed rules as five plain statements: what a customer reads in place of the list of rule ids. Every fixed
+# rule and every access rule names exactly one of these keys as its `group`; a profile rule names none. The keys
+# are pinned in code (tta.policy.validation.RULE_GROUPS) and tta.policy.rule_groups() gives each statement with
+# the ids of its rules. F-05 (a substitute that adds an allergen) is in the third group although it is stricter
+# than the statement: such a substitute is never ordered, it does not go to a person.
+groups:
+  excluded_allergen_never_ordered: "An allergen you exclude is never ordered."
+  unconfirmed_goes_to_a_person: "Anything Valio Aimo's data does not confirm goes to a person."
+  substitute_not_like_for_like: "A substitute that is not a like-for-like replacement goes to a person."
+  out_of_date_offer: "An offer that is out of date cannot be ordered."
+  agent_never_approves: "The agent never approves."
 
 # What each value of the profile setting `substitution_without_approval` lets the agent accept alone.
 # A substitute is LISTED_BY_SUPPLIER when Valio Aimo lists it for the product, else SAME_CATEGORY when it
@@ -78,6 +90,10 @@ facts:
   profile.allergen_strictness:           {type: enum,   source: profile, label: "the allergen rule", values: [STRICT, DECLARED_ONLY], note: "the rule of every excluded allergen that allergen_strictness_by_code does not name"}
   profile.strict_allergens:              {type: list,   source: profile, label: "the allergens under the STRICT rule", note: "GS1 codes; each excluded allergen's own rule, else the profile's"}
   profile.declared_only_allergens:       {type: list,   source: profile, label: "the allergens under the DECLARED_ONLY rule", note: "GS1 codes; each excluded allergen's own rule, else the profile's"}
+  profile.excluded_allergens_said:       {type: string, source: engine,  label: "the excluded allergens, in words", note: "the labels of the catalog's allergen table (tta.allergens.codes): 'tree nuts, peanuts and sesame seeds'; 'no allergen' when none is excluded. A sentence names an allergen in words; the codes stay in the facts next to it"}
+  profile.strict_allergens_said:         {type: string, source: engine,  label: "the allergens that must be confirmed absent, in words"}
+  profile.declared_only_allergens_said:  {type: string, source: engine,  label: "the allergens kept out as an ingredient, in words"}
+  profile.names_dietitian:               {type: bool,   source: engine,  label: "whether somebody holds the dietitian's role", note: "true when the profile's approver_roles names at least one dietitian; read by approver_role_when, never by a `when`"}
   profile.substitution_without_approval: {type: enum,   source: profile, label: "the substitution setting", values: [NONE, LISTED_BY_SUPPLIER, SAME_CATEGORY]}
   profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
   profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
@@ -129,11 +145,15 @@ facts:
   line.allergen_outcomes:         {type: list,   source: option, label: "the allergen check", missing_role: dietitian, note: "every outcome the check reports (PASS, REJECT, TO_HUMAN), its own and each finding's; missing when the profile excludes an allergen the check does not cover, or the check ran under a weaker rule than the profile's"}
   line.allergens_declared:        {type: list,   source: option, label: "the excluded allergens the product declares"}
   line.allergens_to_human:        {type: list,   source: option, label: "the excluded allergens the product does not rule out"}
+  line.allergens_declared_said:   {type: string, source: engine, label: "what the product declares of the excluded allergens, in words", note: "'contains peanuts'; a member of a family as 'wheat (counted under cereals containing gluten)'"}
+  line.allergens_to_human_said:   {type: string, source: engine, label: "what the product leaves open about the excluded allergens, in words", note: "'may contain tree nuts and says nothing about sesame seeds'"}
   line.is_substitute:             {type: bool,   source: option, label: "whether the line replaces a product the buyer named"}
   line.substitute_original:       {type: string, source: option, label: "the product it replaces", note: "its name, read as data like line.name, and its id"}
   line.substitute_scope:          {type: enum,   source: engine, label: "how close the substitute is", values: [LISTED_BY_SUPPLIER, SAME_CATEGORY, OUTSIDE]}
   line.substitute_adds_allergen:  {type: bool,   source: option, label: "whether the substitute adds an allergen", note: "true when the substitution rule of SPEC section 6 fails: an allergen the original does not declare, or one raised from may contain to contains"}
   line.substitute_added_allergens: {type: list,  source: option, label: "the allergens the substitute adds", note: "added and raised allergens alike, each with the level the substitute declares; the offer does not tell the two apart"}
+  line.substitute_added_allergens_said: {type: string, source: engine, label: "what the substitute states about allergens and the product asked for does not, in words", note: "'declares oats and cereals containing gluten', 'may contain tree nuts'"}
+  line.substitute_claims_lost_said: {type: string, source: engine, label: "the dietary claims the substitute lacks, in words", note: "'lactose-free'; the offer lists dietary claims only (tta.offers.substitutes.DIETARY_CLAIMS), any other code is said in lower case"}
   line.substitute_claims_lost:    {type: list,   source: option, label: "the nutritional claims the substitute lacks", note: "claims of the original that the substitute does not carry, as the offer lists them (SubstituteInfo.claims_lost); codes of the product file such as FREE_FROM_LACTOSE, read as data like line.name"}
   line.variable_weight:           {type: bool,   source: option, label: "the variable-weight statement", note: "absent on 3,068 of the 17,546 catalog products (AIMO/FINDINGS.md section 4)"}
   line.has_deposits:              {type: bool,   source: option, label: "whether the product carries a deposit"}
@@ -146,8 +166,9 @@ facts:
   line.substitute_formula:        {type: string, source: option, label: "what the formula comparison found", note: "the offer's own sentence with its numbers, read as data like line.name, at most 400 characters"}
   line.substitute_formula_differences: {type: list, source: option, label: "the figures outside the tolerance", note: "each as 'fat 15 g, not 36 g' per 100 g or ml, then 'another fat source' when one ingredient list names a vegetable oil or fat and the other does not"}
   # --- a substitute that is a last resort (rule F-12; tta.policy.last_resort_facts) ---
-  line.substitute_last_resort:    {type: bool,   source: option, label: "whether the substitute is a last resort", note: "SubstituteInfo.last_resort: it loses a dietary claim, is flavoured where the product asked for is not, or is another product type, and stands in only because nothing like for like can be ordered; false on a line that replaces nothing"}
-  line.substitute_last_resort_reason: {type: string, source: option, label: "why the substitute is a last resort", note: "the reasons of the offer's own sentence (SubstituteInfo.replaceable.sentence, after 'Not a like-for-like replacement:'), read as data like line.name, at most 400 characters; else the claims it lacks; else what a last resort is"}
+  line.substitute_last_resort:    {type: bool,   source: option, label: "whether the substitute is a last resort", note: "SubstituteInfo.last_resort: it loses a dietary claim, is flavoured where the product asked for is not, is another product type or cannot be shown to be like for like, and stands in only because nothing like for like can be ordered; false on a line that replaces nothing"}
+  line.substitute_last_resort_own_reason: {type: bool, source: engine, label: "whether the last resort has a reason no other rule says", note: "false only when every reason the offer gives is a lost dietary claim, which F-08 says on the same line, or a formula that differs where the formula matters, which F-11 says: one fact, one sentence. True when the offer gives no reason at all, or reasons that cannot be told apart"}
+  line.substitute_last_resort_reason: {type: string, source: engine, label: "why the substitute is a last resort", note: "the offer's own reasons (SubstituteInfo.replaceable.reasons), read as data like line.name, at most 400 characters, without the reason F-08 or F-11 says on the same line; else what a last resort is"}
 
 # ---------------------------------------------------------------------------------------------------------
 # Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
@@ -158,11 +179,19 @@ facts:
 # `records` lists further facts written to the decision next to those the rule read.
 # `authority` is the rule in plain language for GET /v1/authority: the first text whose `when` holds for
 #   the profile is used; the last one has no `when`. Only `profile.*` facts may appear in it.
+# `approver_role_when` names another role for the rule's question, by the first entry whose `when` holds; else
+#   `approver_role` signs. It may read a profile fact also on a fixed rule, because it changes who is asked
+#   and never whether a person is asked. For a fixed rule the roles it may name are pinned in code.
+# `group` is the plain statement a fixed rule belongs to (`groups` above).
+# Words a person reads: a sentence names an allergen in words (line.*_said, profile.*_said), never by its code,
+#   and names the buyer by {profile.display_name}, never as "this buyer" or "this profile". The codes are in the
+#   facts written next to the sentence (`records`).
 # ---------------------------------------------------------------------------------------------------------
 rules:
   # --- Fixed rules: no profile can switch these off ---
   - id: F-01
     fixed: true
+    group: unconfirmed_goes_to_a_person
     title: A line's quantity is not confirmed
     scope: line
     when:
@@ -178,21 +207,24 @@ rules:
 
   - id: F-02
     fixed: true
+    group: excluded_allergen_never_ordered
     title: A line declares an excluded allergen
     scope: line
     when:
       all:
         - {fact: line.allergen_outcomes, op: contains_any, value: [REJECT]}
     verdict: BLOCK
-    message: "{line.name} ({line.product_id}) declares an allergen this buyer excludes: {line.allergens_declared}"
+    message: "{line.name} ({line.product_id}) {line.allergens_declared_said}, which is excluded for {profile.display_name}, so it cannot be ordered"
+    records: [line.allergens_declared]
     authority:
       - when: {all: [{fact: profile.excluded_allergens, op: not_empty}]}
-        text: "A product that declares an allergen this buyer excludes ({profile.excluded_allergens}) can never be ordered, even with approval."
-      - text: "A product that declares an allergen the buyer excludes can never be ordered, even with approval."
+        text: "{profile.display_name} excludes {profile.excluded_allergens_said}. A product that contains one of them can never be ordered, even with approval."
+      - text: "{profile.display_name} excludes no allergen. When a request excludes one, a product that contains it can never be ordered, even with approval."
     justification: "Defence in depth. The offer already leaves such a product out (ALLERGEN_DECLARED); the policy refuses it even if one gets through. The outcome comes from the allergen rule of SPEC section 6; the policy does not redo it."
 
   - id: F-03
     fixed: true
+    group: unconfirmed_goes_to_a_person
     title: A fact a rule needs is missing
     trigger: missing_fact   # no `when`: fires once for every fact that left a rule unknown, per line
     verdict: APPROVAL
@@ -203,6 +235,7 @@ rules:
 
   - id: F-04
     fixed: true
+    group: out_of_date_offer
     title: The option expired or changed before the order
     scope: order
     when:
@@ -219,9 +252,15 @@ rules:
     justification: "The spec says to order by closingTime at the latest to receive goods on availableDate, and a price holds until its validTo. An order rests on the statements of its offer; when they no longer hold the agent asks again."
 
   # The offer lists an allergen the substitute adds and one it raises from "may contain" to "contains" in
-  # one list (SubstituteAllergenCheck.added), so the title and the message name both cases.
+  # one list (SubstituteAllergenCheck.added), so the title names both cases; the message says what the
+  # substitute states ("declares oats", "may contain tree nuts") and that the product asked for does not.
+  # It stays a BLOCK for every buyer, also one that excludes no allergen (the owner, 14 Nov 2026: "still need
+  # to be overly cautious with the allergens"). What a person can do is said: ask for the product by name. A
+  # product asked for by name is no substitute, so this rule does not see it, and it goes through the allergen
+  # rules like any product (F-02, P-04).
   - id: F-05
     fixed: true
+    group: substitute_not_like_for_like
     title: A substitute adds an allergen the original does not declare, or raises one from may contain to contains
     scope: line
     when:
@@ -229,10 +268,11 @@ rules:
         - {fact: line.is_substitute, op: is_true}
         - {fact: line.substitute_adds_allergen, op: is_true}
     verdict: BLOCK
-    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} but adds an allergen the original does not declare, or raises one from may contain to contains: {line.substitute_added_allergens}"
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} and {line.substitute_added_allergens_said}, which the product asked for does not, so it cannot be ordered as a substitute. Ask for it by name if you want it"
+    records: [line.substitute_added_allergens]
     authority:
-      - text: "A substitute that declares an allergen the original product does not can never be ordered, for any buyer."
-    justification: "Of Valio Aimo's 249 listed substitutes, 37 declare an allergen the original does not (AIMO/PLAN.md section 3). A buyer who chose the original chose its allergens."
+      - text: "A substitute that declares an allergen the product asked for does not can never be ordered as a substitute, for any buyer. A person who wants that product asks for it by name."
+    justification: "Of Valio Aimo's 249 listed substitutes, 37 declare an allergen the original does not (AIMO/PLAN.md section 3). A buyer who chose the original chose its allergens: menus and labels depend on them, so the agent never swaps one in, and no approval of a swap lets it through. The product itself is not forbidden: asked for by name it is judged like any product."
 
   # F-07 is one rule judged in two places, so it is listed twice under one id: once for every line and
   # once for the option as a whole. The two entries must agree on title, verdict and approver role.
@@ -242,6 +282,7 @@ rules:
   # human whatever the check says: the policy does not rest on the offer's check alone.
   - id: F-07
     fixed: true
+    group: unconfirmed_goes_to_a_person
     title: A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met
     scope: line
     when:
@@ -260,6 +301,7 @@ rules:
 
   - id: F-07
     fixed: true
+    group: unconfirmed_goes_to_a_person
     title: A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met
     scope: order
     when:
@@ -276,6 +318,7 @@ rules:
   # so F-05 does not see the difference. A line that replaces nothing never fires this rule.
   - id: F-08
     fixed: true
+    group: substitute_not_like_for_like
     title: A substitute lacks a nutritional claim the original carries
     scope: line
     when:
@@ -284,9 +327,17 @@ rules:
         - {fact: line.substitute_claims_lost, op: not_empty}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} but lacks a nutritional claim the original carries: {line.substitute_claims_lost}"
+    # A lost dietary claim is a nutrition question: it goes to the dietitian where the buyer names one. The
+    # offer lists dietary claims only as lost (tta.offers.substitutes.DIETARY_CLAIMS), so every line this rule
+    # fires on is such a question. Who is asked changes; that a person is asked does not.
+    approver_role_when:
+      - when: {all: [{fact: profile.names_dietitian, op: is_true}]}
+        role: dietitian
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} but is not marked {line.substitute_claims_lost_said}, as the product asked for is"
     authority:
-      - text: "A substitute that lacks a nutritional claim of the product it replaces, for example lactose-free, always goes to the purchasing manager."
+      - when: {all: [{fact: profile.names_dietitian, op: is_true}]}
+        text: "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always goes to the dietitian."
+      - text: "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always goes to the purchasing manager: {profile.display_name} names no dietitian."
     justification: "A buyer who names a lactose-free milk asked for lactose-free. Regular milk declares the same allergen, milk, so the allergen rule for substitutes passes it and a profile that accepts substitutes of the same category would let the agent order it alone. What the buyer gives up is the claim; a person decides whether that is acceptable."
 
   # Recipe logic (task MENU-1): when a recipe's ingredient cannot be had in time, the menu planner may order
@@ -294,6 +345,7 @@ rules:
   # That is a judgement about a dish, not a product swap the buyer asked for, so a person always makes it.
   - id: F-09
     fixed: true
+    group: substitute_not_like_for_like
     title: A line stands in for a recipe's own ingredient
     scope: line
     when:
@@ -317,6 +369,7 @@ rules:
   # A substitute with no comparison at all leaves the fact missing, so F-03 sends it to a person.
   - id: F-11
     fixed: true
+    group: substitute_not_like_for_like
     title: A substitute does not keep the formula where the formula matters
     scope: line
     when:
@@ -339,20 +392,26 @@ rules:
   # only because no like-for-like product can be ordered. F-08 already sends the claim-loser to a person. A
   # flavoured or other-type one fired no rule of its own, so a buyer who lets the agent order alone and accepts
   # same-category substitutes would have had a nutty-vanilla drink ordered alone for a plain oat drink. It is
-  # FIXED: no profile setting lets a last resort through. With F-08 on the same line both are named.
+  # FIXED: no profile setting lets a last resort through.
+  # One fact, one sentence: a lost dietary claim is F-08's to say and a formula that differs where the formula
+  # matters is F-11's. On a line where one of them fires, this rule leaves that reason out, and when no reason
+  # of its own is left it does not fire (line.substitute_last_resort_own_reason). The line goes to a person
+  # either way. Reasons the offer does not give one by one are all kept.
   - id: F-12
     fixed: true
+    group: substitute_not_like_for_like
     title: A substitute is a last resort
     scope: line
     when:
       all:
         - {fact: line.is_substitute, op: is_true}
         - {fact: line.substitute_last_resort, op: is_true}
+        - {fact: line.substitute_last_resort_own_reason, op: is_true}
     verdict: APPROVAL
     approver_role: purchasing_manager
     message: "{line.name} ({line.product_id}) would replace {line.substitute_original} as a last resort: {line.substitute_last_resort_reason}. A person decides whether it will do"
     authority:
-      - text: "A substitute that is a last resort (it lacks a dietary claim of the product asked for, is flavoured where that product is not, or is another product type) always goes to the purchasing manager."
+      - text: "A substitute that is a last resort (it is flavoured where the product asked for is not, is another product type, or cannot be shown to be like for like) always goes to the purchasing manager."
     justification: "A kitchen that asked for a plain oat drink for coffee cannot use a nutty-vanilla one without knowing; the offer shows a last resort only because nothing like for like can be ordered, and a person decides whether it will do. The reading of flavour and product type from product names is ours and illustrative (3,465 of 17,546 catalog products read as flavoured)."
 
   # --- Profile rules: the settings of one buyer ---
@@ -423,15 +482,16 @@ rules:
         - {fact: line.allergen_outcomes, op: contains_any, value: [TO_HUMAN]}
     verdict: APPROVAL
     approver_role: dietitian
-    message: "{line.name} ({line.product_id}) does not rule out an allergen this buyer excludes: {line.allergens_to_human}"
+    message: "{line.name} ({line.product_id}) {line.allergens_to_human_said}, which is excluded for {profile.display_name}: Valio Aimo's data does not rule it out"
+    records: [line.allergens_to_human]
     authority:
       - when: {all: [{fact: profile.excluded_allergens, op: is_empty}]}
-        text: "This profile excludes no allergen. When a request excludes one, a product that does not rule it out goes to the dietitian."
+        text: "{profile.display_name} excludes no allergen. When a request excludes one, a product that does not rule it out goes to the dietitian."
       - when: {all: [{fact: profile.declared_only_allergens, op: is_empty}]}
-        text: "Excluded allergens: {profile.excluded_allergens}, rule STRICT. A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
+        text: "{profile.display_name} excludes {profile.excluded_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
       - when: {all: [{fact: profile.strict_allergens, op: is_empty}]}
-        text: "Excluded allergens: {profile.excluded_allergens}, rule DECLARED_ONLY. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
-      - text: "Excluded allergens under rule STRICT: {profile.strict_allergens}. A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian. Under rule DECLARED_ONLY: {profile.declared_only_allergens}. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+        text: "{profile.display_name} keeps {profile.excluded_allergens_said} out as an ingredient: a product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+      - text: "{profile.display_name} excludes {profile.strict_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian. It keeps {profile.declared_only_allergens_said} out as an ingredient: a product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
     justification: "MAY_CONTAIN appears on 2,685 products and 46.2% of the catalog has no allergen statement (AIMO/FINDINGS.md section 3). A named person owns the decision to accept that."
 
   - id: P-05
@@ -512,7 +572,7 @@ rules:
     authority:
       - when: {all: [{fact: profile.standing_order_drift_ratio, op: gte, value: 0}]}
         text: "A renewal of a standing order whose quantity or unit price on a line differs by more than {profile.standing_order_drift_ratio} from the median of that line's last 6 renewals goes to the purchasing manager. With fewer than 3 past renewals the history is too short to judge, and the renewal says so."
-      - text: "This profile sets no drift tolerance for standing orders: a renewal with enough history goes to the purchasing manager, because the tolerance is missing (F-03)."
+      - text: "{profile.display_name} sets no drift tolerance for standing orders: a renewal with enough history goes to the purchasing manager, because the tolerance is missing (F-03)."
     justification: "Valio Aimo's example scenario: 'the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it.' Every renewal of AIMO/USE-CASES.md section 6, 100 to 290 L of 469363, was AUTO with no rule fired. The Valio Aimo mock has no order history: the demonstration's history is synthetic and says so."
 
   # A preference (most reliable, lowest carbon, earliest) has a price. The offer states it on the option ranked
@@ -532,11 +592,11 @@ rules:
         - {fact: option.preference_premium_ratio, op: gt, value: {fact: profile.max_preference_premium_ratio}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "this option is ranked by the buyer's preference and costs €{option.net_above_cheapest} more before tax than the cheapest confirmed option, a premium of {option.preference_premium_ratio}, above the {profile.max_preference_premium_ratio} that {profile.display_name} lets a preference add without a human"
+    message: "this option is ranked by the preference of {profile.display_name} and costs €{option.net_above_cheapest} more before tax than the cheapest confirmed option, a premium of {option.preference_premium_ratio}, above the {profile.max_preference_premium_ratio} a preference may add without a human"
     authority:
       - when: {all: [{fact: profile.limits_preference_premium, op: is_true}]}
         text: "An option ranked by a preference (most reliable, lowest carbon, earliest) that costs more than {profile.max_preference_premium_ratio} above the cheapest confirmed option goes to the purchasing manager."
-      - text: "This profile sets no limit on what a preference may cost. The offer still ranks the cheapest confirmed option first when a preference costs more than 25% above it (our threshold)."
+      - text: "{profile.display_name} sets no limit on what a preference may cost. The offer still ranks the cheapest confirmed option first when a preference costs more than 25% above it (our threshold)."
     justification: "A preference must not buy the tenderloin for a stew: 'most reliable' or 'lowest carbon' says what to favour, not that any price is accepted. The share is the buyer's to set; nothing here is a Valio Aimo limit."
 
 # Fixed rules that are enforced where the caller's identity is known, not by the engine. They are listed
@@ -544,6 +604,7 @@ rules:
 access_rules:
   - id: F-06
     title: An agent cannot approve an order
+    group: agent_never_approves
     enforced_by: "the approval routes (tta.orders and tta.api)"
     outcome: "refused with the problem type not-authorised"
     text: "An agent can never approve an order, its own included: approval routes refuse agent tokens."
@@ -570,5 +631,5 @@ authority:
       text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
       text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
-    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing."
-    - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."
+    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a dietary claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing."
+    - text: "Never, even with approval: a product that contains an excluded allergen, a substitute that declares an allergen the product asked for does not, and an option that expired or changed before the order."

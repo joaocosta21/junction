@@ -154,7 +154,8 @@ def test_p04_fires_when_one_finding_asks_for_a_human_even_if_the_check_as_a_whol
     assert decision.rule_ids == ("P-04",)
     assert _fired(decision, "P-04").facts["line.allergens_to_human"] == ["AM (may contain)"]
     assert _fired(decision, "P-04").sentence == (
-        "Arla Café milk 1 L UHT (463380) does not rule out an allergen this buyer excludes: AM (may contain)."
+        "Arla Café milk 1 L UHT (463380) may contain milk, which is excluded for City Hospital, Ward 4: Valio "
+        "Aimo's data does not rule it out."
     )
 
 
@@ -189,9 +190,11 @@ def test_f05_blocks_a_substitute_that_adds_an_allergen(
     assert f05.fixed and f05.product_id == "471881"
     assert f05.title == F05_TITLE
     assert f05.sentence == (
-        "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) but adds an allergen "
-        "the original does not declare, or raises one from may contain to contains: AW (contains)."
+        "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) and declares that it "
+        "contains cereals containing gluten, which the product asked for does not, so it cannot be ordered as a "
+        "substitute. Ask for it by name if you want it."
     )
+    assert f05.facts["line.substitute_added_allergens"] == ["AW (contains)"]  # the code is in the facts
 
 
 def test_f05_says_nothing_untrue_about_a_substitute_that_only_raises_a_level(
@@ -212,8 +215,9 @@ def test_f05_says_nothing_untrue_about_a_substitute_that_only_raises_a_level(
     f05 = _fired(decision, "F-05")
     assert f05.title == F05_TITLE
     assert f05.sentence == (
-        "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) but adds an allergen "
-        "the original does not declare, or raises one from may contain to contains: AN (contains)."
+        "Oat drink gluten-free (471881) would replace Oddlygood Barista oat drink (473609) and declares that it "
+        "contains tree nuts, which the product asked for does not, so it cannot be ordered as a substitute. Ask "
+        "for it by name if you want it."
     )
     assert f05.facts["line.substitute_added_allergens"] == ["AN (contains)"]
 

@@ -10,7 +10,7 @@ import pytest
 from tta.contracts.common import ApproverRole, Verdict
 from tta.policy import RULES_PATH, PolicyLoadError, load_rulebook, parse_rulebook
 from tta.policy.facts import KNOWN_FACTS
-from tta.policy.rulebook import Scope, facts_read_by
+from tta.policy.rulebook import Scope, facts_in_when, facts_read_by
 
 SPEC_RULES = {
     "F-01": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
@@ -91,11 +91,16 @@ def test_every_rule_reads_declared_facts_and_every_declared_fact_can_be_read() -
 
 
 def test_no_fixed_rule_reads_a_profile_setting() -> None:
+    """Whether a fixed rule fires never rests on the profile. Its sentence may name the buyer, and who signs
+    may follow whether the buyer names a dietitian: neither can switch the rule off."""
     rulebook = load_rulebook(RULES_PATH)
+    said_or_signed = {"profile.display_name", "profile.names_dietitian"}
 
     for rule in rulebook.rules:
         if rule.fixed and rule.when is not None:
-            assert not [name for name in facts_read_by(rule) if name.startswith("profile.")], rule.id
+            assert not [name for name in facts_in_when(rule.when) if name.startswith("profile.")], rule.id
+            from_profile = {name for name in facts_read_by(rule) if name.startswith("profile.")}
+            assert from_profile <= said_or_signed, rule.id
 
 
 def test_every_rule_carries_a_title_a_message_a_justification_and_a_plain_summary() -> None:

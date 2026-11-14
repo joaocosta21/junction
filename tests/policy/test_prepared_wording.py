@@ -106,8 +106,8 @@ def test_the_authority_says_the_agent_prepares_and_a_person_confirms(
         "approval role is required."
     )
     assert f10.sentence == (
-        "The agent prepares the order, a person confirms it: this profile does not let the agent place an order "
-        "alone. The purchasing manager confirms when no other rule names a role."
+        "The agent prepares the order, a person confirms it: Harbourside Hotel does not let the agent place an "
+        "order alone. The purchasing manager confirms when no other rule names a role."
     )
 
 

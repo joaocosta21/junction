@@ -47,9 +47,8 @@ def test_a_preference_that_costs_more_than_the_profile_accepts_goes_to_the_purch
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert decision.fired[0].fixed is False
     assert decision.fired[0].sentence == (
-        "This option is ranked by the buyer's preference and costs €20.00 more before tax than the cheapest "
-        "confirmed option, a premium of 20%, above the 10% that Harbourside Hotel lets a preference add without a "
-        "human."
+        "This option is ranked by the preference of Harbourside Hotel and costs €20.00 more before tax than the "
+        "cheapest confirmed option, a premium of 20%, above the 10% a preference may add without a human."
     )
     assert decision.fired[0].facts == {
         "profile.limits_preference_premium": True, "option.preference_premium_ratio": 0.2,
@@ -127,6 +126,6 @@ def test_authority_states_the_share_or_that_none_is_set(
         "the cheapest confirmed option goes to the purchasing manager."
     )
     assert sentence(hotel) == (
-        "This profile sets no limit on what a preference may cost. The offer still ranks the cheapest confirmed "
-        "option first when a preference costs more than 25% above it (our threshold)."
+        "Harbourside Hotel sets no limit on what a preference may cost. The offer still ranks the cheapest "
+        "confirmed option first when a preference costs more than 25% above it (our threshold)."
     )
