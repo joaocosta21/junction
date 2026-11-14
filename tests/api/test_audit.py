@@ -53,11 +53,13 @@ def test_the_supplier_token_sees_only_the_supplier_view(
     assert view["reader"] == "supplier"
     assert len(view["events"]) >= 6
     assert_problem(as_buyer, "not-authorised", 403)
-    # What Valio Aimo must not see: the buyer's limits, its approver, the note, the pasted words.
+    # What Valio Aimo must not see: the buyer's limit amounts, its approver, the note, the pasted words.
     text = json.dumps(view)
-    for hidden in (NOTE, "Demo approver", "human:hotel-purchasing", "max_order_net_eur", "P-01",
+    for hidden in (NOTE, "Demo approver", "human:hotel-purchasing", "max_order_net_eur",
                    "1,000 litres of lactose-free milk by Monday"):
         assert hidden not in text, hidden
+    # Since S4 (L3, 14 Nov) it sees every rule that fired with its reason, the amount masked.
+    assert "P-01" in text and "the amount is not shown" in text
     # What it does see: what was ordered of its data, and that a human approved.
     assert "agent:hotel-kitchen" in text
     assert any("approv" in event["sentence"] for event in view["events"])

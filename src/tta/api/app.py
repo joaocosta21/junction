@@ -17,6 +17,7 @@ from starlette.routing import Match, Mount
 from starlette.types import ASGIApp, Scope
 
 from tta.api import docs, hooks
+from tta.api.discovery import discovery
 from tta.api.docs_pages import install_docs_pages
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
@@ -115,6 +116,7 @@ def _application(parts: Parts) -> FastAPI:
     app.include_router(router)
     app.include_router(menu_router())  # recipes and menus (task MENU-1)
     app.include_router(public)
+    app.include_router(discovery)  # /.well-known/api-catalog (RFC 9727) and /llms.txt, before the pages (P12 W2)
     include_standing_routes(  # standing orders, drift checked before each renewal (task STAND-1)
         app, StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock)
     )

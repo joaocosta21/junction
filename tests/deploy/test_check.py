@@ -19,7 +19,10 @@ from tta.config import Settings
 from tta.contracts.common import DataSource
 
 WARD_TOKEN = "demo-agent-allergy-ward"
-EVERY_CHECK = ("health", "page", "offer", "order", "audit", "mcp without a token", "mcp tools")
+EVERY_CHECK = (
+    "health", "page", "offer", "order", "audit", "mcp without a token", "mcp tools", "mcp foreign origin",
+    "api catalog",
+)
 
 
 @pytest.fixture
@@ -46,12 +49,16 @@ def test_every_check_passes_against_the_gateway(check: ModuleType, client: TestC
     assert "PENDING_APPROVAL" in by_name["order"]  # every order waits for a person (F-10)
     assert "replay" in by_name["offer"]
     assert "8 tools" in by_name["mcp tools"]
+    assert by_name["mcp foreign origin"] == "status 403"  # P12 W3
+    assert "/openapi.json" in by_name["api catalog"] and "/mcp/" in by_name["api catalog"]  # P12 W2, before the pages
 
 
 def test_with_no_order_asked_for_none_is_placed(check: ModuleType, client: TestClient) -> None:
     results = check.run_checks(_fetch(check, client), expected_mode="replay", place_order=False)
 
-    assert [result.name for result in results] == ["health", "page", "offer", "mcp without a token", "mcp tools"]
+    assert [result.name for result in results] == [
+        "health", "page", "offer", "mcp without a token", "mcp tools", "mcp foreign origin", "api catalog",
+    ]
     assert all(result.ok for result in results)
     assert client.get("/v1/orders", headers={"Authorization": f"Bearer {WARD_TOKEN}"}).json() == []
 
@@ -114,6 +121,8 @@ def test_a_refused_offer_leaves_the_order_and_the_audit_untried(check: ModuleTyp
     assert results["order"].detail == "not tried: there is no offer"
     assert results["audit"].detail == "not tried: there is no order"
     assert results["mcp tools"].detail == "initialize: status 500"
+    assert results["mcp foreign origin"].detail == "status 500"
+    assert results["api catalog"].detail.startswith("status 500")
 
 
 def test_an_offer_with_no_option_fails_and_no_order_is_tried(check: ModuleType) -> None:
@@ -144,3 +153,22 @@ def test_an_answer_that_is_not_the_expected_json_is_a_failed_check(check: Module
 
     assert (health.name, health.ok) == ("health", False)
     assert health.detail.startswith("JSONDecodeError")
+
+
+def test_a_catalog_that_is_not_the_rfc_9727_linkset_fails(check: ModuleType) -> None:
+    page = check.Reply(404, "text/html; charset=utf-8", b"<html>Not found</html>")  # what demo answered before W2
+    fetch = _scripted(check, {("GET", "/.well-known/api-catalog"): page})
+
+    catalog = check.run_checks(fetch, place_order=False)[-1]
+
+    assert (catalog.name, catalog.ok) == ("api catalog", False)
+    assert catalog.detail.startswith("status 404")
+
+
+def test_an_mcp_endpoint_that_serves_a_foreign_origin_fails(check: ModuleType) -> None:
+    served = check.Reply(200, "application/json", b'{"result": {"tools": []}}')  # what it answered before W3
+    fetch = _scripted(check, {("POST", "/mcp/"): served})
+
+    results = {result.name: result for result in check.run_checks(fetch, place_order=False)}
+
+    assert (results["mcp foreign origin"].ok, results["mcp foreign origin"].detail) == (False, "status 200")

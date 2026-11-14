@@ -11,9 +11,10 @@ Four layers, each a sliding window of one minute, in memory, for one process:
                      On the pages a visitor is a browser, known by the own-book cookie the pages give it; a
                      browser without one, and every REST and MCP call, is its address, whichever token it sends
     one address      the demonstration only: every browser and caller behind one address together, at most
-                     half of each ceiling (`ADDRESS_CAPS`). A room on one Wi-Fi shares one public address, and
-                     a new cookie buys a new browser window, so this is what holds rotating cookies back
-    all callers      a ceiling per kind of call (`GLOBAL_CEILINGS`)
+                     a quarter of each ceiling (`ADDRESS_CAPS`). A room on one Wi-Fi shares one public address,
+                     and a new cookie buys a new browser window, so this is what holds rotating cookies back
+    all callers      a ceiling per kind of call (`GLOBAL_CEILINGS`): it takes four addresses at their cap to fill
+                     one, so one or two callers cannot lock the demo for everybody (A3 F3)
     the supplier     live looks at price and availability, overall and per address (used by the fall-back)
 
 The values are ours and illustrative, like the buyer profiles: the mock publishes no rate limit
@@ -56,20 +57,23 @@ BAD_LENGTH = "The Content-Length header is not a number."
 SECONDS_PER_MINUTE = 60.0
 DEFAULT_RATE_LIMIT_CALLS = 60
 DEFAULT_RATE_LIMIT_WINDOW_SECONDS = SECONDS_PER_MINUTE
-# For all callers together, per minute. One run of the buyer agent is one model call, one lookup and one order.
-MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE = 120
-MAX_ORDERS_AND_DECISIONS_PER_MINUTE = 120
-MAX_MODEL_CALLS_PER_MINUTE = 30
-# One visitor of the public demonstration, whichever of the public tokens it sends (task FIX-10): a browser
-# of the pages, or an address. Each is at most a quarter of its ceiling.
+# One visitor of the public demonstration, whichever public token it sends (task FIX-10): a browser of the pages,
+# or an address. 15 readings a minute serve fast typing (A5 #3: the sixth was refused at 5) and stay under the
+# offer window, so an example whose agent run is held back still makes its offer from its typed request.
 MAX_LOOKUPS_PER_VISITOR_PER_MINUTE = 20
 MAX_ORDERS_PER_VISITOR_PER_MINUTE = 20
-MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE = 5
-# Every browser and caller behind one address together (task FIX-11): half of each ceiling, so one address
-# rotating cookies leaves the other half to everybody else, and a room of a dozen reviewers each runs a scenario.
+MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE = 15
+# Every browser and caller behind one address together (task FIX-11): a dozen reviewers on one Wi-Fi each run
+# about five scenarios a minute, and rotating cookies buys no more.
 MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE = 60
 MAX_ORDERS_PER_ADDRESS_PER_MINUTE = 60
-MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE = 15
+MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE = 60
+# All callers together: four addresses at their cap, so one or two cannot lock everybody out (A3 F3). An offer
+# takes about 17 ms of one core in replay (measured offline, 14 Nov), so a full ceiling is about 7% of the core.
+ADDRESSES_THAT_FILL_A_CEILING = 4
+MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE = ADDRESSES_THAT_FILL_A_CEILING * MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE
+MAX_ORDERS_AND_DECISIONS_PER_MINUTE = ADDRESSES_THAT_FILL_A_CEILING * MAX_ORDERS_PER_ADDRESS_PER_MINUTE
+MAX_MODEL_CALLS_PER_MINUTE = ADDRESSES_THAT_FILL_A_CEILING * MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE
 # One look is a price call and an availability call. At this rate the default call budget of 150 lasts
 # twelve minutes of a full room; above it the fall-back answers from the capture and says so.
 MAX_LIVE_LOOKS_PER_MINUTE = 6

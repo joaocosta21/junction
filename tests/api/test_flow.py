@@ -134,7 +134,7 @@ def test_the_trail_of_an_order_starts_with_the_request_as_the_buyer_wrote_it(
     received = view["events"][0]
     words = scenario_2["lines"][0]["text"]
     # The sentence quotes the buyer's own words, cut to a readable length; the fact holds all of them.
-    assert received["sentence"].startswith("The agent sent a request for profile allergy-ward: ")
+    assert received["sentence"].startswith("The agent sent a request for City Hospital, Ward 4: ")  # display name
     assert words[:60] in received["sentence"]
     assert received["facts"]["text"] == words
     assert received["actor"]["id"] == "agent:allergy-ward"

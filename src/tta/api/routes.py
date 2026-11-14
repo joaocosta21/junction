@@ -8,14 +8,17 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from tta.api import docs
 from tta.api.agent_calls import header_value
 from tta.api.clock_info import HealthClock, describe_clock
+from tta.api.idempotency import PARAMETER as IDEMPOTENCY_PARAMETER
+from tta.api.idempotency import MissingIdempotencyKey, idempotency_key
 from tta.api.identity import Caller
+from tta.api.schema_export import exported_schemas
 from tta.api.service import Gateway
 from tta.api.uploads import READ_IMAGE_PATH, REQUEST_BODY, ImageReading, body_too_large_answer, read_upload
 from tta.contracts.agent import AgentRun, ParseRequestBody
@@ -38,13 +41,10 @@ from tta.contracts.order import Approval, DecisionRequest, Order, PlaceOrderRequ
 from tta.contracts.policy import Authority
 from tta.contracts.product import Product, SearchResult
 from tta.contracts.request import MAX_ID_LENGTH, ProductQuery, PurchaseRequest
-from tta.contracts.schemas import all_schemas
 
 MAX_STORED_ID_LENGTH = 64
-MAX_KEY_LENGTH = 100
-KEY_PATTERN = r"^[A-Za-z0-9._:-]+$"  # the same form the order book accepts
 CALLER = (Unauthenticated, NotAuthorised)  # every route with a token can answer these two
-CREATED = 201
+CREATED, LOCATION_HEADER = docs.CREATED, docs.LOCATION_HEADER
 READ_BY_HEADER = "TTA-Read-By"
 READING_SOURCE_HEADER = "TTA-Reading-Source"
 READING_HEADERS = {
@@ -67,14 +67,7 @@ StoredId = Annotated[str, Path(min_length=1, max_length=MAX_STORED_ID_LENGTH, pa
 StoredIdQuery = Annotated[
     str | None, Query(min_length=1, max_length=MAX_STORED_ID_LENGTH, pattern=r"^[A-Za-z0-9_-]+$")
 ]
-IdempotencyKey = Annotated[
-    str,
-    Header(
-        alias="Idempotency-Key", min_length=1, max_length=MAX_KEY_LENGTH, pattern=KEY_PATTERN,
-        description="Chosen by the caller, 1 to 100 characters of A-Z a-z 0-9 . _ : -. The same key returns "
-                    "the first result, so a retry never places a second order.",
-    ),
-]
+IdempotencyKey = Annotated[str, Depends(idempotency_key)]  # documented by `IDEMPOTENCY_PARAMETER`
 
 
 def _upper(value: Any) -> Any:
@@ -175,15 +168,20 @@ def find_substitutes(
 
 @router.post(
     "/offers", operation_id="create_offer", tags=[docs.TAG_ORDER], status_code=CREATED,
-    responses=docs.problems(*CALLER, InvalidRequest, UnknownProduct, RateLimited, SupplierUnavailable),
+    responses={
+        **docs.created("The offer", "/v1/offers/{offer_id}"),
+        **docs.problems(*CALLER, InvalidRequest, UnknownProduct, RateLimited, SupplierUnavailable),
+    },
     summary="A typed request becomes an offer",
 )
-def create_offer(request: Request, caller: Caller, purchase: PurchaseRequest) -> Offer:
+def create_offer(request: Request, response: Response, caller: Caller, purchase: PurchaseRequest) -> Offer:
     """At most three options at fixed prices, each with a status per claim, a check per thing the buyer asked
     for, and the policy verdict for the caller's buyer profile. Everything that dropped out is listed with a
     reason. "Nothing fits" is an offer with no option and the reasons, not an error. A request names at most
-    1,000 product ids."""
-    return _service(request).create_offer(caller, purchase)
+    1,000 product ids. `Location` is the address of the new offer."""
+    offer = _service(request).create_offer(caller, purchase)
+    response.headers[LOCATION_HEADER] = f"{router.prefix}/offers/{offer.offer_id}"
+    return offer
 
 
 @router.get(
@@ -197,20 +195,29 @@ def get_offer(request: Request, caller: Caller, offer_id: StoredId) -> Offer:
 
 @router.post(
     "/orders", operation_id="place_order", tags=[docs.TAG_ORDER], status_code=CREATED,
-    responses=docs.problems(
-        *CALLER, InvalidRequest, NotFound, OfferExpired, OfferStale, PolicyBlocked, RateLimited, SupplierUnavailable
-    ),
-    summary="Submit one offer option for human approval",
+    responses={
+        **docs.created("The order, ordered or waiting for a person", "/v1/orders/{order_id}"),
+        **docs.problems(
+            *CALLER, MissingIdempotencyKey, InvalidRequest, NotFound, OfferExpired, OfferStale, PolicyBlocked,
+            RateLimited, SupplierUnavailable,
+        ),
+    },
+    openapi_extra={"parameters": [IDEMPOTENCY_PARAMETER]},
+    summary="Order one offer option: alone where the buyer allows it, otherwise it waits for a person",
 )
 def place_order(
-    request: Request, caller: Caller, order: PlaceOrderRequest, idempotency_key: IdempotencyKey
+    request: Request, response: Response, caller: Caller, order: PlaceOrderRequest, key: IdempotencyKey
 ) -> Order:
-    """Price and availability are checked again. An eligible option becomes a `PENDING_APPROVAL`
-    order that waits for the roles named. `BLOCK` gives a
-    `policy-blocked` problem and no order. When something changed or ran out (`offer-stale`, `offer-expired`)
+    """Price and availability are checked again, then the policy decides. `AUTO`: the order is `ORDERED`,
+    `placed_by: AGENT`. That happens only when the buyer switched ordering alone on (`auto_order_enabled`, off in
+    every shipped profile, rule F-10), no rule asks for a person and every statement of every line is confirmed.
+    Otherwise an eligible option becomes a `PENDING_APPROVAL` order that waits for the roles named. `BLOCK` gives
+    a `policy-blocked` problem and no order. When something changed or ran out (`offer-stale`, `offer-expired`)
     the problem carries `fresh_offer_id`: a new offer for the same request. `ORDERED` means recorded in this
-    gateway's order book; the mock has no order endpoint."""
-    return _service(request).place_order(caller, order.offer_id, order.option_id, idempotency_key)
+    gateway's order book (the mock has no order endpoint). `Location`: the order, also on a retry with the key."""
+    placed = _service(request).place_order(caller, order.offer_id, order.option_id, key)
+    response.headers[LOCATION_HEADER] = f"{router.prefix}/orders/{placed.order_id}"
+    return placed
 
 
 @router.get(
@@ -266,10 +273,12 @@ def get_audit(
     summary="Free text becomes a typed request",
 )
 def parse_request(request: Request, response: Response, caller: Caller, pasted: ParseRequestBody) -> PurchaseRequest:
-    """A missing quantity, or an allergen exclusion with no strictness, is reported as `invalid-request`
-    and never guessed. Two headers say who read the text: `TTA-Read-By` and `TTA-Reading-Source`, so a
-    reading served from a recording is never taken for the model's. Answers `supplier-unavailable` while no
-    parser is running; the typed request can always be sent to `POST /v1/offers`."""
+    """Nothing is guessed: a text that cannot be read (no quantity in digits with a unit, for example) is
+    `invalid-request` (422), and the problem carries `question` (what to write), `not_read` (what was missing)
+    and `read_by`. An allergen exclusion with no strictness is read as STRICT, the safe reading. Two headers say
+    who read the text, `TTA-Read-By` and `TTA-Reading-Source`, so fixed rules or a recording are never taken for
+    the model. `supplier-unavailable` only when no reader is installed; the typed request can always be sent to
+    `POST /v1/offers`."""
     reading = _service(request).read_request(caller, pasted.text)
     response.headers[READ_BY_HEADER] = header_value(reading.model)
     response.headers[READING_SOURCE_HEADER] = reading.source.value
@@ -316,8 +325,9 @@ def run_agent(request: Request, caller: Caller, pasted: ParseRequestBody) -> Age
 
 @router.get("/schemas", operation_id="get_schemas", tags=[docs.TAG_OPEN], summary="JSON Schema of every model")
 def get_schemas() -> dict[str, dict[str, Any]]:
-    """Every contract model by name, as JSON Schema draft 2020-12. No token needed."""
-    return all_schemas()
+    """Every contract model by name, the menu and standing-order models included, as JSON Schema 2020-12: each
+    schema says so in its `$schema`. No token needed."""
+    return exported_schemas()
 
 
 class AuditHead(BaseModel):

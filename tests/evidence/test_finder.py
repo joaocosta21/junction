@@ -19,11 +19,19 @@ from tta.evidence.answers import AnswersClient
 from tta.evidence.cache import EvidenceCache
 
 Make = Callable[..., Any]
+# Since L2b of 14 Nov the safe substitute 473424 comes first; Elovena 469512 itself, whose data does not rule out
+# milk (P-04), is the option with this title.
+NOT_RULED_OUT = "Alternative: allergen not ruled out"
+ELOVENA_ID = "469512"
 
 
 def _elovena_option(make_stack: Make, requests: SimpleNamespace, agent_hotel: Identity) -> OfferOption:
+    """The option of Elovena 469512, found by its title and product, never by its place."""
     offer = make_stack(None).service.create_offer(agent_hotel, requests.elovena())
-    return offer.options[0]
+    return next(
+        option for option in offer.options
+        if option.title == NOT_RULED_OUT and [line.product_id for line in option.lines] == [ELOVENA_ID]
+    )
 
 
 def test_evidence_is_looked_up_once_per_product(

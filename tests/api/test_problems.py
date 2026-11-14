@@ -65,15 +65,17 @@ def test_a_body_that_is_not_json_is_an_invalid_request(
     assert "caller text" not in response.text
 
 
-def test_an_exclusion_without_a_strictness_is_an_invalid_request(
-    client: TestClient, auth: Auth, scenario_1: dict[str, Any], assert_problem: Problem
+def test_an_exclusion_without_a_strictness_is_read_as_strict_and_the_offer_says_so(
+    client: TestClient, auth: Auth, scenario_1: dict[str, Any]
 ) -> None:
-    # hotel-kitchen sets no strictness, so a request that excludes an allergen must say how strict (SPEC section 3).
+    # hotel-kitchen sets no strictness for milk: the safe reading is STRICT, and the offer says it (P4 M3, L2b).
     line = {**scenario_1["lines"][0], "exclude_allergens": ["AM"]}
 
     response = client.post("/v1/offers", json={**scenario_1, "lines": [line]}, headers=auth("agent_hotel"))
 
-    assert_problem(response, "invalid-request", 422)
+    assert response.status_code == 201
+    notes = response.json()["notes"]
+    assert any("no allergen rule was given for milk (AM), so it was read as strict" in note for note in notes)
 
 
 def test_not_authorised_is_401_without_a_token_and_403_for_the_wrong_caller(

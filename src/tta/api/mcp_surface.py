@@ -20,6 +20,8 @@ Choices, each from the SDK's documentation (https://py.sdk.modelcontextprotocol.
 - **POST only.** With no session there is no event stream to open and no session to end, so `GET` and
   `DELETE` are answered 405 before the SDK sees them: a `GET` would otherwise hold its connection open until
   the client leaves (task FIX-10, finding 9).
+- **Origin.** A request whose `Origin` header names a site the surface does not allow is answered 403, as
+  revision 2026-07-28 of the transport requires; one with no `Origin` is served (`tta.api.mcp_origin`, P12 W3).
 """
 
 from __future__ import annotations
@@ -42,7 +44,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from tta.api import docs
 from tta.api.errors import problem_response, status_problem
 from tta.api.hooks import SurfaceContext
-from tta.api.routes import KEY_PATTERN, MAX_KEY_LENGTH
+from tta.api.idempotency import KEY_PATTERN, MAX_KEY_LENGTH
+from tta.api.mcp_origin import OriginCheck, allowed_origins
 from tta.contracts.audit import AuditView
 from tta.contracts.common import AuditReader, Identity
 from tta.contracts.errors import ProblemDetails, TtaError, Unauthenticated
@@ -70,11 +73,14 @@ TOOL_NAMES = (
 )
 INSTRUCTIONS = (
     "A food-service wholesaler made readable by a buyer's purchasing agent: look up products, get an offer at "
-    "fixed prices with the price and availability the supplier states now, and submit the option for human "
-    "approval.\n"
-    "Flow: get_authority (what requires approval) -> get_offer (a typed request becomes options, each with "
-    "a policy verdict) -> place_order (APPROVAL: waits for a human; BLOCK: refused) -> "
-    "get_order and get_audit.\n"
+    "fixed prices with the price and availability the supplier states now, and place the order within your "
+    "buyer's authority or send it to a human for approval.\n"
+    "Flow: get_authority (what you may decide alone, what requires approval) -> get_offer (a typed request "
+    "becomes options, each with a policy verdict) -> place_order (AUTO: ordered alone; APPROVAL: waits for a "
+    "human; BLOCK: refused) -> get_order and get_audit.\n"
+    "Ordering alone is a buyer setting, off by default (auto_order_enabled in get_authority, rule F-10): AUTO "
+    "comes only when your buyer switched it on, no rule asks for a person and every statement of the offer is "
+    "confirmed. Otherwise every order waits for a person.\n"
     "You act as the identity of your bearer token; the buyer profile is never an argument. No tool approves "
     "an order: approval is for a human, outside this protocol.\n"
     "When the gateway refuses a call, the error result carries a problem document (RFC 9457): read its "
@@ -102,7 +108,7 @@ OrderIdArgument = Annotated[RecordId, Field(description="The `order_id` of an or
 IdempotencyKeyArgument = Annotated[
     str,
     Field(
-        min_length=1, max_length=MAX_KEY_LENGTH, pattern=KEY_PATTERN,  # as the Idempotency-Key header of REST
+        min_length=1, max_length=MAX_KEY_LENGTH, pattern=KEY_PATTERN,  # the key of REST's Idempotency-Key header
         description="Chosen by you, 1 to 100 characters of A-Z a-z 0-9 . _ : -. Send the same key when you "
                     "retry: the first result is returned and no second order is placed.",
     ),
@@ -221,8 +227,9 @@ class GatewayTools:
 
         Each option says claim by claim (price, quantity, delivery date, allergens, origin) what the
         supplier's data confirms, checks everything you asked for, and carries the policy verdict for your
-        buyer profile: `APPROVAL` (submitting it sends it to a human) or
-        `BLOCK` (it cannot be ordered). Everything that dropped out is listed with a reason. "Nothing fits"
+        buyer profile: `AUTO` (place_order orders it alone: only when your buyer switched ordering alone on, no
+        rule asks for a person and every statement is confirmed), `APPROVAL` (submitting it sends it to a
+        human) or `BLOCK` (it cannot be ordered). Everything that dropped out is listed with a reason. "Nothing fits"
         is an offer with no option and the reasons, not an error. Every call makes a new offer and records it
         in the audit trail. To order, give its `offer_id` and one `option_id` to place_order."""
         return self._service.create_offer(self._caller(), request)
@@ -231,11 +238,14 @@ class GatewayTools:
     def place_order(
         self, offer_id: OfferIdArgument, option_id: OptionIdArgument, idempotency_key: IdempotencyKeyArgument
     ) -> Order:
-        """Submit one option of an offer for human approval. One offer takes one order at a time.
+        """Order one option of an offer: alone when its verdict is `AUTO`, otherwise it waits for a human.
+        One offer takes one order at a time.
 
-        Price and availability are checked again, then the policy decides. `APPROVAL`: the order is
-        `PENDING_APPROVAL` and waits for a human in each role it
-        names; no tool here can approve it, read it later with get_order. `BLOCK`: the error `policy-blocked`
+        Price and availability are checked again, then the policy decides. `AUTO`: the order is `ORDERED`,
+        placed by the agent; that comes only when your buyer switched ordering alone on (off by default), no
+        rule asks for a person and every statement is confirmed. `APPROVAL`: the order is `PENDING_APPROVAL`
+        and waits for a human in each role it names; no tool here can approve it, read it later with
+        get_order. `BLOCK`: the error `policy-blocked`
         and no order. When the price or the availability changed or ran out (`offer-stale`, `offer-expired`)
         nothing was ordered: ask for a new offer with get_offer. `ORDERED` means recorded in this gateway's
         order book; the supplier's mock has no order endpoint."""
@@ -308,7 +318,8 @@ def create_surface(context: SurfaceContext) -> Starlette:
     the gateway enters with its own.
 
     The Host header is not checked here: the gateway is served behind a proxy that sets it, the REST routes
-    do not check it either, and every request needs a bearer token.
+    do not check it either, and every request needs a bearer token. So the SDK's check, which reads Host and
+    Origin together, stays off, and `OriginCheck` reads Origin alone.
     """
     app = build_server(context).streamable_http_app(
         streamable_http_path=ENDPOINT_PATH,
@@ -316,5 +327,6 @@ def create_surface(context: SurfaceContext) -> Starlette:
         stateless_http=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
-    app.add_middleware(PostOnly)  # outermost: before the bearer check and the transport
+    app.add_middleware(PostOnly)  # before the bearer check and the transport
+    app.add_middleware(OriginCheck, allowed=allowed_origins(context.settings))  # outermost: before everything
     return app

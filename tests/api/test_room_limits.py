@@ -3,9 +3,9 @@
 Scores on the 30% "working end-to-end demo": every peer reviewer on the venue Wi-Fi reaches the deployed demo
 from one public address, and with the windows of FIX-10 keyed on that address the whole room shared one
 visitor's five model calls a minute. On the pages a visitor is now a browser (its own-book cookie), with the
-same windows; above them one address may make at most half of each ceiling and open at most 30 new books in
-10 minutes, so rotating cookies cannot take the whole app or push the other visitors' books out. REST and
-MCP keep counting by address. The same through the real pages: `test_room_pages.py`.
+same windows; above them one address may make at most a quarter of each ceiling (A3 F3) and open at most 30
+new books in 10 minutes, so rotating cookies cannot take the whole app or push the other visitors' books out.
+REST and MCP keep counting by address. The same through the real pages: `test_room_pages.py`.
 """
 
 from __future__ import annotations
@@ -40,6 +40,7 @@ from tta.ui import security
 ROOM, ELSEWHERE = "93.184.216.40", "93.184.216.41"
 BOOK = security.new_token  # a key in the form the pages make
 ROOM_SIZE = 12
+SCENARIOS_PER_REVIEWER_PER_MINUTE = 5
 # What each refusal says, by the window that was full.
 FROM_THIS_BROWSER = "from this browser:"
 FROM_ONE_ADDRESS = "from one address:"
@@ -131,12 +132,13 @@ def test_the_middleware_sets_the_address_and_the_browser_for_the_request_and_tak
 # --- a window per browser, a cap per address, a ceiling for everybody ------------------------------------
 
 
-def test_one_address_may_make_60_lookups_60_orders_and_15_model_calls_a_minute_half_of_each_ceiling() -> None:
-    assert ADDRESS_CAPS == {CallKind.LOOKUP: 60, CallKind.ORDER: 60, CallKind.MODEL: 15}
+def test_one_address_may_make_60_of_each_kind_of_call_a_minute_a_quarter_of_each_ceiling() -> None:
+    assert ADDRESS_CAPS == {CallKind.LOOKUP: 60, CallKind.ORDER: 60, CallKind.MODEL: 60}
     for kind, cap in ADDRESS_CAPS.items():
-        assert cap * 2 == GLOBAL_CEILINGS[kind], kind
+        assert cap * 4 == GLOBAL_CEILINGS[kind], kind
         assert VISITOR_WINDOWS[kind] < cap, kind
-    assert VISITOR_WINDOWS[CallKind.MODEL] < ROOM_SIZE <= ADDRESS_CAPS[CallKind.MODEL]
+    # A room of a dozen reviewers on one Wi-Fi: each can run five scenarios with the agent in a minute.
+    assert ADDRESS_CAPS[CallKind.MODEL] >= ROOM_SIZE * SCENARIOS_PER_REVIEWER_PER_MINUTE
 
 
 def test_browsers_behind_one_address_each_have_their_own_window(agent_ward: Identity) -> None:
@@ -151,7 +153,8 @@ def test_browsers_behind_one_address_each_have_their_own_window(agent_ward: Iden
     with as_client(ROOM, browser=other):
         limits.check(agent_ward, CallKind.MODEL)  # the same address, another browser: its own window
 
-    assert FROM_THIS_BROWSER in refused.value.detail and "at most 5 in 60 seconds" in refused.value.detail
+    window = VISITOR_WINDOWS[CallKind.MODEL]
+    assert FROM_THIS_BROWSER in refused.value.detail and f"at most {window} in 60 seconds" in refused.value.detail
     assert one not in refused.value.detail and ROOM not in refused.value.detail
 
 
@@ -203,7 +206,7 @@ def test_without_a_cookie_a_visitor_is_its_address_and_counts_in_the_address_cap
 
 def test_the_ceiling_still_holds_for_all_addresses_together(agent_ward: Identity) -> None:
     limits = CallLimits(RateLimit(), per_visitor=True, monotonic=FakeTime())
-    for address in (ROOM, ELSEWHERE):
+    for address in (ROOM, ELSEWHERE, "93.184.216.43", "93.184.216.44"):  # four addresses at their cap
         for _ in range(ADDRESS_CAPS[CallKind.MODEL]):
             with as_client(address, browser=BOOK()):
                 limits.check(agent_ward, CallKind.MODEL)

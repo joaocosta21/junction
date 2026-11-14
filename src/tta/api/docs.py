@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from tta.api.idempotency import MISSING_KEY, MissingIdempotencyKey
 from tta.api.limits import (
     DEFAULT_RATE_LIMIT_CALLS,
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
@@ -52,25 +53,42 @@ from tta.contracts.request import MAX_PRODUCT_IDS
 
 TITLE = "Trusted Trade Agents gateway"
 VERSION = "0.1.0"
+# OpenAPI 3.1 allows a relative URI here, read against the document's own address (P12 W2).
+EXTERNAL_DOCS = {
+    "description": "What this gateway is, the flow and every link, as llms.txt; the same links as an RFC 9727 "
+                   "API catalog at /.well-known/api-catalog.",
+    "url": "/llms.txt",
+}
 DESCRIPTION = f"""
 A gateway that makes a food-service wholesaler **readable by a buyer's purchasing agent**: the agent looks up
 products, gets an offer at **fixed prices** with live price and availability, and places the order within its
 authority or sends it to a **human** for approval. Built for the Valio Aimo challenge "Trusted Trade Agents"
 on Valio Aimo's mock API.
 
-**One flow.** `GET /v1/authority` → `POST /v1/offers` → `POST /v1/orders` → placed by the agent, or
-`GET /v1/approvals` and `POST /v1/approvals/{{id}}/decision` by a human → `GET /v1/audit`.
+**One flow.** `GET /v1/authority` → `POST /v1/offers` → `POST /v1/orders` → waits for a person
+(`GET /v1/approvals` and `POST /v1/approvals/{{id}}/decision`), or is placed by the agent where its buyer
+allows it → `GET /v1/audit`.
 
 **What an agent can trust.** Every offer line states, claim by claim (price, quantity, delivery date,
-allergens, origin), whether the supplier's data confirms it. Every option carries the policy verdict
-(`APPROVAL` or `BLOCK`) with the rules that fired. Every eligible order waits for an authorised human
-decision. No model decides a price, a quantity, an allergen status or a verdict.
+allergens, origin), whether the supplier's data confirms it. Every option carries the policy verdict with the
+rules that fired: `AUTO` (the agent may place it alone), `APPROVAL` (a person confirms it) or `BLOCK` (it
+cannot be ordered). **Ordering alone is a buyer setting, off by default** (`auto_order_enabled` in
+`GET /v1/authority`, rule F-10): it is off in every shipped profile, so with the demonstration tokens every order
+waits for a person. A buyer who switches it on gets `AUTO` only when no rule asks for a person and every
+statement of every line is confirmed; `POST /v1/orders` then answers `ORDERED` with `placed_by: AGENT`. Any other
+order waits as `PENDING_APPROVAL` for a person in each role named. No model decides a price, a quantity, an
+allergen status or a verdict.
 
-**Open formats.** OpenAPI 3.1 generated from the typed models (this document); JSON Schema of every model at
-`GET /v1/schemas`; errors as RFC 9457 problem details (`application/problem+json`) with one stable `type`
-per kind of problem; audit events in a CloudEvents 1.0 envelope, hash-chained; `Idempotency-Key` on order
-placement; ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. The same functions are
-offered as MCP tools at `/mcp` when that surface is installed.
+**Open formats.** OpenAPI 3.1 generated from the typed models (this document); JSON Schema 2020-12 of every
+model at `GET /v1/schemas`, each naming its dialect in `$schema`; errors as RFC 9457 problem details
+(`application/problem+json`) with one stable `type` per kind of problem; audit events in a CloudEvents 1.0
+envelope, hash-chained; `Idempotency-Key` on order placement (the IETF draft: missing is `400`, the quoted
+Structured Field String of RFC 9651 is read as the bare key); `Location` on the `201` of a new offer and a new
+order (RFC 9110); ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. The same functions are
+offered as MCP tools at `/mcp` when that surface is installed; a request there whose `Origin` names a foreign
+site is refused with `403`, as MCP revision 2026-07-28 requires. **Discovery:** an agent that knows only the
+address finds all of this in the API catalog of RFC 9727 at `/.well-known/api-catalog`
+(`application/linkset+json`) and in `/llms.txt`, with no token.
 
 **Identity.** Every route under `/v1` except the schemas needs `Authorization: Bearer <token>`. A token is
 one identity: an agent bound to one buyer profile, an approver with roles, or the supplier reader. The buyer
@@ -136,13 +154,16 @@ TAGS = [
                                        "The gateway, not the model, decides whether an order goes through."},
     {"name": TAG_MENUS, "description": "Valio's example scenarios: a menu becomes one order, and an ingredient "
                                        "that cannot be had is replaced by recipe logic, never alone (F-09)."},
-    {"name": TAG_OPEN, "description": "JSON Schema of every model, and what is running."},
+    {"name": TAG_OPEN, "description": "JSON Schema of every model, what is running, and how an agent that knows "
+                                      "only the address finds the interface: the API catalog of RFC 9727 at "
+                                      "`/.well-known/api-catalog`, and `/llms.txt`."},
 ]
 
 # One line per typed error, for the examples of the problem responses. The type, title and status are the
 # error class's own.
 EXAMPLE_DETAILS: dict[type[TtaError], str] = {
     InvalidRequest: "The request does not match what this route takes. body.lines.0.quantity: Field required.",
+    MissingIdempotencyKey: MISSING_KEY,
     Unauthenticated: "This route needs a bearer token: send the header 'Authorization: Bearer <token>'.",
     NotAuthorised: "An agent cannot approve or reject an order (F-06). A human with the role asked for decides.",
     UnknownProduct: "No product in the catalog has this id.",
@@ -153,6 +174,8 @@ EXAMPLE_DETAILS: dict[type[TtaError], str] = {
     SupplierUnavailable: "The supplier cannot be asked right now, so no call was made.",
     RateLimited: "Too many requests that reach the supplier or write to the audit trail.",
 }
+CREATED = 201
+LOCATION_HEADER = "Location"  # RFC 9110, section 10.2.2: for 201, the primary resource the request created
 PROBLEM_SCHEMA_NAME = ProblemDetails.__name__
 PROBLEM_REF = {"$ref": f"#/components/schemas/{PROBLEM_SCHEMA_NAME}"}
 SUCCESS_MEDIA_TYPE = "application/json"
@@ -183,6 +206,15 @@ def problems(*errors: type[TtaError]) -> dict[int | str, dict[str, Any]]:
         # Two errors share a status only when their types differ, so the type names the example.
         answer["content"][PROBLEM_CONTENT_TYPE]["examples"][error.slug] = {"summary": error.title, "value": example}
     return documented
+
+
+def created(description: str, path: str) -> dict[int | str, dict[str, Any]]:
+    """The `responses` entry of a route that makes a record: the 201 answer, its body and its `Location`."""
+    location = {
+        "description": f"The address of the new record, `{path}`: a `GET` there answers with it.",
+        "schema": {"type": "string"},
+    }
+    return {CREATED: {"description": description, "headers": {LOCATION_HEADER: location}}}
 
 
 def _attach(operation: dict[str, Any], requests: Examples, answers: Examples) -> None:
@@ -219,6 +251,7 @@ def install_openapi(app: FastAPI, examples: Callable[[], BuiltExamples]) -> None
         document.setdefault("components", {}).setdefault("schemas", {})[PROBLEM_SCHEMA_NAME] = (
             ProblemDetails.model_json_schema()
         )
+        document["externalDocs"] = dict(EXTERNAL_DOCS)
         for methods in document.get("paths", {}).values():
             for operation in methods.values():
                 _attach(operation, built.requests, built.answers)

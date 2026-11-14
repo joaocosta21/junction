@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter
 
 from tta.api import create_app
+from tta.api.schema_export import exported_models
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -53,8 +54,11 @@ ROUTES = {
     ("post", "/v1/standing-orders/{standing_order_id}/renew"): "renew_standing_order",
     ("get", "/v1/schemas"): "get_schemas",
     ("get", "/healthz"): "get_health",
+    ("get", "/.well-known/api-catalog"): "get_api_catalog",  # P12 W2: RFC 9727
+    ("head", "/.well-known/api-catalog"): "head_api_catalog",
+    ("get", "/llms.txt"): "get_llms_txt",
 }
-PUBLIC = {"get_schemas", "get_health"}
+PUBLIC = {"get_schemas", "get_health", "get_api_catalog", "head_api_catalog", "get_llms_txt"}
 REQUEST_MODELS: dict[str, Any] = {
     "search_products": ProductQuery,
     "find_substitutes": SubstituteQuery,
@@ -218,7 +222,7 @@ def test_the_order_route_documents_its_idempotency_key(document: dict[str, Any])
 
     assert header["in"] == "header"
     assert header["required"] is True
-    assert header["schema"]["maxLength"] == 100
+    assert header["schema"]["maxLength"] == 102  # 100 characters, or the same in double quotation marks
 
 
 def test_the_examples_are_built_once_at_start_up_and_off_the_event_loop(
@@ -296,7 +300,8 @@ def test_the_schemas_route_returns_every_contract_model_without_a_token(client: 
 
     assert response.status_code == 200
     schemas = response.json()
-    assert set(schemas) == set(all_models())
+    assert set(schemas) == set(exported_models())  # the core models, and the menu and standing-order ones
+    assert set(all_models()) < set(schemas)
     assert len(schemas) >= 59
     assert schemas["Offer"]["properties"]["options"]
     assert schemas["AuditEvent"]["properties"]["specversion"]
@@ -304,3 +309,14 @@ def test_the_schemas_route_returns_every_contract_model_without_a_token(client: 
 
 def test_the_interactive_documentation_is_served(client: TestClient) -> None:
     assert client.get("/docs").status_code == 200
+
+
+def test_the_parse_route_says_what_the_fixed_rules_reader_answers(document: dict[str, Any]) -> None:
+    # Since L1 of 14 Nov: an exclusion with no strictness is read as STRICT, and an unreadable text is 422 with
+    # `question`, `not_read` and `read_by`, not `supplier-unavailable`.
+    text = " ".join(_operations(document)["parse_request"]["description"].split())
+
+    for phrase in ("`question`", "`not_read`", "`read_by`", "read as STRICT", "`invalid-request` (422)"):
+        assert phrase in text, phrase
+    assert "an allergen exclusion with no strictness, is reported as `invalid-request`" not in text
+    assert "while no parser is running" not in text

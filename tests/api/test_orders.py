@@ -14,7 +14,7 @@ Flow = Callable[..., dict[str, Any]]
 Problem = Callable[..., dict[str, Any]]
 
 
-def test_an_order_without_an_idempotency_key_is_an_invalid_request(
+def test_an_order_without_an_idempotency_key_is_an_invalid_request_with_status_400(
     client: TestClient, auth: Auth, scenario_2: dict[str, Any], make_offer: Flow, assert_problem: Problem
 ) -> None:
     offer = make_offer(client, "agent_ward", scenario_2)
@@ -22,7 +22,7 @@ def test_an_order_without_an_idempotency_key_is_an_invalid_request(
 
     response = client.post("/v1/orders", json=body, headers=auth("agent_ward"))
 
-    problem = assert_problem(response, "invalid-request", 422)
+    problem = assert_problem(response, "invalid-request", 400)  # the draft's status for a missing key (P12 W7)
     assert "Idempotency-Key" in problem["detail"]
     assert client.get("/v1/orders", headers=auth("agent_ward")).json() == []
 

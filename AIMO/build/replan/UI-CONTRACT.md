@@ -141,6 +141,11 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 - `POST /v1/standing-orders` 422: "This buyer already has 20 standing orders, the most one buyer sets up here. Renew one of them … instead of setting up another."
 - Menu plan: `ingredient.sentence` for a stand-in names the allergens it adds; `plan.notes[]` says what cannot be sourced and that the lines stay in the offer; `plan.cannot_be_sourced[].sentence`. The label "Cannot arrive in time" (`ui/menu_page.py:49`, `templates/menu.html:92`) should read "Cannot be sourced".
 
+### L4b — the API edge
+- `GET /.well-known/api-catalog` (RFC 9727 linkset) and `GET /llms.txt`: "An agent that knows only the address finds the interface." Worth a link in the shop's "For developers".
+- `/mcp/` with a foreign `Origin`: 403. `Location` on the 201 of an offer and an order. `POST /v1/orders` without a key: 400.
+- Rate-limit refusals now name 15 (browser), 60 (address) and 240 (all callers) for request readings.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

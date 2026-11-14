@@ -9,6 +9,10 @@
    order's audit trail says its hash chain verifies. The order is a record in the demo's order book, which commits
    nobody, but it counts against the ward's illustrative spend limit for the day: run this step once a day.
 5. `POST /mcp/` without a token is refused with 401; with the ward's token `initialize` and `tools/list` answer.
+6. `POST /mcp/` with the ward's token and the `Origin` of a foreign site is refused with 403 (MCP revision 2026-07-28,
+   Streamable HTTP; P12 W3).
+7. `GET /.well-known/api-catalog` answers an RFC 9727 linkset (`application/linkset+json`) that links the OpenAPI
+   document and the MCP endpoint (P12 W2).
 
 The token sent is the public demonstration token of `src/tta/api/demo_tokens.yaml`. Exit status 0 when all pass.
 """
@@ -41,6 +45,9 @@ SCENARIO_2 = {
     }],
 }
 ORDER_STATUSES = ("ORDERED", "PENDING_APPROVAL")
+FOREIGN_ORIGIN = "https://deploy-check.invalid"  # a name that can never be a real site (RFC 2606, ".invalid")
+API_CATALOG = "/.well-known/api-catalog"
+LINKSET = "application/linkset+json"
 WEB_SCHEMES = ("https://", "http://")
 FAILURES = (OSError, ValueError, KeyError, TypeError, IndexError)  # a failed check is reported, never raised
 
@@ -178,6 +185,22 @@ def check_mcp_tools(fetch: Fetch) -> Result:
     return Result("mcp tools", bool(names), f"server {server}, {len(names)} tools: {', '.join(names)}")
 
 
+def check_mcp_origin(fetch: Fetch) -> Result:
+    headers = _json_headers(WARD_TOKEN, Accept=MCP_ACCEPT, Origin=FOREIGN_ORIGIN)
+    reply = _post(fetch, "/mcp/", {"jsonrpc": "2.0", "id": 3, "method": "tools/list"}, headers)
+    return Result("mcp foreign origin", reply.status == 403, f"status {reply.status}")
+
+
+def check_api_catalog(fetch: Fetch) -> Result:
+    reply = fetch("GET", API_CATALOG, {"Accept": LINKSET}, None)
+    if reply.status != 200 or not reply.content_type.startswith(LINKSET):
+        return Result("api catalog", False, f"status {reply.status}, {reply.content_type}")
+    links = [link["href"] for context in reply.json()["linkset"] for name, targets in context.items()
+             if name != "anchor" for link in targets]
+    found = [href for href in links if href.endswith(("/openapi.json", "/mcp/"))]
+    return Result("api catalog", len(found) == 2, f"{len(links)} links, among them {', '.join(found) or 'none'}")
+
+
 def _guarded(name: str, step: Callable[[], Any]) -> Any:
     """The step's own answer, or a failed result naming what went wrong."""
     try:
@@ -211,6 +234,8 @@ def run_checks(fetch: Fetch, *, expected_mode: str = "live", place_order: bool =
             )
     results.append(_guarded("mcp without a token", lambda: check_mcp_refused(fetch)))
     results.append(_guarded("mcp tools", lambda: check_mcp_tools(fetch)))
+    results.append(_guarded("mcp foreign origin", lambda: check_mcp_origin(fetch)))
+    results.append(_guarded("api catalog", lambda: check_api_catalog(fetch)))
     return tuple(results)
 
 

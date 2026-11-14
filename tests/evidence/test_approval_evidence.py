@@ -30,11 +30,25 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 
 Make = Callable[..., Any]
 EVIDENCE_EVENT = f"{EVENT_TYPE_PREFIX}evidence.attached"
+# Since L2b of 14 Nov the safe substitute 473424 comes first (F-10, purchasing manager); the dietitian's case is
+# Elovena 469512 itself, whose data does not rule out milk (P-04): the option with this title.
+NOT_RULED_OUT = "Alternative: allergen not ruled out"
+ELOVENA_ID = "469512"
 
 
 def _place(stack: SimpleNamespace, agent: Identity, request: Any, key: str = "s2-1") -> Order:
     offer = stack.service.create_offer(agent, request)
     return stack.service.place_order(agent, offer.offer_id, offer.options[0].option_id, key)
+
+
+def _place_not_ruled_out(stack: SimpleNamespace, agent: Identity, request: Any, key: str = "s2-1") -> Order:
+    """Order the option of Elovena 469512 itself, found by its product and title, never by its place."""
+    offer = stack.service.create_offer(agent, request)
+    option = next(
+        option for option in offer.options
+        if option.title == NOT_RULED_OUT and [line.product_id for line in option.lines] == [ELOVENA_ID]
+    )
+    return stack.service.place_order(agent, offer.offer_id, option.option_id, key)
 
 
 def _events(stack: SimpleNamespace, who: Identity, order_id: str, reader: AuditReader = AuditReader.BUYER) -> Any:
@@ -47,7 +61,7 @@ def test_an_approval_for_an_unstated_allergen_carries_the_evidence_and_names_it(
 ) -> None:
     stack = make_stack(make_finder(fake_answers(bodies.elovena)))
 
-    order = _place(stack, agent_hotel, requests.elovena())
+    order = _place_not_ruled_out(stack, agent_hotel, requests.elovena())
 
     assert order.status is OrderStatus.PENDING_APPROVAL
     approval = stack.orders.get_approval(order.approval_id, hotel_dietitian)
@@ -67,7 +81,7 @@ def test_the_api_list_of_approvals_returns_the_evidence(
     hotel_dietitian: Identity, bodies: SimpleNamespace,
 ) -> None:
     stack = make_stack(make_finder(fake_answers(bodies.elovena)))
-    _place(stack, agent_hotel, requests.elovena())
+    _place_not_ruled_out(stack, agent_hotel, requests.elovena())
 
     (approval,) = stack.service.list_approvals(hotel_dietitian, ApprovalStatus.PENDING)
     dumped = approval.model_dump(mode="json")
@@ -81,7 +95,7 @@ def test_one_audit_event_records_the_link_and_the_hash_and_the_supplier_sees_nei
     bodies: SimpleNamespace, supplier_reader: Identity,
 ) -> None:
     stack = make_stack(make_finder(fake_answers(bodies.elovena)))
-    order = _place(stack, agent_hotel, requests.elovena())
+    order = _place_not_ruled_out(stack, agent_hotel, requests.elovena())
 
     events = _events(stack, agent_hotel, order.order_id)
     attached = [event for event in events if event.type == EVIDENCE_EVENT]
@@ -114,7 +128,7 @@ def test_without_evidence_the_approval_still_works_and_a_sentence_says_so(
     }[failure]
     stack = make_stack(make_finder(answers))
 
-    order = _place(stack, agent_hotel, requests.elovena())
+    order = _place_not_ruled_out(stack, agent_hotel, requests.elovena())
     (approval,) = stack.service.list_approvals(hotel_dietitian, ApprovalStatus.PENDING)
 
     (evidence,) = approval.evidence
@@ -133,7 +147,7 @@ def test_without_a_finder_nothing_is_attached(
 ) -> None:
     stack = make_stack(None)
 
-    _place(stack, agent_hotel, requests.elovena())
+    _place_not_ruled_out(stack, agent_hotel, requests.elovena())
     (approval,) = stack.service.list_approvals(hotel_dietitian, ApprovalStatus.PENDING)
 
     assert approval.evidence == ()
@@ -147,7 +161,7 @@ def test_the_verdict_and_every_status_are_the_same_with_and_without_evidence(
     with_evidence = make_stack(make_finder(fake_answers(bodies.elovena)))
     without = make_stack(None)
 
-    placed = [_place(stack, agent_hotel, requests.elovena()) for stack in (with_evidence, without)]
+    placed = [_place_not_ruled_out(stack, agent_hotel, requests.elovena()) for stack in (with_evidence, without)]
     stacks = (with_evidence, without)
     pending = [stack.service.list_approvals(hotel_dietitian, ApprovalStatus.PENDING)[0] for stack in stacks]
     decided = [
