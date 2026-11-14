@@ -1,0 +1,105 @@
+"""Buyer profile, the policy decision and the authority summary (SPEC section 7)."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+
+from pydantic import Field, model_validator
+
+from tta.contracts.availability import RevalidationResult
+from tta.contracts.common import (
+    AllergenStrictness,
+    ApproverRole,
+    Contract,
+    DepositRule,
+    JsonDict,
+    Money,
+    Ratio,
+    SubstitutionScope,
+    VariableWeightRule,
+    Verdict,
+)
+
+
+class BuyerProfile(Contract):
+    """What one buyer lets its agent decide alone. The values are illustrative and labelled as ours."""
+
+    profile_id: str
+    display_name: str
+    description: str | None = None
+    illustrative: bool = True
+    auto_order_enabled: bool
+    max_order_net_eur: Money = Field(ge=0)
+    max_daily_net_eur: Money = Field(ge=0)
+    min_fill_ratio: Ratio = Field(ge=0, le=1)
+    excluded_allergens: tuple[str, ...] = ()
+    allergen_strictness: AllergenStrictness | None = None
+    substitution_without_approval: SubstitutionScope
+    variable_weight: VariableWeightRule
+    deposits: DepositRule
+    require_confirmed: bool = False
+    approver_roles: dict[ApproverRole, tuple[str, ...]] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _exclusions_need_a_strictness(self) -> BuyerProfile:
+        if self.excluded_allergens and self.allergen_strictness is None:
+            raise ValueError("a profile that excludes allergens must set allergen_strictness")
+        return self
+
+
+class PolicyContext(Contract):
+    """Facts the engine needs that are not on the option. A value left `None` is a missing fact (F-03)."""
+
+    now: datetime
+    day_committed_net_eur: Decimal | None = None  # today's ORDERED and PENDING_APPROVAL, this order excluded
+    at_order_time: bool = False
+    revalidation: RevalidationResult | None = None  # set at order time; None there is a missing fact
+
+
+class FiredRule(Contract):
+    """One rule that fired, with the facts it read and its sentence."""
+
+    rule_id: str
+    title: str
+    fixed: bool  # True for the F- rules no profile can switch off
+    verdict: Verdict
+    approver_role: ApproverRole | None = None
+    sentence: str
+    facts: JsonDict = Field(default_factory=dict)
+    product_id: str | None = None  # set when the rule fired on one line
+
+
+class PolicyDecision(Contract):
+    """What the policy says about one option: the verdict, every rule that fired, who must sign."""
+
+    verdict: Verdict
+    fired: tuple[FiredRule, ...] = ()
+    required_roles: tuple[ApproverRole, ...] = ()
+    policy_hash: str  # SHA-256 of the canonical rules plus the profile in force
+    profile_id: str
+    evaluated_at: datetime
+    sentence: str
+
+    @property
+    def rule_ids(self) -> tuple[str, ...]:
+        return tuple(rule.rule_id for rule in self.fired)
+
+
+class RuleSummary(Contract):
+    rule_id: str
+    title: str
+    fixed: bool
+    verdict: Verdict
+    approver_role: ApproverRole | None = None
+    sentence: str  # plain language, with this profile's values filled in
+
+
+class Authority(Contract):
+    """Answer of GET /v1/authority: what the calling agent may decide alone."""
+
+    profile: BuyerProfile
+    rules: tuple[RuleSummary, ...] = ()
+    summary: tuple[str, ...] = ()
+    policy_hash: str
+    note: str  # says that the limit values are illustrative

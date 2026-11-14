@@ -1,0 +1,119 @@
+"""Settings from the environment (SPEC section 10).
+
+Secrets are `SecretStr`: they never appear in a `repr`, a log line or an error message. Code asks
+`settings.has_...` to learn whether a value is set, and unwraps a secret only where it is sent to
+the service it belongs to.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Literal
+
+from pydantic import Field, SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from tta.contracts.common import DataSource
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_VALIO_BASE_URL = "https://junction26.valioaimo.fi/api"
+DEFAULT_CALL_BUDGET = 150
+DEMO_ENVIRONMENTS = ("dev", "demo")
+_SECRET_FIELDS = ("valio_aimo_api_key", "gemini_api_key", "database_url", "context_dev_api_key", "tta_tokens")
+
+
+def _is_set(secret: SecretStr | None) -> bool:
+    return bool(secret is not None and secret.get_secret_value().strip())
+
+
+class Settings(BaseSettings):
+    """Read once from the environment and, when present, the repository's `.env`."""
+
+    model_config = SettingsConfigDict(
+        env_file=REPO_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", frozen=True
+    )
+
+    tta_env: Literal["dev", "demo", "prod"] = "dev"
+    tta_mode: DataSource = DataSource.REPLAY
+    tta_data_dir: Path = REPO_ROOT / "var"
+    tta_db_path: Path | None = None  # default: <data dir>/tta.sqlite3
+    tta_valio_call_budget: int = Field(default=DEFAULT_CALL_BUDGET, ge=0)
+    tta_fixtures_dir: Path = REPO_ROOT / "fixtures"
+    tta_replay_capture: str = "2026-11-14-demo"
+    tta_product_file: Path = REPO_ROOT / "valio_aimo_junction26_product_data.json"
+    tta_reliability_file: Path = REPO_ROOT / "valio_aimo_junction26_delivery_reliability.csv"
+    tta_carbon_file: Path = REPO_ROOT / "valio_aimo_junction26_carbon_footprint.csv"
+    # The customer number does not change the mock's answers (AIMO/docs/API.md section 3).
+    tta_customer: str = "123"
+    tta_gemini_model: str | None = None  # overrides the model the agent package chooses
+    tta_tokens: SecretStr | None = None  # JSON map of bearer token to identity; required outside dev and demo
+
+    valio_aimo_api_key: SecretStr | None = None
+    valio_aimo_base_url: str = DEFAULT_VALIO_BASE_URL
+    gemini_api_key: SecretStr | None = None
+    database_url: SecretStr | None = None
+    context_dev_api_key: SecretStr | None = None
+
+    @property
+    def db_path(self) -> Path:
+        return self.tta_db_path or self.tta_data_dir / "tta.sqlite3"
+
+    @property
+    def valio_fixtures_dir(self) -> Path:
+        return self.tta_fixtures_dir / "valio"
+
+    @property
+    def replay_capture_dir(self) -> Path:
+        return self.valio_fixtures_dir / self.tta_replay_capture
+
+    @property
+    def is_demo_environment(self) -> bool:
+        return self.tta_env in DEMO_ENVIRONMENTS
+
+    @property
+    def has_valio_key(self) -> bool:
+        return _is_set(self.valio_aimo_api_key)
+
+    @property
+    def has_gemini_key(self) -> bool:
+        return _is_set(self.gemini_api_key)
+
+    @property
+    def has_database_url(self) -> bool:
+        return _is_set(self.database_url)
+
+    @property
+    def has_context_dev_key(self) -> bool:
+        return _is_set(self.context_dev_api_key)
+
+    @property
+    def has_tokens(self) -> bool:
+        return _is_set(self.tta_tokens)
+
+    def describe(self) -> dict[str, Any]:
+        """What is configured, safe to print: secrets appear only as true or false."""
+        return {
+            "env": self.tta_env,
+            "mode": self.tta_mode.value,
+            "replay_capture": self.tta_replay_capture,
+            "valio_call_budget": self.tta_valio_call_budget,
+            "valio_key_set": self.has_valio_key,
+            "gemini_key_set": self.has_gemini_key,
+            "database_url_set": self.has_database_url,
+            "context_dev_key_set": self.has_context_dev_key,
+            "tokens_set": self.has_tokens,
+        }
+
+    @classmethod
+    def for_tests(cls, **overrides: Any) -> Settings:
+        """Settings that read no `.env` file and carry no secret unless a test passes one."""
+        values: dict[str, Any] = {name: None for name in _SECRET_FIELDS}
+        values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None)
+        values.update(overrides)
+        return cls(_env_file=None, **values)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    return Settings()

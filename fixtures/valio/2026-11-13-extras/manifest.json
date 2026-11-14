@@ -1,0 +1,26 @@
+{
+  "capture": "2026-11-13-extras",
+  "time_now": "2026-11-13T23:03:30+0200",
+  "requested_date": "2026-11-16",
+  "customer": "123",
+  "product_count": 37,
+  "calls": 2,
+  "files": {
+    "availability": [
+      "availability-1.json"
+    ],
+    "price": [
+      "price-1.json"
+    ]
+  },
+  "note": "The products of the planned demo scenarios and a few probes, captured Friday 13 Nov 2026 at 23:03 server time.",
+  "non_catalog_ids": [
+    "1",
+    "147",
+    "171",
+    "2",
+    "3",
+    "4",
+    "9708918"
+  ]
+}

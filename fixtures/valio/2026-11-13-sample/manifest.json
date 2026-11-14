@@ -1,0 +1,26 @@
+{
+  "capture": "2026-11-13-sample",
+  "time_now": "2026-11-13T23:00:35+0200",
+  "requested_date": "2026-11-16",
+  "customer": "123",
+  "product_count": 1001,
+  "calls": 8,
+  "files": {
+    "availability": [
+      "availability-1.json",
+      "availability-2.json",
+      "availability-3.json",
+      "availability-4.json"
+    ],
+    "price": [
+      "price-1.json",
+      "price-2.json",
+      "price-3.json",
+      "price-4.json"
+    ]
+  },
+  "note": "Seeded random sample of 1,000 catalog ids plus the made-up id 459999, captured Friday 13 Nov 2026 at 23:00 server time.",
+  "non_catalog_ids": [
+    "459999"
+  ]
+}

@@ -18,6 +18,18 @@ A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get 
 10. **An outside service that fails does not stop you.** A rejected key, no credits, a quota error, a time-out: two attempts at most, then build against recorded data, mark only the live check as not done in your hand-back with the exact command to run later, and finish the rest of the task.
 11. **Do not stop to ask.** When something is unclear, choose the option the spec's intent points to, build it, and record it (next section).
 
+## What the foundation (T00) left for you
+- **Contracts** in `src/tta/contracts/`: `common.py` (enums, `Money`/`Quantity` number types, `Identity`), `request.py`, `product.py`, `allergen.py`, `availability.py`, `policy.py`, `offer.py`, `order.py`, `audit.py`, `agent.py`, `errors.py`, `ports.py` (the protocols you implement or depend on), `schemas.py`. Read the ones your task names and `ports.py` before writing anything. **Everything is synchronous** — no `async` in a port or a service.
+- **Settings:** `tta.config.get_settings()` in the application; `Settings.for_tests(...)` in tests (it reads no `.env`). Never call `Settings()` in a test. `settings.has_valio_key` and its siblings answer true or false.
+- **Shared test fixtures** in `tests/conftest.py`: `capture_demo`, `capture_sample`, `capture_extras` (raw recorded bodies: `.bodies("availability")`, `.lines("price")`, `.time_now`, `.ids`), `demo_clock`, `sample_clock`, `raw_products`, `raw_products_by_id`, `settings`, and the identities `agent_hotel`, `agent_ward`, `approver_purchasing`, `approver_finance`, `approver_dietitian`, `supplier_reader`. You may add a `conftest.py` inside your own test folder. Tests run with `--import-mode=importlib`: no `__init__.py` in test folders, no imports from another test module.
+- **Capture format:** `fixtures/valio/<capture>/manifest.json` (`time_now`, `files`), `ids.json`, `availability-N.json`, `price-N.json` (the response bodies exactly as the API returned them).
+- **Tonight's capture** `2026-11-14-demo` (Saturday 14 Nov 02:52 server time; categories `104xx` and `18720`, 769 products): 123 confirmed, 112 quantity not confirmed, 368 cut-off passed, 145 not deliverable, 21 out of stock. It differs from Friday's numbers in the plan:
+  - Lactose-free milk (35 products of category 10400): confirmed are `469363` (384 units, €2.48), `462775` (51, €2.57), `463380` (698, €2.65) and the portion pack `463203`. Together the three cover 1,000 litres, so the best confirmed option tonight is a **combined full fill**, not Friday's 749-litre partial fill. `464306` (€1.01) is quantity not confirmed.
+  - `464056` (soya drink, 319 units, €2.14) is confirmed; `468319` and `464320` (oat) are confirmed; `473609` is quantity not confirmed; `471690` is cut-off passed (Terminal); `471881` is not deliverable.
+  - `464744` (10 kg) and `466988` (109 kg) are confirmed.
+- **Commands:** your tests `.venv/bin/python -m pytest tests/<your folder> -q --cov=tta.<your package> --cov-report=term-missing`; the linter `.venv/bin/ruff check <your paths>` must pass (line length 120). Do not run the whole suite: other agents' packages are half-written while you work.
+- Sentences shown to people are plain English, short, and say the number and the reason.
+
 ## Code
 - Python 3.13, type hints on every function, `snake_case`, Pydantic v2 models frozen where possible; return new objects, do not mutate inputs.
 - `Decimal` for money and quantities, never `float`. Optional fields in Valio's data are omitted, never `null`: use `.get()`.

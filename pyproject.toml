@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tta"
+version = "0.1.0"
+description = "Trusted Trade Agents: a gateway that lets a buyer's purchasing agent look up, get an offer from and order with a food-service wholesaler, within its authority or with human approval."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [{ name = "The project contributors" }]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "httpx",
+    "pyyaml",
+    "jinja2",
+    "python-multipart",
+    "google-genai",
+    "mcp",
+    "modal",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tta = ["**/*.yaml", "**/*.yml", "**/*.html", "**/*.css", "**/*.js", "**/*.sql", "**/*.json", "**/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib -ra"
+markers = ["live: calls an outside service; never selected by default"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S311"]
+
+[tool.coverage.run]
+source = ["tta"]
+branch = true

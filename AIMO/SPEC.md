@@ -35,6 +35,7 @@ buyer's agent ──► gateway ──► Valio mock API (price, availability)
 | Audit events in a CloudEvents 1.0 envelope, hash-chained | A documented open format, and a log that shows tampering (20% controls, 15% openness) |
 | Errors as RFC 9457 problem details; `Idempotency-Key` on order placement | Agents retry; a retry must never place a second order |
 | Replay mode with a pinned clock | The demo survives the mock being down or every cut-off having passed |
+| Every port is synchronous | One style everywhere; FastAPI runs the routes in its thread pool; SQLite, `httpx` and the Gemini SDK all have synchronous clients |
 
 ### Layout
 ```
@@ -86,7 +87,7 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 
 - **MCP:** the tools `get_authority`, `search_products`, `get_product`, `find_substitutes`, `get_offer`, `place_order`, `get_order`, `get_audit` call the same service functions as the REST routes. No logic lives in a transport.
 - **Identity:** every call carries `Authorization: Bearer <token>`. A token maps to one identity: an **agent** bound to one buyer profile, an **approver** with one or more roles, or the **supplier** reader. The buyer profile is never a request field: an agent cannot choose its own authority. Approval routes reject agent tokens: **an agent cannot approve its own order.** Demo tokens are loaded only when `TTA_ENV` is `dev` or `demo`.
-- **Errors:** RFC 9457 `application/problem+json` with a stable `type`: `offer-expired`, `offer-stale`, `policy-blocked`, `not-authorised`, `unknown-product`, `invalid-request`, `supplier-unavailable`.
+- **Errors:** RFC 9457 `application/problem+json` with a stable `type`: `offer-expired`, `offer-stale`, `policy-blocked`, `not-authorised`, `unknown-product`, `invalid-request`, `supplier-unavailable`, `not-found` (an offer, order or approval id nobody issued), `rate-limited`. Each has one typed error in `tta/contracts/errors.py`.
 - **Idempotency:** `POST /v1/orders` requires an `Idempotency-Key` header. The same key returns the first result.
 
 ---

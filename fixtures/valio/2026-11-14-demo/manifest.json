@@ -1,0 +1,30 @@
+{
+  "capture": "2026-11-14-demo",
+  "time_now": "2026-11-14T02:52:45+0200",
+  "requested_date": "2026-11-16",
+  "customer": "123",
+  "product_count": 769,
+  "calls": 2,
+  "files": {
+    "availability": [
+      "availability-1.json"
+    ],
+    "price": [
+      "price-1.json"
+    ]
+  },
+  "selection": {
+    "category_prefixes": [
+      "104",
+      "18720"
+    ],
+    "ids": [
+      "473609",
+      "464744",
+      "466988",
+      "464056",
+      "468319"
+    ],
+    "with_listed_substitutes": true
+  }
+}
