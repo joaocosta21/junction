@@ -127,6 +127,7 @@ class Measured:
     available_date: date | None = None
     measure: Unit | None = None  # L or KG, for the price a litre or kilogram
     pack_in_measure: Decimal | None = None
+    recorded: bool = True  # False in replay for a product the recording holds no answer for: its stock is unknown
 
     @property
     def label(self) -> str:
@@ -175,6 +176,7 @@ def measured(product: Product, quantity: Decimal, unit: Unit, request: PurchaseR
         units=units_needed(candidate, quantity) if candidate.per_unit else None,
         unit_price=candidate.unit_price if priced else None, usable=assessment.usable_amount,
         per_unit=candidate.per_unit, available_date=assessment.available_date, measure=measure, pack_in_measure=size,
+        recorded=not candidate.line.not_in_recording,
     )
 
 
@@ -226,8 +228,8 @@ def _cheaper(usual: Measured, candidate: Measured) -> Benefit | None:
 def _stock(usual: Measured, candidate: Measured, when: date | None) -> Benefit | None:
     short = usual.state is not AvailabilityState.CONFIRMED or (
         usual.units is not None and (usual.usable or Decimal(0)) < usual.units)
-    if not short or not candidate.covers:
-        return None
+    if not short or not usual.recorded or not candidate.covers:
+        return None  # a usual product the recording does not answer for is not "short": its stock is unknown
     on = f" for {day(when)}" if when is not None else ""
     has = usual.usable if usual.state is AvailabilityState.CONFIRMED and usual.usable else None
     where = f"where yours has only {usual.stock}" if has else "where yours has none confirmed"

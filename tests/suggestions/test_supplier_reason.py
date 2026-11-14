@@ -194,7 +194,8 @@ def test_a_dietary_claim_the_usual_product_lacks_comes_before_a_label() -> None:
 
     (found,) = benefits(usual, other, MONDAY, "your usual 10 L")
 
-    assert (found.kind, found.clause) == (BenefitKind.CLAIM_OR_LABEL_YOURS_LACKS, "marked lactose-free where yours is not")
+    assert (found.kind, found.clause) == (
+        BenefitKind.CLAIM_OR_LABEL_YOURS_LACKS, "marked lactose-free where yours is not")
     labelled = _measured(_product("100003", labels=["SVANEN", "EU_ORGANIC_FARMING"]), units=10, per_unit="1")
     assert benefits(usual, labelled, MONDAY, "x")[0].clause == "with the EU organic label yours does not have"
     unnamed = _measured(_product("100004", labels=["OFFICIAL_ECO_LABEL_SUN"]), units=10, per_unit="1")
@@ -230,9 +231,9 @@ def _dropped(product_id: str, reason: DropReason) -> DroppedSuggestion:
                              sentence=f"Valio Aimo's own suggestion stays silent: {reason.value}.", summary="silent")
 
 
-def test_valio_aimo_never_reads_a_count_a_reason_or_a_product_of_its_own_silent_suggestions() -> None:
+def test_valio_aimo_never_reads_a_count_a_reason_or_a_product_of_its_own_silent_suggestions(demo_clock: Any) -> None:
     found = SuggestionList(dropped=tuple(_dropped(f"10000{index}", reason) for index, reason in enumerate(SILENCED)))
-    trail = AuditTrail(SqliteStore(), lambda: None)  # in memory: no data directory is written
+    trail = AuditTrail(SqliteStore(), demo_clock)  # in memory: no data directory is written
     actor = Actor(kind=ActorKind.AGENT, id="agent:test", display_name="Test agent")
 
     event = record_suggestions_shown(trail, actor, found, offer_id="off_1", profile_id=HOTEL)
@@ -298,3 +299,20 @@ def test_valio_aimos_own_suggestion_for_each_customers_usual_request(world: Any,
     for each in found.shown:
         assert "sales unit" not in each.sentence and "before tax" not in each.sentence
         assert each.sentence.endswith("From a synthetic order history.") is (each.serves is Serves.BUYER)
+
+
+def test_stock_is_said_only_against_a_usual_product_with_a_known_shortage() -> None:
+    covered = _measured(_product("100002"), units=10, per_unit="1", usable=200)
+    short = Measured(product=_product("100001"), quantity=Decimal(10), unit=Unit.L, state=AvailabilityState.CONFIRMED,
+                     units=Decimal(10), usable=Decimal(4), per_unit=Decimal(1), unit_price=Decimal("3.00"))
+    unanswered = Measured(product=_product("100001"), quantity=Decimal(10), unit=Unit.L,
+                          state=AvailabilityState.NOT_DELIVERABLE, units=Decimal(10), per_unit=Decimal(1),
+                          recorded=False)
+
+    (said,) = benefits(short, covered, MONDAY, "your usual 10 L")
+    assert said.clause == "with 200 L confirmed for Monday 16 November where yours has only 4 L"
+    assert benefits(unanswered, covered, MONDAY, "your usual 10 L") == ()  # no answer recorded: not "short"
+    not_confirmed = Measured(product=_product("100001"), quantity=Decimal(10), unit=Unit.L,
+                             state=AvailabilityState.QUANTITY_NOT_CONFIRMED, units=Decimal(10), per_unit=Decimal(1))
+    (said,) = benefits(not_confirmed, covered, None, "x")
+    assert said.clause == "with 200 L confirmed where yours has none confirmed"

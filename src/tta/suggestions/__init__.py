@@ -11,6 +11,9 @@ routes, and calling the two writers.
 
 `reorder_prompt` is the "you usually order this: order again?" prompt: the customer's regular order from its past
 orders, each line through the same guard, as a ready-made request that orders nothing (`reorder`).
+
+`regular_alert` says what a request repeats of the customer's regular orders: a product a standing order already
+holds, a regular request that could be a standing order, a quantity far from the usual one (`regular`).
 """
 
 from tta.suggestions.cheaper import CheaperOption, cheaper_same_formula
@@ -27,6 +30,7 @@ from tta.suggestions.guard import DroppedSuggestion, DropReason
 from tta.suggestions.history import OrderHistory, history_of
 from tta.suggestions.packs import PackOption, larger_pack
 from tta.suggestions.ranking import HeldBackSuggestion, HoldReason, first_suggestions, ranked
+from tta.suggestions.regular import RegularAlert, chosen_products, held_lines, regular_alert
 from tta.suggestions.reorder import ReorderPrompt, reorder_prompt
 from tta.suggestions.service import SuggestionList, SuggestionPorts, suggestions_for
 from tta.suggestions.trend import quantity_trend, standing_order_trends
@@ -46,16 +50,20 @@ __all__ = [
     "HoldReason",
     "OrderHistory",
     "PackOption",
+    "RegularAlert",
     "ReorderPrompt",
     "SuggestionList",
     "SuggestionPorts",
     "cheaper_same_formula",
+    "chosen_products",
     "first_suggestions",
     "forgotten_items",
+    "held_lines",
     "history_of",
     "larger_pack",
     "quantity_trend",
     "ranked",
+    "regular_alert",
     "record_suggestion_accepted",
     "record_suggestions_shown",
     "reorder_prompt",

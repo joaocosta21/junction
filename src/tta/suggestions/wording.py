@@ -188,3 +188,83 @@ def on_standing_sentence(labels: Sequence[str]) -> str:
 
 def weekday_name(weekday: int) -> str:
     return WEEKDAYS[weekday]
+
+
+# --- the "this is one of your regular orders" alert (`tta.suggestions.regular`) -----------------------------------
+
+ON_TOP_OF_IT = "This request would be on top of it."
+ON_TOP_OF_THEM = "This request would be on top of them."
+SET_UP_ORDERS_NOTHING = "Setting it up orders nothing, and every renewal goes to a person as always."
+REGULAR_NOTE = (
+    "Computed from this customer's past orders and standing orders each time it is asked. It orders nothing and "
+    "changes nothing: a standing order that is set up orders nothing by itself, and every renewal is an offer a "
+    "person confirms."
+)
+RENEWAL_NOTE = "This request renews a standing order, so it is not compared with the standing orders or the usual."
+STANDING_NAME_MAX = 120  # `tta.contracts.standing.MAX_NAME_LENGTH`, repeated: a name longer than it is cut
+
+
+def cadence_words(days: int) -> str:
+    """ "every week", "every day", "every 3 days"."""
+    if days == DAYS_IN_A_WEEK:
+        return "every week"
+    return "every day" if days == 1 else f"every {days} days"
+
+
+def each_cadence(days: int) -> str:
+    """ "each week", "each day", "every 3 days": how often a standing order is renewed."""
+    if days == DAYS_IN_A_WEEK:
+        return "each week"
+    return "each day" if days == 1 else f"every {days} days"
+
+
+def on_standing_alert(labels: Sequence[str], name: str, quantities: Sequence[str], cadence_days: int,
+                      next_for: date | None) -> str:
+    """ "Arla milk (469363) is already on your standing order “Weekly milk” (100 L every week, next for Tuesday 17
+    November)." for the products of one standing order."""
+    when = f", next for {day(next_for)}" if next_for is not None else ""
+    return (f"{listed(labels)} {'is' if len(labels) == 1 else 'are'} already on your standing order “{name}” "
+            f"({listed(quantities)} {cadence_words(cadence_days)}{when}).")
+
+
+def how_often(gap_days: Decimal | None, *, every_order: bool) -> str:
+    """ "every week" for a weekly customer whose every counted order holds the products; "almost every week" when
+    one does not; "regularly" for any other rhythm."""
+    if gap_days != DAYS_IN_A_WEEK:
+        return "regularly"
+    return "every week" if every_order else "almost every week"
+
+
+def counted_clause(label: str, quantity: str, matching: int, considered: int, *, first: bool) -> str:
+    """ "Oatly iKaffe (468319), 30 L, in 8 of your last 8 orders"; after the first product "in 7 of 8"."""
+    said = f"in {matching} of your last {considered} orders" if first else f"in {matching} of {considered}"
+    return f"{label}, {quantity}, {said}"
+
+
+def regular_alert_sentence(clauses: Sequence[str], often: str, cadence_days: int) -> str:
+    """The offer to make a regular request a standing order. `clauses`: one `counted_clause` per product."""
+    products = clauses[0] if len(clauses) == 1 else f"{', '.join(clauses[:-1])}, and {clauses[-1]}"
+    return (f"You order this {often}: {products}. Make it a standing order, so {each_cadence(cadence_days)} it is "
+            f"one renewal you confirm instead of a new request? {SET_UP_ORDERS_NOTHING}")
+
+
+def different_quantity_sentence(usual: Sequence[str], asked: Sequence[str]) -> str:
+    """ "You usually order 30 L of Oatly iKaffe (468319); this request says 90 L. Is 90 L right?" `usual`: "30 L of
+    Oatly iKaffe (468319)" per product; `asked`: "90 L" per product, in the same order."""
+    question = f"Is {asked[0]} right?" if len(asked) == 1 else f"Are {listed(asked)} right?"
+    return f"You usually order {listed(usual)}; this request says {listed(asked)}. {question}"
+
+
+def standing_order_name(names: Sequence[str], cadence_days: int) -> str:
+    """ "Weekly Oatly iKaffe and Arla Whipping cream": the name a standing order set up from the alert starts with."""
+    said = f"{'Weekly ' if cadence_days == DAYS_IN_A_WEEK else ''}{listed(names)}"
+    return said[:STANDING_NAME_MAX].rstrip()
+
+
+def set_up_sentence(name: str, cadence_days: int, weekdays: Sequence[str]) -> str:
+    """What the page says once a standing order is set up from the alert. `weekdays`: the customer's usual delivery
+    days, by name; none: no day is said."""
+    usual = "" if not weekdays else (
+        f" (your usual delivery day{' is' if len(weekdays) == 1 else 's are'} {listed(weekdays)})")
+    return (f"Set up as the standing order “{name}”, renewed {cadence_words(cadence_days)}{usual}. Nothing is "
+            f"ordered by this: each renewal is an offer you confirm.")

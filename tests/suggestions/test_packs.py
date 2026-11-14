@@ -183,6 +183,6 @@ def test_oatly_ikaffe_in_the_15_litre_carton_from_the_recording(
     assert found is not None and found.effect is not None
     assert found.effect.net_change_eur == Decimal(after) - Decimal(before)
     assert found.sentence.startswith(f"Because you buy Oatly iKaffe ({original_id}) in ")
-    assert f"we suggest the same product in 1.5 L packs (473278): €1.48 a litre instead of " in found.sentence
+    assert "we suggest the same product in 1.5 L packs (473278): €1.48 a litre instead of " in found.sentence
     assert f"{packs} packs cover your {litres} L for €{after}" in found.sentence
     assert "234 L confirmed for Monday 16 November" in found.sentence  # 156 packs of 1.5 L

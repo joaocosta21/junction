@@ -136,7 +136,7 @@ def test_a_replacement_keeps_the_formula_where_the_profile_says_it_matters(world
     at_the_hotel = _check(world_now, HOTEL, request, suggestion)
 
     assert isinstance(at_the_bakery, DroppedSuggestion) and at_the_bakery.reason == DropReason.FORMULA_NOT_KEPT
-    assert at_the_bakery.sentence.startswith("Different formula: fat ")
+    assert at_the_bakery.sentence.startswith("Different contents: ")
     assert isinstance(at_the_hotel, Suggestion)
 
 

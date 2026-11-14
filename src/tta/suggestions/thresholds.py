@@ -60,3 +60,9 @@ REORDER_MIN_ORDERS_ON_A_WEEKDAY = 2  # of the last `HISTORY_WINDOW_ORDERS` order
 # The most lines of the ready-made request: the demonstration's limit of lines per request
 # (`tta.api.service.MAX_DEMO_REQUEST_LINES`), repeated here so the suggestions do not import the gateway.
 REORDER_MAX_LINES = 5
+
+# The "this is one of your regular orders" alert (`tta.suggestions.regular`). A request for a regular product is at
+# "about the usual quantity" while it differs from it by less than this share of the usual quantity; from this share
+# on it is clearly more or less, and the alert asks. The same share as `USUAL_QUANTITY_MIN_DIFFERENCE`, so the alert
+# and the usual-quantity suggestion never disagree about one line.
+REGULAR_QUANTITY_TOLERANCE = USUAL_QUANTITY_MIN_DIFFERENCE
