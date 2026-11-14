@@ -719,7 +719,7 @@ If an outcome differs, the browser's book was not empty: press **Start again** a
 - **Orders commit nobody.** `ORDERED` is a record in our order book; the mock has no order endpoint. A supplier order message in an open e-procurement format is a next step (`docs/ASSUMPTIONS.md`).
 - **One process.** These live in memory, for one process: the order book's lock, the rate limiter, the agent-run log, the pages' books and the cached audit head. Two gateway processes on one database are not protected against each other. The deployment runs one container for that reason.
 - **The audit chain** cannot show the last events cut off, or a rewrite from some event to the end, unless another party holds an earlier head; nothing compares heads yet. Nothing is signed. Whoever can write the database file can drop its triggers.
-- **SQLite** on the container's disk, with a copy on Modal's Volume. A database service is being added (section 12).
+- **SQLite** on the container's disk, with a copy on Modal's Volume, unless `DATABASE_URL` points at the Aiven PostgreSQL service (section 12); then the shared book and audit trail live there.
 - **No login on the pages**, so they exist only in `dev` and `demo`.
 - **No browser test.** The pages are tested over HTTP. Their small script (send a form once, switch approver) is not run in a browser by the suite.
 - **MCP:** no OAuth (tokens are handed out outside the protocol), and the `Origin` header is not checked. `docs/STANDARDS.md` states both as departures, with the fix as a next step.
@@ -727,38 +727,42 @@ If an outcome differs, the browser's book was not empty: press **Start again** a
   - delivery-time and sustainability comparison (the reliability and carbon figures are loaded onto each product and shown by `GET /v1/products/{id}`, nothing more);
   - recipe logic, standing-order drift, and a selling agent of Valio's own.
 - **Replay never ends its day:** with the clock pinned, today's spend keeps growing in one book, and a waiting order never expires.
-- **Replay and products outside the capture:** a product the capture holds no answer for reads as "not deliverable", as if Valio had said so. Asking for 10 kg of butter in replay gives 39 "not deliverable" exclusions, none of them a product the capture holds. A fix is being added (section 12).
-- **The ingredient list is read as a statement too (fixed, FIX-12a).** When the declaration says free from and the ingredient list names the allergen or says "may contain" (18 products for milk/gluten, 7 for tree nuts, whole catalog), the product goes to a dietitian with both quoted. `465793` Alpro Barista Almond drink is one of them. Valio is asked which source wins (section 16, `ALMOND-1`).
-- **Found by the use-case check** (`AIMO/USE-CASES.md`), each checked again for this document, fixes being added (section 12):
-  - the substitutes route (`POST /v1/products/{id}/substitutes`) applies the substitution rule but not the buyer's own exclusion rule: asked by the ward, it calls `475224` orderable, while the ward's own offer in scenario 2 excludes it as "Allergen not stated";
-  - an offer with several lines reports only the least covered one: 100 L of lactose-free milk plus 10 kg of butter reads "covers the 2 request lines, the least covered at 0.0%", and P-03 says "Only 0% of the requested quantity is covered", although the milk is covered in full;
-  - the product type `cream` lets in vegetable-fat blends: "10 L cream" offers `463975`, a 15% vegetable mix.
+- **Fixed today (section 12), kept here so the change is visible:**
+  - replay and products outside the capture: they are now excluded as "Not in the recorded copy" (`NOT_IN_RECORDING`), never as "not deliverable";
+  - the ingredient list is now read as a statement too: when the declaration says free from and the ingredient list names the allergen or says "may contain" (18 products for milk/gluten, 7 for tree nuts, whole catalog), the product goes to a dietitian with both quoted. `465793` Alpro Barista Almond drink is one of them. Valio is asked which source wins (section 16, `ALMOND-1`);
+  - the substitutes route now applies the buyer's own exclusion rule as the offer does;
+  - an offer with several lines now says what each line covers, so 100 L of milk plus 10 kg of butter no longer reads "the least covered at 0.0%" for the whole offer;
+  - the product type `cream` leaves vegetable-fat blends out.
 - **Every limit value is illustrative**, ours, and labelled as ours: profiles, rate limits, portion-pack size, product types.
 - **Partner data in the repository.** Valio's four data files are tracked and the repository will be public. The README says they are not under the MIT licence; whether they may stay is a question to Valio (section 16, question 22).
 
 ---
 
-## 12. Being added today
+## 12. Landed today (Saturday morning)
 
-Work landing today, each piece built by its own agent. Only the rate limits for a room are part of the behaviour described above; the rest is in progress or not yet connected. A final redeploy is approved once they are in.
+Each piece was built by its own agent, then checked (its tests, lint, scope) and committed. All of it is in the code described above. The public URL still runs the build from before these commits until the final redeploy.
 
-- **Aiven PostgreSQL** (`AIMO/build/tasks/S1-aiven-postgres.md`). *In progress.*
-  - The shared order book and audit trail move to a managed PostgreSQL database, behind the same `Store` port.
-  - The database itself refuses rewrites of audit events, and a supplier view is defined in SQL.
-  - If the database cannot be reached at start, the app falls back to SQLite and `/healthz` says so.
-  - The pages' books stay in memory.
-- **Gemini: a photo of an order list, and orders in Finnish** (`T18-gemini-photo-finnish.md`). *In progress.*
+- **Aiven PostgreSQL** (`S1`, `67f3b00`, 10:34).
+  - The shared order book and audit trail can live in a managed PostgreSQL database, behind the same `Store` port.
+  - The database itself refuses rewrites of audit events (triggers on UPDATE, DELETE and TRUNCATE), and a supplier view and a read-only supplier role are defined in SQL.
+  - If the database cannot be reached at start, the app falls back to SQLite and `/healthz` says so (`7b93821`).
+  - The pages' per-browser books stay in memory.
+- **Gemini: a photo of an order list, and orders in Finnish and Swedish** (`T18`, `812de0f`, 10:39).
   - Two steps: Gemini transcribes the photo into text, shown to the person; then the same parser and text check read that text.
-  - Finnish sentences for scenarios 1 and 2 must read to the same typed requests as the English ones.
-  - A fourth example button on the first page, for the dietitian's approval: `469512` Elovena oat drink, whose milk the product file says nothing about, under a strict no-milk rule. It is in the working tree, not yet committed.
-- **Context.dev evidence** (`S2-contextdev-evidence.md`). *Committed at `7abb44e` (10:13), not yet connected.*
-  - When an approval goes to the dietitian because an excluded allergen is not stated, the approval card shows what the manufacturer's web page says, under "Found on the manufacturer's page — not Valio data", with the link.
-  - It never changes a status or a verdict.
-  - The package (`src/tta/evidence/`) and its card are in the code, with recorded answers for five products. It is not yet connected in `src/tta/api/wiring.py` (that waits for the Aiven work), so the running gateway attaches no evidence yet.
-- **Rate limits for a room on one Wi-Fi** (`FIX-11-room-limits.md`). *Committed at `289a3c7` (10:01), not yet deployed.* Described in section 7.
-- **Fixes from the use-case check** (`AIMO/USE-CASES.md`). *In progress; only their contracts and `AIMO/SPEC.md` changes are committed (`252fc26`, 10:23), and no code reads them yet.*
-  - `FIX-12a-data-truth.md`: in replay, a product missing from the capture is excluded as `NOT_IN_RECORDING`, never presented as Valio's statement; the product's own ingredient list counts as an allergen statement (an excluded allergen named there, or "may contain", while the declaration says free from, goes to the dietitian); `cream` leaves vegetable-fat blends out.
-  - `FIX-12b-offer-wording.md`: coverage named per request line; substitutes judged by the buyer's own exclusion rule; the earliest possible delivery date named when every product is late; the trade-off (allergen findings, what a substitute gives up) shown on the approval card.
+  - A fourth example button on the first page, for the dietitian's approval: `469512` Elovena oat drink, whose milk the product file says nothing about, under a strict no-milk rule.
+  - Gemini answered 503/504 during the live check, so the recordings for Finnish and the photo are hand-built and say so. The live check is a command in `AIMO/build/MORNING.md`.
+- **Context.dev evidence** (`S2`, `7abb44e`, connected in `f3286e1`).
+  - When an approval goes to the dietitian because an excluded allergen is not stated, the card shows what the manufacturer's page says, under "Found on the manufacturer's page — not Valio data", with the link. It never changes a status or a verdict.
+  - Without a Context.dev key it reads stored and recorded answers only (five products) and asks nobody.
+- **Rate limits for a room on one Wi-Fi** (`FIX-11`, `289a3c7`). Described in section 7.
+- **Fixes from the use-case check** (`AIMO/USE-CASES.md`).
+  - `FIX-12a` (`9a1893d`): in replay, a product missing from the capture is excluded as `NOT_IN_RECORDING`, never presented as Valio's statement; the product's own ingredient list counts as an allergen statement (an excluded allergen named there, or "may contain", while the declaration says free from, goes to the dietitian: 18 products for milk/gluten, 7 for tree nuts over the whole catalog); `cream` leaves vegetable-fat blends out.
+  - `FIX-12b` (`baa4e08`): coverage named per request line; substitutes judged by the buyer's own exclusion rule; the earliest possible delivery date named when every product is late; the trade-off (allergen findings, what a substitute gives up) shown on the approval card.
+- **Your kitchen: the buyer sets what its agent may decide alone** (`FEAT-1`, `b91e135`, 10:58).
+  - A page, "Your kitchen" in the menu, where a visitor sets the limits, the minimum fill, the allergen rule and the substitution scope of their own profile, `my-kitchen`, and runs requests as "My kitchen agent".
+  - Each setting is shown with the rule it drives (P-00 to P-07) in the kitchen's own values; below them the fixed rules F-01 to F-08, under "Always, whatever you set". A form that names a fixed rule, or a value out of range, is refused with the field named, and nothing changes.
+  - The profile is checked exactly as a profile file is, and it lives only in that browser's book; REST and MCP never see it.
+  - Known gap: without a working Gemini model, a run as My kitchen agent first says the recorded sentence was made for another profile, then uses the example's typed request. The verdicts are the same.
 
 ---
 
