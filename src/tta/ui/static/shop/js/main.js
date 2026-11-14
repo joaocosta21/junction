@@ -1,6 +1,6 @@
 // The page frame: header with the customer switcher, hash routing, events, and the render function.
 import { health } from "./api.js";
-import { app, freshData, handlers, nextDeliveryDay, on, pendingApprovals, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
+import { app, freshData, handlers, nextDeliveryDay, on, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
 import { contact, loadCustomer } from "./customer.js";
 import { html, initials, isoDay, shortDate } from "./dom.js";
 import { icon } from "./icons.js";
@@ -22,7 +22,7 @@ const NAV = [
   ["assistant", "#/", "Request"],
   ["standing", "#/standing", "Standing orders"],
   ["deliveries", "#/deliveries", "Deliveries"],
-  ["approvals", "#/approvals", "Approvals"],
+  ["approvals", "#/approvals", "Waiting for someone else"], // shown with its count, hidden when nothing waits
   ["orders", "#/orders", "Orders"],
   ["settings", "#/settings", "Settings"],
   ["backoffice", "#/backoffice", "Valio Aimo back office"], // Valio Aimo's screen, set apart in the menu (shop.css)
@@ -157,12 +157,14 @@ function modeLabel() {
 function header() {
   const k = active();
   const me = contact();
-  const waiting = pendingApprovals().length;
+  const waiting = approvals.waitingCount();
   const next = nextDeliveryDay();
   const link = ([name, href, label], mobile) =>
-    html`<a href="${href}" class="${app.route.name === name ? "on" : ""}">${label}${
-      name === "approvals" && waiting ? (mobile ? ` (${waiting})` : html`<span class="badge">${waiting}</span>`) : ""
-    }</a>`;
+    name !== "approvals"
+      ? html`<a href="${href}" class="${app.route.name === name ? "on" : ""}">${label}</a>`
+      : !waiting
+        ? "" // nothing waits for anybody: no entry to look into
+        : html`<a href="${href}" class="${app.route.name === name ? "on" : ""}">${approvals.waitingLabel()}${mobile ? ` (${waiting})` : html`<span class="badge">${waiting}</span>`}</a>`;
   return html`
     <div class="strip">
       <a class="tab" href="#/deliveries" title="Delivery wholesale">${icon("truck")}<span>Delivery wholesale</span></a>
@@ -176,7 +178,7 @@ function header() {
         <nav class="nav" aria-label="Main">${NAV.map((n) => link(n, false))}</nav>
         <div class="tools">
           <a class="date-chip" href="#/deliveries" title="Next delivery day">${icon("calendar")}<span>${shortDate(isoDay(next))}</span></a>
-          <a class="icon-btn" href="#/approvals" title="Waiting for approval">${icon("bell")}${waiting ? html`<span class="badge">${waiting}</span>` : ""}</a>
+          ${waiting ? html`<a class="icon-btn" href="#/approvals" title="${approvals.waitingLabel()}">${icon("bell")}<span class="badge">${waiting}</span></a>` : ""}
           <div class="who">
             <button class="who-btn" data-act="menu" aria-haspopup="menu" aria-expanded="${String(app.ui.menu)}">
               <span class="avatar ${k.id}">${initials(me?.name || k.name)}</span>
@@ -192,7 +194,7 @@ function header() {
                   ${one.id === k.id ? html`<span class="tag ok">${icon("check")}In use</span>` : ""}
                 </button>`
               )}
-              <div class="menu-foot">Demo customers, no login. Each one has its own order book, limits and approvers.</div>
+              <div class="menu-foot">Demo customers, no login. Each one has its own order book and limits.</div>
             </div>
           </div>
         </div>

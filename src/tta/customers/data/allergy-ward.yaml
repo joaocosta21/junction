@@ -18,9 +18,10 @@ customer_number: "554 097"
 address: "Turuntie 150, 02740 Espoo"
 delivery_days: "Mon–Sat"
 contact: {name: Jussi Nieminen, title: Ward purchasing}
-people:
+people:   # the person who orders also decides a spend-limit stop (no separate finance signer); the ward has a
+          # dietitian, who decides allergen and dietary-claim questions and nothing else
   purchasing_manager: Jussi Nieminen
-  finance: Anna Virta
+  finance: Jussi Nieminen
   dietitian: Sari Lehto
 prefer: RELIABILITY   # P1 section 4.2: a ward weighs delivery reliability
 

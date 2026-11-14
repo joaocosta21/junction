@@ -1,6 +1,6 @@
 // The side panel of the request page: the rules in force as the gateway states them (its answer to this
 // customer's settings call, never this browser's copy), the coming deliveries and what the agent knows.
-import { app, dataToday, deliveryOf, pendingApprovals, render, spendToday } from "../core.js";
+import { api, app, dataToday, deliveryOf, pendingApprovals, render, spendToday } from "../core.js";
 import { customerOf } from "../customer.js";
 import { html, isoDay, money, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
@@ -21,7 +21,7 @@ function allergensText(profile) {
 const RECIPE_WORDS = { ALWAYS: "always", LEARN: "learned from your orders", WHEN_ASKED: "only when you say so" };
 const recipeText = (profile) => RECIPE_WORDS[recipeMode(profile)];
 
-// What the gateway has learned for this customer (GET /shop/api/learned), computed there on every call and stored
+// What the gateway has learned for this customer (api.js `learned`, GET /shop/api/learned), computed there on every call and stored
 // nowhere. Read again when the mode or an order's state changes: a decision on a substitute teaches the agent.
 const learned = {}; // key -> the route's answer, or null while it is on its way or when it failed
 const learnedKey = (profile) => [memory.active, recipeMode(profile), ...app.data.orders.map((o) => `${o.order_id}:${o.status}`)].join("|");
@@ -31,8 +31,8 @@ function learnedLine(profile) {
   const key = learnedKey(profile);
   if (!(key in learned)) {
     learned[key] = null;
-    fetch("/shop/api/learned", { headers: { "X-Shop-Request": "1", "X-Shop-Kitchen": memory.active }, credentials: "same-origin" })
-      .then((response) => (response.ok ? response.json() : null))
+    api()
+      .learned()
       .then((view) => {
         learned[key] = view;
         if (view) render();
@@ -56,7 +56,8 @@ function rulesCard() {
   const authority = app.data.authority;
   const p = authority?.profile;
   const waiting = pendingApprovals();
-  const waitingRow = html`<div class="kv"><span>Waiting for approval</span><b>${waiting.length ? html`<a href="#/approvals">${waiting.length}</a>` : "0"}</b></div>`;
+  // Shown only when an order waits: nobody is sent to look into an empty list.
+  const waitingRow = waiting.length ? html`<div class="kv"><span>Waiting for a decision</span><b><a href="#/approvals">${waiting.length}</a></b></div>` : "";
   if (!p) {
     return html`<div class="card">
       <div class="card-title"><h3>Rules in force</h3><a class="small" href="${SETTINGS_AT_LIMITS}">Change in Settings</a></div>
@@ -100,7 +101,7 @@ export function side() {
       <div class="card-title"><h3>Coming deliveries</h3><a class="small" href="#/deliveries">Calendar</a></div>
       ${upcoming.length
         ? html`<ul class="side-list">${upcoming.map(
-            ({ o, date }) => html`<li><span class="when">${shortDate(date).split(" ")[1]}<small>${shortDate(date).split(" ")[0]}</small></span><span><a href="#/orders/${o.order_id}">${o.option.lines[0].name}${o.option.lines.length > 1 ? ` +${o.option.lines.length - 1}` : ""}</a><br><span class="small muted">${netTotal(o.option.totals)} · ${o.status === "ORDERED" ? "confirmed" : "waiting for approval"}</span></span></li>`
+            ({ o, date }) => html`<li><span class="when">${shortDate(date).split(" ")[1]}<small>${shortDate(date).split(" ")[0]}</small></span><span><a href="#/orders/${o.order_id}">${o.option.lines[0].name}${o.option.lines.length > 1 ? ` +${o.option.lines.length - 1}` : ""}</a><br><span class="small muted">${netTotal(o.option.totals)} · ${o.status === "ORDERED" ? "confirmed" : "waiting for a decision"}</span></span></li>`
           )}</ul>`
         : html`<p class="small muted">Nothing ordered yet in this demo.${customerOf()?.delivery_days ? ` Delivery days for ${k.name}: ${customerOf().delivery_days}.` : ""}</p>`}
     </div>

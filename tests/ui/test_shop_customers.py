@@ -195,7 +195,10 @@ def test_settings_offer_three_choices_for_the_recipe_and_send_the_mode_with_the_
         assert words in settings, words
     assert 'data-change="recipe-mode"' in settings and 'd.settings.formula_matters = el.value === "ALWAYS"' in settings
     assert "Substitutes must keep the recipe" in settings and "Substitutes must keep the recipe" in side
-    assert "/shop/api/learned" in side and "learned from your orders" in side
+    # The side card reads what was learned through the page's own gateway calls (api.js), never a fetch of its own.
+    assert 'learned: () => call(kitchen, "GET", "/learned")' in _read("api.js")
+    assert "api()" in side and ".learned()" in side and "fetch(" not in side
+    assert "learned from your orders" in side
 
 
 def test_the_shop_says_what_the_agent_learned_for_the_customer_and_in_which_mode(

@@ -21,9 +21,10 @@ customer_number: "554 812"
 address: "Kilonkartanontie 6, 02610 Espoo"
 delivery_days: "Mon–Fri"
 contact: {name: Päivi Korhonen, title: Kitchen manager}
-people:
+people:   # the person who orders also decides a spend-limit stop (no separate finance signer); the school has a
+          # dietitian, who decides allergen and dietary-claim questions and nothing else
   purchasing_manager: Päivi Korhonen
-  finance: Tuomas Aho
+  finance: Päivi Korhonen
   dietitian: Riikka Mäkelä
 prefer: PRICE
 

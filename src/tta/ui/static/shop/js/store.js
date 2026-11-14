@@ -3,11 +3,13 @@
 // learned, and the latest results. Orders and approvals themselves live in the gateway.
 import { KITCHENS, kitchenById } from "./kitchens.js";
 
+// v6: each customer's settings carry how "substitutes must keep the recipe" is decided (formula_mode: learned from
+// the orders for the school, the ward and the hotel; always for the bakery), as its profile file says.
 // v5: what the agent assumes no longer cites typed-in past orders, and the bakery's dairy brand is Arla, as its
 // customer file says (v4: each customer's settings are its profile file's). A new key, so a browser that opened an
 // earlier version does not keep what it saved (saved values win over new defaults at load).
-const KEY = "tt-shop-v5";
-const OLD_KEYS = ["tt-shop-v1", "tt-shop-v2", "tt-shop-v3", "tt-shop-v4"];
+const KEY = "tt-shop-v6";
+const OLD_KEYS = ["tt-shop-v1", "tt-shop-v2", "tt-shop-v3", "tt-shop-v4", "tt-shop-v5"];
 const MAX_TURNS = 8;
 
 function forgetOldVersions() {

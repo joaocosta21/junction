@@ -26,8 +26,9 @@ formula_mode: LEARN               # ALWAYS · LEARN · WHEN_ASKED: the agent wor
                                   # buyer's decisions, past requests and customer file, where a substitute
                                   # must keep the recipe (F-11); where nothing is learned, only when asked
 
-# Who holds each role. The ids are those of the demonstration identities.
+# Who holds each role. The id is that of the demonstration identity. One person confirms: the person who orders
+# holds all three, so one confirmation completes an approval whatever rule asked (as the bakery, decision B27).
 approver_roles:
   purchasing_manager: ["human:hotel-purchasing"]
-  finance: ["human:hotel-finance"]
-  dietitian: ["human:hotel-dietitian"]
+  finance: ["human:hotel-purchasing"]
+  dietitian: ["human:hotel-purchasing"]

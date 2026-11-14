@@ -19,10 +19,12 @@ customer_number: "610 245"
 address: "Satamakatu 4, 00160 Helsinki"
 delivery_days: "Mon–Sat"
 contact: {name: Hanna Laine, title: Purchasing manager}
-people:
+people:   # one person confirms: the person who orders holds every role a rule can ask for, so her one confirmation
+          # is the whole confirmation, whatever rule asked (as the bakery's owner, decision B27). The hotel kitchen
+          # names no dietitian and no separate finance signer; the profile names the same three roles.
   purchasing_manager: Hanna Laine
-  finance: Mikko Saari
-  dietitian: Leena Koski
+  finance: Hanna Laine
+  dietitian: Hanna Laine
 prefer: PRICE
 
 usual:

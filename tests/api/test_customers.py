@@ -24,10 +24,12 @@ AGENTS = {
     "hotel-kitchen": "demo-agent-hotel-kitchen", "allergy-ward": "demo-agent-allergy-ward",
     "school-kitchen": "demo-agent-school-kitchen", "bakery-cafe": "demo-agent-bakery-cafe",
 }
-SCHOOL_PEOPLE = {
-    "demo-approver-school-purchasing": "purchasing_manager", "demo-approver-school-finance": "finance",
-    "demo-approver-school-dietitian": "dietitian",
-}
+# One person confirms: the school's kitchen manager also decides a spend-limit stop (no separate finance signer);
+# the dietitian is the one other person, for allergen questions.
+SCHOOL_PEOPLE = (
+    ("demo-approver-school-purchasing", "purchasing_manager"), ("demo-approver-school-purchasing", "finance"),
+    ("demo-approver-school-dietitian", "dietitian"),
+)
 OWNER = "demo-approver-bakery-owner"
 CREAM_WITHOUT_NUTS = {
     "lines": [{
@@ -80,7 +82,7 @@ def test_the_people_are_named_after_the_customer_files() -> None:
 
 
 def test_the_documented_token_list_is_the_token_file() -> None:
-    assert tuple(_demo_tokens()) == DEMO_TOKEN_NAMES and len(DEMO_TOKEN_NAMES) == 15
+    assert tuple(_demo_tokens()) == DEMO_TOKEN_NAMES and len(DEMO_TOKEN_NAMES) == 11
     for name in DEMO_TOKEN_NAMES:
         assert f"`{name}`" in BEARER_DESCRIPTION
 
@@ -92,7 +94,7 @@ def test_llms_txt_names_the_two_new_agents(client: TestClient) -> None:
     assert "15 identities" in text and "GET /v1/customers" in text
 
 
-@pytest.mark.parametrize(("token", "role"), sorted(SCHOOL_PEOPLE.items()))
+@pytest.mark.parametrize(("token", "role"), SCHOOL_PEOPLE)
 def test_the_schools_people_read_the_schools_approval_queue(client: TestClient, token: str, role: str) -> None:
     assert client.get("/v1/approvals", headers=_bearer(token)).status_code == 200
     assert role in _demo_tokens()[token]["roles"]

@@ -32,7 +32,9 @@ formula_mode: LEARN               # ALWAYS · LEARN · WHEN_ASKED: the agent wor
 
 # Who holds each role. The ids are those of the demonstration identities; the people are named in the
 # customer file.
+# Two people: the dietitian decides allergen and dietary-claim questions; the person who orders decides
+# everything else, a spend-limit stop included.
 approver_roles:
   purchasing_manager: ["human:school-purchasing"]
-  finance: ["human:school-finance"]
+  finance: ["human:school-purchasing"]
   dietitian: ["human:school-dietitian"]

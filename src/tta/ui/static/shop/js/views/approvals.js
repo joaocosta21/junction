@@ -1,13 +1,15 @@
-// Approvals: what the agent could not order alone, waiting for a named person of this kitchen.
+// "Waiting for someone else": the orders that wait for a person other than the one signed in. One person confirms
+// an order; a second person decides only where a kitchen really has one, and only what is theirs (the dietitian of
+// the ward and the school, for allergen questions). What the person signed in can decide is asked on the request
+// itself (assistant.js), so it is here only when that result is gone from the request page.
+// For the demonstration, one visitor walks the whole flow: one labelled control decides as the other person.
 import { app, api, on, pendingApprovals, refresh, render, toast } from "../core.js";
-import { customerKnown, myRoles } from "../customer.js";
-import { cutoff, html, initials } from "../dom.js";
+import { contact, customerKnown } from "../customer.js";
+import { cutoff, html } from "../dom.js";
 import { icon } from "../icons.js";
-import { ROLES } from "../kitchens.js";
-import { active } from "../store.js";
 import { plain } from "../words.js";
-import { customerPending, hasPerson, netTotal, optionBlock, personFor, problemBox, progress, rolesStillNeeded, signerName, signers } from "./parts.js";
-import { DIETITIAN, allergenQuestion, asksTheDietitian } from "./question.js";
+import { confirmedBy, customerPending, netTotal, optionBlock, problemBox, rolesStillNeeded, signerName } from "./parts.js";
+import { DIETITIAN, allergenQuestion, asksTheDietitian, isMine, otherPeople, personWords, roleOf, said } from "./question.js";
 
 // Only a plain web address becomes a link: never javascript:, data: or anything else a page could carry.
 const WEB_LINK = /^https?:\/\//i;
@@ -74,109 +76,137 @@ function offerOf(approval) {
 // The roles signed from this page, per approval: their button goes the moment the gateway accepts the signature,
 // before the approvals are read again. It only ever hides a button; what is still awaited is the gateway's record.
 const signedHere = new Map();
+// The approvals the visitor chose to decide as the other person, for the demonstration.
+const actingAs = new Set();
+
+const andList = (items) => items.join(" and ");
+// The roles the approval still needs: the gateway's record, less any role just signed here.
+const stillNeeded = (approval) => rolesStillNeeded(approval).filter((r) => !signedHere.get(approval.approval_id)?.has(r));
+const needsMe = (approval) => stillNeeded(approval).some(isMine);
+// Every order that waits. The menu entry counts them and is hidden when there is none (main.js).
+export const waitingCount = () => pendingApprovals().length;
+// What the menu entry says: an order waits for somebody else, unless every one left waits for the person signed in.
+export const waitingLabel = () => (pendingApprovals().length && pendingApprovals().every(needsMe) ? "Needs your decision" : "Waiting for someone else");
 
 const afterDecision = (order, awaited) =>
-  order.status === "ORDERED" ? "Approved. The order is placed."
-    : order.status === "REJECTED" ? "Rejected. Nothing was ordered."
-    : awaited ? `Signed. Still awaited: ${awaited}.` : "Signed. Waiting for the gateway to complete it.";
+  order.status === "ORDERED" ? "Decided. The order is placed."
+    : order.status === "REJECTED" ? "Decided. Nothing was ordered."
+    : awaited ? `Confirmed. Still waiting for ${awaited}.` : "Confirmed.";
 
 // `data-option`: another option of the offer (the safe product); `data-say`: the note when none was written, so the
-// audit trail says which of the dietitian's three choices was taken.
+// audit trail says which of the three choices was taken. One decision signs every role its person holds.
 async function decide(el, decision) {
   const { id, role, option, say } = el.dataset;
   busy.add(id);
   render();
-  let said = null;
+  let told = null;
   try {
     const order = await api().decide(id, role, decision, notes[id] || say || "", signerName(role), option);
     delete notes[id];
     signedHere.set(id, new Set([...(signedHere.get(id) || []), role]));
-    await refresh(); // the approval as the gateway has it now: who has confirmed, who is still awaited
+    await refresh(); // the approval as the gateway has it now: who has decided, who is still awaited
+    signedHere.delete(id);
     const approval = app.data.approvals.find((a) => a.approval_id === id);
-    const awaited = approval ? stillNeeded(approval).map((r) => `${personFor(r)} (${(ROLES[r] || r).toLowerCase()})`).join(" and ") : "";
-    said = afterDecision(order, awaited);
+    told = afterDecision(order, approval ? andList(otherPeople(stillNeeded(approval)).map(personWords)) : "");
   } catch (error) {
-    said = error.message;
+    told = error.message;
   }
   busy.delete(id);
-  toast(said);
+  toast(told);
 }
-
-// The roles the approval still needs: the gateway's record, less any role just signed here.
-const stillNeeded = (approval) => rolesStillNeeded(approval).filter((r) => !signedHere.get(approval.approval_id)?.has(r));
 
 on("approve", (el) => decide(el, "APPROVE"));
 on("reject", (el) => decide(el, "REJECT"));
+on("act-as", (el) => {
+  actingAs.add(el.dataset.id);
+  render();
+});
 on("note", (el) => {
   notes[el.dataset.id] = el.value;
 });
+
+const noteField = (approval) => html`<div class="row">
+    <label class="sr" for="note-${approval.approval_id}">Note</label>
+    <input type="text" id="note-${approval.approval_id}" data-input="note" data-id="${approval.approval_id}" placeholder="Note for the order's log (optional)" value="${notes[approval.approval_id] || ""}">
+  </div>`;
+
+// The two plain buttons of a decision that is not an allergen question.
+const yesNo = (approval, role, off, yes) => html`<div class="row">
+    <button class="btn small" data-act="approve" data-id="${approval.approval_id}" data-role="${role}" ${off}>${yes}</button>
+    <button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${role}" ${off}>Reject</button>
+  </div>`;
+
+// The part of the person signed in: here only when its result is gone from the request page.
+function myPart(approval, order, needed, off) {
+  const question = asksTheDietitian(approval, order, needed) && isMine(DIETITIAN);
+  const then = otherPeople(needed);
+  return html`<div class="decide">
+    <p class="progress small"><b>Needs your decision.</b>${then.length ? ` It then waits for ${andList(then.map(personWords))}.` : ""}</p>
+    ${question ? allergenQuestion(approval, order, offerOf(approval), off) : ""}
+    ${noteField(approval)}
+    ${question ? "" : yesNo(approval, needed.find(isMine), off, "Confirm order")}
+  </div>`;
+}
+
+// The part of somebody else: who it waits for, and the one control that decides as them in this demonstration.
+function theirPart(approval, order, needed, off) {
+  const other = otherPeople(needed)[0];
+  const me = contact()?.name;
+  const mineDone = confirmedBy(approval).some(([name]) => name === me);
+  const waits = html`<p class="progress small"><b>Waiting for ${personWords(other)}.</b>${mineDone ? " You confirmed your part." : ""}</p>`;
+  if (!actingAs.has(approval.approval_id)) {
+    return html`<div class="decide">${waits}
+      <div class="row"><button class="btn small line" data-act="act-as" data-id="${approval.approval_id}">Decide as ${other.name}, ${roleOf(other)} (demonstration)</button></div>
+      <p class="small muted">One visitor walks the whole flow in this demonstration. In production ${other.name} signs in and decides, and nobody else can.</p>
+    </div>`;
+  }
+  const question = other.role === DIETITIAN && asksTheDietitian(approval, order, needed);
+  return html`<div class="decide">${waits}
+    <p class="small"><b>You are deciding as ${other.name}, ${roleOf(other)} (demonstration).</b> The log names ${other.name}.</p>
+    ${question ? allergenQuestion(approval, order, offerOf(approval), off) : ""}
+    ${noteField(approval)}
+    ${question ? "" : yesNo(approval, other.role, off, "Approve")}
+  </div>`;
+}
 
 function card(approval) {
   const order = app.data.orders.find((o) => o.order_id === approval.order_id);
   const option = order?.option;
   const needed = stillNeeded(approval);
-  const k = active();
   const off = busy.has(approval.approval_id) ? "disabled" : "";
-  // An allergen question goes to the dietitian as three choices; the other roles still needed keep their buttons.
-  const question = asksTheDietitian(approval, order, needed);
-  const others = question ? needed.filter((r) => r !== DIETITIAN) : needed;
-  const rejecter = others.find(hasPerson); // only a role still needed may reject, and only one somebody holds
   return html`<article class="card">
     <div class="appr-head">
       <div class="t">
         ${option ? html`<div class="small muted">${plain(option.title)}</div>` : ""}
         <b>${option ? plain(option.summary) : `Order ${approval.order_id}`}</b>
-        <div class="small muted">Asked by your agent · order ${approval.order_id}${approval.valid_until ? html` · decide by <b>${cutoff(approval.valid_until)}</b>, then it expires` : ""}</div>
+        <div class="small muted">Order ${approval.order_id}${approval.valid_until ? html` · decide by <b>${cutoff(approval.valid_until)}</b>, then it expires` : ""} · <a class="link quiet" href="#/orders/${approval.order_id}">Details</a></div>
       </div>
       ${option ? html`<span class="tag wait">${netTotal(option.totals)}</span>` : ""}
     </div>
     ${evidenceBlock(approval)}
-    <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${plain(r)}</span></li>`)}</ul>
+    <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${said(r)}</span></li>`)}</ul>
     ${option ? optionBlock(option, true) : ""}
-    ${question ? allergenQuestion(approval, order, offerOf(approval), off) : ""}
-    <div class="decide">
-      ${signers(approval)}
-      ${progress(approval)}
-      <div class="row">
-        <label class="sr" for="note-${approval.approval_id}">Note</label>
-        <input type="text" id="note-${approval.approval_id}" data-input="note" data-id="${approval.approval_id}" placeholder="Note for the audit trail (optional)" value="${notes[approval.approval_id] || ""}">
-      </div>
-      <div class="row">
-        ${others.filter(hasPerson).map((role) => {
-          const name = personFor(role);
-          const isMe = myRoles().includes(role);
-          return html`<button class="btn small ${isMe ? "" : "line"}" data-act="approve" data-id="${approval.approval_id}" data-role="${role}" ${off}>Approve as ${name.split(" ")[0]} · ${(ROLES[role] || role).toLowerCase()}</button>`;
-        })}
-        ${rejecter ? html`<button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${rejecter}" ${off}>Reject</button>` : ""}
-        <a class="link quiet" href="#/orders/${approval.order_id}">Details</a>
-      </div>
-      ${customerKnown() ? "" : customerPending()}
-    </div>
+    ${!customerKnown() ? html`<div class="decide">${customerPending()}</div>`
+      : needed.some(isMine) ? myPart(approval, order, needed, off)
+      : otherPeople(needed).length ? theirPart(approval, order, needed, off)
+      : ""}
   </article>`;
 }
 
 export function view() {
-  const k = active();
   const waiting = pendingApprovals();
+  const mine = customerKnown() ? waiting.filter(needsMe) : [];
+  const theirs = waiting.filter((a) => !mine.includes(a));
   return html`
     <div class="page-head">
-      <div><div class="crumbs">${k.name}</div><h1>Approvals</h1><div class="sub">Orders your agent was not allowed to place alone. An agent can never approve its own order.</div></div>
+      <div><h1>Waiting for someone else</h1><div class="sub">Orders that wait for a person other than you. A decision that is yours is asked on the request itself.</div></div>
     </div>
     ${app.data.problem ? problemBox(app.data.problem) : ""}
-    <div class="grid">
-      <section class="queue">
-        ${waiting.length ? waiting.map(card) : html`<div class="card empty"><h3>Nothing waiting</h3><p>When an order is above a limit, has unconfirmed stock or needs a dietitian, it shows up here for the right person.</p></div>`}
-      </section>
-      <aside class="side">
-        <div class="card">
-          <div class="card-title"><h3>Who signs what</h3></div>
-          ${customerKnown() ? html`<ul class="side-list">${Object.entries(ROLES).map(
-            ([role, label]) => html`<li><span class="avatar ${k.id}">${initials(personFor(role))}</span><span><b>${personFor(role)}</b><br><span class="small muted">${label}${myRoles().includes(role) ? " · you" : ""}</span></span></li>`
-          )}</ul>` : customerPending()}
-          <p class="small muted">In this demo you can sign for anyone of the kitchen. In production each person signs in as themselves.</p>
-        </div>
-      </aside>
-    </div>`;
+    <section class="queue">
+      ${mine.length ? html`<h2>Needs your decision</h2>${mine.map(card)}${theirs.length ? html`<h2>Waiting for someone else</h2>` : ""}` : ""}
+      ${theirs.map(card)}
+      ${waiting.length ? "" : html`<div class="card empty"><h3>Nothing is waiting</h3><p>When a decision belongs to someone else, such as an allergen question for the dietitian, the order waits here for them. Your own decisions are asked on the request itself.</p></div>`}
+    </section>`;
 }
 
 export function enter() {

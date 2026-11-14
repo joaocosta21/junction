@@ -52,6 +52,8 @@ export function gateway(kitchen) {
     suggestions: (offerId) => call(kitchen, "GET", `/suggestions?offer_id=${q(offerId)}`),
     // Who this customer is: its people, usual products and synthetic past orders, from the customer file.
     customer: () => call(kitchen, "GET", "/customer"),
+    // What the gateway has learned for this customer about where the recipe matters, computed on every call.
+    learned: () => call(kitchen, "GET", "/learned"),
     // What this customer ordered week after week, as one request to order again ("you usually order this").
     reorder: () => call(kitchen, "GET", "/reorder"),
     // This customer's standing orders ("Standard orders"), each with its trend or none.

@@ -5,16 +5,17 @@
 // product request goes to the recipe planner (plan.js), which says whether it names a dish of the gateway's recipe
 // table. A product request costs the one round trip it always did; a dish sentence costs one more.
 import { app, api, deliveryOf, on, refresh, render, toast, verifyRules, withRules } from "../core.js";
-import { contact, customerKnown, customerOf, loadCustomer, myRoles } from "../customer.js";
+import { contact, customerKnown, customerOf, loadCustomer } from "../customer.js";
 import { clock, html, longDate, num, unit } from "../dom.js";
-import { MENU_EXAMPLES, ROLES, allergenName } from "../kitchens.js";
+import { MENU_EXAMPLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
-import { confirmedBy as confirmedOn, hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
+import { hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
 import { planCard, planReadAs } from "./plan.js";
+import { DIETITIAN, askedOf, dietitianRules, isMine, otherPeople, ownQuestion, personWords, reasonOf, said } from "./question.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
 import { regularBar } from "./regular.js";
 import { hideReorder, reorderPanel, reorderShown } from "./reorder.js";
@@ -38,11 +39,8 @@ const CONFIRM_NOTE = "Confirmed on the shop's request page.";
 const findTurn = (id) => mine().thread.find((t) => t.id === id);
 const chosenOf = (turn) => turn.offer?.options?.find((o) => o.option_id === turn.chosen) || turn.offer?.options?.[0];
 const isFirst = (turn, option) => Boolean(option) && option === turn.offer?.options?.[0];
-// The order of a result as the gateway has it now, so an order confirmed on the Approvals page shows here too.
+// The order of a result as the gateway has it now, so an order somebody else decided shows here too.
 const orderOf = (turn) => (turn.order ? app.data.orders.find((o) => o.order_id === turn.order.order_id) || turn.order : null);
-const roleName = (role) => (ROLES[role] || role).toLowerCase();
-// "Hanna Laine (purchasing manager)"; the role alone while the customer route has not named anybody.
-const names = (roles) => roles.map((r) => (hasPerson(r) ? `${personFor(r)} (${roleName(r)})` : `the ${roleName(r)}`)).join(" and ");
 
 function update(turn) {
   save();
@@ -203,29 +201,33 @@ async function act(turn) {
   if (alone && first.decision?.verdict === "AUTO") await place(turn, first.option_id, false);
 }
 
-// The signed-in person signs each role the order still needs that they hold: their click is the confirmation.
-async function signMine(turn) {
+// The signed-in person's one decision. The gateway signs it for every role they hold that the order still needs
+// (tta.ui.shop_api), so one click is their whole part, whatever rules asked. `decision` REJECT: they leave it out.
+async function signMine(turn, { decision = "APPROVE", note = CONFIRM_NOTE } = {}) {
   const order = turn.order;
   if (order?.status !== "PENDING_APPROVAL" || !order.approval_id) return;
   const approval = app.data.approvals.find((a) => a.approval_id === order.approval_id);
   const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
-  for (const role of needed.filter((r) => myRoles().includes(r))) {
-    turn.order = await api().decide(order.approval_id, role, "APPROVE", CONFIRM_NOTE, signerName(role));
-    turn.confirmedBy = [...(turn.confirmedBy || []), { name: personFor(role), role }];
-    update(turn);
-  }
+  const role = needed.find(isMine);
+  if (!role) return;
+  turn.order = await api().decide(order.approval_id, role, decision, note, signerName(role));
+  turn.signedBy = personFor(role);
+  turn.leftOut = decision === "REJECT";
+  update(turn);
 }
 
-async function place(turn, optionId, sign) {
+// `how`: the decision and its note, when the click was one of the three choices of a question asked on the result.
+async function place(turn, optionId, sign, how = {}) {
   turn.busy = true;
   turn.problem = null;
+  turn.chosen = optionId;
   update(turn);
   try {
     const key = `shop.${active().id}.${turn.offer.offer_id}.${optionId}`;
     if (sign) await loadCustomer(); // who signs is the customer file's person, never a name the page made up
     await verifyRules(); // the order is judged again when placed, under the rules in force then
     turn.order = await withRules(() => api().order(turn.offer.offer_id, optionId, key));
-    if (sign) await signMine(turn);
+    if (sign) await signMine(turn, how);
   } catch (error) {
     turn.problem = problemOf(error, "order");
   }
@@ -287,7 +289,9 @@ on("redraft", (el) => {
 });
 on("confirm", (el) => {
   const turn = findTurn(el.dataset.turn);
-  if (turn && !turn.busy && !turn.order) return place(turn, el.dataset.option, true);
+  if (!turn || turn.busy || turn.order) return;
+  const { decision, say } = el.dataset;
+  return place(turn, el.dataset.option, true, { decision: decision || "APPROVE", note: say || CONFIRM_NOTE });
 });
 on("sign", (el) => {
   const turn = findTurn(el.dataset.turn);
@@ -367,54 +371,55 @@ function asked(turn) {
 }
 
 // ---- line 3: what needs a person, and why, next to the outcome --------------------------------------------
+// One person confirms. A decision the person signed in can make is asked right here, before the button; a decision
+// that is somebody else's (the dietitian of the ward and the school) is sent to them by name. No role is shown as a
+// label: the person signed in is "you".
 
-const CANNOT_ALONE = /^The agent cannot place this order alone:\s*/;
-const IT_NEEDS = /\s*It needs [^.]*\.\s*$/;
 // The decision's sentence without what the box already says in its heading.
-const why = (sentence) => plain(sentence).replace(/^Prepared: confirm to order\.?\s*/i, "");
-
-function needsLine(roles, sentence) {
-  const text = why(sentence);
-  if (roles.length && CANNOT_ALONE.test(text)) return `Needs ${names(roles)}: ${text.replace(CANNOT_ALONE, "").replace(IT_NEEDS, "").replace(/\.$/, "")}.`;
-  return [roles.length ? `Needs ${names(roles)}.` : "", text].filter(Boolean).join(" ");
-}
-
-// "Confirmed by Marko Heikkinen (purchasing manager, finance)": one name once, with every role it signed. From the
-// gateway's record of the approval while it waits (a person may have signed on the Approvals page), else from
-// the signatures given on this page.
-function confirmedBy(turn, approval = null) {
-  const byName = new Map();
-  for (const c of turn.confirmedBy || []) byName.set(c.name, [...(byName.get(c.name) || []), roleName(c.role)]);
-  const signed = approval ? confirmedOn(approval) : [...byName];
-  if (!signed.length) return "Confirmed";
-  return `Confirmed by ${signed.map(([name, roles]) => `${name} (${roles.join(", ")})`).join(" and ")}`;
-}
+const why = (sentence) => said(sentence).replace(/^Prepared: confirm to order\.?\s*/i, "");
+const PREPARED_ONLY = "F-10"; // the rule that only asks a person to confirm (tta.policy.human_approval)
+const onlyPrepared = (decision) => (decision?.fired || []).every((r) => r.rule_id === PREPARED_ONLY);
+const PREPARED = "Your agent prepared this order. Nothing is ordered until you confirm it.";
+const andList = (items) => items.join(" and ");
+// The gateway's sentence of an order's outcome, as a person reads it: who decided, by name, with no role in
+// brackets and no rule id (both stay in the order's log).
+const ROLE_AFTER_NAME = /\s\((?:purchasing manager|finance|dietitian)(?:, (?:purchasing manager|finance|dietitian))*\)/g;
+const RULES_ACCEPTED = /: rules? [^.:]* asked for a human and (?:was|were) accepted/;
+const outcome = (sentence) => said(sentence).replace(ROLE_AFTER_NAME, "").replace(RULES_ACCEPTED, "");
+// What the person signed in decided themselves, in the words of the question they answered.
+const youDecided = (order) => `Ordered for ${netTotal(order.option?.totals)}.${onlyPrepared(order.decision) ? "" : ` You decided: ${reasonOf(order.decision?.sentence)}`}`;
 
 function orderBox(turn, order) {
   const delivery = deliveryOf(order.option);
   const when = delivery ? ` · delivery ${longDate(delivery)}` : "";
   const trail = html`<a class="link" href="#/orders/${order.order_id}">Order and audit trail</a>`;
+  const required = order.decision?.required_roles || [];
   if (order.status === "ORDERED") {
     const alone = order.placed_by === "AGENT";
-    // Names only when this page saw every role sign; else the gateway's sentence below names who approved.
-    const required = order.decision?.required_roles || [];
-    const seenAll = required.every((r) => (turn.confirmedBy || []).some((c) => c.role === r));
-    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : seenAll ? confirmedBy(turn) : "Confirmed"}${when}</b>
-      <p>${plain(order.status_sentence)}</p>
+    // The name only when this person's confirmation was the whole of it; else the gateway's sentence names who decided.
+    const byMe = Boolean(turn.signedBy) && required.every(isMine);
+    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : byMe ? `Confirmed by ${turn.signedBy}` : "Confirmed"}${when}</b>
+      <p>${byMe ? youDecided(order) : outcome(order.status_sentence)}</p>
       ${alone ? html`<p class="small">You let the agent order alone in Settings. It does so only when every statement is confirmed and no rule asks for a person.</p>` : ""}
       <div class="actions">${trail}</div></div></div>`;
   }
   if (order.status === "PENDING_APPROVAL") {
     const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
-    const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
-    const canSign = needed.some((r) => myRoles().includes(r));
-    const waitingFor = needed.length ? `waiting for ${names(needed)}` : "waiting for approval";
-    const signed = approval ? confirmedOn(approval).length > 0 : Boolean(turn.confirmedBy?.length);
-    const head = signed ? `${confirmedBy(turn, approval)}; ${waitingFor}` : waitingFor[0].toUpperCase() + waitingFor.slice(1);
-    return html`<div class="verdict wait">${icon("clock")}<div><b>${head}</b><p>${plain(order.status_sentence)}</p>
-      <div class="actions">${canSign ? html`<button class="btn small" data-act="sign" data-turn="${turn.id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>` : ""}<a class="btn small line" href="#/approvals">Open approvals</a>${trail}</div></div></div>`;
+    const needed = approval ? rolesStillNeeded(approval) : required;
+    const others = otherPeople(needed);
+    if (needed.some(isMine)) {
+      return html`<div class="verdict wait">${icon("clock")}<div><b>Needs your decision</b><p>${onlyPrepared(order.decision) ? PREPARED : reasonOf(order.decision?.sentence)}</p>
+        <div class="actions"><button class="btn small" data-act="sign" data-turn="${turn.id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>${trail}</div>
+        ${others.length ? html`<p class="small">It then waits for ${andList(others.map(personWords))}.</p>` : ""}</div></div>`;
+    }
+    const who = andList(others.map(personWords));
+    const asked = askedOf(order.decision, needed);
+    return html`<div class="verdict wait">${icon("clock")}<div><b>${who ? `Sent to ${who}` : "Waiting for a decision"}</b>
+      <p>${turn.signedBy ? "You confirmed your part. " : ""}Nothing is ordered until ${who ? andList(others.map((o) => o.name)) : "a person"} decides${asked.length ? `: ${asked.join(" ")}` : "."}</p>
+      <div class="actions"><a class="btn small line" href="#/approvals">Waiting for someone else</a>${trail}</div></div></div>`;
   }
-  return html`<div class="verdict stop">${icon("stop")}<div><b>${order.status === "REJECTED" ? "Rejected: nothing was ordered" : "Expired: nothing was ordered"}</b><p>${plain(order.status_sentence)}</p></div></div>`;
+  const head = order.status !== "REJECTED" ? "Expired: nothing was ordered" : turn.leftOut ? "Left out: nothing was ordered" : "Rejected: nothing was ordered";
+  return html`<div class="verdict stop">${icon("stop")}<div><b>${head}</b><p>${outcome(order.status_sentence)}</p><div class="actions">${trail}</div></div></div>`;
 }
 
 function verdictBox(turn, option) {
@@ -422,15 +427,16 @@ function verdictBox(turn, option) {
   if (order) return orderBox(turn, order);
   if (turn.superseded) return "";
   const d = option.decision || {};
-  const button = html`<button class="btn small" data-act="confirm" data-turn="${turn.id}" data-option="${option.option_id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>`;
+  const off = turn.busy ? "disabled" : "";
+  const button = (label) => html`<button class="btn small" data-act="confirm" data-turn="${turn.id}" data-option="${option.option_id}" ${off}>${label}</button>`;
   if (d.verdict === "BLOCK") {
-    return html`<div class="verdict stop">${icon("stop")}<div><b>This cannot be ordered, not even with approval</b><p>${plain(d.sentence)}</p></div></div>`;
+    return html`<div class="verdict stop">${icon("stop")}<div><b>This cannot be ordered, not even with approval</b><p>${said(d.sentence)}</p></div></div>`;
   }
   if (turn.flags?.length && isFirst(turn, option)) {
-    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : why(d.sentence)}</p></div></div>`;
+    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : onlyPrepared(d) ? PREPARED : reasonOf(d.sentence)}</p></div></div>`;
   }
   if (d.verdict === "AUTO") {
-    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button}</div></div></div>`;
+    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button("Confirm order")}</div></div></div>`;
   }
   const needed = d.required_roles || [];
   // A role nobody of this customer holds: no button the gateway would refuse later. Said only once the customer
@@ -438,16 +444,28 @@ function verdictBox(turn, option) {
   const unheld = customerKnown() ? needed.filter((r) => !hasPerson(r)) : [];
   if (unheld.length) {
     return html`<div class="verdict stop">${icon("stop")}<div><b>Nobody here can confirm this option</b>
-      <p>${unheld.map(nobodyHolds).join(" ")} ${why(d.sentence)}</p>
+      <p>${unheld.map(nobodyHolds).join(" ")} ${reasonOf(d.sentence)}</p>
       <p class="small">Nothing is ordered. Choose another option below, or ask again without it.</p>
     </div></div>`;
   }
-  const others = needed.filter((r) => !myRoles().includes(r));
-  const after = !others.length ? "" : others.length === needed.length ? `Your confirmation sends it to ${names(others)}, who signs it.` : `After you confirm, it also needs ${names(others)}.`;
-  return html`<div class="verdict wait">${icon("clock")}<div><b>Prepared: confirm to order</b>
-    <p>${needsLine(needed, d.sentence)}</p>
-    <div class="actions">${button}</div>
-    ${after ? html`<p class="small">${after}</p>` : ""}
+  // Somebody else's decision: said plainly, with what they will be asked, and one button that sends it to them.
+  const others = otherPeople(needed);
+  if (others.length) {
+    const names = andList(others.map((o) => o.name));
+    const theirs = askedOf(d, needed.filter((r) => !isMine(r)));
+    const mine = askedOf(d, needed.filter(isMine));
+    return html`<div class="verdict wait">${icon("clock")}<div><b>This needs ${andList(others.map(personWords))}</b>
+      <p>${names} will be asked: ${theirs.join(" ") || reasonOf(d.sentence)}</p>
+      ${mine.length ? html`<p>Sending it is also your own confirmation: ${mine.join(" ")}</p>` : ""}
+      <div class="actions">${button(`Send to ${names}`)}</div>
+      <p class="small">The order then waits for ${names}. Nothing is ordered until then.</p>
+    </div></div>`;
+  }
+  // Their own decision. An allergen question is asked as its three choices; anything else is one confirmation.
+  if (isMine(DIETITIAN) && dietitianRules(d).length) return ownQuestion(turn, option, off);
+  return html`<div class="verdict wait">${icon("clock")}<div><b>${onlyPrepared(d) ? "Prepared: confirm to order" : "Needs your decision"}</b>
+    <p>${onlyPrepared(d) ? PREPARED : reasonOf(d.sentence)}</p>
+    <div class="actions">${button("Confirm order")}</div>
   </div></div>`;
 }
 

@@ -44,7 +44,8 @@ KITCHENS_JS = Path(tta.ui.__file__).parent / "static" / "shop" / "js" / "kitchen
 # equals the profile files (tests/ui/test_shop_customers.py). Copied here by hand, so a change to the page shows up
 # as a moved pin: `test_the_settings_copied_here_are_those_the_page_sends` holds the two together.
 _BASE = {"auto_order_enabled": False, "variable_weight": "APPROVAL", "deposits": "APPROVAL",
-         "standing_order_drift_ratio": 0.25, "formula_matters": False, "max_preference_premium_ratio": None}
+         "standing_order_drift_ratio": 0.25, "formula_matters": False, "formula_mode": "LEARN",
+         "max_preference_premium_ratio": None}
 SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
     "school": {
         **_BASE, "display_name": "Kilo School", "max_order_net_eur": 250, "max_daily_net_eur": 800,
@@ -69,7 +70,8 @@ SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
         **_BASE, "display_name": "Kallio Bakery", "max_order_net_eur": 300, "max_daily_net_eur": 1000,
         "min_fill_ratio": 1, "excluded_allergens": [], "allergen_strictness": None,
         "allergen_strictness_by_code": {}, "substitution_without_approval": "NONE",
-        "require_confirmed": False, "formula_matters": True, "max_preference_premium_ratio": 0.1,
+        "require_confirmed": False, "formula_matters": True, "formula_mode": "ALWAYS",
+        "max_preference_premium_ratio": 0.1,
     },
 }
 # One of each customer's own example buttons: an order inside that customer's limits, with every statement
@@ -403,7 +405,7 @@ def test_the_signer_is_one_of_the_customers_people(client: TestClient) -> None:
     assert "Marko Heikkinen, Kallio Bakery" in signed.json()["status_sentence"]
 
 
-@pytest.mark.parametrize("name", ["Tuomas Aho", "Tuomas Aho, Kilo School"])
+@pytest.mark.parametrize("name", ["Päivi Korhonen", "Päivi Korhonen, Kilo School"])
 def test_the_page_may_send_the_persons_name_alone_or_with_the_customer(client: TestClient, name: str) -> None:
     school = {**SHOP_CUSTOMERS["school"], "max_order_net_eur": 10, "max_daily_net_eur": 10}
     approval = _waiting_cream(client, "school", **school)
@@ -412,7 +414,7 @@ def test_the_page_may_send_the_persons_name_alone_or_with_the_customer(client: T
 
     assert signed.status_code == 200, signed.text
     trail = _call(client, "GET", f"/audit?order_id={approval['order_id']}&reader=buyer", "school").json()
-    assert any("Tuomas Aho, Kilo School" in event["sentence"] for event in trail["events"])
+    assert any("Päivi Korhonen, Kilo School" in event["sentence"] for event in trail["events"])
 
 
 def test_an_approval_keeps_required_roles_and_the_roles_of_each_decision(client: TestClient) -> None:
@@ -420,12 +422,13 @@ def test_an_approval_keeps_required_roles_and_the_roles_of_each_decision(client:
     approval = _waiting_cream(client, max_order_net_eur=10, max_daily_net_eur=10)
     assert approval["required_roles"] == ["purchasing_manager", "finance"]
 
-    _sign(client, approval["approval_id"], "purchasing_manager")
-    waiting = _call(client, "GET", "/approvals", "bakery").json()[0]
+    # One person confirms: the owner holds both roles, so his one confirmation signs both (tests/ui/
+    # test_shop_one_person.py); each role is still a decision of its own in the approval's record.
+    assert _sign(client, approval["approval_id"], "purchasing_manager").json()["status"] == "ORDERED"
+    decided = _call(client, "GET", "/approvals?pending=false", "bakery").json()[0]
 
-    assert waiting["required_roles"] == ["purchasing_manager", "finance"]
-    assert [decision["roles"] for decision in waiting["decisions"]] == [["purchasing_manager"]]
-    assert _sign(client, approval["approval_id"], "finance").json()["status"] == "ORDERED"
+    assert decided["required_roles"] == ["purchasing_manager", "finance"]
+    assert [decision["roles"] for decision in decided["decisions"]] == [["purchasing_manager"], ["finance"]]
 
 
 def test_a_readers_question_reaches_the_page_with_its_lists_and_objects(
@@ -482,8 +485,8 @@ def test_the_suggestions_route_passes_the_offers_suggestions_through(client: Tes
     assert answer.status_code == 200, answer.text
     found = answer.json()
     assert found["offer_id"] == offer["offer_id"] and found["suggestions"] == offer["suggestions"]
-    assert [(each["kind"], each["product_id"]) for each in found["suggestions"]] == [
-        ("FORGOTTEN_ITEM", "463797"), ("FROM_SUPPLIER", "462775")]
+    # Valio Aimo's own suggestion stays silent for the hotel's usual request (decision B50): only the forgotten item.
+    assert [(each["kind"], each["product_id"]) for each in found["suggestions"]] == [("FORGOTTEN_ITEM", "463797")]
     assert found["note"].startswith("Suggestions never add themselves to an order")
 
 

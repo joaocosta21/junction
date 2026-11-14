@@ -29,8 +29,9 @@ max_preference_premium_ratio: 0.1 # the ward prefers reliability; more than 10% 
                                   # option goes to a human (P-09). At most 0.25, where the offer stops ranking
                                   # the preferred option first
 
-# Who holds each role. The id is that of the demonstration identity.
+# Who holds each role. The id is that of the demonstration identity. Two people: the dietitian decides allergen
+# and dietary-claim questions; the person who orders decides everything else, a spend-limit stop included.
 approver_roles:
   dietitian: ["human:ward-dietitian"]
   purchasing_manager: ["human:ward-purchasing"]
-  finance: ["human:ward-finance"]
+  finance: ["human:ward-purchasing"]

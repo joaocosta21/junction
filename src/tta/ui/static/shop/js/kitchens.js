@@ -76,6 +76,7 @@ export const PROFILE_SETTINGS = /* profile-settings:start */ {
     "require_confirmed": false,
     "standing_order_drift_ratio": 0.25,
     "formula_matters": false,
+    "formula_mode": "LEARN",
     "max_preference_premium_ratio": null
   },
   "allergy-ward": {
@@ -93,6 +94,7 @@ export const PROFILE_SETTINGS = /* profile-settings:start */ {
     "require_confirmed": true,
     "standing_order_drift_ratio": 0.1,
     "formula_matters": false,
+    "formula_mode": "LEARN",
     "max_preference_premium_ratio": 0.1
   },
   "hotel-kitchen": {
@@ -110,6 +112,7 @@ export const PROFILE_SETTINGS = /* profile-settings:start */ {
     "require_confirmed": false,
     "standing_order_drift_ratio": 0.25,
     "formula_matters": false,
+    "formula_mode": "LEARN",
     "max_preference_premium_ratio": null
   },
   "bakery-cafe": {
@@ -127,6 +130,7 @@ export const PROFILE_SETTINGS = /* profile-settings:start */ {
     "require_confirmed": false,
     "standing_order_drift_ratio": 0.25,
     "formula_matters": true,
+    "formula_mode": "ALWAYS",
     "max_preference_premium_ratio": 0.1
   }
 } /* profile-settings:end */;
@@ -179,8 +183,9 @@ export const KITCHENS = [
     examples: [
       { text: "1,000 litres of lactose-free milk by Monday", request: milk1000 },
       { text: "30 litres of cream by Monday", request: { needed_by: "2026-11-16", lines: [{ text: "30 litres of cream by Monday", product_type: "cream", quantity: 30, unit: "L" }] } },
-      // docs/CONTEXTDEV.md: Valio's data states nothing on milk for 469512, so it goes to the dietitian, and the
-      // approval card shows what the manufacturer's page says (recorded in fixtures/evidence/469512.json).
+      // docs/CONTEXTDEV.md: Valio's data states nothing on milk for 469512, so the allergen question is asked. At the
+      // hotel the person who orders decides it on the result itself; where a dietitian decides it (the school), the
+      // waiting order's card shows what the manufacturer's page says (recorded in fixtures/evidence/469512.json).
       { text: "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk", request: { needed_by: "2026-11-16", lines: [{ text: "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk", product_ids: ["469512"], quantity: 100, unit: "L", exclude_allergens: ["AM"], allergen_strictness: "STRICT" }] } },
     ],
     learned: [

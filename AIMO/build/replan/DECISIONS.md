@@ -74,6 +74,7 @@ Last updated: Sat 14 Nov, 20:50.
 | B51 | The pack offered for a need is the one with the lowest total for that quantity, never the lowest price per kilogram (a 500 g sugar for 0.4 kg, not a 25 kg sack) | A kitchen pays the total | FC2 |
 | B52 | Confirmed stock of the same kind stands in before an unconfirmed product, also when Valio lists the unconfirmed one; the listed one becomes a labelled alternative | A confirmed option comes first; it also makes scenario 3 lead with a confirmed product at both clocks | FC2 |
 | B53 | "Substitutes must keep the recipe" has three settings: always, learn from my orders (default for hotel, school, ward), only when I say so. Learning uses, strongest first: a person's past decision on a substitute, the words of past requests, how the product is used. Today the first two are empty for the demo customers | João: "this should be something the agent learns by previous orders" | LF |
+| B54 | One person confirms. Hotel and bakery: the person who orders holds every role. Ward and school: the same, except a dietitian who decides allergen and dietary-claim questions. No separate finance signer anywhere. The question is asked on the result; the Approvals page lists only what waits for someone else | João: several people of one company signing is "not very intuitive and a bit bureaucratic". The rules, the log and "an agent never approves" are unchanged | SIMP |
 
 ## C. Questions for the team (domain)
 
