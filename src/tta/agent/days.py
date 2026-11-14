@@ -156,6 +156,15 @@ def _relative_dates(folded: str, today: date) -> list[date]:
     return found
 
 
+def date_spans(folded: str) -> tuple[tuple[int, int], ...]:
+    """Where an explicit date stands in the casefolded text (2026-11-20, 20.11., 20/11/2026, 20 November), so the
+    rule-based reader does not take its digits for a quantity (task FALLBACK-1)."""
+    spans = [match.span() for pattern in (_ISO, _DOTTED, _SLASHED) for match in pattern.finditer(folded)]
+    spans += [match.span() for match in _DAY_MONTH.finditer(folded) if _month(match.group(2)) is not None]
+    spans += [match.span() for match in _MONTH_DAY.finditer(folded) if _month(match.group(1)) is not None]
+    return tuple(sorted(spans))
+
+
 def named_dates(text: str, today: date) -> tuple[date, ...]:
     """Every date the text names, by the rule above, each once and in date order. Empty when it names none."""
     folded = text.casefold()

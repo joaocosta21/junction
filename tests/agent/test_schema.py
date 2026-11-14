@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, proposal_schema
+from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES, proposal_schema
 from tta.allergens import ALLERGEN_CODES
-from tta.contracts.common import AllergenStrictness, PackPreference, Unit
+from tta.contracts.common import AllergenStrictness, PackPreference, Preference, Unit
 from tta.contracts.request import PurchaseRequest, RequestLine
 
 KEYS = ("milk", "plant_drink", "beef_chuck")
@@ -28,14 +28,13 @@ def _choices(prop: dict[str, Any]) -> set[Any]:
     return set(prop["anyOf"][0]["enum"])
 
 
-@pytest.mark.xfail(strict=True, reason="FALLBACK-1 adds prefer and required_labels to the schema, and leaves out "
-                   "standing_order_id, which the gateway sets")
 def test_the_schema_has_the_fields_of_the_typed_request_except_the_buyers_words() -> None:
     schema = proposal_schema(KEYS)
     line = schema["properties"]["lines"]["items"]
 
-    assert set(schema["properties"]) == set(PurchaseRequest.model_fields)
-    assert set(line["properties"]) == set(RequestLine.model_fields) - {"text"}  # the parser sets `text` itself
+    # The gateway sets the standing order a request renews and the recipe ingredient a line stands in for.
+    assert set(schema["properties"]) == set(PurchaseRequest.model_fields) - {"standing_order_id"}
+    assert set(line["properties"]) == set(RequestLine.model_fields) - {"text", "stands_in_for"}  # `text`: the parser
     for node in (schema, line):
         assert set(node["required"]) == set(node["properties"])  # nothing may be left out: null says "not said"
         assert node["additionalProperties"] is False
@@ -50,13 +49,19 @@ def test_every_choice_is_a_closed_list_taken_from_the_contract_and_the_code_tabl
     assert _choices(line["pack"]) == {value.value for value in PackPreference}
     assert set(line["exclude_allergens"]["items"]["enum"]) == set(EXCLUDABLE_ALLERGEN_CODES)
     assert set(line["required_claims"]["items"]["enum"]) == set(CLAIM_CODES)
+    assert set(line["required_labels"]["items"]["enum"]) == set(LABEL_CODES)
+    assert _choices(proposal_schema(KEYS)["properties"]["prefer"]) == {value.value for value in Preference}
     for name in ("product_type", "unit", "allergen_strictness", "pack", "quantity"):
         assert {"type": "null"} in line[name]["anyOf"]  # the model can say "the text does not say"
+    assert {"type": "null"} in proposal_schema(KEYS)["properties"]["prefer"]["anyOf"]
 
 
 def test_the_code_lists_are_the_catalogs() -> None:
     assert set(EXCLUDABLE_ALLERGEN_CODES) == set(ALLERGEN_CODES) - {"X99"}
     assert len(CLAIM_CODES) == 21 and "FREE_FROM_LACTOSE" in CLAIM_CODES  # AIMO/docs/SCHEMA-AND-CODES.md 2.4
+    # The 19 packagingMarkedLabel ids less the three temperature ones (AIMO/docs/PRODUCT-DATA.md 3.5).
+    assert len(LABEL_CODES) == 16 and {"EU_ORGANIC_FARMING", "MARINE_STEWARDSHIP_COUNCIL_LABEL"} <= set(LABEL_CODES)
+    assert not {"warmTemperature", "coolTemperature", "freezeTemperature"} & set(LABEL_CODES)
 
 
 def test_the_schema_uses_only_keywords_gemini_enforces() -> None:

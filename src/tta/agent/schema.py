@@ -1,8 +1,10 @@
 """The JSON Schema the model's structured answer is held to (SPEC sections 3 and 11).
 
 It has the fields of the typed request (`tta.contracts.request`), with two differences that keep the model
-from guessing: every field is required and a field the text does not state is `null`, and the buyer's own
-words (`text`) are set by the parser, not by the model. A test compares the fields with the contract.
+from guessing: every field is required and a field the text does not state is `null`, and the fields that are
+not the buyer's to say are left out: the buyer's own words (`text`) are set by the parser, and the standing order
+a request renews (`standing_order_id`) and the recipe ingredient a line stands in for (`stands_in_for`) by the
+gateway (task FALLBACK-1). A test compares the fields with the contract.
 
 Only keywords the Gemini documentation lists as enforced are used (structured output, read 14 Nov 2026):
 `type`, `properties`, `required`, `additionalProperties`, `enum`, `format`, `items`, `anyOf`, `description`.
@@ -15,9 +17,10 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
+from tta.agent.wording import LABEL_CODES
 from tta.allergens import ALLERGEN_CODES
 from tta.allergens.codes import GENERAL_STATEMENT_CODE
-from tta.contracts.common import AllergenStrictness, JsonDict, PackPreference, Unit
+from tta.contracts.common import AllergenStrictness, JsonDict, PackPreference, Preference, Unit
 from tta.contracts.request import MAX_TERM_LENGTH
 
 # The 21 nutritionalClaim ids of the whole catalog (AIMO/docs/SCHEMA-AND-CODES.md section 2.4).
@@ -91,6 +94,10 @@ def _line_schema(keys: tuple[str, ...]) -> JsonDict:
             [value.value for value in AllergenStrictness], "Only when the text says how strict; otherwise null."
         ),
         "pack": _choice([value.value for value in PackPreference], "Only when the text asks for a pack kind."),
+        "required_labels": _strings(
+            "Certificate labels the product must carry, only when the text names one (organic, MSC, Fairtrade).",
+            LABEL_CODES,
+        ),
     })
 
 
@@ -102,5 +109,9 @@ def proposal_schema(product_type_keys: Sequence[str]) -> JsonDict:
             {"type": "string", "format": "date"}, "The date the goods are needed, from the calendar; null if not said."
         ),
         "require_confirmed": {"type": "boolean", "description": "True only when the buyer asks for confirmed data."},
+        "prefer": _choice(
+            [value.value for value in Preference],
+            "What to rank by, only when the text says (as soon as possible, most reliable, lowest carbon); else null.",
+        ),
         "lines": {"type": "array", "items": _line_schema(keys), "description": "One per product asked for."},
     })

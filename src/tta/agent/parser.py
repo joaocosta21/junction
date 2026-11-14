@@ -8,7 +8,8 @@ What the text does not say (a quantity, a unit, how strict an allergen exclusion
 The answer is also held to the text itself, without a model (`tta.agent.textcheck`, task FIX-9): each quantity
 must be a number the text gives, each unit one it names, `needed_by` the date the calendar rule gives for the
 day it names (none when it names none), every allergen it excludes must be excluded, `require_confirmed` true
-only when it asks for confirmed data, and a product number a whole token of it. A disagreement is a fault like
+only when it asks for confirmed data, a product number a whole token of it, and a `prefer` other than the default
+PRICE or a certificate label one it has a word for (task FALLBACK-1). A disagreement is a fault like
 any other, named by its field: "the reading did not match the text". It is never corrected here. A text that
 names no number, or no unit word, has its quantity or its unit reported as missing.
 
@@ -33,11 +34,11 @@ from tta.agent.labels import reading_sentence
 from tta.agent.model import AgentModel, ExtractCall
 from tta.agent.photo import read_photo
 from tta.agent.prompts import parser_instruction
-from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, checked_keys, proposal_schema
+from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES, checked_keys, proposal_schema
 from tta.agent.textcheck import TextFacts
 from tta.allergens import describe, normalise_code, parent_of
 from tta.contracts.agent import Reading
-from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Unit
+from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Preference, Unit
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import Clock
 from tta.contracts.request import MAX_TEXT_LENGTH, PurchaseRequest
@@ -63,6 +64,7 @@ NOT_READ = (
 NOT_A_KEY = "not a key of the product-type table"
 NOT_A_CLAIM = "not a nutritional claim code of the catalog"
 NOT_AN_ALLERGEN = "not an allergen code a buyer can exclude"
+NOT_A_LABEL = "not a certificate label code of the catalog"
 BEFORE_TODAY = "before today ({today})"
 NOT_MATCHED = "the reading did not match the text: {why}"
 NO_SUCH_NUMBER = "the text gives no such number"
@@ -73,6 +75,8 @@ A_DAY_LEFT_OUT = "the text names a day the reading leaves out"
 EXCLUSION_LEFT_OUT = "the text excludes an allergen the reading leaves out"
 NOT_ASKED_CONFIRMED = "the text does not ask for confirmed data"
 NOT_IN_TEXT = "a product number that is not in the text"
+NO_SUCH_LABEL = "the text names no such label"
+NO_SUCH_PREFERENCE = "the text names no such preference"
 
 logger = logging.getLogger(__name__)
 
@@ -93,12 +97,15 @@ class LineProposal(_Proposal):
     exclude_allergens: tuple[str, ...]
     allergen_strictness: AllergenStrictness | None
     pack: PackPreference | None
+    # The schema requires both fields below; a recording made before they existed (task FALLBACK-1) says neither.
+    required_labels: tuple[str, ...] = ()
 
 
 class RequestProposal(_Proposal):
     needed_by: date | None
     require_confirmed: bool
     lines: tuple[LineProposal, ...]
+    prefer: Preference | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +152,8 @@ def _text_faults(at: str, line: LineProposal, facts: TextFacts) -> list[Fault]:
         faults.append(_mismatch(f"{at}.exclude_allergens", EXCLUSION_LEFT_OUT))
     if any(product_id not in facts.id_tokens for product_id in line.product_ids):
         faults.append(_mismatch(f"{at}.product_ids", NOT_IN_TEXT))
+    if any(label not in facts.labels for label in line.required_labels):
+        faults.append(_mismatch(f"{at}.required_labels", NO_SUCH_LABEL))
     return faults
 
 
@@ -157,6 +166,8 @@ def _line_faults(index: int, line: LineProposal, facts: TextFacts, keys: Sequenc
         faults.append(Fault(f"{at}.required_claims", NOT_A_CLAIM))
     if any(normalise_code(code) not in EXCLUDABLE_ALLERGEN_CODES for code in line.exclude_allergens):
         faults.append(Fault(f"{at}.exclude_allergens", NOT_AN_ALLERGEN))
+    if any(label not in LABEL_CODES for label in line.required_labels):
+        faults.append(Fault(f"{at}.required_labels", NOT_A_LABEL))
     return faults + _text_faults(at, line, facts)
 
 
@@ -171,6 +182,9 @@ def _request_faults(proposal: RequestProposal, facts: TextFacts, today: date) ->
         faults.append(Fault("needed_by", BEFORE_TODAY.format(today=today.isoformat())))
     if proposal.require_confirmed and not facts.asks_for_confirmed:
         faults.append(_mismatch("require_confirmed", NOT_ASKED_CONFIRMED))
+    prefer = proposal.prefer
+    if prefer not in (None, Preference.PRICE) and prefer not in facts.preferences:  # PRICE is the default
+        faults.append(_mismatch("prefer", NO_SUCH_PREFERENCE))
     return faults
 
 
@@ -210,9 +224,10 @@ def _typed(proposal: RequestProposal, text: str) -> PurchaseRequest | tuple[Faul
         for line in proposal.lines
     ]
     try:
-        return PurchaseRequest.model_validate(
-            {"needed_by": proposal.needed_by, "require_confirmed": proposal.require_confirmed, "lines": lines}
-        )
+        return PurchaseRequest.model_validate({
+            "needed_by": proposal.needed_by, "require_confirmed": proposal.require_confirmed, "lines": lines,
+            **({} if proposal.prefer is None else {"prefer": proposal.prefer}),  # left out, PRICE applies
+        })
     except ValidationError as error:
         return validation_faults(error)
 

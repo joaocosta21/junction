@@ -44,7 +44,7 @@ MODEL_FAILED = (
 GATEWAY_FAILED = (
     "The run ended at step {step} ({tool}): the gateway failed ({error}); what the gateway did up to then stands."
 )
-MODEL_DONE_WITHOUT = "The model stopped after {steps} without {what}."
+MODEL_DONE_WITHOUT = "The agent stopped after {steps} without {what}."  # a model or the fixed rules
 WITHOUT_OFFER, WITHOUT_ORDER = "an offer", "an order"
 
 logger = logging.getLogger(__name__)

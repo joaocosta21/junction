@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import date, timedelta
 
-from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES
+from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES
 from tta.allergens import ALLERGEN_CODES, members_of
 
 CALENDAR_DAYS = 14  # "by Monday" and "next Friday" both fall inside two weeks
@@ -55,7 +55,15 @@ request it holds.
 "maidoton", "ei maitoa" and "mjölkfri" exclude milk; "gluteeniton" and "glutenfri" exclude gluten; "ei \
 pähkinöitä" and "pähkinätön" exclude nuts; "laktoositon" and "laktosfri" are the claim FREE_FROM_LACTOSE, \
 never an exclusion; "vain vahvistetut tiedot" asks for confirmed data only. A heading such as "Tilaus" \
-(order) is not a product."""
+(order) is not a product.
+15. prefer is what the buyer asks to rank by once every requirement is met: EARLIEST for "as soon as \
+possible", "earliest" or "fastest"; RELIABILITY for "most reliable"; LOWER_CARBON for "lowest carbon", "lower \
+emissions" or "smallest carbon footprint"; PRICE for "cheapest" or "lowest price". null when the text does not \
+say.
+16. required_labels are certificate labels the product itself must carry, as codes of the table below, only \
+when the text names one: "organic" ("luomu", "ekologisk") is EU_ORGANIC_FARMING, "MSC" is \
+MARINE_STEWARDSHIP_COUNCIL_LABEL, "Fairtrade" is FAIR_TRADE_MARK. Otherwise empty. A label is never a claim and \
+never an allergen exclusion."""
 
 RUNNER_INSTRUCTION = """\
 You are the purchasing agent of one buyer. You act only by calling the functions of the supplier's gateway.
@@ -125,5 +133,6 @@ def parser_instruction(today: date, product_type_keys: Sequence[str]) -> str:
         _calendar(today),
         f"Product type keys\n{', '.join(product_type_keys)}",
         f"Claim codes\n{', '.join(CLAIM_CODES)}",
+        f"Certificate label codes\n{', '.join(LABEL_CODES)}",
         f"Allergen codes\n{allergens}",
     ))

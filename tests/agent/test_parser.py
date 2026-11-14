@@ -569,3 +569,61 @@ def test_a_reading_from_an_undated_recording_names_the_model_only(
     reading = make_parser(RecordedModel(tmp_path), demo_clock).read("5 litres of milk", agent_hotel)
 
     assert reading.sentence == "Read from a recording of gemini-x; no model was asked."
+
+
+# --- a preference and a certificate label (FALLBACK-1) ----------------------------------------------------
+
+
+def _preferring(answer: str, prefer: str | None) -> str:
+    return json.dumps({**json.loads(answer), "prefer": prefer})
+
+
+@pytest.mark.parametrize(
+    ("text", "prefer", "labels", "field"),
+    [
+        (SCENARIO_1, "EARLIEST", [], "prefer"),
+        (SCENARIO_1, "LOWER_CARBON", [], "prefer"),
+        (f"{SCENARIO_1}, as soon as possible", "LOWER_CARBON", [], "prefer"),
+        (SCENARIO_1, None, ["EU_ORGANIC_FARMING"], "lines[0].required_labels"),
+        (f"{SCENARIO_1}, organic", None, ["MARINE_STEWARDSHIP_COUNCIL_LABEL"], "lines[0].required_labels"),
+    ],
+)
+def test_a_preference_or_a_label_the_text_has_no_word_for_is_refused(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity,
+    text: str, prefer: str | None, labels: list[str], field: str,
+) -> None:
+    answer = _preferring(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000, required_labels=labels), prefer)
+    model = scripted(extracts=[answer, answer])
+
+    with pytest.raises(InvalidRequest) as refused:
+        make_parser(model, demo_clock).parse_request(text, agent_hotel)
+
+    assert f"{field}: {NOT_MATCHED}" in refused.value.detail
+
+
+def test_a_label_that_is_not_a_certificate_code_is_refused(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    answer = proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000, required_labels=["warmTemperature"])
+
+    with pytest.raises(InvalidRequest) as refused:
+        make_parser(scripted(extracts=[answer, answer]), demo_clock).parse_request(SCENARIO_1, agent_hotel)
+
+    assert "lines[0].required_labels: not a certificate label code of the catalog" in refused.value.detail
+
+
+def test_a_preference_and_a_label_the_text_names_are_taken_and_price_needs_no_word(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    named = _preferring(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000,
+                                 required_labels=["EU_ORGANIC_FARMING"]), "LOWER_CARBON")
+    price = _preferring(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000), "PRICE")
+    old = proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000)  # a recording made before the fields
+    parser = make_parser(scripted(extracts=[named, price, old]), demo_clock)
+
+    first = parser.parse_request(f"{SCENARIO_1}, organic, lowest carbon footprint", agent_hotel)
+    second = parser.parse_request(SCENARIO_1, agent_hotel)
+    third = parser.parse_request(SCENARIO_1, agent_hotel)
+
+    assert (first.prefer, first.lines[0].required_labels) == ("LOWER_CARBON", ("EU_ORGANIC_FARMING",))
+    assert second.prefer == third.prefer == "PRICE" and third.lines[0].required_labels == ()

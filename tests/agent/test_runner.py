@@ -363,13 +363,13 @@ def test_the_report_names_the_gateways_refusal_not_a_later_one_of_the_runner(
     assert [step.ok for step in run.steps] == [True, False, False]
     assert "The Valio API did not answer" in run.report
     assert "There is no offer in this run yet" not in run.report
-    assert run.report.startswith("The model stopped after 3 steps without an offer.")
+    assert run.report.startswith("The agent stopped after 3 steps without an offer.")
 
 
 @pytest.mark.parametrize(
     ("turns", "opening"),
-    [([[("get_authority", {})]], "The model stopped after 1 step without an offer."),
-     ([[("get_authority", {})], [("create_offer", {})]], "The model stopped after 2 steps without an order.")],
+    [([[("get_authority", {})]], "The agent stopped after 1 step without an offer."),
+     ([[("get_authority", {})], [("create_offer", {})]], "The agent stopped after 2 steps without an order.")],
 )
 def test_a_model_that_stops_without_an_order_is_named_in_the_report(
     scripted_runner: ScriptedRunner, ward_answer: str, parts: Parts, agent_ward: Identity,

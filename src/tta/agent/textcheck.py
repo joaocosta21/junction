@@ -11,7 +11,10 @@ pass, it can only make the parser refuse one or leave a field to the model:
   "Lactose-free" ("laktoositon", "laktosfri") is a nutritional claim, never an allergen exclusion
   (AIMO/docs/SCHEMA-AND-CODES.md section 2.4), so lactose is not in the table;
 - confirmed data: the word "confirmed", "verified", "vahvistettu", "varmistettu" or "bekräftad";
-- product numbers: whole tokens of the text, never a piece of a number such as the "1" of "1,000".
+- product numbers: whole tokens of the text, never a piece of a number such as the "1" of "1,000";
+- preferences and certificate labels: the words of `tta.agent.wording` (task FALLBACK-1). `prefer` PRICE is the
+  default and changes nothing, so it needs no word.
+The rule-based reader (`tta.agent.rules_reader`) reads with these same tables, so its reading passes this check.
 """
 
 from __future__ import annotations
@@ -23,15 +26,16 @@ from datetime import date
 from decimal import Decimal
 
 from tta.agent.days import named_dates
-from tta.contracts.common import Unit
+from tta.agent.wording import labels_in, preferences_in
+from tta.contracts.common import Preference, Unit
 
 THOUSANDS_GROUP = 3  # digits in a group after a thousands separator
 HUNDRED, THOUSAND, DOZEN = 100, 1000, 12
 
 _SPACES = "   "  # a space, a no-break space, a narrow no-break space: "1 000"
-_DIGIT_RUN = re.compile(rf"\d+(?:[.,{_SPACES}]\d+)*")
-_SEPARATOR = re.compile(rf"[.,{_SPACES}]")
-_WORD = re.compile(r"[^\W\d_]+")
+DIGIT_RUN = re.compile(rf"\d+(?:[.,{_SPACES}]\d+)*")
+SEPARATOR = re.compile(rf"[.,{_SPACES}]")
+WORD = re.compile(r"[^\W\d_]+")
 _ID_TOKEN = re.compile(r"[^\s;:/()\[\]{}#\"'!?]+")
 _NUMBER_LIKE = re.compile(r"\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?|\d+[.,]\d{1,2}")  # 1,000 · 1.000,5 · 1,5
 
@@ -133,25 +137,25 @@ _FREE_OF_WORDS = (
     (re.compile(r"^fiskfri"), "AF"),
     (re.compile(r"^vetefri"), "UW"),
 )
-_CONFIRMED = re.compile(r"\b(confirmed|verified)\b|\bvahvistet|\bvarmistet|\bbekräftad", re.IGNORECASE)
+CONFIRMED = re.compile(r"\b(confirmed|verified)\b|\bvahvistet|\bvarmistet|\bbekräftad", re.IGNORECASE)
 
 
 # --- numbers ----------------------------------------------------------------------------------------------
 
 
-def _all_thousands(groups: Sequence[str]) -> bool:
+def all_thousands(groups: Sequence[str]) -> bool:
     return len(groups[0]) <= THOUSANDS_GROUP and all(len(group) == THOUSANDS_GROUP for group in groups[1:])
 
 
 def _readings_of_run(run: str) -> set[Decimal]:
     """A run of digits and separators read every way it can be: "1,000" is 1000 or, in Finnish, 1.000."""
-    groups, separators = _SEPARATOR.split(run), _SEPARATOR.findall(run)
+    groups, separators = SEPARATOR.split(run), SEPARATOR.findall(run)
     if not separators:
         return {Decimal(run)}
     readings = set()
-    if _all_thousands(groups):  # every separator groups thousands: 1,000 · 1 000 · 1.000.000
+    if all_thousands(groups):  # every separator groups thousands: 1,000 · 1 000 · 1.000.000
         readings.add(Decimal("".join(groups)))
-    if separators[-1] in ".," and (len(groups) == 2 or _all_thousands(groups[:-1])):  # the last one is decimal
+    if separators[-1] in ".," and (len(groups) == 2 or all_thousands(groups[:-1])):  # the last one is decimal
         readings.add(Decimal(f"{''.join(groups[:-1])}.{groups[-1]}"))
     for part in re.split(f"[{_SPACES}]", run) if any(sep in _SPACES for sep in separators) else ():
         readings |= _readings_of_run(part)  # "2 500" may also be two numbers
@@ -189,7 +193,7 @@ def _add_number_word(word: str, total: int, current: int) -> tuple[int, int]:
 
 
 def _numbers(text: str, words: Sequence[str]) -> frozenset[Decimal]:
-    found = {value for run in _DIGIT_RUN.findall(text) for value in _readings_of_run(run)}
+    found = {value for run in DIGIT_RUN.findall(text) for value in _readings_of_run(run)}
     return frozenset(found | set(_number_words(words)))
 
 
@@ -198,6 +202,11 @@ def _numbers(text: str, words: Sequence[str]) -> frozenset[Decimal]:
 
 def _units(words: Sequence[str]) -> frozenset[Unit]:
     return frozenset(unit for unit, names in _UNIT_WORDS.items() if names.intersection(words))
+
+
+def unit_of(word: str) -> Unit | None:
+    """The unit a casefolded word names, or `None`."""
+    return next((unit for unit, names in _UNIT_WORDS.items() if word in names), None)
 
 
 def _phrase_at(words: Sequence[str], start: int) -> tuple[str, int] | None:
@@ -209,9 +218,10 @@ def _phrase_at(words: Sequence[str], start: int) -> tuple[str, int] | None:
     return None
 
 
-def _listed_after(words: Sequence[str], start: int) -> list[str]:
-    """The allergens listed from `start`: "traces of milk, eggs or nuts" gives milk, eggs and nuts."""
-    codes, index = [], start
+def _listed_after(words: Sequence[str], start: int) -> tuple[list[str], int]:
+    """The allergens listed from `start` ("traces of milk, eggs or nuts" gives milk, eggs and nuts), and the index
+    of the word after the last one named."""
+    codes, index, end = [], start, start
     while index < len(words) and words[index] in _FILLERS:
         index += 1
     while index < len(words):
@@ -220,9 +230,10 @@ def _listed_after(words: Sequence[str], start: int) -> list[str]:
             break
         codes.append(named[0])
         index += named[1]
+        end = index
         while index < len(words) and words[index] in _LIST_JOINERS:
             index += 1
-    return codes
+    return codes, end
 
 
 def _named_before_free(words: Sequence[str], after: int) -> bool:
@@ -233,20 +244,40 @@ def _named_before_free(words: Sequence[str], after: int) -> bool:
     return not (follows[0] in _FREE and follows[1:] and follows[1] in _NOT_AFTER_FREE)
 
 
-def _excluded(words: Sequence[str]) -> frozenset[str]:
+def _trigger_at(words: Sequence[str], index: int) -> tuple[str, ...] | None:
+    return next((trigger for trigger in _BEFORE if tuple(words[index:index + len(trigger)]) == trigger), None)
+
+
+def exclusions(words: Sequence[str]) -> tuple[frozenset[str], frozenset[int]]:
+    """The GS1 codes the casefolded words exclude, and the indices of the words that say so ("no", "milk")."""
     codes: set[str] = set()
+    used: set[int] = set()
     for index, word in enumerate(words):
-        for trigger in _BEFORE:
-            if tuple(words[index:index + len(trigger)]) == trigger:
-                codes.update(_listed_after(words, index + len(trigger)))
+        trigger = _trigger_at(words, index)
+        if trigger is not None:
+            listed, end = _listed_after(words, index + len(trigger))
+            if listed:
+                codes.update(listed)
+                used.update(range(index, end))
         named = _phrase_at(words, index)
         if named is not None and _named_before_free(words, index + named[1]):
             codes.add(named[0])
-        codes.update(code for pattern, code in _FREE_OF_WORDS if pattern.match(word))
-    return frozenset(codes)
+            used.update(range(index, index + named[1] + 1))
+        free_of = [code for pattern, code in _FREE_OF_WORDS if pattern.match(word)]
+        if free_of:
+            codes.update(free_of)
+            used.add(index)
+    return frozenset(codes), frozenset(used)
 
 
-def _id_tokens(text: str) -> frozenset[str]:
+def exclusion_triggers(words: Sequence[str]) -> frozenset[int]:
+    """The indices of the words that start or end an exclusion ("no", "without", "free", "allergy"), whether or
+    not an allergen of the table follows: the rule-based reader refuses one it cannot read."""
+    before = {index for index in range(len(words)) if _trigger_at(words, index) is not None}
+    return frozenset(before | {index for index, word in enumerate(words) if (word,) in _AFTER})
+
+
+def id_tokens(text: str) -> frozenset[str]:
     """Whole tokens: "464013," and "#464013" give 464013; "1,000" is a number and gives no "1"."""
     tokens: set[str] = set()
     for raw in _ID_TOKEN.findall(text):
@@ -267,12 +298,17 @@ class TextFacts:
     asks_for_confirmed: bool
     id_tokens: frozenset[str]
     dates: tuple[date, ...]  # by the parser's calendar rule (`tta.agent.days`)
+    preferences: frozenset[Preference] = frozenset()  # by the words of `tta.agent.wording`
+    labels: frozenset[str] = frozenset()  # certificate label ids, by the words of `tta.agent.wording`
 
     @classmethod
     def of(cls, text: str, today: date) -> TextFacts:
-        words = _WORD.findall(text.casefold())
+        folded = text.casefold()
+        words = WORD.findall(folded)
         return cls(
-            numbers=_numbers(text, words), units=_units(words), excluded=_excluded(words),
-            asks_for_confirmed=_CONFIRMED.search(text) is not None, id_tokens=_id_tokens(text),
+            numbers=_numbers(text, words), units=_units(words), excluded=exclusions(words)[0],
+            asks_for_confirmed=CONFIRMED.search(text) is not None, id_tokens=id_tokens(text),
             dates=named_dates(text, today),
+            preferences=frozenset(preference for preference, _ in preferences_in(folded)),
+            labels=frozenset(label for label, _ in labels_in(folded)),
         )

@@ -16,6 +16,13 @@ key. Decided by the orchestrator on 14 Nov 2026:
   is then served wholly from the recordings, and its sentence opens "Read from a photo: Gemini did not answer;";
 - after a failure for unreachability the Gemini model refuses at once for a while (`tta.agent.outage`), so in
   that window a recorded sentence is answered from its recording straight away.
+
+Task FALLBACK-1 adds a third reader. When Gemini cannot be reached, or no key is set (`live` is `None`), a text is
+answered from its recording if there is one, else by the rule-based reader (`tta.agent.rules_reader`), else
+`supplier-unavailable` with the same sentence as before, followed by what the rules could not read. A model that
+answered is never overridden. A run follows the same order: with no recorded run, the rules read the text and make
+the fixed run of the hand-built recordings (`tta.agent.rules_model`), and its report opens by saying so. A photo is
+not read by the rules: it needs the model.
 """
 
 from __future__ import annotations
@@ -25,13 +32,15 @@ import logging
 from collections.abc import Sequence
 
 from tta.agent.gemini import ModelUnreachable
-from tta.agent.labels import fallback_sentence, made_on, photo_sentence
+from tta.agent.labels import fallback_sentence, made_on, photo_sentence, rules_sentence
 from tta.agent.model import AnswerSource
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import HAND_BUILT_MODEL_ID, LIVE_SOURCE, RECORDED_MODEL_ID, RecordedModel, Recording
+from tta.agent.rules_reader import NotReadByRules
 from tta.agent.runner import ModelAgentRunner
 from tta.contracts.agent import AgentRun, Reading, ReadingSource
 from tta.contracts.common import Identity
+from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import GatewayService
 from tta.contracts.request import PurchaseRequest
 
@@ -39,6 +48,12 @@ GEMINI_DID_NOT_ANSWER = "Gemini did not answer; this run was served from {source
 FROM_A_RECORDING = "a recording made on {when}"
 FROM_AN_UNDATED_RECORDING = "a recording of the model's earlier answers"
 FROM_HAND_BUILT = "answers written by hand, not by a model"
+RULES_RAN_FOR_GEMINI = "Gemini did not answer; this run was read and made by fixed rules, not by a model."
+RULES_RAN_WITHOUT_KEY = (
+    "No Gemini key is set and this text has no recording; this run was read and made by fixed rules, not by a model."
+)
+RULES_COULD_NOT = "The fixed rules could not read it either: {why}."
+SEND_THE_TYPED_REQUEST = " Send the typed request"  # how the sentences of `supplier-unavailable` end
 
 logger = logging.getLogger(__name__)
 
@@ -58,25 +73,41 @@ def served_from(recordings: Sequence[Recording]) -> str:
     return GEMINI_DID_NOT_ANSWER.format(source=_source(recordings))
 
 
+def either(detail: str, why: str) -> str:
+    """The sentence of `supplier-unavailable` with what the rules could not read, before its advice."""
+    head, advice, rest = detail.partition(SEND_THE_TYPED_REQUEST)
+    return f"{head} {RULES_COULD_NOT.format(why=why)}{advice}{rest}"
+
+
+def _not_read(missed: SupplierUnavailable, unread: NotReadByRules) -> SupplierUnavailable:
+    """The error the caller gets: of the same kind as the first one, with what the rules could not read."""
+    return type(missed)(either(missed.detail, unread.why), **missed.extensions)
+
+
 def _answered_by(reading: Reading) -> str:
-    """What answered, as a trace names it: the model id, "recorded" or "hand-built"."""
-    if reading.source is ReadingSource.MODEL:
+    """What answered, as a trace names it: the model id, "rule-based", "recorded" or "hand-built"."""
+    if reading.source in (ReadingSource.MODEL, ReadingSource.RULE_BASED):
         return reading.model
     return HAND_BUILT_MODEL_ID if reading.source is ReadingSource.HAND_BUILT else RECORDED_MODEL_ID
 
 
 class FallbackParser:
-    """Implements `RequestParser`: Gemini's reading, or the recorded one when Gemini cannot be reached."""
+    """Implements `RequestParser`: Gemini's reading; when Gemini cannot be reached, or no key is set (`live` is
+    `None`), the recorded one, else the rule-based one (`rules`), else `supplier-unavailable`."""
 
-    def __init__(self, *, live: ModelRequestParser, recorded: ModelRequestParser, recordings: RecordedModel) -> None:
+    def __init__(
+        self, *, live: ModelRequestParser | None, recorded: ModelRequestParser, recordings: RecordedModel,
+        rules: ModelRequestParser | None = None,
+    ) -> None:
         self._live = live
         self._recorded = recorded
         self._recordings = recordings
-        self._last_answered_by = live.model_id
+        self._rules = rules
+        self._last_answered_by = (live or recorded).model_id
 
     @property
     def model_id(self) -> str:
-        """What answered the last reading: the Gemini model id until a recording stood in for it."""
+        """What answered the last reading: the Gemini model id until a recording or the rules stood in for it."""
         return self._last_answered_by
 
     def parse_request(self, text: str, identity: Identity) -> PurchaseRequest:
@@ -84,18 +115,40 @@ class FallbackParser:
 
     def read(self, text: str, identity: Identity) -> Reading:
         try:
-            reading = self._live.read(text, identity)
-        except ModelUnreachable as unreachable:
-            if not self._recordings.holds("parse", text, identity.profile_id):
-                raise
-            reading = self._from_recording(text, identity)
-            logger.warning("%s %s", reading.sentence, unreachable.detail)
+            reading = (self._live or self._recorded).read(text, identity)
+        except SupplierUnavailable as missed:
+            reading = self._instead(text, identity, missed)
         self._last_answered_by = _answered_by(reading)  # one assignment: safe from several threads
         return reading
 
+    def _instead(self, text: str, identity: Identity, missed: SupplierUnavailable) -> Reading:
+        """With a key: a recording, else the rules, only when Gemini could not be reached. With no key the recorded
+        parser has no recording of this text for this profile: the rules."""
+        if self._live is None:
+            return self._by_rules(text, identity, missed)
+        if not isinstance(missed, ModelUnreachable):
+            raise missed  # a refusal is answered as before
+        if self._recordings.holds("parse", text, identity.profile_id):
+            reading = self._from_recording(text, identity)
+        else:
+            reading = self._by_rules(text, identity, missed)
+        logger.warning("%s %s", reading.sentence, missed.detail)
+        return reading
+
+    def _by_rules(self, text: str, identity: Identity, missed: SupplierUnavailable) -> Reading:
+        if self._rules is None:
+            raise missed
+        try:
+            reading = self._rules.read(text, identity)
+        except NotReadByRules as unread:
+            raise _not_read(missed, unread) from unread
+        return reading.model_copy(update={"sentence": rules_sentence(key_set=self._live is not None)})
+
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
         """Gemini's transcription and reading of a photo, or both from the recordings when Gemini cannot be
-        reached and the photo has them for this profile."""
+        reached and the photo has them for this profile. With no key, the recordings only."""
+        if self._live is None:
+            return self._recorded.read_image(image, media_type, identity)
         try:
             lines, reading = self._live.read_image(image, media_type, identity)
         except ModelUnreachable as unreachable:
@@ -117,26 +170,48 @@ class FallbackParser:
 
 
 class FallbackRunner:
-    """Implements `AgentRunner`: a run on Gemini, or the recorded run when Gemini cannot be reached before the
-    run's first gateway call. The recorded run is a whole run: its reading and its calls are both recorded."""
+    """Implements `AgentRunner`: a run on Gemini; when Gemini cannot be reached before the run's first gateway call,
+    or no key is set (`live` is `None`), the recorded run, else the rules' run (`rules`), else
+    `supplier-unavailable`. The recorded run is a whole run: its reading and its calls are both recorded."""
 
-    def __init__(self, *, live: ModelAgentRunner, recorded: ModelAgentRunner, recordings: RecordedModel) -> None:
+    def __init__(
+        self, *, live: ModelAgentRunner | None, recorded: ModelAgentRunner, recordings: RecordedModel,
+        rules: ModelAgentRunner | None = None,
+    ) -> None:
         self._live = live
         self._recorded = recorded
         self._recordings = recordings
+        self._rules = rules
 
     @property
     def model_id(self) -> str:
-        return self._live.model_id
+        return (self._live or self._recorded).model_id
 
     def run_agent(self, text: str, identity: Identity, tools: GatewayService) -> AgentRun:
         try:
-            return self._live.run_agent(text, identity, tools)
-        except ModelUnreachable as unreachable:
+            return (self._live or self._recorded).run_agent(text, identity, tools)
+        except SupplierUnavailable as missed:  # raised only before the run's first gateway call
+            if self._live is None:
+                return self._by_rules(text, identity, tools, missed)
+            if not isinstance(missed, ModelUnreachable):
+                raise
             held = (self._recordings.holds(kind, text, identity.profile_id) for kind in ("parse", "run"))
             if not all(held):
-                raise
+                return self._by_rules(text, identity, tools, missed)
             opening = served_from(self._recordings.recordings_of(text))
-            logger.warning("%s %s", opening, unreachable.detail)
+            logger.warning("%s %s", opening, missed.detail)
         run = self._recorded.run_agent(text, identity, tools)
+        return run.model_copy(update={"report": f"{opening} {run.report}"})
+
+    def _by_rules(
+        self, text: str, identity: Identity, tools: GatewayService, missed: SupplierUnavailable
+    ) -> AgentRun:
+        if self._rules is None:
+            raise missed
+        try:
+            run = self._rules.run_agent(text, identity, tools)
+        except NotReadByRules as unread:
+            raise _not_read(missed, unread) from unread
+        opening = RULES_RAN_FOR_GEMINI if self._live is not None else RULES_RAN_WITHOUT_KEY
+        logger.warning("%s %s", opening, missed.detail)
         return run.model_copy(update={"report": f"{opening} {run.report}"})

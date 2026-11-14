@@ -4,6 +4,8 @@ The gateway looks for the two factories below (`tta.api.hooks`). With no key the
 runner over the recorded model, so the demonstration scenarios run without a key. With a Gemini key they
 return the same parser and runner over the Gemini model, with the recorded ones behind them: when Gemini
 cannot be reached, a sentence that has a recording is answered from it, and says so (`tta.agent.fallback`).
+Behind the recordings, with or without a key, stand the fixed rules (`tta.agent.rules_reader`, task FALLBACK-1):
+a common sentence with no recording is read by them, and says so.
 Both Gemini models share the process's memory of an outage (`tta.agent.outage`).
 """
 
@@ -17,6 +19,7 @@ from tta.agent.model import AgentModel
 from tta.agent.outage import PROCESS_OUTAGE
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
+from tta.agent.rules_model import RuleModel
 from tta.agent.runner import ModelAgentRunner
 from tta.config import Settings
 from tta.contracts.common import AllergenStrictness
@@ -31,6 +34,7 @@ __all__ = [
     "ModelAgentRunner",
     "ModelRequestParser",
     "RecordedModel",
+    "RuleModel",
     "build_agent_runner",
     "build_request_parser",
     "profile_strictness",
@@ -57,26 +61,27 @@ def _gemini(settings: Settings) -> GeminiModel:
 
 def build_request_parser(
     *, settings: Settings, clock: Clock, product_type_keys: Sequence[str]
-) -> ModelRequestParser | FallbackParser:
+) -> FallbackParser:
     """`clock` is the data clock (pinned in replay): "by Monday" is resolved against it."""
     strictness = profile_strictness()
     recordings = RecordedModel.from_settings(settings)
     recorded = _parser(recordings, clock, product_type_keys, strictness)
-    if not settings.has_gemini_key:
-        return recorded
-    live = _parser(_gemini(settings), clock, product_type_keys, strictness)
-    return FallbackParser(live=live, recorded=recorded, recordings=recordings)
+    rules = _parser(RuleModel.for_keys(product_type_keys), clock, product_type_keys, strictness)
+    live = _parser(_gemini(settings), clock, product_type_keys, strictness) if settings.has_gemini_key else None
+    return FallbackParser(live=live, recorded=recorded, recordings=recordings, rules=rules)
 
 
 def build_agent_runner(
     *, settings: Settings, clock: Clock, product_type_keys: Sequence[str]
-) -> ModelAgentRunner | FallbackRunner:
+) -> FallbackRunner:
     """The runner reads the pasted text with a parser of its own, over the same model."""
     strictness = profile_strictness()
     recordings = RecordedModel.from_settings(settings)
     recorded = ModelAgentRunner(model=recordings, parser=_parser(recordings, clock, product_type_keys, strictness))
-    if not settings.has_gemini_key:
-        return recorded
-    gemini = _gemini(settings)
-    live = ModelAgentRunner(model=gemini, parser=_parser(gemini, clock, product_type_keys, strictness))
-    return FallbackRunner(live=live, recorded=recorded, recordings=recordings)
+    rule_model = RuleModel.for_keys(product_type_keys)
+    rules = ModelAgentRunner(model=rule_model, parser=_parser(rule_model, clock, product_type_keys, strictness))
+    live = None
+    if settings.has_gemini_key:
+        gemini = _gemini(settings)
+        live = ModelAgentRunner(model=gemini, parser=_parser(gemini, clock, product_type_keys, strictness))
+    return FallbackRunner(live=live, recorded=recorded, recordings=recordings, rules=rules)

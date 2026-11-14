@@ -21,6 +21,7 @@ from tta.agent.gemini import DEFAULT_MODEL, GeminiModel, ModelUnreachable, sdk_t
 from tta.agent.outage import OUTAGE_MEMORY_SECONDS, PROCESS_OUTAGE, Outage
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
+from tta.agent.rules_model import RuleModel
 from tta.agent.runner import ModelAgentRunner
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
@@ -58,7 +59,7 @@ def _busy(request: httpx.Request) -> httpx.Response:
 
 
 def _refused(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(403, json={"error": {"code": 403, "message": "no", "status": "PERMISSION_DENIED"}})
+    return httpx.Response(400, json={"error": {"code": 400, "message": "no", "status": "INVALID_ARGUMENT"}})
 
 
 def _answer(part: dict[str, Any]) -> Handler:
@@ -106,21 +107,25 @@ def ticking() -> Ticking:
 
 @pytest.fixture
 def build(
-    make_parser: Callable[..., ModelRequestParser], demo_clock: Clock, recorded_model: RecordedModel, ticking: Ticking
+    make_parser: Callable[..., ModelRequestParser], demo_clock: Clock, recorded_model: RecordedModel, ticking: Ticking,
+    product_type_keys: tuple[str, ...],
 ) -> Build:
     """The parser and the runner as the hooks build them with a key: Gemini first, the recordings behind it,
-    and a memory of an outage on a clock the test moves."""
+    and a memory of an outage on a clock the test moves. With `rules`, the fixed rules behind the recordings."""
 
-    def make(*answers: Handler, recordings: RecordedModel = recorded_model) -> tuple[Any, ...]:
+    def make(*answers: Handler, recordings: RecordedModel = recorded_model, rules: bool = False) -> tuple[Any, ...]:
         fake = FakeGemini(*answers)
         transport = sdk_transport(Settings.for_tests(gemini_api_key=KEY),
                                   client_args={"transport": httpx.MockTransport(fake)})
         live = GeminiModel(transport, DEFAULT_MODEL, sleep=lambda seconds: None, outage=Outage(clock=ticking))
         live_parser, recorded_parser = make_parser(live, demo_clock), make_parser(recordings, demo_clock)
-        parser = FallbackParser(live=live_parser, recorded=recorded_parser, recordings=recordings)
+        rule_model = RuleModel.for_keys(product_type_keys)
+        rule_parser = make_parser(rule_model, demo_clock) if rules else None
+        parser = FallbackParser(live=live_parser, recorded=recorded_parser, recordings=recordings, rules=rule_parser)
         runner = FallbackRunner(
             live=ModelAgentRunner(model=live, parser=live_parser),
             recorded=ModelAgentRunner(model=recordings, parser=recorded_parser), recordings=recordings,
+            rules=ModelAgentRunner(model=rule_model, parser=rule_parser) if rule_parser else None,
         )
         return parser, runner, fake
 
@@ -190,7 +195,7 @@ def test_a_refusal_is_not_covered_by_a_recording(build: Build, agent_hotel: Iden
     with pytest.raises(SupplierUnavailable) as refused:
         parser.parse_request(texts["scenario_1"], agent_hotel)
 
-    assert not isinstance(refused.value, ModelUnreachable) and "403" in refused.value.detail
+    assert not isinstance(refused.value, ModelUnreachable) and "400" in refused.value.detail
     assert len(fake.requests) == 1
 
 
@@ -378,7 +383,7 @@ def test_a_refusal_is_not_remembered_as_an_outage(build: Build, agent_hotel: Ide
         with pytest.raises(SupplierUnavailable):
             parser.read(texts["scenario_1"], agent_hotel)
 
-    assert len(fake.requests) == 2  # asked each time: a 403 is an answer, not an outage
+    assert len(fake.requests) == 2  # asked each time: a 400 is an answer, not an outage
 
 
 def test_the_memory_of_an_outage_is_safe_from_several_threads() -> None:
@@ -418,3 +423,99 @@ def test_a_run_served_from_an_undated_recording_says_so(
     run = runner.run_agent(WARD_TEXT, agent_ward, parts.service)
 
     assert recordings is not None and run.report.startswith(SERVED + "a recording of the model's earlier answers. ")
+
+
+# --- the fixed rules behind the recordings (FALLBACK-1) ---------------------------------------------------
+
+RULES_TEXT = "300 litres of oat drink by Monday, no milk, strict"
+
+
+def test_when_gemini_does_not_answer_a_sentence_with_no_recording_is_read_by_the_rules_and_says_so(
+    build: Build, agent_hotel: Identity, caplog: pytest.LogCaptureFixture
+) -> None:
+    parser, _, fake = build(_busy, rules=True)
+
+    with caplog.at_level(logging.WARNING):
+        reading = parser.read(RULES_TEXT, agent_hotel)
+
+    assert (reading.source, reading.model, parser.model_id) == (ReadingSource.RULE_BASED, "rule-based", "rule-based")
+    assert reading.sentence == "Read by fixed rules, not by a model: Gemini did not answer."
+    assert reading.request.lines[0].product_type == "plant_drink" and len(fake.requests) == 2
+    assert "Read by fixed rules" in caplog.text
+
+
+def test_a_recorded_sentence_is_still_answered_from_its_recording_before_the_rules(
+    build: Build, agent_hotel: Identity, texts: dict[str, str]
+) -> None:
+    parser, _, _ = build(_busy, rules=True)
+
+    assert parser.read(texts["scenario_1"], agent_hotel).sentence == READ_FROM_THE_RECORDING
+
+
+def test_a_model_that_answered_is_never_overridden_by_the_rules(
+    build: Build, proposal: Callable[..., str], agent_hotel: Identity
+) -> None:
+    answer = proposal(product_type="plant_drink", quantity=300, exclude_allergens=["AM"], allergen_strictness="STRICT",
+                      name_terms=["oat"], pack="PORTION")
+    parser, _, _ = build(_reading(answer), rules=True)
+
+    reading = parser.read(RULES_TEXT, agent_hotel)
+
+    assert reading.source is ReadingSource.MODEL and reading.request.lines[0].pack == "PORTION"
+
+
+def test_a_refusal_is_not_read_by_the_rules(build: Build, agent_hotel: Identity) -> None:
+    parser, _, _ = build(_refused, rules=True)
+
+    with pytest.raises(SupplierUnavailable) as refused:
+        parser.read(RULES_TEXT, agent_hotel)
+
+    assert "400" in refused.value.detail and "fixed rules" not in refused.value.detail
+
+
+def test_a_text_neither_gemini_nor_the_rules_read_is_supplier_unavailable_naming_both(
+    build: Build, agent_hotel: Identity
+) -> None:
+    parser, _, _ = build(_busy, rules=True)
+
+    with pytest.raises(ModelUnreachable) as refused:
+        parser.read("Some cheese for Friday", agent_hotel)
+
+    detail = refused.value.detail
+    assert detail.startswith("The language model did not answer after 2 attempts (HTTP status 503).")
+    assert "The fixed rules could not read it either: cheese is named with no quantity in digits and unit." in detail
+    assert detail.endswith("Send the typed request to POST /v1/offers instead.")
+
+
+def test_when_gemini_does_not_answer_a_run_with_no_recording_is_made_by_the_rules(
+    build: Build, parts: Any, agent_hotel: Identity
+) -> None:
+    _, runner, _ = build(_busy, rules=True)
+
+    run = runner.run_agent("300 litres of oat drink by Monday", agent_hotel, parts.service)
+
+    assert run.report.startswith("Gemini did not answer; this run was read and made by fixed rules, not by a model.")
+    assert (run.model, run.recorded) == ("rule-based", False)
+    assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]
+    assert run.order_status in (OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL)
+
+
+def test_a_run_neither_gemini_nor_the_rules_read_is_supplier_unavailable_and_records_nothing(
+    build: Build, parts: Any, agent_ward: Identity
+) -> None:
+    _, runner, _ = build(_busy, rules=True)
+
+    with pytest.raises(ModelUnreachable) as refused:
+        runner.run_agent("Some cheese for Friday", agent_ward, parts.service)
+
+    assert "The fixed rules could not read it either" in refused.value.detail
+    assert parts.service.get_audit(agent_ward).events == ()
+
+
+def test_a_refused_run_is_not_made_by_the_rules(build: Build, parts: Any, agent_hotel: Identity) -> None:
+    _, runner, _ = build(_refused, rules=True)
+
+    with pytest.raises(SupplierUnavailable) as refused:
+        runner.run_agent("300 litres of oat drink by Monday", agent_hotel, parts.service)
+
+    assert not isinstance(refused.value, ModelUnreachable)

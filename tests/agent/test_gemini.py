@@ -343,7 +343,7 @@ def test_after_one_retry_the_model_cannot_be_reached(failure: Any) -> None:
     assert "POST /v1/offers" in refused.value.detail
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404])
+@pytest.mark.parametrize("status", [400, 404])
 def test_a_refusal_that_will_not_pass_is_not_tried_again(status: int) -> None:
     gemini = FakeGemini(_error(status))
     model, slept = _model(gemini)
@@ -354,6 +354,19 @@ def test_a_refusal_that_will_not_pass_is_not_tried_again(status: int) -> None:
     assert len(gemini.requests) == 1 and slept == []
     assert str(status) in refused.value.detail
     assert not isinstance(refused.value, ModelUnreachable)  # refused, not out of reach: no recording stands in
+
+
+@pytest.mark.parametrize("status", [401, 402, 403])
+def test_a_key_or_billing_refusal_makes_the_model_out_of_reach_at_once(status: int) -> None:
+    gemini, outage = FakeGemini(_error(status)), Outage()
+    model, slept = _model(gemini, outage=outage)
+
+    with pytest.raises(ModelUnreachable) as unavailable:  # a recording or the fixed rules may stand in
+        model.extract(EXTRACT)
+
+    assert len(gemini.requests) == 1 and slept == []  # another try cannot change a key or a balance
+    assert str(status) in unavailable.value.detail and "POST /v1/offers" in unavailable.value.detail
+    assert outage.is_open()  # the next sentences are not sent while it lasts
 
 
 def test_the_number_of_retries_can_be_set() -> None:
@@ -416,7 +429,7 @@ def test_once_the_model_could_not_be_reached_it_is_not_asked_again_for_a_while()
 
 def test_a_refusal_or_an_unfinished_answer_is_not_an_outage() -> None:
     outage = Outage()
-    model, _ = _model(FakeGemini(_error(403), _answer(_text("{}"), finish="MAX_TOKENS")), outage=outage)
+    model, _ = _model(FakeGemini(_error(400), _answer(_text("{}"), finish="MAX_TOKENS")), outage=outage)
 
     for _ in range(2):
         with pytest.raises(SupplierUnavailable):

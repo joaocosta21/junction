@@ -23,6 +23,7 @@ class ReadingSource(StrEnum):
     MODEL = "model"  # the language model read the text just now
     RECORDING = "recording"  # served from a recording of the model's earlier answer
     HAND_BUILT = "hand-built"  # served from an answer a person wrote
+    RULE_BASED = "rule-based"  # read by fixed rules, not by a model, when no model answers (task FALLBACK-1)
 
 
 class Reading(Contract):

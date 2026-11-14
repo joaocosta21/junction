@@ -199,3 +199,28 @@ def test_without_the_time_zone_database_helsinki_falls_back_on_the_eu_rule(monke
 
     assert helsinki_date(datetime(2026, 11, 13, 23, 30, tzinfo=UTC)) == SATURDAY
     assert helsinki_date(datetime(2026, 7, 1, 21, 30, tzinfo=UTC)) == date(2026, 7, 2)
+
+
+# --- preferences and certificate labels (FALLBACK-1) ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "preferences"),
+    [("200 l of oat drink as soon as possible", {"EARLIEST"}), ("ASAP please", {"EARLIEST"}),
+     ("the most reliable delivery", {"RELIABILITY"}), ("lowest carbon footprint", {"LOWER_CARBON"}),
+     ("lower emissions", {"LOWER_CARBON"}), ("the cheapest one", {"PRICE"}), ("based on price", set()),
+     ("by Monday", set())],
+)
+def test_a_preference_is_found_by_its_words(text: str, preferences: set[str]) -> None:
+    assert _facts(text).preferences == preferences
+
+
+@pytest.mark.parametrize(
+    ("text", "labels"),
+    [("organic oat drink", {"EU_ORGANIC_FARMING"}), ("luomu kaurajuoma", {"EU_ORGANIC_FARMING"}),
+     ("ekologisk mjölk", {"EU_ORGANIC_FARMING"}), ("MSC salmon", {"MARINE_STEWARDSHIP_COUNCIL_LABEL"}),
+     ("Fairtrade coffee", {"FAIR_TRADE_MARK"}), ("fair trade coffee", {"FAIR_TRADE_MARK"}),
+     ("milk", set()), ("mascarpone", set())],
+)
+def test_a_certificate_label_is_found_by_its_words(text: str, labels: set[str]) -> None:
+    assert _facts(text).labels == labels

@@ -68,6 +68,10 @@ SDK_ATTEMPTS = 1  # the SDK does not retry: this module does, and counts
 # The documentation's troubleshooting page: retry 408, 429 and 5xx; never 400, 402 or 403.
 RETRYABLE_STATUSES = frozenset({408, 429})
 SERVER_ERRORS = range(500, 600)
+# A key, billing or permission refusal (unauthenticated, payment required, forbidden): another try cannot change
+# it, but the model is then out of reach for this gateway, so a recording or the fixed rules may stand in. Seen
+# as a risk on 14 Nov 2026, when the key's balance was zero. 400 and 404 stay refusals: they point at our call.
+NOT_AVAILABLE_TO_US = frozenset({401, 402, 403})
 FINISHED = types.FinishReason.STOP  # "natural stop point of the model"; an empty reason means it has not stopped
 JSON_MIME_TYPE = "application/json"
 LOCAL_CALL_ID = "gemini-{turn}-{number}"  # for a call the model gave no id
@@ -76,6 +80,10 @@ NO_KEY = "No GEMINI_API_KEY is set, so the Gemini model cannot be called."
 USE_THE_TYPED_REQUEST = "Send the typed request to POST /v1/offers instead."
 UNREACHABLE = "The language model did not answer after {attempts} attempts ({reason}). " + USE_THE_TYPED_REQUEST
 REFUSED = "The language model refused the call ({reason}). " + USE_THE_TYPED_REQUEST
+NOT_AVAILABLE = (
+    "The language model is not available to this gateway ({reason}: the key, its billing or its permissions). "
+    + USE_THE_TYPED_REQUEST
+)
 NOT_FINISHED = "The language model did not finish its answer (finish reason {reason}). " + USE_THE_TYPED_REQUEST
 NO_TEXT = "The language model returned no text to read. " + USE_THE_TYPED_REQUEST
 REMEMBERED = (
@@ -93,7 +101,8 @@ logger = logging.getLogger(__name__)
 
 
 class ModelUnreachable(SupplierUnavailable):
-    """The model gave no answer after the retries: a time-out, a connection failure, 408, 429 or a 5xx.
+    """The model gave no answer after the retries (a time-out, a connection failure, 408, 429 or a 5xx), or it is
+    not available to this gateway at all (401, 402 or 403, at once).
     Answered as `supplier-unavailable` like its parent; a recording may stand in for it (`tta.agent.fallback`)."""
 
 
@@ -268,6 +277,10 @@ class GeminiModel:
                 return self._finished(response)
             # Logged by its HTTP status or class name only: the SDK's message can repeat what it was sent.
             logger.warning("Gemini call failed (attempt %d of %d): %s", attempt, attempts, failure.reason)
+            if failure.status in NOT_AVAILABLE_TO_US:
+                if self._outage is not None:
+                    self._outage.note()
+                raise ModelUnreachable(NOT_AVAILABLE.format(reason=failure.reason))
             if not failure.may_pass:
                 raise SupplierUnavailable(REFUSED.format(reason=failure.reason))
         if self._outage is not None:
