@@ -2,11 +2,13 @@
 
 One client spaces its calls, caches an answer for a minute, stops at the call budget, retries
 only what a retry can fix, and records every answer. The key is read from the settings at the
-moment a call is sent and goes into the `X-API-Key` header, nowhere else.
+moment a call is sent and goes into the `X-API-Key` header, nowhere else; the client is not built
+for an address that would carry that header in clear text.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import threading
 import time
@@ -19,7 +21,7 @@ from tta.config import Settings
 from tta.contracts.availability import AvailabilityResponse, PriceResponse
 from tta.contracts.common import CURRENCY_EUR, DataSource
 from tta.contracts.errors import SupplierUnavailable
-from tta.valio.budget import CallBudget
+from tta.valio.budget import SUPPLIER_NOT_ASKED, CallBudget
 from tta.valio.clock import LiveClock
 from tta.valio.ids import distinct_ids
 from tta.valio.parsing import (
@@ -41,6 +43,12 @@ MAX_ATTEMPTS = 1 + len(RETRY_BACKOFF_SECONDS)
 CONNECT_TIMEOUT_SECONDS = 5.0
 READ_TIMEOUT_SECONDS = 30.0
 FIRST_SERVER_ERROR = 500
+# The largest recorded answer is 0.5 MB, for 769 ids (fixtures/valio/2026-11-14-demo); one over 20 MB is not read.
+MAX_BODY_MEGABYTES = 20
+MAX_BODY_BYTES = MAX_BODY_MEGABYTES * 1024 * 1024
+ENCRYPTED_SCHEME = "https"
+PLAIN_SCHEME = "http"  # accepted for a loopback host only, so a test or a local stand-in needs no certificate
+LOOPBACK_HOST_NAME = "localhost"
 
 _REFUSAL_HINTS = {
     401: "the key was rejected",
@@ -68,7 +76,7 @@ class ValioClient:
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
-        self._base_url = settings.valio_aimo_base_url.rstrip("/")
+        self._base_url = _checked_base_url(settings.valio_aimo_base_url)
         self._http = httpx.Client(
             transport=transport, timeout=httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
         )
@@ -89,6 +97,11 @@ class ValioClient:
     def clock(self) -> LiveClock:
         """The server's time as this client last heard it: the clock to hand to the rest of the gateway."""
         return self._clock
+
+    @property
+    def calls_remaining(self) -> int:
+        """How many calls the budget still allows, zero when none can be made. Reads the count; sends nothing."""
+        return self._budget.remaining()
 
     def close(self) -> None:
         self._http.close()
@@ -166,7 +179,9 @@ class ValioClient:
         """One HTTP call, counted against the budget and spaced from the last one. `None` means it timed out."""
         key = self._settings.valio_aimo_api_key
         if key is None or not self._settings.has_valio_key:
-            raise SupplierUnavailable("The Valio API key is not set (VALIO_AIMO_API_KEY), so no live call was made.")
+            # The detail of the error is public; which setting is missing is for the operator's log.
+            logger.warning("Valio /%s was not called: the API key is not set (VALIO_AIMO_API_KEY).", endpoint)
+            raise SupplierUnavailable(SUPPLIER_NOT_ASKED)
         self._budget.spend(endpoint)
         self._wait_for_spacing()
         failure = ""
@@ -196,6 +211,11 @@ class ValioClient:
             hint = _REFUSAL_HINTS.get(status)
             reason = f": {hint}" if hint else ""
             raise SupplierUnavailable(f"The Valio API answered /{endpoint} with HTTP {status}{reason}. Not retried.")
+        if len(response.content) > MAX_BODY_BYTES:
+            raise SupplierUnavailable(
+                f"The Valio API answer to /{endpoint} is larger than {MAX_BODY_MEGABYTES} MB, so it was not read "
+                "and not recorded."
+            )
         text = response.text
         key = self._settings.valio_aimo_api_key
         if key is not None and key.get_secret_value() in text:
@@ -230,6 +250,45 @@ class ValioClient:
         now = self._monotonic()
         fresh = {key: entry for key, entry in self._cache.items() if now - entry[0] < CACHE_SECONDS}
         self._cache = {**fresh, (endpoint, tuple(sorted(ids))): (now, response)}
+
+
+def _checked_base_url(url: str) -> str:
+    """The base URL without its last slash. Refused unless it is https, or http to a loopback host.
+
+    The key travels in a request header, so the address must be encrypted. Neither the error nor
+    the log repeats the address: it may hold a host name or a password of ours.
+    """
+    if not _keeps_the_key_private(url):
+        logger.warning(
+            "No Valio client was built: VALIO_AIMO_BASE_URL is not an https:// address "
+            "(http:// is accepted for a loopback host only)."
+        )
+        raise SupplierUnavailable(
+            "The supplier's address is not an https:// address, so no client was built and no call was made."
+        )
+    return url.rstrip("/")
+
+
+def _keeps_the_key_private(url: str) -> bool:
+    # Read with httpx, which also sends the request: the check and the call see the same host.
+    try:
+        parsed = httpx.URL(url)
+    except httpx.InvalidURL:
+        return False  # reported by the caller, outside the handler: the httpx error repeats part of the address
+    if not parsed.host:
+        return False
+    if parsed.scheme == ENCRYPTED_SCHEME:
+        return True
+    return parsed.scheme == PLAIN_SCHEME and _is_loopback(parsed.host)
+
+
+def _is_loopback(host: str) -> bool:
+    if host == LOOPBACK_HOST_NAME:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False  # a name, not an address: only `localhost` is taken for this machine
 
 
 def _chunks(ids: tuple[str, ...]) -> Iterator[tuple[str, ...]]:

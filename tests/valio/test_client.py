@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from tta.config import Settings
 from tta.contracts.common import DataSource
@@ -155,7 +157,10 @@ def test_the_cache_is_kept_per_endpoint_and_per_id_set(make_client, fake_api) ->
     ]
 
 
-def test_the_budget_stops_the_next_call_with_the_typed_error(make_client, fake_api, live_settings) -> None:
+def test_the_budget_stops_the_next_call_with_the_typed_error(
+    make_client, fake_api, live_settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.WARNING, logger="tta.valio.budget")
     client = make_client(fake_api, with_budget(live_settings, 2))
     client.price([MILK])
     client.availability([MILK])
@@ -164,8 +169,11 @@ def test_the_budget_stops_the_next_call_with_the_typed_error(make_client, fake_a
         client.price([OTHER_MILK])
 
     assert len(fake_api.requests) == 2
-    assert "budget" in raised.value.detail
-    assert "2 of 2" in raised.value.detail
+    # The detail is public: the count and the setting are in the log, not in what the caller reads.
+    assert "cannot be asked right now" in raised.value.detail
+    assert "2 of 2" not in raised.value.detail and "TTA_VALIO_CALL_BUDGET" not in raised.value.detail
+    (record,) = caplog.records
+    assert "2 of 2" in record.getMessage() and "TTA_VALIO_CALL_BUDGET" in record.getMessage()
 
 
 def test_the_budget_is_persisted_and_holds_after_a_restart(make_client, fake_api, live_settings) -> None:
@@ -287,15 +295,24 @@ def test_a_connection_failure_is_reported_and_not_retried(make_client) -> None:
     assert "ConnectError" in raised.value.detail
 
 
-def test_without_a_key_no_call_is_made_and_no_budget_is_spent(make_client, fake_api, live_settings) -> None:
-    client = make_client(fake_api, live_settings.model_copy(update={"valio_aimo_api_key": None}))
+@pytest.mark.parametrize("key", [None, SecretStr("   ")], ids=["no key", "a blank key"])
+def test_without_a_key_no_call_is_made_and_no_budget_is_spent(
+    make_client, fake_api, live_settings, caplog: pytest.LogCaptureFixture, key: SecretStr | None
+) -> None:
+    caplog.set_level(logging.WARNING, logger="tta.valio.client")
+    client = make_client(fake_api, live_settings.model_copy(update={"valio_aimo_api_key": key}))
 
     with pytest.raises(SupplierUnavailable) as raised:
         client.price([MILK])
 
     assert fake_api.requests == []
-    assert "VALIO_AIMO_API_KEY" in raised.value.detail
     assert calls_used(live_settings) == 0
+    # The detail is public: which setting of ours is missing is in the log, not in what the caller reads.
+    assert "cannot be asked right now" in raised.value.detail
+    assert "VALIO_AIMO_API_KEY" not in raised.value.detail
+    (record,) = caplog.records
+    assert record.levelno == logging.WARNING
+    assert "VALIO_AIMO_API_KEY" in record.getMessage() and "/price" in record.getMessage()
 
 
 @pytest.mark.parametrize("text", ["<html>maintenance</html>", "[]", '{"currency": "EUR"}'])

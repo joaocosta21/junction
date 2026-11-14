@@ -28,6 +28,13 @@ PRICE_ENDPOINT = "price"
 AVAILABILITY_ENDPOINT = "availability"
 ENDPOINTS = (AVAILABILITY_ENDPOINT, PRICE_ENDPOINT)
 
+# The widest numbers that are read; an answer with one outside is refused. In the three captures of
+# fixtures/valio/ the prices run from 0.3 to 541.5, and the largest amount is the Stock placeholder
+# 9,999,999,999 (AIMO/docs/API.md section 8.1).
+LOWEST_NUMBER = Decimal(0)
+HIGHEST_PRICE = Decimal(1_000_000)  # also the bound of the tax rate and the tax value of a price entry
+HIGHEST_AMOUNT = Decimal(100_000_000_000)
+
 
 def _refuse(what: str) -> NoReturn:
     raise SupplierUnavailable(f"The Valio API answer could not be read: {what}.")
@@ -94,8 +101,8 @@ def _price_line(entry: Mapping[str, Any], where: str) -> PriceLine:
         list_price=_amount(entry, "listPrice", where),
         comparison_price=_amount(entry, "comparisonPrice", where),
         comparison_unit=_optional_text(entry, "comparisonUnit", where),
-        tax_rate=None if tax is None else _number(tax, "taxRate", f"`tax` of {where}"),
-        tax_value=None if tax is None else _number(tax, "taxValue", f"`tax` of {where}"),
+        tax_rate=None if tax is None else _number(tax, "taxRate", f"`tax` of {where}", HIGHEST_PRICE),
+        tax_value=None if tax is None else _number(tax, "taxValue", f"`tax` of {where}", HIGHEST_PRICE),
     )
 
 
@@ -110,8 +117,8 @@ def _amount(entry: Mapping[str, Any], key: str, where: str) -> PriceAmount | Non
         return None
     inside = f"`{key}` of {where}"
     return PriceAmount(
-        value=_number(price, "value", inside),
-        value_with_tax=_number(price, "valueWithTax", inside),
+        value=_number(price, "value", inside, HIGHEST_PRICE),
+        value_with_tax=_number(price, "valueWithTax", inside, HIGHEST_PRICE),
         valid_from=_moment(price, "validFrom", inside),
         valid_to=_moment(price, "validTo", inside),  # open-ended prices say 9999-12-31; kept as it came
         currency=_text(price, "currency", inside),
@@ -141,7 +148,8 @@ def _schedule_line(entry: Mapping[str, Any], where: str) -> ScheduleLine | None:
     inside = f"the schedule line of {where}"
     return ScheduleLine(
         sales_block=_flag(line, "salesBlock", inside),
-        available_amount=_number(line, "availableAmount", inside),  # raw: 0 and the placeholders included
+        # Raw: 0 and the placeholders included.
+        available_amount=_number(line, "availableAmount", inside, HIGHEST_AMOUNT),
         available_date=_optional_day(line, "availableDate", inside),
         sales_unit=_text(line, "salesUnit", inside),  # the API's unit, not the product file's (FINDINGS section 1)
     )
@@ -174,13 +182,16 @@ def _flag(entry: Mapping[str, Any], key: str, where: str) -> bool:
     return value
 
 
-def _number(entry: Mapping[str, Any], key: str, where: str) -> Decimal:
+def _number(entry: Mapping[str, Any], key: str, where: str, highest: Decimal) -> Decimal:
+    """A number from 0 to `highest`. One outside that range refuses the answer; the number is not repeated."""
     value = entry.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
         _refuse(f"{where} has no number in `{key}`")
     number = value if isinstance(value, Decimal) else Decimal(str(value))
     if not number.is_finite():
         _refuse(f"{where} has no finite number in `{key}`")
+    if not LOWEST_NUMBER <= number <= highest:
+        _refuse(f"{where} has a number outside {LOWEST_NUMBER} to {highest:,} in `{key}`")
     return number
 
 

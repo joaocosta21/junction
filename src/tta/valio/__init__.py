@@ -1,6 +1,7 @@
 """Client for the Valio mock API: recorder, replay, call budget, clock (SPEC section 10).
 
-Live:   `client = ValioClient(settings)` and `client.clock` for the `Clock` port.
+Live:   `client = ValioClient(settings)` and `client.clock` for the `Clock` port;
+        `client.calls_remaining` says how much of the call budget is left.
 Replay: `replay = ReplayGateway(settings.replay_capture_dir)` and `replay.clock`.
 """
 

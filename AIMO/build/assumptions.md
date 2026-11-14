@@ -104,3 +104,10 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - An order completed by a human is recorded as placed with human approval, even when the policy would ask for nobody at that moment.
 - Writes are serialised by one lock in the process, held during the fresh check. State is saved first, then the audit event; there is no transaction across the two, and two gateway processes on one database are not protected (next step: a unit of work in the store).
 - Deciding an approval that is already closed is `invalid-request` (there is no conflict type).
+
+## Valio client hardening (FIX-4)
+- The live clock is the later of this machine's time and the server's stated time; a `timeNow` more than 12 hours from this machine's UTC time refuses the answer; the clock never moves backwards. A machine clock more than 12 hours wrong stops live availability.
+- The base URL must be `https://` (loopback hosts excepted, for tests).
+- Accepted ranges: a price from 0 to 1,000,000, an amount from 0 to 100,000,000,000 (the largest placeholder seen is 9,999,999,999). A 200 body over 20 MB is refused; the limit is checked after the download.
+- The call budget is counted under a file lock (POSIX), so several clients and processes count correctly.
+- A spent budget or a missing key tells the caller only that the supplier cannot be asked right now; the specifics go to a warning log record. Other supplier error details still name internals (listed for a later pass).

@@ -39,7 +39,8 @@ class Clock(Protocol):
     def now(self) -> datetime:
         """Timezone-aware current time.
 
-        Live: the server's `timeNow` as last told, carried forward by the time passed since. Replay: pinned.
+        Live: the later of this machine's time and the server's `timeNow` as told (a server time more than
+        12 hours away is refused); it never moves backwards. Replay: pinned to the capture's `timeNow`.
         """
         ...
 

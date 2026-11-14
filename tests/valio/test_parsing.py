@@ -300,3 +300,66 @@ def test_a_refused_body_is_reported_without_repeating_its_text() -> None:
 
     assert planted not in raised.value.detail
     assert "closingTime" in raised.value.detail
+
+
+def priced_entry(**changes: Any) -> dict[str, Any]:
+    price = {"value": 1.01, "valueWithTax": 1.15, "validFrom": "2026-09-01T00:00:00+0300",
+             "validTo": "2026-12-31T00:00:00+0200", "currency": "EUR"}
+    entry = {"productId": "464306", "netPriceFound": True, "error": False, "catalogPrice": price, "listPrice": price,
+             "comparisonPrice": price, "comparisonUnit": "L", "tax": {"taxRate": 13.5, "taxValue": 0.14}}
+    return {**entry, **{key: {**entry[key], **change} for key, change in changes.items()}}
+
+
+def amount_entry(amount: Any) -> dict[str, Any]:
+    return stock_entry(scheduleLines=[{"salesBlock": False, "availableAmount": amount, "availableDate": "2026-11-16",
+                                       "salesUnit": "ST"}])
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"catalogPrice": {"value": -0.01}},
+        {"catalogPrice": {"value": 1_000_000.01}},
+        {"catalogPrice": {"valueWithTax": Decimal("1E+30")}},
+        {"listPrice": {"value": -1}},
+        {"listPrice": {"valueWithTax": 1_000_001}},
+        {"comparisonPrice": {"value": 10**12}},
+        {"tax": {"taxRate": -13.5}},
+        {"tax": {"taxValue": 1_000_000.5}},
+    ],
+)
+def test_a_price_outside_0_to_1_000_000_refuses_the_answer(change: dict[str, Any]) -> None:
+    with pytest.raises(SupplierUnavailable):
+        parse_price_body(price_body(priced_entry(**change)), DataSource.LIVE)
+
+
+@pytest.mark.parametrize("value", [0, Decimal("0.00"), 1_000_000, Decimal("1000000.00")])
+def test_a_price_of_0_or_of_1_000_000_is_still_read(value: Any) -> None:
+    line = parse_price_body(price_body(priced_entry(catalogPrice={"value": value})), DataSource.LIVE).lines[0]
+
+    assert line.catalog_price is not None and line.catalog_price.value == Decimal(str(value))
+
+
+@pytest.mark.parametrize("amount", [-1, Decimal("-0.5"), 100_000_000_001, Decimal("100000000000.5"), 10**30])
+def test_an_amount_outside_0_to_100_000_000_000_refuses_the_answer(amount: Any) -> None:
+    with pytest.raises(SupplierUnavailable):
+        parse_availability_body(availability_body(amount_entry(amount)), DataSource.LIVE)
+
+
+@pytest.mark.parametrize("amount", [0, 384, 999_999, 9_999_999_999, 100_000_000_000])
+def test_an_amount_up_to_100_000_000_000_is_still_read_the_placeholders_included(amount: int) -> None:
+    line = parse_availability_body(availability_body(amount_entry(amount)), DataSource.LIVE).lines[0]
+
+    assert line.schedule_line is not None and line.schedule_line.available_amount == Decimal(amount)
+
+
+def test_a_number_out_of_range_is_reported_by_field_and_range_without_its_value() -> None:
+    with pytest.raises(SupplierUnavailable) as price:
+        parse_price_body(price_body(priced_entry(catalogPrice={"value": 31_337_000})), DataSource.LIVE)
+    with pytest.raises(SupplierUnavailable) as amount:
+        parse_availability_body(availability_body(amount_entry(Decimal("-31337"))), DataSource.LIVE)
+
+    assert "`value`" in price.value.detail and "1,000,000" in price.value.detail
+    assert "`availableAmount`" in amount.value.detail and "100,000,000,000" in amount.value.detail
+    assert "31337" not in price.value.detail + amount.value.detail
+    assert "31,337" not in price.value.detail + amount.value.detail
