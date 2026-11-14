@@ -11,6 +11,7 @@ from tta.catalog.kinds import FLAVOURED, flavour_words, type_words, use_words
 from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason, Unit
 from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, ReplaceCheck, ReplaceVerdict
 from tta.offers.candidates import price_problem
+from tta.offers.formula import COMPONENTS_SAID
 from tta.offers.wording import UNIT_WORDS, eur, plain_name
 
 # The formula outcomes under which "nothing the data shows is given up" may still be said.
@@ -87,7 +88,8 @@ def replace_reasons(
             f"{format_amount(each.original)} g"
             for each in formula.differences if not each.within_tolerance
         )
-        reasons.append(f"a different formula ({figures})" if figures else "another fat source")
+        what = "; ".join(part for part in (_contents_words(formula), figures) if part)
+        reasons.append(f"a different formula ({what})" if what else "another fat source")
     if check.name_difference:
         reasons.append(f"it cannot be shown to be like for like: {_name_difference(check)}")
     if check.no_shared_word:
@@ -96,6 +98,24 @@ def replace_reasons(
             f"the product asked for, and {NO_PRODUCT_TYPE}"
         )
     return tuple(reasons)
+
+
+def _contents_words(formula: FormulaCheck) -> str:
+    """The components only one ingredient list names, in the labels' own words, the contents before the
+    figures (`tta.offers.composition`). The formula sentence says which pairs are only not shown to be the same."""
+    parts = [
+        f"{verb} {_components(found)}, which the product asked for {other}"
+        for verb, other, found in (
+            ("contains", "does not", formula.only_in_other), ("lacks", "contains", formula.only_in_original),
+        ) if found
+    ]
+    return "; ".join(parts)
+
+
+def _components(found: Sequence[str]) -> str:
+    said = ", ".join(plain_name(each) for each in found[:COMPONENTS_SAID])
+    more = len(found) - COMPONENTS_SAID
+    return f"{said} and {more} more" if more > 0 else said
 
 
 def _plain_against_flavoured(check: ReplaceCheck) -> str:

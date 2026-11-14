@@ -177,6 +177,7 @@ def _product_fields(
         "has_allergen_groups": ALLERGEN_GROUP in groups or NON_ALLERGEN_GROUP in groups,
         "listed_substitutes": tuple(pair["substituteProduct"] for pair in record.get("substitutions", ())),
         "key_ingredients": _key_ingredients(synkka.get("keyIngredients", ())),
+        "ingredient_statements": _ingredient_statements(synkka.get("keyIngredients", ())),
         "nutrition": _nutrition(synkka.get("nutritionalContent", ())),
         "country_of_origin": _origin(record.get("countryOfOrigin")),
         "countries_of_origin": tuple(synkka.get("countriesOfOrigin", ())),
@@ -201,6 +202,19 @@ def _key_ingredients(entries: Any) -> str | None:
             raise TypeError(f"a keyIngredients value must be text, got {type(value).__name__}")
         texts.setdefault(entry["language"], value.strip())
     return next((texts[language] for language in INGREDIENT_LANGUAGES if _LETTER.search(texts.get(language, ""))), None)
+
+
+def _ingredient_statements(entries: Any) -> list[dict[str, str]]:
+    """Every ingredient statement with a letter in it, with its language as the file gives it, in file order;
+    the first one of a language wins, as in `_key_ingredients`. The text stays data: it is compared, never
+    interpreted (`tta.offers.composition`)."""
+    texts: dict[str, str] = {}
+    for entry in entries:
+        language, value = entry["language"], entry["value"]
+        if not isinstance(language, str) or not isinstance(value, str):
+            raise TypeError("a keyIngredients entry must carry a language and a text")
+        texts.setdefault(language, value.strip())
+    return [{"language": language, "text": text} for language, text in texts.items() if _LETTER.search(text)]
 
 
 def _nutrition(rows: Any) -> dict[str, Any] | None:

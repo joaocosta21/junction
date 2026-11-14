@@ -1,18 +1,29 @@
 """The formula measure: does one product keep the composition of another? (AIMO/build/replan/P10-formula.md 4.2)
 
 Valio said on 14 Nov 2026 that a substitute or a cheaper item must keep the formula where the formula matters
-(a cream for whipping, a butter for baking). The product file can judge it: six nutrients per 100 g or ml and
-an ingredient text. Two products have the same formula when all of this holds:
+(a cream for whipping, a butter for baking), and that the figures alone do not show it: a milk with an added
+component is chemically another product even when its six figures agree. So the contents decide first and the
+figures second. Two products have the same formula when all of this holds:
 
-1. fat, saturated fat, protein, carbohydrate, sugars and salt are stated for both, on the same basis;
-2. each differs by no more than `RELATIVE_TOLERANCE` of the original's value or `ABSOLUTE_TOLERANCE_G`,
-   whichever is larger (salt: `SALT_TOLERANCE_G`);
-3. the two ingredient lists agree on the fat source: both name a vegetable oil or fat, or neither does.
+1. their two ingredient lists, compared component by component in one language, show no component that only
+   one of them has (`tta.offers.composition`: computed from the two lists, no list of words decides);
+2. fat, saturated fat, protein, carbohydrate, sugars and salt are stated for both, on the same basis;
+3. each differs by no more than `RELATIVE_TOLERANCE` of the original's value or `ABSOLUTE_TOLERANCE_G`,
+   whichever is larger (salt: `SALT_TOLERANCE_G`).
 
-**The tolerances and the word list are ours, not Valio's and not law.** Energy is not compared: it follows
-from the other figures and is the noisiest field. The panel does not show protein type, heat treatment or
-stabiliser dose, so the wording is "the data shows no difference", never "identical". Missing data is
-`NOT_KNOWN` and never read as the same (Valio, V5: not sure means ask).
+A component only one list has makes the outcome `DIFFERENT`, whatever the figures say. Lists that cannot be
+compared (one is missing, or the two share no language) make it `NOT_KNOWN` even when the figures agree.
+
+**The tolerances are ours, not Valio's and not law.** Energy is not compared: it follows from the other
+figures and is the noisiest field. A list does not show protein type, heat treatment or the dose of a
+stabiliser, so the wording is "the data shows no difference", never "identical". Missing data is `NOT_KNOWN`
+and never read as the same (Valio, V5: not sure means ask).
+
+**The one word list left, and why.** `names_vegetable_fat` no longer decides between two lists that can be
+compared: there the components themselves say it. It is kept for two things the comparison cannot carry: two
+lists with no language in common (an English-only list against a Finnish-only one), where the words of both
+languages still show that one names a vegetable oil or fat and the other does not; and the field
+`FormulaCheck.fat_source_differs`, which the policy facts and the mixed-order sentence still read.
 
 **Per 100 g against per 100 ml (our rule, decided by the team on 14 Nov 2026).** For a drink the two are read
 as they stand: a litre of milk weighs 1.03 kg, so a figure per 100 ml is about 3% above the same figure per
@@ -37,6 +48,8 @@ from tta.contracts.product import (
     NutritionBasis,
     Product,
 )
+from tta.offers.composition import ContentsCheck, compare_contents
+from tta.offers.wording import plain_name
 
 # Ours. 15% keeps whipping creams of 35, 36 and 38% fat together and separates 38 from 30 and from 15.
 RELATIVE_TOLERANCE = Decimal("0.15")
@@ -56,8 +69,8 @@ NUTRIENTS = (
 )
 _WORDS = dict(NUTRIENTS)
 _BASIS_WORDS = {NutritionBasis.G: "per 100 g", NutritionBasis.ML: "per 100 ml"}
-# Words of an ingredient list that name a vegetable oil or fat, in English and in Finnish: the ingredient text
-# is English on most products and Finnish only on others (`tta.catalog.loader`, INGREDIENT_LANGUAGES). "palm"
+# Words of an ingredient list that name a vegetable oil or fat, in English and in Finnish. Kept only for two
+# lists with no language in common and for `FormulaCheck.fat_source_differs` (see the module's note). "palm"
 # must start a word and be followed by a fat word or stand alone, so "retinyl palmitate" (a vitamin) is not one.
 _VEGETABLE_FAT = re.compile(
     r"\bvegetable (?:oil|fat)|\brape ?seed|\bpalm(?:\b| ?oil| ?fat| ?kernel)|\bcoconut|\bshea|\bsunflower"
@@ -71,19 +84,6 @@ _LECITHIN = re.compile(
     r"|le[cs]it\w+ \((?:from )?(?:rape ?seed|sunflower|rapsi|rypsi|auringonkukka)\w*\)?",
     re.IGNORECASE,
 )
-# Functional additives an ingredient list can name, in English and in Finnish (P10 item F9). One that only one
-# of the two lists names is said in the sentence and changes no outcome: the text is free text in two languages,
-# and the dose is not in the data. The list is ours.
-_ADDITIVES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
-    (words, re.compile(pattern, re.IGNORECASE))
-    for words, pattern in (
-        ("an acidity regulator", r"acidity regulator|happamuudensäätöaine"),
-        ("a stabiliser", r"stabili[sz]er|stabilointiaine"),
-        ("an emulsifier", r"emulsifier|emulgointiaine"),
-        ("a modified starch", r"modified [\w ]{0,30}?starch|muunnettu[\w ]{0,30}?tärkkelys"),
-        ("a thickener", r"thickener|thickening agent|sakeuttamisaine"),
-    )
-)
 _TOLERANCE_WORDS = (
     f"our tolerance of {format_amount(RELATIVE_TOLERANCE * 100)}% or {format_amount(ABSOLUTE_TOLERANCE_G)} g per "
     f"nutrient (salt {format_amount(SALT_TOLERANCE_G)} g)"
@@ -94,44 +94,37 @@ _MIXED_BASIS = (
 _CANNOT = "The formula cannot be compared:"
 _NAMES_FAT = "Its ingredient list names a vegetable oil or fat; the original's does not."
 _NAMES_NO_FAT = "The original's ingredient list names a vegetable oil or fat; this one's does not."
+_SAME_CONTENTS = "The two ingredient lists name the same components."
+_WITHIN = f"The six nutrition figures are within {_TOLERANCE_WORDS}."
+COMPONENTS_SAID = 3  # of each side, in a sentence; the fields of the check carry every one
 
 
 def compare_formula(original: Product, other: Product) -> FormulaCheck:
     """The formula of `other` measured against `original`'s: the outcome, the differences, and a sentence.
 
-    The sentence ends with the functional additives only one of the two ingredient lists names (item F9)."""
-    check = _compare(original, other)
-    said = _additives_sentence(original.key_ingredients, other.key_ingredients)
-    return check.model_copy(update={"sentence": f"{check.sentence}{said}"}) if said else check
+    The contents decide first: a component only one ingredient list has is a different formula whatever the
+    figures say, and the sentence names the components before the figures."""
+    contents = compare_contents(original, other)
+    check = _compare(original, other, contents)
+    return check.model_copy(
+        update={
+            "contents_compared": contents.compared,
+            "only_in_original": contents.only_in_original,
+            "only_in_other": contents.only_in_other,
+        }
+    )
 
 
-def additives_on_one_side(original: str | None, other: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """(named by the original's list only, named by the other's list only), in words for a sentence. Nothing
-    when a list is missing: a missing list says nothing."""
-    if not original or not other:
-        return (), ()
-    ours = [words for words, pattern in _ADDITIVES if pattern.search(original)]
-    theirs = [words for words, pattern in _ADDITIVES if pattern.search(other)]
-    return tuple(each for each in ours if each not in theirs), tuple(each for each in theirs if each not in ours)
-
-
-def _additives_sentence(original: str | None, other: str | None) -> str:
-    only_original, only_other = additives_on_one_side(original, other)
-    parts = [
-        f" Only {whose} ingredient list names {_and(found)}."
-        for whose, found in (("this product's", only_other), ("the original's", only_original)) if found
-    ]
-    return "".join(parts)
-
-
-def _and(items: tuple[str, ...]) -> str:
-    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
-
-
-def _compare(original: Product, other: Product) -> FormulaCheck:
+def _compare(original: Product, other: Product, contents: ContentsCheck) -> FormulaCheck:
     mixed = _mixed_basis_of_two_drinks(original, other)
     unknown = _not_comparable(original.nutrition, other.nutrition, mixed)
+    fat_source_differs = _fat_source_differs(original, other)
     if unknown is not None:
+        if contents.differs:
+            return FormulaCheck(
+                outcome=FormulaOutcome.DIFFERENT, fat_source_differs=fat_source_differs,
+                sentence=f"{_contents_sentence(contents)} The nutrition figures cannot be compared: {unknown}",
+            )
         return FormulaCheck(outcome=FormulaOutcome.NOT_KNOWN, sentence=f"{_CANNOT} {unknown}")
     assert original.nutrition is not None and other.nutrition is not None  # noqa: S101 - narrowed just above
     basis = None if mixed else original.nutrition.basis
@@ -139,24 +132,64 @@ def _compare(original: Product, other: Product) -> FormulaCheck:
     note = f" {_MIXED_BASIS}" if mixed else ""
     differences = _differences(original.nutrition, other.nutrition)
     outside = tuple(each for each in differences if not each.within_tolerance)
-    fat_source_differs = _fat_source_differs(original, other)
-    if outside or fat_source_differs:
+    # Two lists with no language in common: the words of both languages can still show another fat source.
+    by_words_only = bool(fat_source_differs) and not contents.compared
+    if contents.differs or outside or by_words_only:
         return FormulaCheck(
             outcome=FormulaOutcome.DIFFERENT, basis=basis, differences=differences, mixed_basis=mixed,
             fat_source_differs=fat_source_differs,
-            sentence=f"{_different_sentence(outside, per, original, other)}{note}",
+            sentence=f"{_different_sentence(outside, per, original, other, contents)}{note}",
         )
-    if fat_source_differs is None:
-        whose = "this product's" if not other.key_ingredients else "the original's"
+    if not contents.compared:
         return FormulaCheck(
             outcome=FormulaOutcome.NOT_KNOWN, basis=basis, differences=differences, mixed_basis=mixed,
-            sentence=f"{_CANNOT} the nutrition figures agree, but {whose} ingredient list is missing.{note}",
+            sentence=(
+                f"{_CANNOT} the figures agree within {_TOLERANCE_WORDS}, but the ingredient lists cannot be "
+                f"compared ({contents.why_not}), so the formula is not shown to be the same.{note}"
+            ),
         )
     return FormulaCheck(
         outcome=_kept_outcome(original, other, differences, mixed), basis=basis, differences=differences,
         mixed_basis=mixed, fat_source_differs=False,
-        sentence=f"{_kept_sentence(original, other, differences, per, mixed)}{note}",
+        sentence=f"{_kept_sentence(original, other, differences, per, mixed)} {_SAME_CONTENTS}{note}",
     )
+
+
+def _contents_sentence(contents: ContentsCheck) -> str:
+    """The components only one list has, in the labels' own words, then the pairs not shown to be the same."""
+    unsure_ours = {mine for mine, _ in contents.not_shown_same}
+    unsure_theirs = {yours for _, yours in contents.not_shown_same}
+    parts = [
+        f"{whose} names {_quoted(found)}, which {other} does not"
+        for whose, other, found in (
+            ("this product's ingredient list", "the list of the product asked for",
+             [each for each in contents.only_in_other if each not in unsure_theirs]),
+            ("the ingredient list of the product asked for", "this product's",
+             [each for each in contents.only_in_original if each not in unsure_ours]),
+        ) if found
+    ]
+    pairs = contents.not_shown_same[:COMPONENTS_SAID]
+    parts.extend(f"{_quote(yours)} against {_quote(mine)}: not shown to be the same" for mine, yours in pairs)
+    more = len(contents.not_shown_same) - len(pairs)
+    if more:
+        parts.append(f"{more} more such {'pair' if more == 1 else 'pairs'}")
+    said = "; ".join(parts)
+    return f"Different contents: {said}."
+
+
+def _quote(words: str) -> str:
+    """Words of a label inside a sentence: text of the product file, entered like a name (`plain_name`), with
+    no quotation mark around it: no sentence of an offer carries one, so that no file text can close one."""
+    return plain_name(words)
+
+
+def _quoted(components: list[str]) -> str:
+    """ "CREAM", "CREAM and salt", "CREAM, salt and water", "CREAM, salt, water and 2 more"."""
+    said = [_quote(each) for each in components[:COMPONENTS_SAID]]
+    more = len(components) - COMPONENTS_SAID
+    if more > 0:
+        return f"{', '.join(said)} and {more} more"
+    return said[0] if len(said) == 1 else f"{', '.join(said[:-1])} and {said[-1]}"
 
 
 def _mixed_basis_of_two_drinks(original: Product, other: Product) -> bool:
@@ -219,7 +252,8 @@ def _differences(original: Nutrition, other: Nutrition) -> tuple[NutrientDiffere
 
 def _fat_source_differs(original: Product, other: Product) -> bool | None:
     """True when one ingredient list names a vegetable oil or fat and the other does not; `None` when a list
-    is missing, because a missing list says nothing."""
+    is missing, because a missing list says nothing. It decides an outcome only for two lists that share no
+    language; otherwise the components compared say it."""
     if not original.key_ingredients or not other.key_ingredients:
         return None
     return names_vegetable_fat(original.key_ingredients) is not names_vegetable_fat(other.key_ingredients)
@@ -255,17 +289,27 @@ def _per_words(per: str, mixed: bool) -> str:
 
 
 def _different_sentence(
-    outside: tuple[NutrientDifference, ...], per: str, original: Product, other: Product
+    outside: tuple[NutrientDifference, ...], per: str, original: Product, other: Product, contents: ContentsCheck
 ) -> str:
+    """The components first, the figures after. Where the two lists could not be compared, the fat source the
+    words of both languages show."""
+    if outside:
+        stated = "; ".join(
+            f"{_WORDS[each.nutrient]} {_grams(each.other)}, not {_grams(each.original)}" for each in outside
+        )
+        figures = f"{stated}{_per_words(per, ' against ' in per)}."
+    else:
+        figures = ""
+    if contents.differs:
+        after = f"Figures outside our tolerance: {figures}" if figures else _WITHIN
+        return f"{_contents_sentence(contents)} {after}"
     fat_source = ""
-    if _fat_source_differs(original, other):
+    if not contents.compared and _fat_source_differs(original, other):
         fat_source = f" {_NAMES_FAT if names_vegetable_fat(other.key_ingredients or '') else _NAMES_NO_FAT}"
     if not outside:
         return f"Different formula: the six nutrition figures are within {_TOLERANCE_WORDS}.{fat_source}"
-    figures = "; ".join(
-        f"{_WORDS[each.nutrient]} {_grams(each.other)}, not {_grams(each.original)}" for each in outside
-    )
-    return f"Different formula: {figures}{_per_words(per, ' against ' in per)}.{fat_source}"
+    same = f" {_SAME_CONTENTS}" if contents.compared else ""
+    return f"Different formula: {figures}{fat_source}{same}"
 
 
 def _grams(value: Decimal) -> str:

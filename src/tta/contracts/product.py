@@ -59,13 +59,20 @@ class Nutrition(Contract):
         return all(value is not None for value in values)
 
 
+class IngredientStatement(Contract):
+    """One ingredient statement of a product, as the file gives it (`synkkaData.keyIngredients`)."""
+
+    language: str  # the file's own code: "en", "fi", "sv", ...
+    text: str
+
+
 class FormulaOutcome(StrEnum):
     """How a product's formula compares with another's, best first. The measure and its tolerances are ours."""
 
-    SAME_PRODUCT_OTHER_PACK = "SAME_PRODUCT_OTHER_PACK"  # same brand, the six figures equal, same fat source
-    SAME_BRAND = "SAME_BRAND"  # same brand, every figure within tolerance, same fat source
-    OTHER_BRAND = "OTHER_BRAND"  # another brand (or one not stated), within tolerance, same fat source
-    DIFFERENT = "DIFFERENT"  # a figure outside tolerance, or another fat source
+    SAME_PRODUCT_OTHER_PACK = "SAME_PRODUCT_OTHER_PACK"  # same brand, the six figures equal, same components
+    SAME_BRAND = "SAME_BRAND"  # same brand, every figure within tolerance, same components
+    OTHER_BRAND = "OTHER_BRAND"  # another brand (or one not stated), within tolerance, same components
+    DIFFERENT = "DIFFERENT"  # a component only one ingredient list has, or a figure outside tolerance
     NOT_KNOWN = "NOT_KNOWN"  # the data cannot tell; never read as the same
 
 
@@ -89,6 +96,11 @@ class FormulaCheck(Contract):
     # True: one product states its figures per 100 g and the other per 100 ml, and they were compared as they
     # stand because both are drinks (our rule, `tta.offers.formula`). `basis` is then None.
     mixed_basis: bool = False
+    # The two ingredient lists were compared component by component (`tta.offers.composition`). False: a list
+    # is missing or the two share no language, and the two tuples below say nothing.
+    contents_compared: bool = False
+    only_in_original: tuple[str, ...] = ()  # components only the original's list names, in the label's words
+    only_in_other: tuple[str, ...] = ()  # components only this product's list names, in the label's words
     sentence: str  # for a person: the outcome and the reason, in numbers
 
     @property
@@ -169,6 +181,9 @@ class Product(Contract):
     listed_substitutes: tuple[str, ...] = ()
     # synkkaData.keyIngredients, English else Finnish; EU labelling writes allergens in capitals
     key_ingredients: str | None = None
+    # Every statement of synkkaData.keyIngredients that has a letter in it, with the file's language code, in
+    # file order. `key_ingredients` is the English one of these, else the Finnish one.
+    ingredient_statements: tuple[IngredientStatement, ...] = ()
     country_of_origin: str | None = None
     countries_of_origin: tuple[str, ...] = ()
     deleted: bool = False
