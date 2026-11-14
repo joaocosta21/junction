@@ -213,9 +213,12 @@ class StandingOrders:
         return self._store.list_standing_orders(_require_buyer_side(identity))[:MAX_LIST_ITEMS]
 
     def find(self, identity: Identity, standing_order_id: str) -> StandingOrder | None:
-        """The caller's own buyer's standing order, or None: another buyer's reads as one nobody set up."""
+        """The caller's own buyer's standing order, or None: another buyer's reads as one nobody set up.
+        The caller is checked before anything is looked up, so the supplier's token is refused the same way for
+        an id that exists and for one that does not (security review, finding L3)."""
+        profile_id = _require_buyer_side(identity)
         standing = self._store.get_standing_order(standing_order_id)
-        if standing is None or standing.profile_id != _require_buyer_side(identity):
+        if standing is None or standing.profile_id != profile_id:
             return None
         return standing
 

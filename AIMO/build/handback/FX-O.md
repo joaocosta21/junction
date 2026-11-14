@@ -1,4 +1,4 @@
-# FX-O — partly done (P5, P9, P12 done; the phrase-table item is not in a file I own)
+# FX-O — partly done (P5, P9, P12 and security L3 done; the phrase-table item is not in a file I own)
 
 ## Per finding
 - **P5 (evidence lookup inside the order book's lock) — done, two-phase version.** `place_order` now: lock → idempotency key, offer, "no order yet", profile, order-time check → release → `for_approval` → lock → read all of it again → write. Second phase (`OrderBookService._place_after_lookup`) re-reads the key (returns that key's order if another request used it meanwhile), the offer, that the offer has no order yet, the profile; `OrderTimeChecker.still_holds` (new) compares the option's "order by" time with the clock, the day's spend and the standing order's history with those the policy judged on. Any difference: the full order-time check runs again and the order is written on that check. Evidence is kept when the new check has the same verdict, rules and roles; otherwise it is looked up again for the new decision, that once with the lock held. With no evidence finder or an AUTO verdict nothing changed: one lock, as before. Chosen over the time-limit fallback because every input of the check can be re-read cheaply, so the order-time check is not weakened and no evidence is dropped.
@@ -7,17 +7,19 @@
 - **P12 (`standing/history.py`) — done in my file; the sentence is not wired.** A renewal counts only when it is synthetic or its order is found and `ORDERED`. One whose order is missing is left out; `renewals_without_order(store, profile_id, standing_order_id, excluding_offer_id=)` counts them (and logs a warning), `not_counted_note(count)` gives "1 past renewal has no order record and was not counted." / "2 past renewals have no order record and were not counted." / None. Tests: `tests/standing/test_history_needs_an_order_record.py` (2).
 - **Low (`CHANGED_FIELD_WORDS`) — not done.** The table is in `src/tta/policy/facts.py:61`, not in `src/tta/audit/phrases.py` (which has no such table). Not my path.
 
+- **Security L3 (`standing/service.py`, `find`) — done.** `_require_buyer_side` now runs before the lookup, so the supplier's token gets 403 for an id that exists and for one that does not (before: 403 and 404). Tests: `tests/standing/test_supplier_reads_no_standing_order.py` (service level for both ids; over REST both answers have the same status, type, title and detail). The unknown-id case and the REST test failed before.
+
 ## Tests (verbatim last lines)
 `.venv/bin/python -m pytest -q -p no:cacheprovider tests/orders tests/standing tests/policy/test_ordering_alone.py tests/policy/test_prepared_wording.py tests/audit/test_phrases.py tests/audit/test_pinned_hashes.py`
 ```
-1 failed, 303 passed in 12.51s
+1 failed, 306 passed (final run, after L3)
 ```
 The one failure is `tests/standing/test_rest_and_page.py::test_the_page_loads_the_demo_renews_it_and_shows_the_drift_and_the_outcome`: `page.count("Synthetic: made up for the demo")` is 78, pinned 8. Cause: the uncommitted change in `src/tta/ui/standing_page.py` (the page now loads every demo customer's standing orders, `load_customer_standing_orders`), not this lane. Pin left unedited. `tests/audit/test_pinned_hashes.py` green, unedited.
 `ruff check` on my paths: `All checks passed!`
 
 ## Files
-Changed: `src/tta/orders/service.py`, `src/tta/orders/checking.py`, `src/tta/orders/records.py`, `src/tta/policy/human_approval.py`, `src/tta/standing/history.py`, `tests/orders/test_decide.py`, `tests/policy/test_prepared_wording.py`.
-Created: `tests/orders/test_evidence_outside_the_lock.py`, `tests/standing/test_history_needs_an_order_record.py`, `AIMO/build/handback/FX-O.md`.
+Changed: `src/tta/orders/service.py`, `src/tta/orders/checking.py`, `src/tta/orders/records.py`, `src/tta/policy/human_approval.py`, `src/tta/standing/history.py`, `src/tta/standing/service.py`, `tests/orders/test_decide.py`, `tests/policy/test_prepared_wording.py`.
+Created: `tests/orders/test_evidence_outside_the_lock.py`, `tests/standing/test_history_needs_an_order_record.py`, `tests/standing/test_supplier_reads_no_standing_order.py`, `AIMO/build/handback/FX-O.md`.
 
 ## Contract fields added
 None. (`OrderTimeCheck.standing`, default None, is a dataclass of `orders/records.py`, not a contract.)

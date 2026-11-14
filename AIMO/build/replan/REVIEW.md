@@ -63,7 +63,7 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 | M4 | MED | `deploy/modal_app.py:144`, `orders/service.py` | Any visitor of the public link can spend the Context.dev budget (up to 40 calls of 100 credits), and the lookup is held under the order book's lock | read | FX-EV (the key stays off the link), FX-O (the lock) | open |
 | L1 | LOW | `policy/facts.py:396` | `stands_in_for` is still free text that reaches F-09's sentence (A3 F4 half closed) | read | FX-S | open |
 | L2 | LOW | `evidence/reading.py`, `wording.py:73`, `alignment.py:165` | A web page's name can close the quotation marks in the sentence shown to the person who signs | read | FX-EV | open |
-| L3 | LOW | `standing/service.py:215` | The supplier's token gets 403 for an existing standing order and 404 for an unknown one | read | FX-O | open |
+| L3 | LOW | `standing/service.py:215` | The supplier's token gets 403 for an existing standing order and 404 for an unknown one | read | FX-O | fixed (FX-O) |
 | L4 | LOW | `api/discovery.py:126` | Host and forwarded-proto headers go into the discovery documents; not exploitable without a shared cache | read | — | accepted |
 | F3 | — | `deploy/modal_app.py` | From the earlier review, still open: no `TTA_TRUSTED_PROXY_HOPS`; if Modal shows one peer address, all visitors share one rate-limit bucket. Can only be checked on the deployed copy | read | the redeploy check | open |
 

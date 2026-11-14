@@ -64,6 +64,9 @@ CHANGED_FIELD_WORDS: Mapping[str, str] = {
     "availability_state": "the availability",
     "available_amount": "the available amount",
     "cutoff": "the order cut-off",
+    "tax_rate": "the tax rate",
+    "delivery_date": "the delivery date",
+    "sales_unit": "the sales unit",
 }
 
 
