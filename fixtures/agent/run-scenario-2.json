@@ -1,9 +1,10 @@
 {
   "kind": "run",
   "text": "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only",
-  "model": "hand-built",
-  "source": "hand-built",
-  "note": "Written by hand, not by a model: the live check of 14 Nov 2026 got HTTP 503 from the Gemini API on both of its two attempts and was stopped (AIMO/build/AGENT-RULES.md, rule 10). `.venv/bin/python -m tta.agent.record` replaces this file with the model's own answer.",
+  "model": "gemini-3.6-flash",
+  "source": "live",
+  "recorded_at": "2026-11-14T06:16:56.081109Z",
+  "today": "2026-11-14",
   "turns": [
     {
       "calls": [
@@ -30,6 +31,10 @@
           }
         }
       ]
+    },
+    {
+      "calls": [],
+      "text": "An order for 200 L of Alpro No Sugars Soya drink (Option 1) was placed automatically for €402.00 net. The order meets all allergen and delivery requirements without requiring human approval."
     }
   ]
 }
