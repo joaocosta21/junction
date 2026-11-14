@@ -8,8 +8,9 @@ disagree. To write it again after a change to the reader, and then judge every r
 
 The sentences: the brief's own; every example a page offers (`tta.ui.examples`, and the shop's
 `ui/static/shop/js/kitchens.js`, both read here and owned by other lanes), each for its own customer and compared
-with the typed request the example carries; the review's 40 hard sentences and A5's R01 to R15
-(`reading_table_sentences.json`). No model is called: the reader is `RuleModel` behind the parser, at the clock of
+with the typed request the example carries; the review's 40 hard sentences, A5's R01 to R15, the sentences of the
+review of the whole diff (S3, S4) and of lane L1-3 (`reading_table_sentences.json`). No model is called: the
+reader is `RuleModel` behind the parser, at the clock of
 the recording (`fixtures/valio/2026-11-14-demo`).
 """
 
@@ -26,6 +27,7 @@ from typing import Any
 import pytest
 
 from tta.agent import profile_strictness
+from tta.agent.brands import Brands
 from tta.agent.labels import READ_BY_RULES
 from tta.agent.parser import ModelRequestParser
 from tta.agent.rules_model import RuleModel
@@ -128,14 +130,17 @@ def shop_examples() -> list[tuple[str, str, PurchaseRequest]]:
 
 
 def rows() -> list[Row]:
-    """Every sentence once per customer, in the order: the brief, the pages, the shop, the review, A5."""
+    """Every sentence once per customer, in the order: the brief, the pages, the shop, the review, A5, the review
+    of the whole diff (S3 and S4), lane L1-3."""
     data = json.loads(SENTENCES.read_text(encoding="utf-8"))
     listed: list[Row] = [Row(HOTEL, data["brief"], ("the brief",))]
     listed += [Row(example.agent_id.removeprefix("agent:"), example.text, (f"page example {example.key}",),
                    example.request) for example in EXAMPLES]
     listed += [Row(customer, text, (f"shop example ({customer})",), request)
                for customer, text, request in shop_examples()]
-    for name, label in (("review_40", "review {n}"), ("a5", "A5 R{n:02d}")):
+    for name, label in (("review_40", "review {n}"), ("a5", "A5 R{n:02d}"), ("review_s3_s4", "review S3/S4 {n}"),
+                        ("review_p", "review P {n}"),
+                        ("l1_3", "L1-3 {n}")):
         for number, raw in enumerate(data[name], start=1):
             profile = WARD if raw.startswith(WARD_MARK) else HOTEL
             listed.append(Row(profile, raw.removeprefix(WARD_MARK), (label.format(n=number),)))
@@ -224,7 +229,9 @@ Written by `tests/agent/test_reading_table.py` from the reader itself; that test
 reader disagree. Do not edit it by hand.
 
 - **Measured offline at the recording's clock** ({clock} Helsinki time; "by Monday" is {monday}). Only the date
-  matters to a reading, so the demo clock (Thu 12 Nov 2026) gives the same Monday.
+  matters to a reading, so the demo clock (Thu 12 Nov 2026) gives the same Monday. The two rows with "next
+  Friday" differ there: said on a Thursday it is asked about (Friday 13 November or Friday 20 November?); said on
+  this Saturday it has one reading, Friday 20 November.
 - **{total} sentences: {read} read, {asked} asked about. Of the {read} read, {wrong} read wrong** (the target is
   none).{wrong_list}
 - **No model was called.** Every row is the work of the fixed rules (`tta.agent.rules_reader`). The model's
@@ -282,11 +289,11 @@ def document(outcomes: list[Outcome], clock: Clock, wrong: dict[str, str]) -> st
 
 
 @pytest.fixture(scope="module")
-def outcomes(product_type_keys: tuple[str, ...], demo_clock: Clock) -> list[Outcome]:
+def outcomes(product_type_keys: tuple[str, ...], demo_clock: Clock, brands: Brands) -> list[Outcome]:
     rule_of = profile_strictness()
     parser = ModelRequestParser(
-        model=RuleModel.for_keys(product_type_keys), clock=demo_clock, product_type_keys=product_type_keys,
-        profile_strictness=rule_of,
+        model=RuleModel.for_keys(product_type_keys, brands), clock=demo_clock, product_type_keys=product_type_keys,
+        profile_strictness=rule_of, brands=brands,
     )
     return [outcome(row, parser, rule_of) for row in rows()]
 
@@ -329,16 +336,20 @@ def test_an_example_is_read_as_its_typed_request_or_the_difference_is_a_known_on
 def test_the_review_and_a5_sentences_are_all_in_the_table(outcomes: list[Outcome]) -> None:
     sources = [source for item in outcomes for source in item.row.sources]
 
-    assert sum(source.startswith("review ") for source in sources) == 40
+    assert sum(source.startswith("review ") and source.removeprefix("review ").isdigit() for source in sources) == 40
     assert sum(source.startswith("A5 R") for source in sources) == 15
+    assert sum(source.startswith("review S3/S4 ") for source in sources) == 13
 
 
-def test_the_rows_judged_read_wrong_are_the_known_ones(outcomes: list[Outcome]) -> None:
-    """The target is none. One is known: a brand word before the product is left out without a word."""
+def test_no_row_is_judged_read_wrong(outcomes: list[Outcome]) -> None:
+    """The target is none, and it is met since L1-3: the one known row, "24 litres of Arla lactose-free whipping
+    cream by Wednesday", now keeps its brand (decision B39)."""
     wrong = json.loads(SENTENCES.read_text(encoding="utf-8"))["read_wrong"]
+    arla = next(item for item in outcomes if item.row.text.startswith("24 litres of Arla"))
 
-    assert list(wrong) == ["24 litres of Arla lactose-free whipping cream by Wednesday"]
-    assert all(any(item.row.text == text and item.read is not None for item in outcomes) for text in wrong)
+    assert wrong == {}
+    assert arla.cell == 'cream "Arla" "whipping" 24 L, claim FREE_FROM_LACTOSE; by 2026-11-18'
+    assert arla.says == 'The brand "Arla" is required.'
 
 
 # Each is the example's typed request saying less than its sentence, not the reader reading it wrong. Measured

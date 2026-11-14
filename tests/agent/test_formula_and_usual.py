@@ -40,8 +40,8 @@ def rules(make_parser: Callable[..., ModelRequestParser], product_type_keys: tup
 @pytest.mark.parametrize(
     ("text", "said"),
     [
-        ("20 litres of cream for whipping", "for whipping"),
-        ("20 litres of cream for whipping by Monday", "for whipping"),
+        ("20 litres of milk for foaming", "for foaming"),  # "cream for whipping": test_brands_and_variants.py
+        ("20 litres of milk for foaming by Monday", "for foaming"),
         ("10 kg of butter for baking", "for baking"),
         ("10 kg of butter by Monday, for cakes", "for cakes"),
         ("100 litres of whipping cream by Monday, for cakes", "for cakes"),
@@ -140,7 +140,10 @@ def test_the_gateways_reader_keeps_every_note_after_its_own_first_sentence(
     sentence = reader.read("20 litres of cream for whipping by Monday, no nuts", agent_hotel).sentence
 
     assert sentence.startswith(f"{RULES_WITHOUT_KEY} No allergen rule was given for ")
-    assert sentence.endswith('goes to a person. Formula matters: the request says "for whipping".')
+    assert sentence.endswith(
+        'goes to a person. Cream "for whipping" is read as whipping cream. Formula matters: the request says "for '
+        'whipping".'
+    )
 
 
 def test_the_rule_models_answer_carries_keep_formula(product_type_keys: tuple[str, ...], demo_clock: Clock) -> None:

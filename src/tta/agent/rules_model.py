@@ -14,14 +14,16 @@ trace names it `rule-based`, never a model.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
+from tta.agent.brands import NO_BRANDS, Brands, catalog_brands
 from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
-from tta.agent.rules_reader import RuleReader, type_names
+from tta.agent.rules_reader import MAY_FOLLOW, RuleReader, type_names
 from tta.agent.tools import CREATE_OFFER, GET_AUTHORITY, OPTION_ID, PLACE_ORDER
 from tta.catalog import load_product_types
 from tta.contracts.agent import ReadingSource
 from tta.contracts.common import JsonDict
+from tta.contracts.product import Product
 
 RULE_BASED_MODEL_ID = "rule-based"
 AUTHORITY_TURN, OFFER_TURN, ORDER_TURN = 1, 2, 3
@@ -61,6 +63,11 @@ def top_option(history: Sequence[JsonDict]) -> str | None:
     return None
 
 
+def brands_for(products: Iterable[Product], product_type_keys: Sequence[str]) -> Brands:
+    """The brands of these products a buyer may name, less every word the rules already read."""
+    return catalog_brands(products, type_names(load_product_types(), product_type_keys), MAY_FOLLOW)
+
+
 class RuleModel:
     """Implements `AgentModel` with fixed rules. It calls nothing and holds no state."""
 
@@ -68,9 +75,10 @@ class RuleModel:
         self._reader = reader
 
     @classmethod
-    def for_keys(cls, product_type_keys: Sequence[str]) -> RuleModel:
-        """The rules over the product-type table of the catalog package, for these keys."""
-        return cls(RuleReader(type_names(load_product_types(), product_type_keys)))
+    def for_keys(cls, product_type_keys: Sequence[str], brands: Brands = NO_BRANDS) -> RuleModel:
+        """The rules over the product-type table of the catalog package, for these keys, and the brands a line
+        may name (`brands_for`); with none, a brand word is read as any other word."""
+        return cls(RuleReader(type_names(load_product_types(), product_type_keys), brands))
 
     @property
     def model_id(self) -> str:

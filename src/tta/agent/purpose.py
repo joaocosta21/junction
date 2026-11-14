@@ -6,10 +6,12 @@ and cakes the contents of the product can make a difference, "so you really need
 words are one of the three things that decide (with the customer's profile and a recipe line).
 
 A pure function over the text: no model, no catalog, nothing guessed. It reads a use only when the words give it
-as a purpose, after "for", "to", "in" or "into": "cream for whipping", "milk for baking", "butter for the cakes",
-"cream to whip". A product's own name is not a purpose: "whipping cream" and "baking chocolate" say nothing about
-what the buyer will do with it. A negated purpose ("not for baking") is not one. English only: the Finnish and
-Swedish words were not checked with a speaker, so none is in the table.
+as a purpose, after "for", "in" or "into", or as a verb after "to": "cream for whipping", "milk for baking",
+"butter for the cakes", "cream to whip". A place or a recipient is not a purpose: "to the dessert kitchen", "for
+the pastry chef" say where the goods go, not what is done with them. A product's own name is not a purpose:
+"whipping cream" and "baking chocolate" say nothing about what the buyer will do with it. A negated purpose ("not
+for baking") is not one. English only: the Finnish and Swedish words were not checked with a speaker, so none is
+in the table.
 Wired into the reading since wave 2: `tta.agent.rules_reader` sets `keep_formula` on the line the words belong
 to, and `tta.agent.notes` writes the sentence.
 """
@@ -20,17 +22,57 @@ import re
 from dataclasses import dataclass
 
 # The uses of `P10-formula.md` (row a): baking, pastry, whipping, sauce, cake, foam, a recipe. Each with the word
-# forms a kitchen writes. The list is ours.
-_USES: tuple[tuple[str, str], ...] = (
-    ("baking", r"bak(?:e|es|ing)|pastr(?:y|ies)|dough"),
-    ("cakes", r"(?:cheese|cup)?cakes?|muffins?|desserts?"),
-    ("whipping", r"whip(?:ping|ped)?|foam(?:ing)?|frothing|froth"),
-    ("sauce", r"sauces?"),
-    ("recipe", r"recipes?"),
+# forms a kitchen writes, and the verbs that may follow "to" ("to whip", "to bake"). The list is ours.
+_USES: tuple[tuple[str, str, str | None], ...] = (
+    ("baking", r"bak(?:e|es|ing)|pastr(?:y|ies)|dough", r"bakes?"),
+    ("cakes", r"(?:cheese|cup)?cakes?|muffins?|desserts?", None),
+    ("whipping", r"whip(?:ping|ped)?|foam(?:ing)?|frothing|froth", r"whip|foam|froth"),
+    ("sauce", r"sauces?", None),
+    ("recipe", r"recipes?", None),
 )
-_PURPOSE = r"\b(?:for|to|in|into)\s+(?:(?:a|an|the|our|my|some|making|make)\s+){0,2}"
-_PATTERNS = tuple((use, re.compile(rf"{_PURPOSE}(?:{words})\b")) for use, words in _USES)
+_OWN = r"(?:a|an|the|our|my|some)"
+# A place or a recipient is not a use: "to the dessert kitchen", "for the pastry chef", "in the dessert fridge".
+_PLACES = (
+    r"kitchens?|sections?|stations?|teams?|chefs?|cooks?|departments?|dept|bar|rooms?|counters?|shop|staff|crew|"
+    r"fridges?|freezers?|trolley|shelf|shelves|store|storage|area|door|unit|line"
+)
 _NEGATED = re.compile(r"\b(?:not|never|no)\s+(?:\w+\s+)?$|n['’]t\s+(?:\w+\s+)?$")
+
+
+def purpose_pattern(words: str, verbs: str | None = None) -> re.Pattern[str]:
+    """The words said as a purpose: after "for", "in" or "into" ("for the cakes", "for making a sauce"); after
+    "to" only as a verb ("to whip") or behind "make" ("to make a sauce"), because "to the dessert kitchen" says
+    where the goods go. Never when a place or a recipient follows."""
+    after_to = rf"(?:make|making)\s+(?:{_OWN}\s+)?(?:{words})" + (rf"|(?:{verbs})" if verbs else "")
+    said = rf"\b(?:for|in|into)\s+(?:(?:{_OWN}|making|make)\s+){{0,2}}(?:{words})|\bto\s+(?:{after_to})"
+    return re.compile(rf"(?:{said})\b(?!\s+(?:{_PLACES})\b)")
+
+
+def said_as_purpose(pattern: re.Pattern[str], text: str) -> list[tuple[int, str]]:
+    """Where the text says the pattern's words as a purpose, and the buyer's own words there, casefolded. A
+    negated purpose ("not for baking") is not one."""
+    folded = text.casefold()
+    return [(match.start(), " ".join(match.group().split())) for match in pattern.finditer(folded)
+            if not _NEGATED.search(folded[:match.start()])]
+
+
+_PATTERNS = tuple((use, purpose_pattern(words, verbs)) for use, words, verbs in _USES)
+_USE_WORD = re.compile("|".join(words for _, words, _ in _USES))
+
+
+def is_use_word(word: str) -> bool:
+    """True for a word that names a use on its own: "desserts" of "for cakes and desserts"."""
+    return _USE_WORD.fullmatch(word.casefold()) is not None
+
+
+def spans_of(pattern: re.Pattern[str], text: str) -> list[tuple[int, int]]:
+    """Where the casefolded text says the pattern's words as a purpose, negated or not."""
+    return [match.span() for match in pattern.finditer(text.casefold())]
+
+
+def purpose_spans(text: str) -> list[tuple[int, int]]:
+    """Where the text names a use for which the formula matters."""
+    return [span for _, pattern in _PATTERNS for span in spans_of(pattern, text)]
 
 FORMULA_MATTERS = 'Formula matters: the request says "{said}".'
 
@@ -50,10 +92,8 @@ class FormulaUse:
 
 def formula_uses(text: str) -> tuple[FormulaUse, ...]:
     """Every use the text names as a purpose, in the order said."""
-    folded = text.casefold()
-    found = [(match.start(), use, match.group()) for use, pattern in _PATTERNS for match in pattern.finditer(folded)
-             if not _NEGATED.search(folded[:match.start()])]
-    return tuple(FormulaUse(use=use, said=" ".join(said.split())) for _, use, said in sorted(found))
+    found = [(start, use, said) for use, pattern in _PATTERNS for start, said in said_as_purpose(pattern, text)]
+    return tuple(FormulaUse(use=use, said=said) for _, use, said in sorted(found))
 
 
 def formula_use(text: str) -> FormulaUse | None:

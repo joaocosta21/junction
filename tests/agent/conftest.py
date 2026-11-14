@@ -15,10 +15,12 @@ from typing import Any
 
 import pytest
 
+from tta.agent.brands import Brands
 from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TranscribeCall, TurnCall
 from tta.agent.outage import PROCESS_OUTAGE
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
+from tta.agent.rules_model import brands_for
 from tta.agent.runner import ModelAgentRunner
 from tta.api.wiring import Parts, build_parts
 from tta.catalog import ProductCatalog
@@ -116,6 +118,12 @@ def catalog() -> ProductCatalog:
 @pytest.fixture(scope="session")
 def product_type_keys(catalog: ProductCatalog) -> tuple[str, ...]:
     return catalog.product_type_keys()
+
+
+@pytest.fixture(scope="session")
+def brands(catalog: ProductCatalog, product_type_keys: tuple[str, ...]) -> Brands:
+    """The brands of the catalog a request may name (decision B39), as the gateway builds them."""
+    return brands_for(catalog.products, product_type_keys)
 
 
 @pytest.fixture

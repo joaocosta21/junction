@@ -10,6 +10,9 @@ what was not read and the question to put; none of them changes a reading.
   right after it (a day is read only as the day the goods are needed by); "does not matter";
 - words that change how much is needed without giving the number: "the same again", "twice", "each", "per day";
 - a deadline the calendar rule (`tta.agent.days`) does not know: "within", "week", "weekend", "days", "month";
+- a day that cannot be read (review finding S4): a wording shaped like a date that is no date ("31 February"), a
+  time of day ("before noon", "8 am": a delivery is asked for by date), "next Friday" said while this week still
+  holds a Friday;
 - a word that names an allergen, or speaks of an allergy, outside an exclusion the rules read and outside the
   product's own name ("soy drink", "peanut butter");
 - a word right after the product type that the rules do not know ("milk chocolate");
@@ -24,7 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from tta.agent.days import date_spans, named_dates
+from tta.agent.days import date_spans, impossible_dates, is_month, named_dates, next_weekday_in_doubt
 from tta.agent.textcheck import ALLERGY_WORD, OUTER_PACK_WORDS, PORTION_WORDS, allergen_mentions
 from tta.agent.unread import NotReadByRules
 from tta.agent.wording import Span, claims_in, labels_in, preferences_in
@@ -41,6 +44,11 @@ _NO_MATTER = re.compile(
 _DEADLINE = re.compile(
     r"\bwithin\b|\bweeks?\b|\bweekends?\b|\bdays\b|\bfortnight\b|\bmonths?\b|\bend of\b|\bhours?\b|\bago\b"
     r"|\bviik\w*|\bveck\w*|\bkuukau\w*"
+)
+# A time of day: the request carries a date and no hour.
+_TIME_OF_DAY = re.compile(
+    r"\b(?:(?:before|by|at|around|after)\s+)?(?:noon|midday|midnight|(?:the\s+)?(?:morning|afternoon|evening)|tonight"
+    r"|o\W?clock)\b|\b\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)(?!\w)|\b\d{1,2}:\d{2}\b"
 )
 
 _CHANGED_AMOUNT = re.compile(
@@ -60,6 +68,22 @@ CHANGED_AMOUNT = 'it says "{said}", which changes how much is needed in a way th
 ASK_THE_TOTAL = "What is the whole quantity for this one delivery? Write it as one number with its unit, per product."
 UNREAD_DEADLINE = 'it gives a deadline the rules do not read ("{said}")'
 ASK_A_DAY = 'By which day are the goods needed? Name a weekday or a date, for example "by Monday" or "by 20.11.".'
+NOT_A_DATE = 'it names a day that is not a date ("{said}")'
+ASK_WHICH_DAY = '"{said}" is not a date: which day is meant? Write it as "by Monday" or "by 20.11.".'
+TIME_OF_DAY = 'it gives a time of day ("{said}"), and the rules read the day the goods are needed by, not the hour'
+ASK_THE_DAY_ONLY = (
+    'By which day are the goods needed? "{said}" was not read: a request carries a date and no time of day. Write '
+    "the day only, and agree the hour with Valio Aimo another way."
+)
+_DEADLINE_WORDS = frozenset({"by", "before", "until", "till"})
+_MAY_STAND_BEFORE_A_DAY = frozenset({"the", "next", "this", "latest", "at", "end"})
+NO_DAY_AFTER = 'it says "{said}", which names no day the rules read'
+ASK_A_DAY_AFTER = (
+    'By which day are the goods needed? "{said}" names no day: write a weekday or a date, for example "by Monday" '
+    'or "by 20.11.".'
+)
+NEXT_IN_DOUBT = 'it says "{said}", which can be {first} or {second}'
+ASK_WHICH_OF_TWO = '"{said}": {first} or {second}? Write the date, for example "by {example}".'
 ALLERGEN_LEFT_UNSAID = (
     'it names "{word}" in a wording the rules do not read, and an allergen is never left out by a guess'
 )
@@ -154,6 +178,43 @@ def refuse_an_unread_deadline(seen: Seen) -> None:
     found = _DEADLINE.search(seen.folded)
     if found is not None:
         raise NotReadByRules(UNREAD_DEADLINE.format(said=found.group()), ASK_A_DAY)
+
+
+def refuse_a_day_that_cannot_be_read(seen: Seen) -> None:
+    """"31 February", "before noon Monday", "next Friday" on a Thursday: asked about, never read as no day, as
+    another hour or as a guess."""
+    for said in impossible_dates(seen.folded, seen.today):
+        raise NotReadByRules(NOT_A_DATE.format(said=said), ASK_WHICH_DAY.format(said=said))
+    hour = _TIME_OF_DAY.search(seen.folded)
+    if hour is not None:
+        raise NotReadByRules(TIME_OF_DAY.format(said=hour.group()), ASK_THE_DAY_ONLY.format(said=hour.group()))
+    doubt = next_weekday_in_doubt(seen.folded, seen.today)
+    if doubt is not None:
+        said, first, second = doubt
+        days = {"said": said, "first": f"{first:%A} {first.day} {first:%B}", "second": f"{second:%A} {second.day} "
+                f"{second:%B}"}
+        raise NotReadByRules(NEXT_IN_DOUBT.format(**days),
+                             ASK_WHICH_OF_TWO.format(**days, example=f"{first.day}.{first.month}."))
+
+
+def refuse_a_deadline_with_no_day(seen: Seen, read: frozenset[int]) -> None:
+    """"By Mondy", "by courier": "by", "before" or "until" followed by a word that is no day (review finding P1).
+    Digits after it are a date or a number, which other checks read or ask about; a word of `read` already says
+    something else ("cream by Arla")."""
+    for index, word in enumerate(seen.words):
+        if word not in _DEADLINE_WORDS or index in seen.excluding:
+            continue
+        after = index + 1
+        while after < len(seen.words) and seen.words[after] in _MAY_STAND_BEFORE_A_DAY:
+            after += 1
+        end = seen.starts[after - 1] + len(seen.words[after - 1])
+        rest = seen.folded[end:].lstrip()
+        if after >= len(seen.words) or not rest or not rest[0].isalpha() or after in read:
+            continue  # nothing, digits or a sign follows
+        named = seen.words[after]
+        if not named_dates(f"{word} {named}", seen.today) and not is_month(named):
+            said = seen.said(index, seen.starts[after] + len(named))
+            raise NotReadByRules(NO_DAY_AFTER.format(said=said), ASK_A_DAY_AFTER.format(said=said))
 
 
 def refuse_a_changed_amount(seen: Seen) -> None:

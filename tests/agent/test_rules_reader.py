@@ -94,7 +94,10 @@ def test_the_briefs_own_sentence_reads_as_its_recording_does(
     assert (line.exclude_allergens, line.name_terms, reading.request.needed_by) == ((), (), MONDAY)
     assert reading.request.prefer is Preference.PRICE and reading.request.require_confirmed is False
     assert (reading.source, reading.model, reading.sentence) == (
-        ReadingSource.RULE_BASED, RULE_BASED_MODEL_ID, "Read by fixed rules, not by a model."
+        ReadingSource.RULE_BASED, RULE_BASED_MODEL_ID,
+        # how the comma of "1,000" was read is said since the review of 14 Nov 2026 (finding P6)
+        'Read by fixed rules, not by a model. "1,000" is read as 1000 (a comma before three digits groups thousands '
+        'here); for 1 write "1".',
     )
     assert counting.extracts == 1  # the proposal passed the text check at once
 

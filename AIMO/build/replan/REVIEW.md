@@ -8,8 +8,8 @@ Three reviewers read `overnight-build..HEAD` at high effort with the question "w
 |---|---|---|---|---|---|---|
 | S1 | HIGH | `evidence/matching.py:119` | A product with no brand passes the "page shows the brand" check for any page. 3,083 of 17,546 products have no brand, and all of them also have no allergen statement (whole catalog) | confirmed | FX-EV | open |
 | S2 | HIGH | `evidence/reading.py:44`, `alignment.py:177` | Page terms over 80 characters or past 20 are dropped without a trace; the allergen is then answered "the page does not name it" | confirmed | FX-EV | open |
-| S3 | HIGH | `agent/rules_reader.py:166` | A trailing sentence part with no quantity is dropped without a question: "500 kg of butter, unsalted", "200 litres of milk, cancel the order" | confirmed | L1-3 | open |
-| S4 | HIGH | `agent/days.py:114` | A date that cannot exist ("31 February") makes the request undated; "before noon" is dropped; "next Friday" is guessed | confirmed | L1-3 | open |
+| S3 | HIGH | `agent/rules_reader.py:166` | A trailing sentence part with no quantity is dropped without a question: "500 kg of butter, unsalted", "200 litres of milk, cancel the order" | confirmed | L1-3 | fixed (L1-3) |
+| S4 | HIGH | `agent/days.py:114` | A date that cannot exist ("31 February") makes the request undated; "before noon" is dropped; "next Friday" is guessed | confirmed | L1-3 | fixed (L1-3) |
 | S5 | MED | `api/suggesting.py:151` | A failure to compute suggestions leaves an offer note and a log line but no audit event; a supplier failure leaves no log line | read | L4-2d | open |
 | S6 | MED | `api/service.py`, `suggesting.py:215` | An accepted suggestion in live mode is ignored without a note; a failed lookup says "no earlier offer showed it" | read | L4-2d | open |
 | S7 | MED | `api/wiring.py:147`, `store/postgres.py:373`, `api/health.py:105` | The fall-back from PostgreSQL to SQLite hides the cause, and applies in prod, where orders and the trail would be lost at restart | read | L4-2d | open |
@@ -34,13 +34,13 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 
 | # | Sev | Where | What | Basis | Sent to | State |
 |---|---|---|---|---|---|---|
-| P1 | HIGH | `agent/days.py` | A deadline that does not resolve is dropped: "by 31.2.", "by 32.11.", "by 2026-02-30", "by Mon", "by noon" are read with no date and no question (extends S4) | confirmed | L1-3 | open |
+| P1 | HIGH | `agent/days.py` | A deadline that does not resolve is dropped: "by 31.2.", "by 32.11.", "by 2026-02-30", "by Mon", "by noon" are read with no date and no question (extends S4) | confirmed | L1-3 | fixed (L1-3) |
 | P2 | HIGH | `offers/options.py:338,375`, `planning.py:86` | An option with a substitute whose stock is not confirmed is titled and summarised as a full fill: bakery, `469363`, 1,000 L: "the 1,000 L asked for, for €1,574.48" while 616 L are not confirmed; only the rule sentence says so | confirmed | FX-K | open |
 | P3 | HIGH | `suggestions/guard.py:163` | Under "declared only" a product with no allergen statement passes the suggestion guard, although the offer labels it "allergen not ruled out". Shipped profiles are all strict; reachable through a request line | confirmed | FX-K | open |
 | P4 | MED | `ui/shop_api.py:219-317` | The shop's routes are `async` and call the synchronous service directly: one slow call blocks every visitor | read | L4-2d | open |
 | P5 | MED | `orders/service.py:77-97` | The order book's lock is held across the web-evidence lookup | read | FX-O | fixed (FX-O) |
-| P6 | MED | `agent/quantity.py:58` | "1,250 kg" is read as 1,250 without a word; a Finnish buyer may mean 1.25. Decided: keep the thousands reading and say it in the reading; a comma before one or two digits is a decimal | read | L1-3 | open |
-| P7 | MED | `agent/days.py` | "before Friday" is read as "by Friday". Decided: read as by Thursday, and say so | read | L1-3 | open |
+| P6 | MED | `agent/quantity.py:58` | "1,250 kg" is read as 1,250 without a word; a Finnish buyer may mean 1.25. Decided: keep the thousands reading and say it in the reading; a comma before one or two digits is a decimal | read | L1-3 | fixed (L1-3) |
+| P7 | MED | `agent/days.py` | "before Friday" is read as "by Friday". Decided: read as by Thursday, and say so | read | L1-3 | fixed (L1-3) |
 | P8 | LOW | `api/wiring.py:133` | The evidence finder's HTTP client is not closed at shutdown | read | L4-2d | open |
 | P9 | LOW | `policy/human_approval.py:111` | When only F-10 remains, every role the old approval named must still sign, against the docstring | read | FX-O | fixed (FX-O) |
 | P10 | LOW | `suggestions/alternatives.py:126` | The cheaper and larger-pack kinds rely entirely on the guard (fine once P3 is fixed) | read | FX-K | open |

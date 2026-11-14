@@ -356,4 +356,6 @@ Ranked by what each costs against the judging criteria. "Smallest change" is the
 - *Counted from the files:* 13 MCP tool names in `src/tta/api/mcp_surface.py`; 32 product types in `product_types.yaml`; the rules and their words from `rules.yaml` and `human_approval.py`; the four profiles' values from `src/tta/policy/profiles/`.
 - Tests named "not re-run" exist at this commit and were not executed for this refresh.
 
-Result of the 36 files: PENDING.
+Result of the 36 files, with the copy's own code on the path: `388 passed in 154.74s`.
+
+One later commit, `da6a96b` (fixes to the order book's lock, to who completes an approval that only F-10 holds, and to which renewals count as history), landed after these checks and is not covered by them. The wiring of suggestions (item 10) was still not committed at that point.

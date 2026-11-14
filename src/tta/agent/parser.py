@@ -33,6 +33,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from tta.agent.brands import NO_BRANDS, Brands
 from tta.agent.days import helsinki_date
 from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
 from tta.agent.labels import reading_sentence
@@ -44,7 +45,7 @@ from tta.agent.purpose import formula_matters
 from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES, checked_keys, proposal_schema
 from tta.agent.textcheck import TextFacts
 from tta.allergens import describe, normalise_code, parent_of
-from tta.contracts.agent import Reading
+from tta.contracts.agent import Reading, ReadingSource
 from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Preference, Unit
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import Clock
@@ -284,12 +285,14 @@ class ModelRequestParser:
         clock: Clock,
         product_type_keys: Sequence[str],
         profile_strictness: Callable[[str], AllergenStrictness | None],
+        brands: Brands = NO_BRANDS,
     ) -> None:
         self._model = model
         self._clock = clock
         self._keys = checked_keys(product_type_keys)
         self._schema = proposal_schema(self._keys)
         self._profile_strictness = profile_strictness
+        self._brands = brands  # the brands the reading's sentence names as required (`tta.agent.notes`)
 
     @property
     def model_id(self) -> str:
@@ -316,7 +319,9 @@ class ModelRequestParser:
             sentence = f"{sentence} {strict_assumed(read.read_as_strict)}"
         return Reading(
             request=read.request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
-            sentence=with_notes(sentence, read.request, words),
+            sentence=with_notes(
+                sentence, read.request, words, self._brands, by_rules=answer.source is ReadingSource.RULE_BASED
+            ),
         )
 
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:

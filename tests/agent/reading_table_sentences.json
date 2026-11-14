@@ -1,5 +1,5 @@
 {
-  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. A sentence that starts with [ward] is read for the allergy ward; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
+  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. review_s3_s4: the sentences of the review of the whole diff of 14 Nov 2026 (AIMO/build/replan/REVIEW.md, findings S3 and S4). review_p: the sentences of the Python review of the same day (findings P1, P6 and P7). l1_3: the sentences of lane L1-3 (decisions B39 and B40, and the place that is not a use). A sentence that starts with [ward] is read for the allergy ward; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
   "brief": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.",
   "review_40": [
     "1,000 litres of milk by Monday",
@@ -60,7 +60,38 @@
     "200 litraa laktoositonta maitoa maanantaiksi",
     "200 litres of oat drink by Monday, no gluten, no nuts"
   ],
-  "read_wrong": {
-    "24 litres of Arla lactose-free whipping cream by Wednesday": "the brand \"Arla\" is left out without a word: the rules take only the one word right before the product type, so any brand of lactose-free whipping cream is offered"
-  }
+  "review_s3_s4": [
+    "500 kg of butter, unsalted",
+    "500 kg of butter. Salted please.",
+    "200 litres of milk, cancel the order",
+    "200 litres of milk; cancel it",
+    "200 litres of milk, same as last time",
+    "200 litres of milk, half of it semi-skimmed",
+    "200 litres of milk, whole",
+    "200 litres of milk, urgent",
+    "200 litres of milk, ignore my last order",
+    "200 litres of milk by 31 February",
+    "200 litres of milk by 31.2.",
+    "200 litres of milk before noon Monday",
+    "200 litres of milk by next Friday"
+  ],
+  "l1_3": [
+    "24 litres of Arla Pro whipping cream by Wednesday",
+    "20 litres of cream for whipping",
+    "20 litres of cream for cooking",
+    "10 kg of butter for baking",
+    "10 litres of cream to the dessert kitchen",
+    "10 litres of cream for desserts"
+  ],
+  "review_p": [
+    "100 litres of milk by 32.11.",
+    "100 litres of milk by 2026-02-30",
+    "100 litres of milk by Mon",
+    "100 litres of milk by noon",
+    "100 litres of milk before Friday",
+    "1,250 kg of butter",
+    "1,5 litres of cream",
+    "0,5 l of cream"
+  ],
+  "read_wrong": {}
 }

@@ -6,6 +6,9 @@ guessed. Measured in replay on 14 Nov 2026 (the review's runs): "0.100 l" was re
 - A comma or a space before three digits groups thousands: "1,000", "1 000". A dot does so only in a longer
   number ("1.000.000"). One dot before exactly three digits can be read two ways ("1.250 kg": 1,250 or 1.25)
   and is asked about.
+- A comma is never read silently (review finding P6): a Finnish buyer's "1,250" means 1.25. The reading says how
+  it was read (`comma_note`): before exactly three digits as thousands (the brief's own "1,000 litres"), before
+  one or two digits as a decimal comma, as Finnish writes it ("1,5 l").
 - A number that starts with 0 is a decimal: "0.100" and "0,250" are never thousands.
 - Digits joined by a space right after a word that is not a plain order word ("Ward 4 200 litres") may be two
   numbers, and are asked about. A group of "000" can only be thousands ("milk 1 000 l").
@@ -17,7 +20,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from tta.agent.textcheck import SEPARATOR, SMALL_UNITS, SPACES, all_thousands
+from tta.agent.textcheck import DIGIT_RUN, SEPARATOR, SMALL_UNITS, SPACES, all_thousands
 from tta.agent.unread import NotReadByRules
 from tta.contracts.common import Unit
 from tta.contracts.request import MAX_QUANTITY, MAX_QUANTITY_DECIMALS
@@ -35,6 +38,11 @@ OUT_OF_RANGE = "line {line} asks for a quantity above zero, at most {most:,} wit
 ASK_IN_RANGE = "What quantity is needed? Write a number above zero in litres, kilograms or packs."
 SPLIT_NUMBER = 'it gives "{run}" right after "{word}", which can be one number or two'
 ASK_SPLIT = "Is the quantity {joined:,}, or {last}? Write it without a space, for example {joined}."
+COMMA_IS_THOUSANDS = (
+    '"{run}" is read as {value} (a comma before three digits groups thousands here); for {decimal} write '
+    '"{decimal}".'
+)
+COMMA_IS_DECIMAL = '"{run}" is read as {value} (a comma before one or two digits is a decimal comma).'
 SMALL_UNIT = 'it gives a quantity in "{word}", a unit the rules do not read ("{said}")'
 ASK_CONVERTED = '"{said}" is {converted} {unit}. Is that the quantity? Then write "{converted} {unit}".'
 ASK_LARGER_UNIT = "What is the quantity in litres, kilograms or packs?"
@@ -78,6 +86,31 @@ def _two_readings(digits: str, groups: list[str], line: int) -> NotReadByRules:
         thousands=thousands, decimal=decimal, plain=thousands, comma=decimal.replace(".", ",")
     )
     return NotReadByRules(TWO_READINGS.format(line=line, run=digits), ask)
+
+
+def comma_readings(text: str) -> list[tuple[str, Decimal, bool]]:
+    """Each number of the text written with one comma, as written, with the number it is read as and whether the
+    comma was read as grouping thousands ("1,250": 1250) or as a decimal comma ("1,5": 1.5; "0,250": 0.25). A
+    number the rules do not read is left out."""
+    found = []
+    for run in DIGIT_RUN.findall(text):
+        if SEPARATOR.findall(run) != [","]:
+            continue
+        whole, rest = run.split(",")
+        try:
+            value = quantity(run, 1)
+        except NotReadByRules:
+            continue
+        found.append((run, value, len(rest) == THOUSANDS_DIGITS and not whole.startswith("0")))
+    return found
+
+
+def comma_note(run: str, value: Decimal, thousands: bool) -> str:
+    """The sentence that says how a comma was read (review finding P6): never silently."""
+    if not thousands:
+        return COMMA_IS_DECIMAL.format(run=run, value=_plain(value))
+    decimal = _plain(Decimal(run.replace(",", ".")))
+    return COMMA_IS_THOUSANDS.format(run=run, value=_plain(value), decimal=decimal)
 
 
 def refuse_a_split_number(run: str, word_before: str | None, plain_words: frozenset[str]) -> None:
