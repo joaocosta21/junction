@@ -25,7 +25,7 @@ from tta.contracts.errors import NotAuthorised
 from tta.contracts.policy import BuyerProfile
 from tta.policy import PROFILES_DIR, RULES_PATH, PolicyLoadError, RulePolicyEngine, load_profile, load_profiles
 
-FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08"})
+FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09"})
 
 
 def test_the_two_shipped_profiles_load(engine: RulePolicyEngine) -> None:

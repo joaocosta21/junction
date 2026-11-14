@@ -1,6 +1,6 @@
 """Catalog search (SPEC section 3, steps 1 to 4). It returns candidates; others judge them.
 
-Every filter given must hold: product type, explicit ids, category prefix, claims, name terms.
+Every filter given must hold: product type, explicit ids, category prefix, claims, labels, name terms.
 A product type is its categories, its claims, its name terms and its exclude terms: a product whose
 name has an exclude term is not of the type ("milk" leaves out sour milk).
 A name term may be in the English or in the Finnish name (`tta.catalog.text`). With name terms and
@@ -37,6 +37,7 @@ class SearchIndex:
     products: tuple[Product, ...]
     names: Mapping[str, ProductNames]
     claim_codes: frozenset[str]
+    label_codes: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,20 +52,26 @@ def build_index(products: Iterable[Product]) -> SearchIndex:
         products=active,
         names={product.id: names_of(product) for product in active},
         claim_codes=frozenset(claim for product in active for claim in product.nutritional_claims),
+        label_codes=frozenset(label for product in active for label in product.labels),
     )
 
 
 def search(index: SearchIndex, product_types: Mapping[str, ProductType], query: ProductQuery) -> SearchResult:
     terms = _terms(query.name_terms)
     claims = _unique(claim.strip().upper() for claim in query.required_claims)
+    labels = _unique(label.strip().upper() for label in query.required_labels)
     prefix = (query.category_prefix or "").strip()
     product_type = _product_type(product_types, query.product_type)
-    if not (product_type or query.product_ids or prefix or claims or terms):
+    if not (product_type or query.product_ids or prefix or claims or labels or terms):
         raise InvalidRequest(
-            "A search needs at least one of product_type, product_ids, name_terms, required_claims or category_prefix."
+            "A search needs at least one of product_type, product_ids, name_terms, required_claims, required_labels "
+            "or category_prefix."
         )
-    notes = [*_unknown_id_notes(index, query.product_ids), *_unknown_claim_notes(index, claims)]
-    scope = _scope(index, product_type, query.product_ids, prefix, claims)
+    notes = [
+        *_unknown_id_notes(index, query.product_ids), *_unknown_claim_notes(index, claims),
+        *_unknown_label_notes(index, labels),
+    ]
+    scope = _scope(index, product_type, query.product_ids, prefix, (claims, labels))
     if not scope or not terms:
         return _result(scope, query.limit, notes)
     unmatched = tuple(term.text for term in terms if not any(index.names[p.id].has(term.key) for p in scope))
@@ -105,14 +112,16 @@ def _unique(values: Iterable[str]) -> tuple[str, ...]:
 
 def _scope(
     index: SearchIndex, product_type: ProductType | None, product_ids: Sequence[str], prefix: str,
-    claims: Sequence[str],
+    claims_and_labels: tuple[Sequence[str], Sequence[str]],
 ) -> list[Product]:
     """The products that pass every filter except the name terms of the query."""
+    claims, labels = claims_and_labels
     wanted_ids = frozenset(product_ids)
     type_claims = product_type.claims if product_type else ()
     type_terms = tuple(normalise(term) for term in product_type.name_terms) if product_type else ()
     type_excluded = tuple(normalise(term) for term in product_type.exclude_terms) if product_type else ()
     required = frozenset((*claims, *type_claims))
+    required_labels = frozenset(labels)
     return [
         product
         for product in index.products
@@ -120,6 +129,7 @@ def _scope(
         and (product_type is None or product.category in product_type.categories)
         and product.category.startswith(prefix)
         and required.issubset(product.nutritional_claims)
+        and required_labels.issubset(product.labels)
         and (not type_terms or index.names[product.id].has_any(type_terms))
         and not index.names[product.id].has_any(type_excluded)
     ]
@@ -170,6 +180,16 @@ def _unknown_claim_notes(index: SearchIndex, claims: Sequence[str]) -> list[str]
     return [
         f"No product carries the claim {', '.join(unknown)}. "
         f"The claim codes in the catalog are: {', '.join(sorted(index.claim_codes))}."
+    ]
+
+
+def _unknown_label_notes(index: SearchIndex, labels: Sequence[str]) -> list[str]:
+    unknown = [label for label in labels if label not in index.label_codes]
+    if not unknown:
+        return []
+    return [
+        f"No product carries the label {', '.join(unknown)}. "
+        f"The certificate labels in the catalog are: {', '.join(sorted(index.label_codes))}."
     ]
 
 

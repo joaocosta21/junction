@@ -48,6 +48,7 @@
       {%- if line.product_ids %} of product {{ line.product_ids|join(", ") }}{% endif %}
       {%- if line.name_terms %}, name contains {{ line.name_terms|join(", ") }}{% endif %}
       {%- if line.required_claims %}, with claim {{ line.required_claims|join(", ") }}{% endif %}
+      {%- if line.required_labels %}, with certificate label {{ line.required_labels|join(", ") }}{% endif %}
       {%- if line.exclude_allergens %}, excluding allergens {{ line.exclude_allergens|join(", ") }}{% if line.allergen_strictness %} ({{ line.allergen_strictness|words|lower }}){% endif %}{% endif -%}
       , pack: {{ line.pack|words|lower }}.</span>
     </li>
@@ -55,6 +56,7 @@
   </ul>
   <p>Needed by: <strong>{% if dated %}{{ offer.request.needed_by|day }}{% else %}no date given{% endif %}</strong>
   · Confirmed data only: <strong>{{ "yes" if offer.request.require_confirmed else "no" }}</strong>
+  · Ranked by: <strong>{{ offer.request.prefer|words }}</strong>
   · Products looked up: <strong>{{ offer.candidates_considered }}</strong></p>
   {% set record = result.record %}
   <ul class="how">
@@ -92,6 +94,10 @@
       {% for part in option.coverage %}Covers {{ part.covered|quantity }} of {{ part.requested|quantity }} {{ part.unit.value }} ({{ part.fill_ratio|percent }}){% if part.missing > 0 %}, {{ part.missing|quantity }} {{ part.unit.value }} missing{% endif %}. {% endfor %}
       {% if option.valid_until %}Order by {{ option.valid_until|moment }}.{% endif %}
     </p>
+    {% if option.comparison %}
+    <h4>Compared with the other options</h4>
+    <p class="comparison">{{ option.comparison.sentence }}</p>
+    {% endif %}
 
     <h4>Products, and what Valio Aimo's data confirms</h4>
     <ul class="lines">
@@ -99,6 +105,10 @@
       <li class="line">
         <p class="line-head"><strong>{{ line.quantity|quantity }} × {{ line.name }}</strong> <span class="id">({{ line.product_id }})</span></p>
         <p class="line-price">{{ line.unit_net_price|unit_price }} per {{ line.sales_unit }} · {{ line.net|money }} before tax</p>
+        {# Unknown is a word of its own: a missing value is never 0 or 100% (task SUST-1). #}
+        <p class="line-price line-facts">Delivery reliability: {% if line.delivery_reliability is not none %}{{ line.delivery_reliability|percent }}{% else %}unknown{% endif %}
+          · Carbon footprint: {% if line.carbon_kg_co2e_per_kg is not none %}{{ line.carbon_kg_co2e_per_kg|quantity }} kg CO2e per kg{% else %}unknown{% endif %}
+          · Certificate labels: {% for label in line.labels %}<code>{{ label }}</code>{% if not loop.last %}, {% endif %}{% else %}none stated{% endfor %}</p>
         {% if line.substitute %}
         <p class="substitute">{{ mark("warn", "Substitute") }} In place of {{ line.substitute.original_name or "the product asked for" }} ({{ line.substitute.original_id }}). {{ line.substitute.gives_up }}</p>
         {% endif %}

@@ -248,10 +248,13 @@ def test_what_the_agent_refuses_for_free_text_is_the_callers_error() -> None:
             run_request(StubService(run_agent=error), AGENT, "free text", None)
 
 
-def test_the_examples_are_the_three_scenarios_and_the_dietitian_case_each_with_a_typed_request() -> None:
-    assert [example.key for example in EXAMPLES] == ["scenario-1", "scenario-2", "scenario-3", "scenario-4"]
+def test_the_examples_are_the_three_scenarios_the_dietitian_case_and_a_preference_each_with_a_typed_request() -> None:
+    assert [example.key for example in EXAMPLES] == [
+        "scenario-1", "scenario-2", "scenario-3", "scenario-4", "scenario-5",
+    ]
     assert [example.agent_id for example in EXAMPLES] == [
         "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen", "agent:hotel-kitchen",
+        "agent:hotel-kitchen",
     ]
     for example in EXAMPLES:
         assert example.request.lines[0].text == example.text

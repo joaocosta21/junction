@@ -38,6 +38,7 @@ from tta.evidence import EvidenceFinder, build_evidence_finder
 from tta.offers import OfferDeps, OfferService
 from tta.orders import OrderBookService, day_committed_net_eur
 from tta.policy import RulePolicyEngine
+from tta.standing import history_lookup
 from tta.store import SqliteStore, open_store
 from tta.store.postgres import open_postgres_store
 from tta.valio import ReplayGateway, ValioClient
@@ -161,6 +162,7 @@ def wire(
     offers = OfferService(OfferDeps(
         catalog=catalog, gateway=gateway, policy=policy, clock=clock,
         day_spend=lambda profile_id: day_committed_net_eur(store, clock, profile_id),
+        standing_history=history_lookup(store),  # rule P-08 (task STAND-1)
     ))
     orders = OrderBookService(
         store=store, policy=policy, revalidator=offers, audit=audit, clock=clock, evidence=evidence

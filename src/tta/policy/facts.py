@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime
-from decimal import Decimal
 
 from tta.contracts.allergen import AllergenFinding
 from tta.contracts.availability import RevalidationChange, RevalidationResult
@@ -21,6 +19,7 @@ from tta.contracts.common import (
     AvailabilityState,
     ClaimName,
     ClaimStatus,
+    ConstraintKind,
     SubstitutionScope,
     round_money,
 )
@@ -36,19 +35,10 @@ from tta.policy.claims import (
     unconfirmed_reasons,
 )
 from tta.policy.coverage import coverage_by_line, least_covered
+from tta.policy.reading import Missing, Reading
+from tta.policy.standing_facts import STANDING_FACTS
 from tta.policy.text import format_datetime, join_words, plain_name, unique
 
-
-@dataclass(frozen=True)
-class Missing:
-    """A fact that could not be read, and why. `known` holds the part of a list that is known."""
-
-    reason: str
-    known: tuple[str, ...] = ()
-
-
-FactValue = str | bool | Decimal | datetime | tuple[str, ...]
-Reading = FactValue | Missing
 ScopeTable = Mapping[SubstitutionScope, tuple[str, ...]]
 
 # How close a substitute is to the product it replaces (rules.yaml, substitution_scopes).
@@ -96,6 +86,11 @@ def _scopes_allowed(profile: BuyerProfile, table: ScopeTable) -> Reading:
     return tuple(table.get(profile.substitution_without_approval, ()))
 
 
+def _drift_ratio(profile: BuyerProfile, _: ScopeTable) -> Reading:
+    ratio = profile.standing_order_drift_ratio
+    return Missing("the profile sets no drift tolerance for standing orders") if ratio is None else ratio
+
+
 PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.profile_id": lambda profile, _: profile.profile_id,
     "profile.auto_order_enabled": lambda profile, _: profile.auto_order_enabled,
@@ -108,6 +103,7 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.substitution_scopes_allowed": _scopes_allowed,
     "profile.variable_weight": lambda profile, _: profile.variable_weight.value,
     "profile.deposits": lambda profile, _: profile.deposits.value,
+    "profile.standing_order_drift_ratio": _drift_ratio,
 }
 
 
@@ -229,6 +225,7 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "revalidation.ok": _revalidation_ok,
     "revalidation.expired": _revalidation_expired,
     "revalidation.changes": _revalidation_changes,
+    **STANDING_FACTS,  # rule P-08: a renewal of a standing order (task STAND-1)
 }
 
 
@@ -356,6 +353,34 @@ def _variable_weight(_: OrderScope, line: OfferLine) -> Reading:
     return line.variable_weight
 
 
+# Copied from the request line onto the offer line (task MENU-1): the recipe's product type and its role.
+STAND_IN_FIELDS = ("stands_in_for", "stands_in_role")
+OTHER_PRODUCT_TYPE = "another product type"
+
+
+def _stand_in_field(line: OfferLine, name: str) -> str:
+    value = getattr(line, name, None)
+    return plain_name(value.replace("_", " ")) if isinstance(value, str) else ""
+
+
+def _line_product_type(scope: OrderScope, line: OfferLine) -> str:
+    """The product type the line's request line asked for, from the option's constraint checks."""
+    for check in scope.option.constraint_checks:
+        if check.kind is ConstraintKind.PRODUCT_TYPE and check.request_line_index == line.request_line_index:
+            return plain_name(check.subject.replace("_", " "))
+    return OTHER_PRODUCT_TYPE
+
+
+def _stands_in_for(scope: OrderScope, line: OfferLine) -> Reading:
+    """Rule F-09 (task MENU-1): `yoghurt in place of the recipe's quark, whose role is ...`; empty when the line
+    stands in for nothing. Product types and the role are text of the request, so they are read as data."""
+    recipe_type, role = (_stand_in_field(line, name) for name in STAND_IN_FIELDS)
+    if not recipe_type:
+        return ""
+    stands_in = f"{_line_product_type(scope, line)} in place of the recipe's {recipe_type}"
+    return f"{stands_in}, whose role is {role}" if role else stands_in
+
+
 LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.product_id": lambda _, line: line.product_id,
     "line.name": lambda _, line: plain_name(line.name),
@@ -376,6 +401,7 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.substitute_claims_lost": _substitute_claims_lost,
     "line.variable_weight": _variable_weight,
     "line.has_deposits": lambda _, line: line.has_deposits,
+    "line.stands_in_for": _stands_in_for,
 }
 
 LINE_FACT_PREFIX = "line."

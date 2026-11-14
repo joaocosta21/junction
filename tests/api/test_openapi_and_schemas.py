@@ -19,12 +19,14 @@ from tta.contracts.agent import AgentRun, ParseRequestBody
 from tta.contracts.audit import AuditView
 from tta.contracts.common import Verdict
 from tta.contracts.errors import PROBLEM_CONTENT_TYPE, ProblemDetails
+from tta.contracts.menu import MenuRequest
 from tta.contracts.offer import Offer, SubstituteQuery, SubstituteResult
 from tta.contracts.order import Approval, DecisionRequest, Order, PlaceOrderRequest
 from tta.contracts.policy import Authority
 from tta.contracts.product import Product, SearchResult
 from tta.contracts.request import ProductQuery, PurchaseRequest
 from tta.contracts.schemas import all_models
+from tta.contracts.standing import NewStandingOrder, RenewStandingOrder
 
 # SPEC section 2, plus the order list the pages need (task note) and the health check.
 ROUTES = {
@@ -43,6 +45,12 @@ ROUTES = {
     ("post", "/v1/requests/parse"): "parse_request",
     ("post", "/v1/requests/read-image"): "read_image",  # task T18: a multipart form, tested in test_read_image.py
     ("post", "/v1/agent/run"): "run_agent",
+    ("get", "/v1/menus/recipes"): "list_recipes",  # task MENU-1
+    ("post", "/v1/menus/plan"): "plan_menu",
+    ("post", "/v1/standing-orders"): "create_standing_order",  # task STAND-1
+    ("get", "/v1/standing-orders"): "list_standing_orders",
+    ("get", "/v1/standing-orders/{standing_order_id}"): "get_standing_order",
+    ("post", "/v1/standing-orders/{standing_order_id}/renew"): "renew_standing_order",
     ("get", "/v1/schemas"): "get_schemas",
     ("get", "/healthz"): "get_health",
 }
@@ -51,6 +59,9 @@ REQUEST_MODELS: dict[str, Any] = {
     "search_products": ProductQuery,
     "find_substitutes": SubstituteQuery,
     "create_offer": PurchaseRequest,
+    "plan_menu": MenuRequest,
+    "create_standing_order": NewStandingOrder,
+    "renew_standing_order": RenewStandingOrder,
     "place_order": PlaceOrderRequest,
     "decide_approval": DecisionRequest,
     "parse_request": ParseRequestBody,

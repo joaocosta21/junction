@@ -2,7 +2,7 @@
 
 Scores on Core 3 of the brief, "what the agent may decide on its own, and what must go to a human for sign-off",
 on the 20% "autonomy and controls" and on the 30% demo. Each setting is shown with the rule it drives (P-00 to
-P-07), in this kitchen's own values, and below the form the fixed rules F-01 to F-08 that hold whatever is set.
+P-08), in this kitchen's own values, and below the form the fixed rules F-01 to F-08 that hold whatever is set.
 
 The settings are checked exactly as a profile file is (`tta.api.sandbox.kitchen_profile`): a value out of range,
 an exclusion without a strictness, a setting that names a fixed rule or that the page does not have is refused,
@@ -39,14 +39,17 @@ FORM_ONLY = ("csrf",)  # fields of the form that are not settings
 CHECKBOXES = ("auto_order_enabled", "require_confirmed")  # a box left unticked is not sent at all
 LISTS = ("excluded_allergens",)
 PERCENT_SETTING = "min_fill_ratio"  # a ratio in the profile, a percentage on the page
+DRIFT_SETTING = "standing_order_drift_ratio"  # a ratio too; left empty it is not set (task STAND-1, rule P-08)
+PERCENT_SETTINGS = (PERCENT_SETTING, DRIFT_SETTING)
+OPTIONAL_SETTINGS = ("allergen_strictness", DRIFT_SETTING)  # an empty field leaves the setting unset
 PERCENT = Decimal(100)
 SETTING_RULES = {  # the profile rule each setting drives (rules.yaml)
     "auto_order_enabled": "P-00", "max_order_net_eur": "P-01", "max_daily_net_eur": "P-02",
     "min_fill_ratio": "P-03", "excluded_allergens": "P-04", "substitution_without_approval": "P-05",
-    "variable_weight": "P-06", "deposits": "P-07",
+    "variable_weight": "P-06", "deposits": "P-07", DRIFT_SETTING: "P-08",
 }
 NO_SUCH_START = ("Not a starting point", "Start from a copy of one of the two demo profiles. Nothing was changed.")
-NOT_A_PERCENTAGE = f"{PERCENT_SETTING}: write a share from 0 to 100 percent"
+NOT_A_PERCENTAGE = "{name}: write a share from 0 to 100 percent"
 ONE_VALUE = "{name}: give one value"
 
 STRICTNESS_LABELS = {
@@ -90,6 +93,7 @@ def _shown(profile: BuyerProfile) -> dict[str, Any]:
         "max_order_net_eur": _plain(profile.max_order_net_eur),
         "max_daily_net_eur": _plain(profile.max_daily_net_eur),
         PERCENT_SETTING: _plain(profile.min_fill_ratio * PERCENT),
+        DRIFT_SETTING: _plain(drift * PERCENT) if (drift := profile.standing_order_drift_ratio) is not None else "",
         "excluded_allergens": frozenset(profile.excluded_allergens),
         "allergen_strictness": profile.allergen_strictness.value if profile.allergen_strictness else "",
         "substitution_without_approval": profile.substitution_without_approval.value,
@@ -109,10 +113,10 @@ def _ratio(text: str) -> Decimal | str:
 
 
 def _setting(name: str, text: str) -> Any:
-    if name == PERCENT_SETTING:
+    if name in OPTIONAL_SETTINGS and not text.strip():
+        return None
+    if name in PERCENT_SETTINGS:
         return _ratio(text)
-    if name == "allergen_strictness":
-        return text or None
     return text
 
 
@@ -132,9 +136,10 @@ def _submitted(form: FormData) -> tuple[dict[str, Any], dict[str, Any], list[str
             problems.append(ONE_VALUE.format(name=name))
         else:
             settings[name], shown[name] = _setting(name, values[0]), values[0]
-    ratio = settings.get(PERCENT_SETTING)
-    if isinstance(ratio, Decimal) and not 0 <= ratio <= 1:
-        problems.append(NOT_A_PERCENTAGE)
+    for name in PERCENT_SETTINGS:
+        ratio = settings.get(name)
+        if isinstance(ratio, Decimal) and not 0 <= ratio <= 1:
+            problems.append(NOT_A_PERCENTAGE.format(name=name))
     for name in LISTS:
         settings.setdefault(name, [])
         shown.setdefault(name, frozenset())

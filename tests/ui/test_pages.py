@@ -26,14 +26,15 @@ def test_each_page_answers_200_in_replay(client: TestClient, run_example: Post, 
     assert "javascript" in client.get("/static/app.js").headers["content-type"]
 
 
-def test_the_first_page_has_the_four_examples_the_demo_agents_and_a_run_button(client: TestClient) -> None:
+def test_the_first_page_has_the_five_examples_the_demo_agents_and_a_run_button(client: TestClient) -> None:
     page = client.get("/").text
 
     assert "1,000 litres of lactose-free milk by Monday" in page
     assert "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only" in page
     assert "473609" in page
     assert "469512" in page  # the fourth example (task T18): an oat drink with no milk statement
-    assert page.count('name="example"') == 4
+    assert "most reliable delivery" in page  # the fifth example (task SUST-1): a preference changes the choice
+    assert page.count('name="example"') == 5
     assert "Hotel kitchen agent (demo)" in page and "Allergy ward agent (demo)" in page
     assert 'name="who"' in page and 'maxlength="2000"' in page
     assert ">Run<" in page

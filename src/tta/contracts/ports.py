@@ -33,6 +33,7 @@ from tta.contracts.order import Approval, DecisionRequest, Order
 from tta.contracts.policy import Authority, BuyerProfile, PolicyContext, PolicyDecision
 from tta.contracts.product import PackSize, Product, SearchResult
 from tta.contracts.request import ProductQuery, PurchaseRequest
+from tta.contracts.standing import Renewal, StandingOrder
 
 
 @runtime_checkable
@@ -184,6 +185,22 @@ class Store(Protocol):
         ...
 
     def last_audit_hash(self) -> str | None: ...
+
+    # Standing orders and their renewals (task STAND-1). A renewal is never changed once saved.
+
+    def save_standing_order(self, standing: StandingOrder) -> None: ...
+
+    def get_standing_order(self, standing_order_id: str) -> StandingOrder | None: ...
+
+    def list_standing_orders(self, profile_id: str | None = None) -> tuple[StandingOrder, ...]:
+        """In the order they were first saved. With no profile: every standing order."""
+        ...
+
+    def save_renewal(self, renewal: Renewal) -> None: ...
+
+    def list_renewals(self, standing_order_id: str) -> tuple[Renewal, ...]:
+        """The renewals of one standing order, in the order they were first saved."""
+        ...
 
 
 @runtime_checkable

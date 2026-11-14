@@ -323,3 +323,52 @@ def test_a_database_failure_is_reported_as_a_typed_error(store: SqliteStore) -> 
         store.get_offer("off_1")
 
     assert "database" in raised.value.detail
+
+
+# --- standing orders and their renewals (task STAND-1) ---------------------------------------------------
+
+
+def test_a_standing_order_comes_back_as_it_was_saved_and_is_listed_by_profile(store: SqliteStore, samples) -> None:
+    hotel, ward = samples.standing_order("so_1"), samples.standing_order("so_2", profile_id="allergy-ward")
+    store.save_standing_order(hotel)
+    store.save_standing_order(ward)
+
+    assert store.get_standing_order("so_1") == hotel
+    assert store.get_standing_order("so_unknown") is None
+    assert store.list_standing_orders("hotel-kitchen") == (hotel,)
+    assert store.list_standing_orders() == (hotel, ward)
+    assert store.list_standing_orders("nobody") == ()
+
+
+def test_saving_a_standing_order_again_replaces_it_in_its_place(store: SqliteStore, samples) -> None:
+    store.save_standing_order(samples.standing_order("so_1"))
+    store.save_standing_order(samples.standing_order("so_2"))
+
+    renamed = samples.standing_order("so_1").model_copy(update={"name": "Milk for the breakfast buffet"})
+    store.save_standing_order(renamed)
+
+    assert [standing.name for standing in store.list_standing_orders("hotel-kitchen")] == [
+        "Milk for the breakfast buffet", "Weekly lactose-free milk, hotel kitchen",
+    ]
+
+
+def test_renewals_come_back_in_the_order_they_were_saved_with_their_decimals(store: SqliteStore, samples) -> None:
+    store.save_standing_order(samples.standing_order("so_1"))
+    first, second = samples.renewal("ren_1", litres="96.5"), samples.renewal("ren_2", synthetic=False)
+    other = samples.renewal("ren_3", standing_order_id="so_2")
+    for renewal in (first, second, other):
+        store.save_renewal(renewal)
+
+    assert store.list_renewals("so_1") == (first, second)
+    assert store.list_renewals("so_1")[0].lines[0].quantity == Decimal("96.5")
+    assert store.list_renewals("so_unknown") == ()
+
+
+def test_standing_orders_and_renewals_written_in_a_failed_block_are_not_kept(store: SqliteStore, samples) -> None:
+    with pytest.raises(RuntimeError), store.atomic():
+        store.save_standing_order(samples.standing_order("so_1"))
+        store.save_renewal(samples.renewal("ren_1"))
+        raise RuntimeError("the audit event could not be written")
+
+    assert store.get_standing_order("so_1") is None
+    assert store.list_renewals("so_1") == ()

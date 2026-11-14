@@ -1,8 +1,9 @@
 """Which lines go into which option (SPEC section 5, step 3).
 
-BEST_CONFIRMED uses confirmed stock only. ALTERNATIVE_UNCONFIRMED is the cheapest fitting product
-whose quantity Valio does not confirm. SUBSTITUTE keeps the confirmed stock of a product named by id
-and fills what is missing with the best substitute.
+BEST_CONFIRMED uses confirmed stock only, ranked by the buyer's preference and then price (task SUST-1).
+CHEAPEST_CONFIRMED is the price fill of the same stock, when a preference other than price chose another one.
+ALTERNATIVE_UNCONFIRMED is the cheapest fitting product whose quantity Valio does not confirm. SUBSTITUTE keeps
+the confirmed stock of a product named by id and fills what is missing with the best substitute.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
-from tta.contracts.common import AvailabilityState, ExclusionReason, OptionKind
+from tta.contracts.common import AvailabilityState, ExclusionReason, OptionKind, Preference
 from tta.contracts.offer import Exclusion, OfferLine, SubstituteInfo
 from tta.contracts.product import Product
 from tta.contracts.request import RequestLine
@@ -21,6 +22,7 @@ from tta.offers.combining import Fill, Supply, fill, floor_to_step
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
 from tta.offers.options import Draft
+from tta.offers.preference import PRICE_TIER, tiers
 from tta.offers.substitute_wording import gives_up
 from tta.offers.substitutes import Judged, Ranking, rank_substitutes
 from tta.offers.wording import counted, line_label, listed, plain_name
@@ -58,16 +60,17 @@ class _Pools:
     notes: tuple[str, ...]
 
 
-def plan_options(outcomes: Sequence[LineOutcome], now: datetime, deps: OfferDeps) -> Plan:
+def plan_options(
+    outcomes: Sequence[LineOutcome], now: datetime, deps: OfferDeps, prefer: Preference = Preference.PRICE
+) -> Plan:
     pools = [_pools(outcome) for outcome in outcomes]
-    fills = _confirmed_fills(outcomes, pools)
-    confirmed = [
-        _confirmed_lines(outcome, pool, picked, now)
-        for outcome, pool, picked in zip(outcomes, pools, fills, strict=True)
-    ]
+    fills = _confirmed_fills(outcomes, pools, prefer)
+    confirmed = _all_confirmed_lines(outcomes, pools, fills, now)
     alternatives = [_unconfirmed_line(outcome, pool, now) for outcome, pool in zip(outcomes, pools, strict=True)]
     substitutes, substitute_notes = _substitute_lines(outcomes, fills, deps)
     drafts = [Draft(OptionKind.BEST_CONFIRMED, _flatten(confirmed))]
+    if prefer is not Preference.PRICE:
+        drafts.extend(_cheapest(outcomes, pools, fills, now))
     if any(alternatives):
         drafts.append(Draft(OptionKind.ALTERNATIVE_UNCONFIRMED, _swapped(confirmed, alternatives)))
     if any(substitutes):
@@ -115,7 +118,27 @@ def _confirmed_only_notes(outcome: LineOutcome) -> tuple[str, ...]:
     return tuple(notes)
 
 
-def _supply(candidate: Candidate, already_used: Decimal = ZERO) -> Supply:
+def _cheapest(
+    outcomes: Sequence[LineOutcome], pools: Sequence[_Pools], preferred: Sequence[Fill], now: datetime
+) -> tuple[Draft, ...]:
+    """The price fill of the same confirmed stock, when it picks other products or amounts than the preferred
+    fill. Whether it is also cheaper is judged on the totals (`tta.offers.options`)."""
+    cheapest = _confirmed_fills(outcomes, pools, Preference.PRICE)
+    if [each.picks for each in cheapest] == [each.picks for each in preferred]:
+        return ()
+    return (Draft(OptionKind.CHEAPEST_CONFIRMED, _flatten(_all_confirmed_lines(outcomes, pools, cheapest, now))),)
+
+
+def _all_confirmed_lines(
+    outcomes: Sequence[LineOutcome], pools: Sequence[_Pools], fills: Sequence[Fill], now: datetime
+) -> list[tuple[OfferLine, ...]]:
+    return [
+        _confirmed_lines(outcome, pool, picked, now)
+        for outcome, pool, picked in zip(outcomes, pools, fills, strict=True)
+    ]
+
+
+def _supply(candidate: Candidate, already_used: Decimal = ZERO, tier: int = PRICE_TIER) -> Supply:
     if candidate.per_unit is None or candidate.assessment.usable_amount is None:
         raise ValueError(f"product {candidate.product.id} is not confirmed stock with a known pack size")
     return Supply(
@@ -125,15 +148,17 @@ def _supply(candidate: Candidate, already_used: Decimal = ZERO) -> Supply:
         # `usable_amount` is set only for state CONFIRMED: a placeholder amount never becomes a supply.
         usable=candidate.assessment.usable_amount - already_used,
         lot_step=candidate.lot_step,
+        tier=tier,
     )
 
 
-def _confirmed_fills(outcomes: Sequence[LineOutcome], pools: Sequence[_Pools]) -> list[Fill]:
+def _confirmed_fills(outcomes: Sequence[LineOutcome], pools: Sequence[_Pools], prefer: Preference) -> list[Fill]:
     """One fill per request line, in order. Stock one line takes is not offered to the next."""
     used: Mapping[str, Decimal] = {}
     fills: list[Fill] = []
     for outcome, pool in zip(outcomes, pools, strict=True):
-        supplies = [_supply(each, used.get(each.product.id, ZERO)) for each in pool.confirmed]
+        tier = tiers(pool.confirmed, prefer)
+        supplies = [_supply(each, used.get(each.product.id, ZERO), tier[each.product.id]) for each in pool.confirmed]
         picked = fill(outcome.need.quantity or ZERO, supplies)
         used = _with_picks(used, picked)
         fills.append(picked)
@@ -201,9 +226,12 @@ def _substitute_line(
     gap = replace(outcome.need, quantity=picked.missing)
     ranking = rank_substitutes(original, gap, deps, skip=outcome.asked.product_ids)
     required = frozenset(claim.strip().upper() for claim in outcome.asked.required_claims)
+    labels = frozenset(label.strip().upper() for label in outcome.asked.required_labels)
     for judged in ranking.ranked:
-        # A stand-in must carry every nutritional claim the request line requires (SPEC section 3, step 4).
-        if not required.issubset(judged.candidate.product.nutritional_claims):
+        # A stand-in must carry every nutritional claim and certificate label the request line requires (SPEC
+        # section 3, step 4; task SUST-1).
+        product = judged.candidate.product
+        if not required.issubset(product.nutritional_claims) or not labels.issubset(product.labels):
             continue
         line = _line_from(judged, gap, ranking, used_elsewhere)
         if line is not None:

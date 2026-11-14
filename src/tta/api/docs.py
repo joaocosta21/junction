@@ -119,6 +119,7 @@ TAG_AUTHORITY = "Core 3: authority and approval"
 TAG_SUBSTITUTES = "Exceptions: substitutes"
 TAG_AUDIT = "Audit trail"
 TAG_AGENT = "Buyer agent"
+TAG_MENUS = "Exceptions: recipes and menus"
 TAG_OPEN = "Open formats and health"
 TAGS = [
     {"name": TAG_LOOKUP, "description": "The brief: \"a structured way for an external agent to search for and "
@@ -133,6 +134,8 @@ TAGS = [
                                        "sentence per decision, two readers, a hash chain."},
     {"name": TAG_AGENT, "description": "From a pasted sentence to the typed request, and the buyer agent's run. "
                                        "The gateway, not the model, decides whether an order goes through."},
+    {"name": TAG_MENUS, "description": "Valio's example scenarios: a menu becomes one order, and an ingredient "
+                                       "that cannot be had is replaced by recipe logic, never alone (F-09)."},
     {"name": TAG_OPEN, "description": "JSON Schema of every model, and what is running."},
 ]
 

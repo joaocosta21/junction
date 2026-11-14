@@ -95,7 +95,8 @@ def test_the_helper_makes_a_name_plain() -> None:
 
 
 def test_no_sentence_of_an_offer_carries_a_raw_product_name(offer: Offer) -> None:
-    assert {option.kind for option in offer.options} == set(OptionKind)
+    # CHEAPEST_CONFIRMED needs a preference other than price (task SUST-1): test_preference_offer.py covers it.
+    assert {option.kind for option in offer.options} == set(OptionKind) - {OptionKind.CHEAPEST_CONFIRMED}
     assert offer.options[0].lines[0].name == HOSTILE  # the name field is data and stays as the file has it
 
     sentences = list(sentences_of(offer.model_dump()))

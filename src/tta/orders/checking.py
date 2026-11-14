@@ -17,9 +17,11 @@ from tta.contracts.offer import OfferOption
 from tta.contracts.order import Order
 from tta.contracts.policy import BuyerProfile, FiredRule, PolicyContext
 from tta.contracts.ports import AuditSink, Clock, OfferRevalidator, PolicyEngine, Store
+from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.orders.records import OrderTimeCheck
 from tta.orders.spend import day_committed_net_eur
+from tta.standing.history import standing_history
 
 # F-04 of src/tta/policy/rules.yaml: the option expired or changed before the order. Its facts say which.
 STALE_RULE_ID = "F-04"
@@ -78,12 +80,25 @@ class OrderTimeChecker:
             excluding_order_id=attempt.order.order_id if attempt.order is not None else None,
         )
         context = PolicyContext(
-            now=self._clock.now(), day_committed_net_eur=committed, at_order_time=True, revalidation=revalidation
+            now=self._clock.now(), day_committed_net_eur=committed, at_order_time=True, revalidation=revalidation,
+            standing_history=self._standing_history(attempt),
         )
         decision = self._policy.evaluate(attempt.option, attempt.profile, context)
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
             revalidation=revalidation,
+        )
+
+    def _standing_history(self, attempt: Attempt) -> StandingHistory | None:
+        """The history of the standing order the offer's request renews (rule P-08), read again now: the same one
+        the offer was judged on, without this offer's own renewal, which is recorded once a waiting order exists.
+        None when the request renews nothing. Raises `InvalidRequest` when the standing order is gone."""
+        offer = self._store.get_offer(attempt.offer_id)
+        standing_order_id = offer.request.standing_order_id if offer is not None else None
+        if standing_order_id is None:
+            return None
+        return standing_history(
+            self._store, attempt.profile.profile_id, standing_order_id, excluding_offer_id=attempt.offer_id
         )
 
     def _refusal(self, attempt: Attempt, check: OrderTimeCheck) -> TtaError:

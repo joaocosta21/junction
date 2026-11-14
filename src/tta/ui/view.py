@@ -24,6 +24,7 @@ from tta.contracts.common import (
     OptionKind,
     OrderStatus,
     PlacedBy,
+    Preference,
     Unit,
     Verdict,
 )
@@ -41,6 +42,9 @@ MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 # How a run of the buyer agent was served (task FIX-10, finding 12). The agent package labels a run written by
 # hand "hand-built" and one replayed from a model's recording "recorded" (`tta.agent.recorded`).
 HAND_BUILT_MODEL = "hand-built"
+RULE_BASED_MODEL = "rule-based"  # a run read and made by fixed rules (task FALLBACK-1)
+RUN_BY_RULES_FOR_GEMINI = "Gemini did not answer, so this run was read and made by fixed rules, not by a model."
+RUN_BY_RULES_WITHOUT_KEY = "No Gemini key is set, so this run was read and made by fixed rules, not by a model."
 RECORDED_MODEL = "recorded"
 BY_HAND = "answers written by hand, not by a model"
 FROM_A_RECORDING = "a recording of the model's earlier answers"
@@ -66,8 +70,8 @@ WORDS: dict[type[Enum], dict[str, str]] = {
     CheckResult: {"MET": "met", "NOT_MET": "not met", "UNVERIFIED": "not verified"},
     ConstraintKind: {
         "PRODUCT_TYPE": "Product type", "PRODUCT_ID": "Product asked for", "NAME_TERM": "Name",
-        "QUANTITY": "Quantity", "NEEDED_BY": "Needed by", "CLAIM": "Claim", "ALLERGEN": "Allergen", "PACK": "Pack",
-        "CONFIRMED_ONLY": "Confirmed data only",
+        "QUANTITY": "Quantity", "NEEDED_BY": "Needed by", "CLAIM": "Claim", "LABEL": "Certificate label",
+        "ALLERGEN": "Allergen", "PACK": "Pack", "CONFIRMED_ONLY": "Confirmed data only",
     },
     Verdict: {
         "AUTO": "The agent may order alone", "APPROVAL": "A human must approve",
@@ -80,7 +84,7 @@ WORDS: dict[type[Enum], dict[str, str]] = {
     ApproverRole: {"purchasing_manager": "purchasing manager", "dietitian": "dietitian", "finance": "finance"},
     OptionKind: {
         "BEST_CONFIRMED": "Confirmed stock", "ALTERNATIVE_UNCONFIRMED": "Quantity not confirmed",
-        "SUBSTITUTE": "Substitute",
+        "SUBSTITUTE": "Substitute", "CHEAPEST_CONFIRMED": "Cheapest confirmed",
     },
     AvailabilityState: {
         "BLOCKED": "Blocked by Valio Aimo", "NOT_DELIVERABLE": "Not deliverable", "OUT_OF_STOCK": "Out of stock",
@@ -98,6 +102,10 @@ WORDS: dict[type[Enum], dict[str, str]] = {
         "DELIVERY_DATE_NOT_CONFIRMED": "Delivery date not confirmed",
     },
     Unit: {"L": "litres", "KG": "kilograms", "UNIT": "sales units"},
+    Preference: {
+        "PRICE": "price", "EARLIEST": "earliest delivery, then price",
+        "RELIABILITY": "delivery reliability, then price", "LOWER_CARBON": "lowest carbon footprint, then price",
+    },
 }
 
 _TONES: dict[type[Enum], dict[str, str]] = {
@@ -105,7 +113,7 @@ _TONES: dict[type[Enum], dict[str, str]] = {
     CheckResult: {"MET": OK, "UNVERIFIED": WARN, "NOT_MET": BAD},
     Verdict: {"AUTO": OK, "APPROVAL": WARN, "BLOCK": BAD},
     OrderStatus: {"ORDERED": OK, "PENDING_APPROVAL": WARN, "REJECTED": BAD, "EXPIRED": BAD},
-    OptionKind: {"BEST_CONFIRMED": OK, "ALTERNATIVE_UNCONFIRMED": WARN, "SUBSTITUTE": WARN},
+    OptionKind: {"BEST_CONFIRMED": OK, "ALTERNATIVE_UNCONFIRMED": WARN, "SUBSTITUTE": WARN, "CHEAPEST_CONFIRMED": OK},
     AvailabilityState: {"CONFIRMED": OK, "QUANTITY_NOT_CONFIRMED": WARN},
 }
 
@@ -221,6 +229,8 @@ def reason_counts(excluded: tuple[Exclusion, ...]) -> tuple[tuple[ExclusionReaso
 def run_label(run: AgentRun, live_model: bool) -> str:
     """What served a run of the buyer agent, in a sentence: a live model, a recording or answers written by
     hand, and whether the recording stood in for Gemini (`live_model`: a Gemini key is set)."""
+    if run.model == RULE_BASED_MODEL:
+        return RUN_BY_RULES_FOR_GEMINI if live_model else RUN_BY_RULES_WITHOUT_KEY
     if not run.recorded:
         return RUN_LIVE.format(model=run.model)
     if run.model == HAND_BUILT_MODEL:

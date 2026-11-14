@@ -20,6 +20,7 @@ SPEC_RULES = {
     "F-05": (True, Verdict.BLOCK, None),
     "F-07": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "F-08": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
+    "F-09": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # task MENU-1: a recipe stand-in
     "P-00": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-01": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-02": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
@@ -28,6 +29,7 @@ SPEC_RULES = {
     "P-05": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-06": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-07": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
+    "P-08": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # task STAND-1: standing order drift
 }
 
 
@@ -35,7 +37,7 @@ SPEC_RULES = {
 # it checks. F-03 names no role of its own: the role comes from the fact that is missing.
 FIXED_VERDICTS = {
     "F-01": Verdict.APPROVAL, "F-02": Verdict.BLOCK, "F-03": Verdict.APPROVAL, "F-04": Verdict.BLOCK,
-    "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL, "F-08": Verdict.APPROVAL,
+    "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL, "F-08": Verdict.APPROVAL, "F-09": Verdict.APPROVAL,
 }
 OTHER_VERDICT = {Verdict.APPROVAL: Verdict.BLOCK, Verdict.BLOCK: Verdict.APPROVAL}
 
@@ -53,7 +55,9 @@ def test_the_shipped_rules_are_exactly_those_of_the_spec() -> None:
     assert {rule.id: (rule.fixed, rule.verdict, rule.approver_role) for rule in rulebook.rules} == SPEC_RULES
     assert list(dict.fromkeys(rule.id for rule in rulebook.rules)) == sorted(SPEC_RULES)
     assert [rule.id for rule in rulebook.access_rules] == ["F-06"]
-    assert rulebook.fixed_rule_ids == frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08"})
+    assert rulebook.fixed_rule_ids == frozenset(
+        {"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09"}
+    )
 
 
 def test_f07_is_one_rule_judged_on_each_line_and_on_the_option() -> None:

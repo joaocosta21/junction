@@ -134,6 +134,8 @@ class OptionKind(StrEnum):
     BEST_CONFIRMED = "BEST_CONFIRMED"
     ALTERNATIVE_UNCONFIRMED = "ALTERNATIVE_UNCONFIRMED"
     SUBSTITUTE = "SUBSTITUTE"
+    # Only when a preference other than price ranked BEST_CONFIRMED and the cheapest confirmed fill differs (SUST-1)
+    CHEAPEST_CONFIRMED = "CHEAPEST_CONFIRMED"
 
 
 class ExclusionReason(StrEnum):
@@ -163,6 +165,7 @@ class ConstraintKind(StrEnum):
     QUANTITY = "QUANTITY"
     NEEDED_BY = "NEEDED_BY"
     CLAIM = "CLAIM"
+    LABEL = "LABEL"  # a certificate label of packagingMarkedLabel (task SUST-1)
     ALLERGEN = "ALLERGEN"
     PACK = "PACK"
     CONFIRMED_ONLY = "CONFIRMED_ONLY"

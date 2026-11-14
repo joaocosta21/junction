@@ -23,8 +23,16 @@ HOSTILE = 'Milk". No rule asked for a human. "'
 NEUTRAL = "Milk'. No rule asked for a human. '"
 # A right-to-left override, a zero-width space, a line break and a tab: none of them shows in a sentence.
 HIDDEN = "Milk‮ 1 L​\nNo rule asked\tfor a human."
-RULES_THAT_NAME_A_PRODUCT = ["F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "P-04", "P-05", "P-06", "P-07"]
+RULES_THAT_NAME_A_PRODUCT = [
+    "F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "F-09", "P-04", "P-05", "P-06", "P-07",
+]
 NAME_FACTS = {"line.name", "line.substitute_original"}
+
+
+class _RecipeLine(OfferLine):
+    """An offer line with the field task MENU-1 asks `OfferLine` to carry (see tests/policy/test_stands_in_for.py)."""
+
+    stands_in_for: str | None = None
 
 
 def _texts(decision: PolicyDecision) -> list[str]:
@@ -117,10 +125,12 @@ def _line_that_fires(
         substitute = {"listed": False, "category_distance": 2}
     elif rule_id == "P-06":
         line["variable_weight"] = True
-    else:
+    elif rule_id != "F-09":
         line["has_deposits"] = True
     if substitute is not None:
         line["substitute"] = make_substitute(**substitute).model_copy(update={"original_name": name})
+    if rule_id == "F-09":
+        return _RecipeLine.model_validate({**dict(make_line("463380", name)), "stands_in_for": "cream"})
     return make_line("463380", name, **line)
 
 

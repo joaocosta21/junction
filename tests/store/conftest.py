@@ -28,6 +28,7 @@ from tta.contracts.order import Approval, ApprovalDecision, Order, RelianceState
 from tta.contracts.policy import FiredRule, PolicyDecision
 from tta.contracts.product import PackSize
 from tta.contracts.request import PurchaseRequest, RequestLine
+from tta.contracts.standing import Renewal, RenewalLine, StandingOrder
 
 HELSINKI = timezone(timedelta(hours=2))
 NOW = datetime(2026, 11, 14, 2, 52, tzinfo=HELSINKI)
@@ -130,6 +131,28 @@ class Samples:
             facts={"products_looked_up": 35}, previous_hash=previous_hash, hash=event_hash,
         )
         return AuditEvent(id=event_id, type="tta.v1.request.received", time=NOW, subject="order/ord_1", data=data)
+
+    def standing_order(self, standing_order_id: str = "so_1", profile_id: str = "hotel-kitchen") -> StandingOrder:
+        request = PurchaseRequest(
+            lines=(RequestLine(text="100 L of lactose-free milk 469363", product_ids=("469363",),
+                               quantity=Decimal("100"), unit=Unit.L),),
+        )
+        return StandingOrder(
+            standing_order_id=standing_order_id, profile_id=profile_id, agent_id=f"agent:{profile_id}",
+            name="Weekly lactose-free milk, hotel kitchen", request=request, created_at=NOW,
+        )
+
+    def renewal(
+        self, renewal_id: str = "ren_1", standing_order_id: str = "so_1", litres: str = "100",
+        synthetic: bool = True,
+    ) -> Renewal:
+        line = RenewalLine(request_line_index=0, product_id="469363", quantity=Decimal(litres), unit=Unit.L,
+                           unit_net_price_eur=Decimal("2.48"))
+        return Renewal(
+            renewal_id=renewal_id, standing_order_id=standing_order_id, renewed_at=NOW - timedelta(weeks=1),
+            lines=(line,), synthetic=synthetic, order_id=None if synthetic else "ord_1",
+            offer_id=None if synthetic else "off_1",
+        )
 
 
 @pytest.fixture(scope="session")

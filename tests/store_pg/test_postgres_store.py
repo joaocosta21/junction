@@ -308,6 +308,7 @@ def test_the_store_works_only_in_its_own_schema(
 
     assert [name for (name,) in tables] == [
         "approvals", "audit_buyer", "audit_events", "audit_supplier", "idempotency_keys", "offers", "orders",
+        "standing_orders", "standing_renewals",  # task STAND-1, sql/005
     ]
 
 

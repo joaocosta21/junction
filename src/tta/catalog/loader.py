@@ -43,6 +43,12 @@ ORIGIN_PLACEHOLDERS = frozenset({"zy", "xs", "zz"})
 ALLERGEN_GROUP = "allergen"
 NON_ALLERGEN_GROUP = "nonAllergen"
 CLAIM_GROUP = "nutritionalClaim"
+LABEL_GROUP = "packagingMarkedLabel"
+# Storage temperatures filed in the label group: not certificates (AIMO/docs/SCHEMA-AND-CODES.md section 2.5).
+TEMPERATURE_PSEUDO_LABELS = frozenset({"warmTemperature", "coolTemperature", "freezeTemperature"})
+# Every certificate id in the file is UPPER_SNAKE (same section). A label is shown in sentences, so any other
+# text rejects the file instead of reaching them.
+_LABEL_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,59}")
 # keyIngredients is in English on 11,562 products and in Finnish only on 2,427 more (whole catalog). 28
 # English values and 53 Finnish ones are a placeholder such as "-" or ".", which is not an ingredient list.
 INGREDIENT_LANGUAGES = ("en", "fi")
@@ -156,6 +162,7 @@ def _product_fields(
         "variable_weight": synkka.get("variableUnit"),  # true, false or absent: absent stays unknown
         "deposits": [_deposit(deposit) for deposit in record.get("deposits", ())],
         "nutritional_claims": tuple(value["id"] for value in groups.get(CLAIM_GROUP, ())),
+        "labels": _labels(groups.get(LABEL_GROUP, ())),
         "allergen_statements": _statements(groups),
         "has_allergen_groups": ALLERGEN_GROUP in groups or NON_ALLERGEN_GROUP in groups,
         "listed_substitutes": tuple(pair["substituteProduct"] for pair in record.get("substitutions", ())),
@@ -183,6 +190,21 @@ def _key_ingredients(entries: Any) -> str | None:
             raise TypeError(f"a keyIngredients value must be text, got {type(value).__name__}")
         texts.setdefault(entry["language"], value.strip())
     return next((texts[language] for language in INGREDIENT_LANGUAGES if _LETTER.search(texts.get(language, ""))), None)
+
+
+def _labels(values: Any) -> tuple[str, ...]:
+    """The certificate labels of the group, each once, in file order; the storage temperatures left out."""
+    labels: list[str] = []
+    for value in values:
+        code = value["id"]
+        if not isinstance(code, str):
+            raise TypeError(f"a packagingMarkedLabel id must be text, got {type(code).__name__}")
+        if code in TEMPERATURE_PSEUDO_LABELS:
+            continue
+        if not _LABEL_CODE.fullmatch(code):
+            raise ValueError(f"the packagingMarkedLabel id {code[:60]!r} is not a label code")
+        labels.append(code)
+    return tuple(dict.fromkeys(labels))
 
 
 def _unit(unit: dict[str, Any]) -> dict[str, Any]:

@@ -54,6 +54,7 @@ def _line_checks(
         *_product_ids(need, asked, lines),
         *_name_terms(need, asked, lines, catalog),
         *_claims(need, asked, lines, catalog),
+        *_labels(need, asked, lines, catalog),
         quantity,
         *_pack(need, lines, catalog),
         *_allergens(need, lines),
@@ -74,6 +75,7 @@ def _asked(need: Need, asked: RequestLine) -> list[tuple[ConstraintKind, str]]:
     things.extend((ConstraintKind.PRODUCT_ID, product_id) for product_id in dict.fromkeys(asked.product_ids))
     things.extend((ConstraintKind.NAME_TERM, term) for term in dict.fromkeys(asked.name_terms))
     things.extend((ConstraintKind.CLAIM, claim) for claim in dict.fromkeys(asked.required_claims))
+    things.extend((ConstraintKind.LABEL, label) for label in _label_codes(asked))
     if need.pack is not PackPreference.ANY:
         things.append((ConstraintKind.PACK, need.pack.value))
     things.extend((ConstraintKind.ALLERGEN, code) for code in need.excluded)
@@ -90,6 +92,9 @@ def _matching(catalog: Catalog, lines: Sequence[OfferLine], **filters: object) -
     return frozenset(product.id for product in result.products)
 
 
+IDS_SLOT = "{ids}"  # where a NOT_MET sentence names the products that fail
+
+
 def _all_or_named(
     need: Need, kind: ConstraintKind, subject: str, lines: Sequence[OfferLine], passing: frozenset[str], met: str,
     not_met: str,
@@ -97,7 +102,8 @@ def _all_or_named(
     failing = [product_id for product_id in _ids(lines) if product_id not in passing]
     if not failing:
         return _check(need.index, kind, subject, CheckResult.MET, met)
-    return _check(need.index, kind, subject, CheckResult.NOT_MET, not_met.format(ids=", ".join(failing)))
+    # Not str.format: the sentence carries the buyer's own term, which may hold a brace.
+    return _check(need.index, kind, subject, CheckResult.NOT_MET, not_met.replace(IDS_SLOT, ", ".join(failing)))
 
 
 def _product_type(
@@ -151,6 +157,24 @@ def _claims(need: Need, asked: RequestLine, lines: Sequence[OfferLine], catalog:
         not_met = f"Without the nutritional claim {claim}: {{ids}}."
         checks.append(_all_or_named(need, ConstraintKind.CLAIM, claim, lines, passing, met, not_met))
     return checks
+
+
+def _labels(need: Need, asked: RequestLine, lines: Sequence[OfferLine], catalog: Catalog) -> list[ConstraintCheck]:
+    """One check per certificate label, asked of the catalog as the claims are (task SUST-1)."""
+    checks = []
+    for label in _label_codes(asked):
+        passing = _matching(catalog, lines, required_labels=(label,))
+        met = f"Every product offered carries the certificate label {label}."
+        # The label is the caller's text: braces in it must not reach `str.format` in `_all_or_named`.
+        literal = label.replace("{", "{{").replace("}", "}}")
+        not_met = f"Without the certificate label {literal}: {{ids}}."
+        checks.append(_all_or_named(need, ConstraintKind.LABEL, label, lines, passing, met, not_met))
+    return checks
+
+
+def _label_codes(asked: RequestLine) -> tuple[str, ...]:
+    """The labels as the catalog search reads them: trimmed, in capitals, each once."""
+    return tuple(dict.fromkeys(label.strip().upper() for label in asked.required_labels if label.strip()))
 
 
 def _quantity(need: Need, lines: Sequence[OfferLine], covered: Coverage) -> ConstraintCheck:

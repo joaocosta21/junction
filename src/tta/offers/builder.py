@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from tta.availability.wording import format_day
-from tta.contracts.common import ExclusionReason
+from tta.contracts.common import ExclusionReason, Preference
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -21,6 +21,7 @@ from tta.offers.candidates import Candidate, Found, Need, evaluate, exclusion_fo
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
+from tta.offers.preference import KEY_WORDS
 from tta.offers.wording import counted, line_label, listed, reason_words
 
 OFFER_ID_PREFIX = "off_"
@@ -43,7 +44,7 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
     )
     outcomes = tuple(outcome for outcome, _ in judged)
     late = tuple(candidates for _, candidates in judged)
-    plan = plan_options(outcomes, lookup.now, deps)
+    plan = plan_options(outcomes, lookup.now, deps, request.prefer)
     options = finish_options(plan.drafts, request, needs, profile, deps, lookup.now)
     return Offer(
         offer_id=OFFER_ID_PREFIX + uuid.uuid4().hex[:OFFER_ID_HEX_DIGITS],
@@ -57,7 +58,7 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         source=lookup.source,
         time_now=lookup.now,
         notes=(
-            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options),
+            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options, request.prefer),
             *_empty_notes(outcomes, late, options, lookup.now),
         ),
     )
@@ -96,11 +97,16 @@ def _search_notes(found: Sequence[Found]) -> tuple[str, ...]:
     return tuple(f"{line_label(index)}: {each.note}" for index, each in enumerate(found) if each.note)
 
 
-def _unused_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption]) -> tuple[str, ...]:
+def _unused_notes(
+    outcomes: Sequence[LineOutcome], options: Sequence[OfferOption], prefer: Preference
+) -> tuple[str, ...]:
     """The candidates that fit and are in no option, so every candidate is accounted for: it is in an
     option, in `excluded` with a reason, or named here. A product that fits has not dropped out, and
     `ExclusionReason` has no code for "not needed"."""
     offered = {line.product_id for option in options for line in option.lines}
+    taken = "the cheapest products" if prefer is Preference.PRICE else (
+        f"the products ranked first by {KEY_WORDS[prefer]}, then price,"
+    )
     notes = []
     for outcome in outcomes:
         unused = [each.product.id for each in outcome.fitting if each.product.id not in offered]
@@ -109,7 +115,7 @@ def _unused_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption
         fit = "fits the request and is" if len(unused) == 1 else "fit the request and are"
         notes.append(
             f"{line_label(outcome.need.index)}: {counted(len(unused), 'product')} {fit} in no option, because "
-            f"the options take the cheapest products that cover the quantity: {listed(unused)}."
+            f"the options take {taken} that cover the quantity: {listed(unused)}."
         )
     return tuple(notes)
 

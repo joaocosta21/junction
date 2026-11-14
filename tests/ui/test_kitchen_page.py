@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -21,7 +22,7 @@ KITCHEN = "/kitchen"
 KITCHEN_AGENT = "agent:my-kitchen"
 KITCHEN_PURCHASING = "human:my-kitchen-purchasing"
 SCENARIO_1 = "1,000 litres of lactose-free milk by Monday"
-SETTINGS_SHOWN = ("P-00", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07")
+SETTINGS_SHOWN = ("P-00", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
 FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08")
 HASH = re.compile(r"sha256:[0-9a-f]{64}")
 PROBLEM = re.compile(r'id="problem">(.*?)</div>', re.DOTALL)
@@ -206,3 +207,30 @@ def test_starting_again_clears_the_kitchen(client: TestClient, form_fields: Call
 
     page = client.get(KITCHEN).text
     assert "Before" not in page and "€750" in page
+
+
+# --- the drift tolerance of standing orders (task STAND-1, rule P-08) -------------------------------------
+
+
+def test_the_drift_tolerance_is_a_percentage_with_its_rule_and_can_be_left_unset(
+    client: TestClient, form_fields: Callable[..., Form], book: Callable[[TestClient], Any]
+) -> None:
+    assert _save(client, form_fields, standing_order_drift_ratio="10").status_code == 303
+    page = client.get(KITCHEN).text
+
+    assert book(client).kitchen.profile.standing_order_drift_ratio == Decimal("0.1")
+    assert 'name="standing_order_drift_ratio" value="10"' in page
+    assert "differs by more than 10% from the median" in page
+
+    assert _save(client, form_fields, standing_order_drift_ratio="").status_code == 303
+    assert book(client).kitchen.profile.standing_order_drift_ratio is None
+    assert "sets no drift tolerance" in client.get(KITCHEN).text
+
+
+def test_a_drift_tolerance_above_100_percent_is_refused_by_name(
+    client: TestClient, form_fields: Callable[..., Form]
+) -> None:
+    refused = _save(client, form_fields, standing_order_drift_ratio="150")
+
+    assert refused.status_code == 422
+    assert "standing_order_drift_ratio: write a share from 0 to 100 percent" in _problem(refused.text)

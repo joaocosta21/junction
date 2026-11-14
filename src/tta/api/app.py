@@ -22,10 +22,13 @@ from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
 from tta.api.limits import ClientKeyMiddleware
+from tta.api.menu_routes import menu_router
 from tta.api.routes import public, router
+from tta.api.standing_routes import include_standing_routes
 from tta.api.uploads import UploadBodyLimit
 from tta.api.wiring import Parts, build_parts, close_each
 from tta.config import Settings, get_settings
+from tta.standing import StandingOrders
 
 MCP_PATH = "/mcp"
 PAGES_PATH = "/"
@@ -110,7 +113,11 @@ def _application(parts: Parts) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     install_error_handlers(app)
     app.include_router(router)
+    app.include_router(menu_router())  # recipes and menus (task MENU-1)
     app.include_router(public)
+    include_standing_routes(  # standing orders, drift checked before each renewal (task STAND-1)
+        app, StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock)
+    )
     install_docs_pages(app)
     # Without a running application (a script that exports the document) the examples are built when asked for.
     docs.install_openapi(app, lambda: app.state.examples or build_examples(parts))

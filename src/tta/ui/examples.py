@@ -1,13 +1,14 @@
-"""The four demo requests of the first page, each with its typed request (PLAN section 3, SPEC section 13).
+"""The five demo requests of the first page, each with its typed request (PLAN section 3, SPEC section 13).
 
 Scores on the 30% "working end-to-end demo": one click runs request -> lookup -> offer -> order or approval.
 An example carries the typed request its sentence stands for, so the demo never depends on a model being
 reachable: with no parser and no buyer agent, the page still runs the three scenarios and the fourth example.
 The fourth (task T18, asked by the orchestrator) shows the dietitian's approval: an oat drink whose milk Valio's
-file says nothing about, under a strict no-milk rule.
+file says nothing about, under a strict no-milk rule. The fifth (task SUST-1) shows a buyer's preference changing
+the choice: by price the cheapest oat drink has no delivery-reliability value, by reliability another one has 1.0.
 
 The typed requests name Monday 16 November 2026: the Monday after the replay capture (Saturday 14 November)
-and the Monday of the event. A sentence that is not one of these four is read by the parser, never by us.
+and the Monday of the event. A sentence that is not one of these five is read by the parser, never by us.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from tta.contracts.common import AllergenStrictness, Unit
+from tta.contracts.common import AllergenStrictness, Preference, Unit
 from tta.contracts.request import PurchaseRequest, RequestLine
 
 MONDAY = date(2026, 11, 16)
@@ -30,6 +31,9 @@ OAT_DRINK = "473609"
 # Elovena barista oat drink 1 l: confirmed in tonight's capture (100 L for €208.00), and Valio's file states nothing
 # about milk, so under a strict no-milk rule rule P-04 sends it to the dietitian (run in replay on 14 Nov 2026).
 ELOVENA_OAT_DRINK = "469512"
+# Tonight's capture, run in replay on 14 Nov 2026 (task SUST-1): by price, 100 L of oat drink is 472145 (Oatly No
+# Sugars, €133.00, no delivery-reliability value); ranked by delivery reliability it is 470863 (Oatly Semi, €140.00,
+# reliability 1.0), and 472145 stays on the table as the cheapest confirmed option.
 
 SCENARIO_1_TEXT = "1,000 litres of lactose-free milk by Monday"
 SCENARIO_2_TEXT = "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
@@ -37,6 +41,7 @@ SCENARIO_3_TEXT = f"100 litres of Oddlygood Barista oat drink, product {OAT_DRIN
 DIETITIAN_TEXT = (
     f"100 litres of Elovena barista oat drink, product {ELOVENA_OAT_DRINK}, by Monday; no milk, strict rule"
 )
+RELIABLE_TEXT = "100 litres of oat drink by Monday, most reliable delivery"
 
 
 @dataclass(frozen=True)
@@ -105,6 +110,22 @@ EXAMPLES: tuple[Example, ...] = (
             lines=(RequestLine(
                 text=DIETITIAN_TEXT, product_ids=(ELOVENA_OAT_DRINK,), quantity=Decimal(100), unit=Unit.L,
                 exclude_allergens=(MILK,), allergen_strictness=AllergenStrictness.STRICT,
+            ),),
+        ),
+    ),
+    Example(
+        key="scenario-5",
+        label="Preference · most reliable delivery",
+        shows="Reliability first: a product with a 100% delivery record beats a cheaper one with none, "
+        "and the cheaper one stays on the table with the difference in euros.",
+        text=RELIABLE_TEXT,
+        agent_id=HOTEL_AGENT,
+        request=PurchaseRequest(
+            needed_by=MONDAY,
+            prefer=Preference.RELIABILITY,
+            lines=(RequestLine(
+                text=RELIABLE_TEXT, product_type="plant_drink", name_terms=("oat",), quantity=Decimal(100),
+                unit=Unit.L,
             ),),
         ),
     ),

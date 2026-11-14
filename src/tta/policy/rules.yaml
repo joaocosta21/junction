@@ -77,6 +77,7 @@ facts:
   profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
   profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
   profile.deposits:                      {type: enum,   source: profile, label: "the deposit setting", values: [APPROVAL, NOTE]}
+  profile.standing_order_drift_ratio:    {type: ratio,  source: profile, label: "the drift tolerance for standing orders", note: "how far a renewal's quantity or unit price on a line may differ from the median of its history (P-08); missing when the profile sets none"}
   # --- the option ---
   option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
   option.fill_ratio:              {type: ratio,    source: option, label: "the share of the quantity covered", note: "the lowest fill ratio over the request's lines"}
@@ -97,6 +98,13 @@ facts:
   revalidation.ok:                {type: bool,  source: context, label: "the fresh price and availability check", note: "true only when nothing changed and nothing expired"}
   revalidation.expired:           {type: bool,  source: context, label: "whether the fresh check found an expiry"}
   revalidation.changes:           {type: list,  source: context, label: "what the fresh check found changed"}
+  # --- a renewal of a standing order (task STAND-1; tta.policy.drift) ---
+  standing.is_renewal:            {type: bool,   source: context, label: "whether the request renews a standing order", note: "false when the request names no standing order: that is never a missing fact"}
+  standing.history_judged:        {type: bool,   source: engine,  label: "whether the standing order's history is long enough to judge", note: "true when at least one line has 3 past renewals or more (MIN_RENEWALS_TO_JUDGE); false for a request that renews nothing"}
+  standing.largest_drift:         {type: ratio,  source: engine,  label: "the largest drift from the history", note: "|this renewal - median| / median over the last 6 renewals of each line (DRIFT_WINDOW), for each request line's quantity and each product's unit price; 0 when nothing was compared"}
+  standing.drift_found:           {type: string, source: engine,  label: "the drift found", note: "every comparison beyond the profile's tolerance, with this renewal's value, the median and the number of renewals"}
+  standing.standing_order_id:     {type: string, source: context, label: "the standing order renewed"}
+  standing.renewals_compared:     {type: number, source: engine,  label: "the number of past renewals compared"}
   # --- one line of the option ---
   line.product_id:                {type: string, source: option, label: "the product id"}
   line.name:                      {type: string, source: option, label: "the product name", note: "text from the product file, read as data: double quotation marks become an apostrophe, control and format characters a space, at most 120 characters"}
@@ -117,6 +125,7 @@ facts:
   line.substitute_claims_lost:    {type: list,   source: option, label: "the nutritional claims the substitute lacks", note: "claims of the original that the substitute does not carry, as the offer lists them (SubstituteInfo.claims_lost); codes of the product file such as FREE_FROM_LACTOSE, read as data like line.name"}
   line.variable_weight:           {type: bool,   source: option, label: "the variable-weight statement", note: "absent on 3,068 of the 17,546 catalog products (AIMO/FINDINGS.md section 4)"}
   line.has_deposits:              {type: bool,   source: option, label: "whether the product carries a deposit"}
+  line.stands_in_for:             {type: string, source: engine, label: "the recipe ingredient the line stands in for", note: "task MENU-1: the line's own product type, the recipe's product type it replaces (RequestLine.stands_in_for) and the ingredient's role in the dish, each read as data like line.name; empty when the line stands in for nothing, which is never a missing fact"}
 
 # ---------------------------------------------------------------------------------------------------------
 # Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
@@ -258,6 +267,23 @@ rules:
       - text: "A substitute that lacks a nutritional claim of the product it replaces, for example lactose-free, always goes to the purchasing manager."
     justification: "A buyer who names a lactose-free milk asked for lactose-free. Regular milk declares the same allergen, milk, so the allergen rule for substitutes passes it and a profile that accepts substitutes of the same category would let the agent order it alone. What the buyer gives up is the claim; a person decides whether that is acceptable."
 
+  # Recipe logic (task MENU-1): when a recipe's ingredient cannot be had in time, the menu planner may order
+  # another product type that does the same job in the dish and sets stands_in_for on that request line.
+  # That is a judgement about a dish, not a product swap the buyer asked for, so a person always makes it.
+  - id: F-09
+    fixed: true
+    title: A line stands in for a recipe's own ingredient
+    scope: line
+    when:
+      all:
+        - {fact: line.stands_in_for, op: ne, value: ""}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} ({line.product_id}) stands in for an ingredient of a recipe: {line.stands_in_for}, so a person checks that the dish still works"
+    authority:
+      - text: "A product type that recipe logic chose in place of a recipe's own ingredient always goes to the purchasing manager, who checks that the dish still works."
+    justification: "Valio Aimo's scenarios ask for substitutions through recipe logic rather than a simple SKU swap. Whether a natural yoghurt can carry a quark dessert, or a vegetable-fat cream a sauce, changes the dish a kitchen serves; the recipes and their alternatives are ours and illustrative, so the agent never decides that alone."
+
   # --- Profile rules: the settings of one buyer ---
   - id: P-00
     fixed: false
@@ -393,6 +419,29 @@ rules:
         text: "A product that carries a deposit goes to finance: deposits have no published price, so the total leaves them out."
       - text: "A product that carries a deposit may be ordered alone; the total leaves deposits out and says so."
     justification: "506 products carry deposits and none of the 7 deposit codes can be priced (AIMO/FINDINGS.md section 4)."
+
+  # A request that renews no standing order has no history: standing.is_renewal is false and the rule is false,
+  # whatever else is known. A history too short to judge leaves standing.history_judged false: no human is asked,
+  # and the renewal says so. The 6 and the 3 of the texts are DRIFT_WINDOW and MIN_RENEWALS_TO_JUDGE of
+  # tta.policy.drift (a test checks that they agree).
+  - id: P-08
+    fixed: false
+    title: A standing order's renewal drifts from its history
+    scope: order
+    when:
+      all:
+        - {fact: standing.is_renewal, op: is_true}
+        - {fact: standing.history_judged, op: is_true}
+        - {fact: standing.largest_drift, op: gt, value: {fact: profile.standing_order_drift_ratio}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{standing.drift_found}, more than the {profile.standing_order_drift_ratio} tolerance of profile {profile.profile_id}"
+    records: [standing.standing_order_id, standing.renewals_compared, standing.largest_drift]
+    authority:
+      - when: {all: [{fact: profile.standing_order_drift_ratio, op: gte, value: 0}]}
+        text: "A renewal of a standing order whose quantity or unit price on a line differs by more than {profile.standing_order_drift_ratio} from the median of that line's last 6 renewals goes to the purchasing manager. With fewer than 3 past renewals the history is too short to judge, and the renewal says so."
+      - text: "This profile sets no drift tolerance for standing orders: a renewal with enough history goes to the purchasing manager, because the tolerance is missing (F-03)."
+    justification: "Valio Aimo's example scenario: 'the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it.' Every renewal of AIMO/USE-CASES.md section 6, 100 to 290 L of 469363, was AUTO with no rule fired. The Valio Aimo mock has no order history: the demonstration's history is synthetic and says so."
 
 # Fixed rules that are enforced where the caller's identity is known, not by the engine. They are listed
 # here so that this file states every fixed rule and the policy hash covers them.

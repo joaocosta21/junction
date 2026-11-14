@@ -20,6 +20,7 @@ substitution_without_approval: NONE   # every substitute goes to a human (P-05)
 variable_weight: APPROVAL         # not set for this profile by SPEC section 7; the cautious value (P-06)
 deposits: APPROVAL                # not set for this profile by SPEC section 7; the cautious value (P-07)
 require_confirmed: true           # the offer holds fully confirmed options only
+standing_order_drift_ratio: 0.1   # a ward's diet changes slowly: 10% from the median of its history goes to a human (P-08)
 
 # Who holds each role. The id is that of the demonstration identity.
 approver_roles:

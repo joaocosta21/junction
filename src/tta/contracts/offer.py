@@ -71,6 +71,15 @@ class OfferLine(Contract):
     has_deposits: bool = False
     country_of_origin: str | None = None
     substitute: SubstituteInfo | None = None
+    # From the product, for the comparison of delivery and sustainability (task SUST-1). None: the file has no
+    # value, which is unknown, never 0 and never 1.
+    delivery_reliability: Number | None = Field(default=None, description="Share 0 to 1, from the reliability file")
+    carbon_kg_co2e_per_kg: Number | None = Field(default=None, description="From the carbon footprint file")
+    labels: tuple[str, ...] = Field(default=(), description="Certificate labels (packagingMarkedLabel codes)")
+    # Copied from the request line when recipe logic chose this product type in place of the recipe's own (task
+    # MENU-1, rule F-09). None: the line stands in for nothing.
+    stands_in_for: str | None = Field(default=None, description="The recipe's product type this line replaces")
+    stands_in_role: str | None = Field(default=None, description="The job that ingredient does in the dish")
 
     @property
     def quantity_confirmed(self) -> bool:
@@ -119,6 +128,27 @@ class ConstraintCheck(Contract):
     sentence: str
 
 
+class OptionComparison(Contract):
+    """Delivery dates, delivery reliability, carbon footprint and labels of an option's lines (task SUST-1).
+
+    Each figure is over the lines that have a value; how many lines have none is stated beside it.
+    """
+
+    earliest_delivery: date | None = None
+    latest_delivery: date | None = None
+    delivery_unknown_lines: int = Field(default=0, ge=0)
+    lowest_reliability: Number | None = Field(default=None, description="The lowest share 0 to 1 among the lines")
+    reliability_unknown_lines: int = Field(default=0, ge=0)
+    carbon_kg_co2e: Number | None = Field(
+        default=None,
+        description="Estimate: amount delivered times kg CO2e per kg, over the lines whose amount is known in kg or "
+        "litres; a litre is counted as a kilogram",
+    )
+    carbon_unknown_lines: int = Field(default=0, ge=0)
+    labels_on_every_line: tuple[str, ...] = ()
+    sentence: str
+
+
 class OfferOption(Contract):
     option_id: str
     kind: OptionKind
@@ -132,6 +162,7 @@ class OfferOption(Contract):
     valid_until: datetime | None = None  # earliest price validity and cut-off of the lines
     constraint_checks: tuple[ConstraintCheck, ...] = ()
     decision: PolicyDecision | None = None  # filled in by the offer builder before the offer leaves it
+    comparison: OptionComparison | None = None  # filled in by the offer builder (task SUST-1)
 
     @property
     def is_partial(self) -> bool:

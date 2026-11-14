@@ -35,6 +35,7 @@ from tta.audit.sentences import (
     order_not_placed,
     recorded_note,
 )
+from tta.audit.standing_sentences import supplier_standing_order_created, supplier_standing_order_renewed
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DecisionKind, PlacedBy, Verdict
 
@@ -178,6 +179,8 @@ SUPPLIER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {
     AuditEventType.ORDER_NOT_PLACED: order_not_placed,
     AuditEventType.AUTHORISATION_REFUSED: authorisation_refused,
     AuditEventType.EVIDENCE_ATTACHED: evidence_attached,
+    AuditEventType.STANDING_ORDER_CREATED: supplier_standing_order_created,
+    AuditEventType.STANDING_ORDER_RENEWED: supplier_standing_order_renewed,
 }
 
 

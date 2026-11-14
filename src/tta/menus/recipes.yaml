@@ -1,0 +1,290 @@
+# Recipes of the menu planner (task MENU-1).
+#
+# OURS AND ILLUSTRATIVE. Valio Aimo publishes no recipes. These dishes are the kind a hotel or school
+# kitchen cooks; the amounts per serving are rough kitchen figures chosen for the demonstration, not a
+# nutrition standard, and every page and answer that uses them says so.
+#
+# Each ingredient names
+#   product_type   a key of src/tta/catalog/product_types.yaml (the loader checks it)
+#   name_terms     (optional) words the product name must have, as in a request line
+#   per_serving    the amount for one serving, in `unit` (L or KG)
+#   role           the job the ingredient does in the dish
+#   alternatives   other product types that do the same job, best first, each with a one-line reason
+#                  that says why it works and what changes. An alternative takes the ingredient's
+#                  per_serving and unit unless it gives its own.
+# A product type has one unit everywhere in this file, so kitchen stock and request lines add up.
+#
+# Left out, and why: the product-type table has no vegetables, fruit, berries, herbs or spices, so the
+# dishes list those under `left_out` instead of ordering them. Butter, sugar, flour, eggs, rice, pasta,
+# chicken, fish, pork and minced meat are product types, but the recorded capture 2026-11-14-demo holds
+# only categories 104xx (milk, cream, plant drinks, yoghurt, quark) and 18720 (fresh beef): in replay
+# the other types answer "not in recording".
+
+dishes:
+  beef_stew:
+    name: Beef stew
+    ingredients:
+      - product_type: beef_chuck
+        per_serving: 0.18
+        unit: KG
+        role: "the stewing meat: a cut with connective tissue that turns tender in a long braise"
+        alternatives:
+          - product_type: beef
+            name_terms: [brisket]
+            reason: "Beef brisket braises the same way and for as long; it is fattier than chuck."
+          - product_type: pork
+            reason: "Pork braises the same way; the dish is no longer a beef stew."
+      - product_type: cream
+        per_serving: 0.03
+        unit: L
+        role: "rounds off and thickens the gravy"
+        alternatives:
+          - product_type: vegetable_cream
+            reason: "A vegetable-fat cooking cream thickens the gravy the same way; it is not all dairy."
+          - product_type: milk
+            reason: "Milk loosens the gravy the same way but thickens it less; reduce the gravy longer."
+      - product_type: butter
+        per_serving: 0.01
+        unit: KG
+        role: "browns the meat"
+        alternatives:
+          - product_type: olive_oil
+            per_serving: 0.01
+            unit: L
+            reason: "Oil browns the meat the same way; the gravy tastes less of butter."
+    left_out:
+      - "carrots, onions and potatoes: the product-type table has no vegetables"
+
+  creamy_chicken_pasta:
+    name: Creamy chicken pasta
+    ingredients:
+      - product_type: chicken
+        name_terms: [fillet]
+        per_serving: 0.13
+        unit: KG
+        role: "the protein, cut in strips and cooked quickly"
+        alternatives:
+          - product_type: pork
+            reason: "Strips of pork cook as quickly and carry the sauce the same way; the dish is no longer chicken."
+      - product_type: pasta
+        per_serving: 0.09
+        unit: KG
+        role: "the starch that carries the sauce"
+        alternatives:
+          - product_type: rice
+            reason: "Rice carries a cream sauce too; the plate becomes a risotto-style dish."
+      - product_type: cream
+        per_serving: 0.08
+        unit: L
+        role: "the sauce base: it thickens the sauce"
+        alternatives:
+          - product_type: vegetable_cream
+            reason: "A vegetable-fat cream thickens the sauce the same way; it is not all dairy."
+          - product_type: milk
+            reason: "Milk makes a thinner sauce; reduce it longer or thicken it with flour."
+      - product_type: cheese
+        name_terms: [grated]
+        per_serving: 0.02
+        unit: KG
+        role: "seasons the sauce and makes it richer"
+        alternatives: []
+    left_out:
+      - "onion and garlic: the product-type table has no vegetables"
+
+  salmon_with_rice:
+    name: Salmon with rice and cream sauce
+    ingredients:
+      - product_type: fresh_fish
+        name_terms: [salmon]
+        per_serving: 0.15
+        unit: KG
+        role: "the protein: a fillet baked in the oven"
+        alternatives: []
+      - product_type: rice
+        per_serving: 0.08
+        unit: KG
+        role: "the starch"
+        alternatives:
+          - product_type: pasta
+            reason: "Pasta fills the plate the same way and goes with the cream sauce."
+      - product_type: cream
+        per_serving: 0.04
+        unit: L
+        role: "the sauce base"
+        alternatives:
+          - product_type: vegetable_cream
+            reason: "A vegetable-fat cooking cream makes the same sauce; it is not all dairy."
+    left_out:
+      - "dill and lemon: the product-type table has no herbs or fruit"
+
+  oven_pancake:
+    name: Oven pancake (pannukakku)
+    ingredients:
+      - product_type: milk
+        per_serving: 0.15
+        unit: L
+        role: "the liquid of the batter"
+        alternatives:
+          - product_type: plant_drink
+            reason: "An oat or soya drink makes the same batter; it is not dairy and browns less."
+      - product_type: eggs
+        per_serving: 0.04
+        unit: KG
+        role: "binds the batter and makes it rise"
+        alternatives: []
+      - product_type: flour
+        per_serving: 0.04
+        unit: KG
+        role: "gives the batter body"
+        alternatives: []
+      - product_type: sugar
+        per_serving: 0.01
+        unit: KG
+        role: "sweetens the batter"
+        alternatives: []
+    left_out:
+      - "jam and berries to serve: the product-type table has no fruit or berries"
+
+  macaroni_casserole:
+    name: Macaroni casserole (makaronilaatikko)
+    ingredients:
+      - product_type: pasta
+        name_terms: [macaroni]
+        per_serving: 0.07
+        unit: KG
+        role: "the macaroni that the custard sets around"
+        alternatives: []
+      - product_type: minced_meat
+        per_serving: 0.08
+        unit: KG
+        role: "the meat, browned before it goes in"
+        alternatives:
+          - product_type: ham
+            reason: "Diced ham gives the same savoury meat without browning; it is saltier."
+      - product_type: milk
+        per_serving: 0.15
+        unit: L
+        role: "the egg and milk custard that sets the casserole"
+        alternatives:
+          - product_type: plant_drink
+            reason: "An oat drink sets with the eggs the same way; it is not dairy."
+      - product_type: eggs
+        per_serving: 0.03
+        unit: KG
+        role: "sets the custard"
+        alternatives: []
+    left_out:
+      - "onion: the product-type table has no vegetables"
+
+  rice_porridge:
+    name: Rice porridge
+    ingredients:
+      - product_type: rice
+        per_serving: 0.06
+        unit: KG
+        role: "the porridge grain"
+        alternatives: []
+      - product_type: milk
+        per_serving: 0.3
+        unit: L
+        role: "cooks the rice soft and creamy"
+        alternatives:
+          - product_type: plant_drink
+            reason: "An oat drink cooks the rice the same way; it is not dairy and the porridge is less rich."
+      - product_type: butter
+        per_serving: 0.005
+        unit: KG
+        role: "the knob of butter on top"
+        alternatives: []
+    left_out: []
+
+  lasagne:
+    name: Lasagne
+    ingredients:
+      - product_type: pasta
+        name_terms: [lasagne]
+        per_serving: 0.06
+        unit: KG
+        role: "the layers"
+        alternatives: []
+      - product_type: minced_meat
+        per_serving: 0.1
+        unit: KG
+        role: "the meat sauce"
+        alternatives:
+          - product_type: beef
+            name_terms: [brisket]
+            reason: "Brisket, minced or cooked and shredded, makes the same meat sauce; it takes longer."
+      - product_type: milk
+        per_serving: 0.12
+        unit: L
+        role: "the white sauce"
+        alternatives:
+          - product_type: plant_drink
+            reason: "An oat drink makes the same white sauce; it is not dairy."
+      - product_type: cheese
+        name_terms: [grated]
+        per_serving: 0.03
+        unit: KG
+        role: "browns the top"
+        alternatives: []
+      - product_type: flour
+        per_serving: 0.01
+        unit: KG
+        role: "thickens the white sauce"
+        alternatives: []
+    left_out:
+      - "tomatoes and onions: the product-type table has no vegetables"
+
+  cheese_omelette:
+    name: Cheese omelette (vegetarian)
+    ingredients:
+      - product_type: eggs
+        per_serving: 0.12
+        unit: KG
+        role: "the omelette itself"
+        alternatives: []
+      - product_type: milk
+        per_serving: 0.03
+        unit: L
+        role: "makes the omelette softer"
+        alternatives:
+          - product_type: cream
+            reason: "Cream makes the omelette softer the same way; it is richer."
+      - product_type: cheese
+        name_terms: [grated]
+        per_serving: 0.03
+        unit: KG
+        role: "the filling"
+        alternatives: []
+    left_out:
+      - "herbs: the product-type table has none"
+
+  berry_quark_dessert:
+    name: Berry quark dessert (marjarahka)
+    ingredients:
+      - product_type: quark
+        name_terms: [maitorahka]
+        per_serving: 0.1
+        unit: KG
+        role: "the thick, tangy base of the dessert"
+        alternatives:
+          - product_type: yoghurt
+            name_terms: [natural]
+            reason: "A thick natural yoghurt gives the same tangy base; the dessert is runnier and has less protein."
+      - product_type: cream
+        name_terms: [whipping]
+        per_serving: 0.03
+        unit: L
+        role: "whipped and folded in, it makes the dessert light"
+        alternatives:
+          - product_type: vegetable_cream
+            name_terms: [whipping]
+            reason: "A vegetable-fat whipping blend whips the same way; it is not all dairy."
+      - product_type: sugar
+        per_serving: 0.01
+        unit: KG
+        role: "sweetens the dessert"
+        alternatives: []
+    left_out:
+      - "berries: the product-type table has no fruit or berries"

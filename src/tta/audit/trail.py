@@ -7,6 +7,7 @@ and Valio Aimo"; the envelope is an open, documented format (15%). CloudEvents 1
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import replace
 from uuid import uuid4
@@ -16,6 +17,7 @@ from tta.audit.facts import buyer_facts, supplier_facts
 from tta.audit.readers import AGENT_ON_APPROVAL_ROUTE
 from tta.audit.scope import Scope, distinct_rule_ids, resolve
 from tta.audit.sentences import buyer_sentence
+from tta.audit.standing_sentences import STANDING_ORDER_FAMILY
 from tta.audit.supplier_sentences import supplier_sentence
 from tta.audit.views import check_view, project, select
 from tta.contracts.audit import (
@@ -42,6 +44,7 @@ SUBJECT_ORDER = {
     "evidence": ("approval", "order", "offer"),
 }
 DEFAULT_SUBJECT_ORDER = ("offer", "order", "approval")
+STANDING_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")  # tta.contracts.standing.StandingOrderId
 UNSEALED = ""
 # How often one event is chained to the head and offered to the store before the trail gives up. Each failed
 # attempt means another writer (a second process on the same database) appended an event in between.
@@ -52,10 +55,14 @@ GAVE_UP_DETAIL = (
 )
 
 
-def _subject(event_type: AuditEventType, scope: Scope) -> str | None:
-    """`order/<id>`, `approval/<id>` or `offer/<id>`; none when the event is about nothing stored yet."""
+def _subject(event_type: AuditEventType, scope: Scope, context: AuditContext) -> str | None:
+    """`order/<id>`, `approval/<id>` or `offer/<id>`; `standing_order/<id>` for a standing order's events (task
+    STAND-1); none when the event is about nothing stored yet."""
     ids = {"order": scope.order_id, "approval": scope.approval_id, "offer": scope.offer_id}
     family = event_type.value.split(".", maxsplit=1)[0]
+    standing_id = context.facts.get("standing_order_id")
+    if family == STANDING_ORDER_FAMILY and isinstance(standing_id, str) and STANDING_ID.fullmatch(standing_id):
+        return f"{family}/{standing_id}"
     for kind in SUBJECT_ORDER.get(family, DEFAULT_SUBJECT_ORDER):
         if ids[kind]:
             return f"{kind}/{ids[kind]}"
@@ -107,7 +114,7 @@ class AuditTrail:
         )
         unchained = AuditEvent(
             id=str(uuid4()), type=f"{EVENT_TYPE_PREFIX}{event_type.value}", time=now,
-            subject=_subject(event_type, scope), data=data,
+            subject=_subject(event_type, scope, context), data=data,
         )
         # The store first, the trail's lock second: the order every writer uses, so a thread inside
         # `store.atomic()` and a thread recording an event can never wait for each other.

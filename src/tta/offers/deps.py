@@ -12,9 +12,13 @@ from decimal import Decimal
 
 from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
 from tta.contracts.common import DataSource
-from tta.contracts.errors import SupplierUnavailable
+from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 from tta.contracts.ports import Catalog, Clock, PairedLookup, PolicyEngine, ValioGateway
+from tta.contracts.standing import StandingHistory
 
+NO_STANDING_ORDERS = (
+    "This gateway keeps no standing orders, so a request cannot renew one. Send it without standing_order_id."
+)
 TWO_SOURCES = (
     "Price came from the {price} source and availability from the {availability} source. An offer is never "
     "built on two sources, so nothing was looked up. The same request can be sent again."
@@ -23,13 +27,28 @@ TWO_SOURCES = (
 
 @dataclass(frozen=True)
 class OfferDeps:
-    """`day_spend` answers the net EUR a buyer profile has committed today (ORDERED and PENDING_APPROVAL)."""
+    """`day_spend` answers the net EUR a buyer profile has committed today (ORDERED and PENDING_APPROVAL).
+
+    `standing_history` answers the history of a standing order by (profile id, standing order id) and raises
+    `InvalidRequest` for one the profile does not have (`tta.standing.history_lookup`). None: no standing orders
+    are wired, and a request that names one is refused, never judged without its history (rule P-08).
+    """
 
     catalog: Catalog
     gateway: ValioGateway
     policy: PolicyEngine
     clock: Clock
     day_spend: Callable[[str], Decimal]
+    standing_history: Callable[[str, str], StandingHistory] | None = None
+
+
+def standing_history_of(deps: OfferDeps, profile_id: str, standing_order_id: str | None) -> StandingHistory | None:
+    """What `PolicyContext.standing_history` gets: None for a request that renews nothing (task STAND-1)."""
+    if standing_order_id is None:
+        return None
+    if deps.standing_history is None:
+        raise InvalidRequest(NO_STANDING_ORDERS)
+    return deps.standing_history(profile_id, standing_order_id)
 
 
 @dataclass(frozen=True)

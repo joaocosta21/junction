@@ -20,6 +20,9 @@ from tta.contracts.common import (
     VariableWeightRule,
     Verdict,
 )
+from tta.contracts.standing import StandingHistory
+
+MAX_DRIFT_RATIO = 1  # a tolerance of 100%: a quantity or a price may double before a human looks
 
 
 class BuyerProfile(Contract):
@@ -39,6 +42,12 @@ class BuyerProfile(Contract):
     variable_weight: VariableWeightRule
     deposits: DepositRule
     require_confirmed: bool = False
+    standing_order_drift_ratio: Ratio | None = Field(
+        default=None, ge=0, le=MAX_DRIFT_RATIO,
+        description="How far a renewal of a standing order may differ from the median of its history, on any line's "
+        "quantity or unit price, before it goes to a human (P-08). None: not set, so a renewal with enough history "
+        "goes to a human for a missing fact (F-03)",
+    )
     approver_roles: dict[ApproverRole, tuple[str, ...]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -55,6 +64,9 @@ class PolicyContext(Contract):
     day_committed_net_eur: Decimal | None = None  # today's ORDERED and PENDING_APPROVAL, this order excluded
     at_order_time: bool = False
     revalidation: RevalidationResult | None = None  # set at order time; None there is a missing fact
+    # The standing order the request renews and its past renewals (P-08). None means "not a renewal": it is
+    # never a missing fact.
+    standing_history: StandingHistory | None = None
 
 
 class FiredRule(Contract):

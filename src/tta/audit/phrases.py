@@ -53,6 +53,7 @@ ROLES_WITH_ARTICLE = {
 OPTION_KINDS = {
     OptionKind.BEST_CONFIRMED: "best confirmed",
     OptionKind.ALTERNATIVE_UNCONFIRMED: "alternative, quantity not confirmed",
+    OptionKind.CHEAPEST_CONFIRMED: "cheapest confirmed",
     OptionKind.SUBSTITUTE: "substitute",
 }
 SOURCES = {

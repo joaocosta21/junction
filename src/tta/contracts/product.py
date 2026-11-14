@@ -57,6 +57,9 @@ class Product(Contract):
     deleted: bool = False
     delivery_reliability: Number | None = None  # share between 0 and 1, from the reliability file
     carbon_kg_co2e_per_kg: Number | None = None  # from the carbon footprint file
+    # Certificate labels of packagingMarkedLabel, in file order; its three storage temperatures are not labels
+    # (AIMO/docs/SCHEMA-AND-CODES.md section 2.5). Empty: the file states none.
+    labels: tuple[str, ...] = ()
 
     @property
     def display_name(self) -> str:

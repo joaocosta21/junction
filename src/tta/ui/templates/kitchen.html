@@ -99,6 +99,14 @@ one rule, shown next to it with your values. The fixed rules below hold whatever
   </fieldset>
 
   <fieldset>
+    <legend>Standing orders</legend>
+    <label class="field-label" for="standing_order_drift_ratio">Drift tolerance before a renewal goes to a human, percent (0 to 100; empty: not set)</label>
+    <input type="text" inputmode="decimal" id="standing_order_drift_ratio" name="standing_order_drift_ratio" value="{{ form.standing_order_drift_ratio }}">
+    {{ rule_note("standing_order_drift_ratio") }}
+    <p class="small">How far this week's quantity or unit price on a line of a <a href="/standing-orders">standing order</a> may differ from the median of its history.</p>
+  </fieldset>
+
+  <fieldset>
     <legend>Data</legend>
     <label><input type="checkbox" name="require_confirmed" value="yes"{% if form.require_confirmed %} checked{% endif %}> Confirmed data only</label>
     <p class="small">Shapes the offer itself: an option whose quantity or delivery date Valio Aimo does not confirm is left out.</p>

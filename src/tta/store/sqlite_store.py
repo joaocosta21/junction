@@ -23,6 +23,7 @@ from tta.contracts.common import ApprovalStatus, Contract, OrderStatus
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.offer import Offer
 from tta.contracts.order import Approval, Order
+from tta.contracts.standing import Renewal, StandingOrder
 from tta.store import schema
 from tta.store.errors import AuditChainConflict
 
@@ -48,7 +49,7 @@ def _encode(model: Contract) -> str:
 
 
 class SqliteStore:
-    """Offers, orders, approvals, idempotency keys and audit events in one SQLite database.
+    """Offers, orders, approvals, idempotency keys, audit events and standing orders in one SQLite database.
 
     One connection, guarded by a lock, so the FastAPI thread pool can share it. Audit events have
     an append and two reads; there is no method that changes or removes one, and the database refuses
@@ -250,6 +251,30 @@ class SqliteStore:
         with self._session() as connection:
             row = connection.execute(schema.LAST_AUDIT_HASH).fetchone()
         return None if row is None else row[0]
+
+    def save_standing_order(self, standing: StandingOrder) -> None:
+        with self._session() as connection:
+            connection.execute(
+                schema.SAVE_STANDING_ORDER, (standing.standing_order_id, standing.profile_id, _encode(standing))
+            )
+
+    def get_standing_order(self, standing_order_id: str) -> StandingOrder | None:
+        body = self._body(schema.GET_STANDING_ORDER, standing_order_id)
+        return None if body is None else StandingOrder.model_validate_json(body)
+
+    def list_standing_orders(self, profile_id: str | None = None) -> tuple[StandingOrder, ...]:
+        """In the order they were first saved. With no profile: every standing order."""
+        bodies = self._bodies(schema.LIST_STANDING_ORDERS, {"profile_id": profile_id})
+        return tuple(StandingOrder.model_validate_json(body) for body in bodies)
+
+    def save_renewal(self, renewal: Renewal) -> None:
+        with self._session() as connection:
+            connection.execute(schema.SAVE_RENEWAL, (renewal.renewal_id, renewal.standing_order_id, _encode(renewal)))
+
+    def list_renewals(self, standing_order_id: str) -> tuple[Renewal, ...]:
+        """The renewals of one standing order, in the order they were first saved."""
+        bodies = self._bodies(schema.LIST_RENEWALS, {"standing_order_id": standing_order_id})
+        return tuple(Renewal.model_validate_json(body) for body in bodies)
 
 
 def open_store(settings: Settings) -> SqliteStore:

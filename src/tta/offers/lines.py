@@ -50,6 +50,11 @@ def line_for(
         has_deposits=product.has_deposits,
         country_of_origin=product.country_of_origin,
         substitute=substitute,
+        delivery_reliability=product.delivery_reliability,  # None stays None: unknown, never imputed
+        carbon_kg_co2e_per_kg=product.carbon_kg_co2e_per_kg,
+        labels=product.labels,
+        stands_in_for=need.stands_in_for,
+        stands_in_role=need.stands_in_role,
     )
 
 

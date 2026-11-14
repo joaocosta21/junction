@@ -40,6 +40,8 @@ class AuditEventType(StrEnum):
     ORDER_NOT_PLACED = "order.not_placed"  # stale or expired at order time
     AUTHORISATION_REFUSED = "authorisation.refused"
     EVIDENCE_ATTACHED = "evidence.attached"
+    STANDING_ORDER_CREATED = "standing_order.created"  # task STAND-1
+    STANDING_ORDER_RENEWED = "standing_order.renewed"  # with the drift found
 
 
 class ActorKind(StrEnum):

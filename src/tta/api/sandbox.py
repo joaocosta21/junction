@@ -65,7 +65,7 @@ STARTING_POINTS = ("hotel-kitchen", "allergy-ward")  # the profile files a kitch
 KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest is the gateway's
     "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
     "excluded_allergens", "allergen_strictness", "substitution_without_approval", "variable_weight", "deposits",
-    "require_confirmed",
+    "require_confirmed", "standing_order_drift_ratio",
 )
 LIMIT_SETTINGS = ("max_order_net_eur", "max_daily_net_eur")
 MAX_LIMIT_EUR = Decimal(100_000)

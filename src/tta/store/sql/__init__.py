@@ -80,6 +80,23 @@ ORDER BY seq
 """
 LAST_AUDIT_HASH = "SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1"
 
+# Standing orders and their renewals (task STAND-1, sql/005).
+SAVE_STANDING_ORDER = """
+INSERT INTO standing_orders (standing_order_id, profile_id, body) VALUES (%s, %s, %s)
+ON CONFLICT (standing_order_id) DO UPDATE SET profile_id = excluded.profile_id, body = excluded.body
+"""
+GET_STANDING_ORDER = "SELECT body FROM standing_orders WHERE standing_order_id = %s"
+LIST_STANDING_ORDERS = """
+SELECT body FROM standing_orders
+WHERE (%(profile_id)s::text IS NULL OR profile_id = %(profile_id)s::text)
+ORDER BY seq
+"""
+SAVE_RENEWAL = """
+INSERT INTO standing_renewals (renewal_id, standing_order_id, body) VALUES (%s, %s, %s)
+ON CONFLICT (renewal_id) DO UPDATE SET standing_order_id = excluded.standing_order_id, body = excluded.body
+"""
+LIST_RENEWALS = "SELECT body FROM standing_renewals WHERE standing_order_id = %(standing_order_id)s ORDER BY seq"
+
 # What the audit triggers raise (sql/002), and the constraint behind them (sql/001).
 EVENT_ALREADY_STORED = "TA002"
 NOT_AFTER_THE_HEAD = "TA003"

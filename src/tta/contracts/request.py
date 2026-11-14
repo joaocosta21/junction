@@ -20,6 +20,7 @@ MAX_TERMS = 10
 MAX_ALLERGEN_CODES = 30
 MAX_TERM_LENGTH = 60
 MAX_ID_LENGTH = 20
+MAX_ROLE_LENGTH = 200
 
 _FORBIDDEN_IN_A_TERM = frozenset('"\u201c\u201d\u201e\u00ab\u00bb<>')
 
@@ -67,6 +68,10 @@ class RequestLine(Contract):
         description="The product type of a recipe this line replaces, set by the menu planner when recipe logic "
         "chose another ingredient (rule F-09: such a line goes to a human). It can only add a check",
     )
+    stands_in_role: str | None = Field(
+        default=None, max_length=MAX_ROLE_LENGTH,
+        description="The job the recipe's ingredient does in the dish, set by the menu planner with stands_in_for",
+    )
     allergen_strictness: AllergenStrictness | None = Field(
         default=None,
         description="Required when there is any exclusion and the profile sets none. There is no default.",
@@ -110,5 +115,8 @@ class ProductQuery(Contract):
     product_ids: tuple[ProductId, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
     name_terms: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)
     required_claims: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)
+    required_labels: tuple[Term, ...] = Field(
+        default=(), max_length=MAX_TERMS, description="Certificate labels (packagingMarkedLabel codes) to carry"
+    )
     category_prefix: Term | None = None
     limit: int = Field(default=200, ge=1, le=MAX_PRODUCT_IDS)

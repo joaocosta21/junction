@@ -34,7 +34,8 @@ def test_the_schema_has_the_fields_of_the_typed_request_except_the_buyers_words(
 
     # The gateway sets the standing order a request renews and the recipe ingredient a line stands in for.
     assert set(schema["properties"]) == set(PurchaseRequest.model_fields) - {"standing_order_id"}
-    assert set(line["properties"]) == set(RequestLine.model_fields) - {"text", "stands_in_for"}  # `text`: the parser
+    gateway_set = {"text", "stands_in_for", "stands_in_role"}  # `text`: the parser
+    assert set(line["properties"]) == set(RequestLine.model_fields) - gateway_set
     for node in (schema, line):
         assert set(node["required"]) == set(node["properties"])  # nothing may be left out: null says "not said"
         assert node["additionalProperties"] is False

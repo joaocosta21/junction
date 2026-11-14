@@ -82,6 +82,8 @@ class Need:
     strictness: AllergenStrictness | None
     needed_by: date | None
     require_confirmed: bool
+    stands_in_for: str | None = None  # the recipe's product type this line replaces (task MENU-1, rule F-09)
+    stands_in_role: str | None = None
 
     @property
     def dated(self) -> bool:
@@ -147,6 +149,8 @@ def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: B
         needed_by=request.needed_by,
         # Confirmed data only when the request asks for it or the buyer profile sets it (SPEC section 7).
         require_confirmed=request.require_confirmed or profile.require_confirmed,
+        stands_in_for=line.stands_in_for,
+        stands_in_role=line.stands_in_role,
     )
 
 
@@ -159,7 +163,7 @@ def find_products(line: RequestLine, catalog: Catalog) -> Found:
         return Found(tuple(named_product(catalog, product_id) for product_id in dict.fromkeys(line.product_ids)))
     query = ProductQuery(
         product_type=line.product_type, name_terms=line.name_terms, required_claims=line.required_claims,
-        limit=MAX_PRODUCT_IDS,
+        required_labels=line.required_labels, limit=MAX_PRODUCT_IDS,
     )
     result = catalog.search(query)
     products = tuple(product for product in result.products if not product.deleted)

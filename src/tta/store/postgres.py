@@ -41,6 +41,7 @@ from tta.contracts.common import ApprovalStatus, Contract, OrderStatus
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.offer import Offer
 from tta.contracts.order import Approval, Order
+from tta.contracts.standing import Renewal, StandingOrder
 from tta.store import sql as statements
 from tta.store.errors import AuditChainConflict
 from tta.store.sqlite_store import CHAIN_MOVED_DETAIL, STORE_BUSY_DETAIL, STORE_UNAVAILABLE_DETAIL
@@ -96,7 +97,7 @@ def _refusal(error: psycopg.Error, event_id: str) -> Exception:
 
 
 class PostgresStore:
-    """Offers, orders, approvals, idempotency keys and audit events in one PostgreSQL schema.
+    """Offers, orders, approvals, idempotency keys, audit events and standing orders in one PostgreSQL schema.
 
     Opening the store connects, creates the schema if needed and runs the migrations of `sql/` in one transaction.
     Audit events have an append and two reads; no method changes or removes one, and the database refuses an
@@ -342,6 +343,28 @@ class PostgresStore:
 
     def last_audit_hash(self) -> str | None:
         return self._value(statements.LAST_AUDIT_HASH, ())
+
+    def save_standing_order(self, standing: StandingOrder) -> None:
+        self._write(
+            statements.SAVE_STANDING_ORDER, (standing.standing_order_id, standing.profile_id, _encode(standing))
+        )
+
+    def get_standing_order(self, standing_order_id: str) -> StandingOrder | None:
+        body = self._value(statements.GET_STANDING_ORDER, (standing_order_id,))
+        return None if body is None else StandingOrder.model_validate_json(body)
+
+    def list_standing_orders(self, profile_id: str | None = None) -> tuple[StandingOrder, ...]:
+        """In the order they were first saved. With no profile: every standing order."""
+        bodies = self._values(statements.LIST_STANDING_ORDERS, {"profile_id": profile_id})
+        return tuple(StandingOrder.model_validate_json(body) for body in bodies)
+
+    def save_renewal(self, renewal: Renewal) -> None:
+        self._write(statements.SAVE_RENEWAL, (renewal.renewal_id, renewal.standing_order_id, _encode(renewal)))
+
+    def list_renewals(self, standing_order_id: str) -> tuple[Renewal, ...]:
+        """The renewals of one standing order, in the order they were first saved."""
+        bodies = self._values(statements.LIST_RENEWALS, {"standing_order_id": standing_order_id})
+        return tuple(Renewal.model_validate_json(body) for body in bodies)
 
 
 def schema_for(settings: Settings) -> str:

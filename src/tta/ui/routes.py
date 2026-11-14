@@ -13,6 +13,8 @@ seen by another, and every visitor starts from an empty book.
     /orders/{id}      the order record, the statements it relied on, the audit trail for two readers
     /assumptions      docs/ASSUMPTIONS.md, when it exists
     /kitchen          "Your kitchen": what My kitchen agent may decide alone, in this browser's book (FEAT-1)
+    /menu             a menu becomes one order; recipe logic replaces what cannot be had (MENU-1)
+    /standing-orders  standing orders; a renewal that drifts from its history goes to a human (STAND-1)
     POST /start-again empties the visitor's own order book
 """
 
@@ -34,7 +36,7 @@ from tta.api.hooks import SurfaceContext
 from tta.api.sandbox import KITCHEN_IDENTITIES
 from tta.config import REPO_ROOT
 from tta.contracts.errors import TtaError
-from tta.ui import approvals_page, kitchen_page, order_page, request_page, security
+from tta.ui import approvals_page, kitchen_page, menu_page, order_page, request_page, security, standing_page
 from tta.ui.markdown import render as render_markdown
 from tta.ui.run import Problem
 from tta.ui.security import BookCookie, SecurityHeaders
@@ -121,6 +123,8 @@ def create_surface(context: SurfaceContext) -> FastAPI:
     approvals_page.add_routes(app, site)
     order_page.add_routes(app, site)
     kitchen_page.add_routes(app, site)
+    menu_page.add_routes(app, site)  # task MENU-1
+    standing_page.add_routes(app, site)  # task STAND-1
 
     @app.get("/assumptions", response_class=HTMLResponse)
     def assumptions(request: Request) -> HTMLResponse:

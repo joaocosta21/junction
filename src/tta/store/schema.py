@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS audit_events_by_order ON audit_events (order_id);
 CREATE INDEX IF NOT EXISTS audit_events_by_offer ON audit_events (offer_id);
 CREATE INDEX IF NOT EXISTS audit_events_by_profile ON audit_events (profile_id);
+CREATE TABLE IF NOT EXISTS standing_orders (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    standing_order_id TEXT NOT NULL UNIQUE,
+    profile_id        TEXT NOT NULL,
+    body              TEXT NOT NULL CHECK (json_valid(body))
+);
+CREATE INDEX IF NOT EXISTS standing_orders_by_profile ON standing_orders (profile_id);
+CREATE TABLE IF NOT EXISTS standing_renewals (
+    seq               INTEGER PRIMARY KEY AUTOINCREMENT,
+    renewal_id        TEXT NOT NULL UNIQUE,
+    standing_order_id TEXT NOT NULL,
+    body              TEXT NOT NULL CHECK (json_valid(body))
+);
+CREATE INDEX IF NOT EXISTS standing_renewals_by_order ON standing_renewals (standing_order_id);
 CREATE TRIGGER IF NOT EXISTS audit_events_no_update BEFORE UPDATE ON audit_events
 BEGIN
     SELECT RAISE(ABORT, 'audit_events is append-only: an event cannot be changed');
@@ -132,3 +146,18 @@ WHERE (:order_id IS NULL OR order_id = :order_id)
 ORDER BY seq
 """
 LAST_AUDIT_HASH = "SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1"
+
+# Standing orders and their renewals (task STAND-1). Saving again replaces the body and keeps the row's place.
+SAVE_STANDING_ORDER = """
+INSERT INTO standing_orders (standing_order_id, profile_id, body) VALUES (?, ?, ?)
+ON CONFLICT (standing_order_id) DO UPDATE SET profile_id = excluded.profile_id, body = excluded.body
+"""
+GET_STANDING_ORDER = "SELECT body FROM standing_orders WHERE standing_order_id = ?"
+LIST_STANDING_ORDERS = """
+SELECT body FROM standing_orders WHERE (:profile_id IS NULL OR profile_id = :profile_id) ORDER BY seq
+"""
+SAVE_RENEWAL = """
+INSERT INTO standing_renewals (renewal_id, standing_order_id, body) VALUES (?, ?, ?)
+ON CONFLICT (renewal_id) DO UPDATE SET standing_order_id = excluded.standing_order_id, body = excluded.body
+"""
+LIST_RENEWALS = "SELECT body FROM standing_renewals WHERE standing_order_id = :standing_order_id ORDER BY seq"

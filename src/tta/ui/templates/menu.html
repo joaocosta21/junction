@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% from "_marks.html" import mark %}
+{% block title %}Menu{% endblock %}
+{% block main %}
+<h1>Plan a menu: dishes become one order</h1>
+<p class="lead">Choose the dishes and how many servings, say what the kitchen already holds and when the goods are
+needed. The agent works out what to order, asks Valio Aimo for one offer, and when an ingredient cannot arrive in
+time it tries another product type that does the same job in the dish, the recipe's own alternatives in order.
+Such a stand-in always goes to the purchasing manager (rule F-09).</p>
+<p class="small">{{ recipes_note }} <a href="/menu?example=event">Fill in the last-minute event</a>: a booking on
+Saturday night for a dinner on Monday, confirmed stock only.</p>
+
+{% if problem %}
+<div class="banner banner-bad" role="alert" id="problem">
+  <p><strong>{{ problem.title }}.</strong> {{ problem.detail }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/menu/plan" class="request-form menu-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <fieldset class="who">
+    <legend>Who is asking</legend>
+    {% for agent in agents %}
+    <label><input type="radio" name="who" value="{{ agent.id }}"{% if agent.id == asker.id %} checked{% endif %}> {{ agent.display_name }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Dishes and servings</legend>
+    {% for recipe in recipes %}
+    {% set name = servings_prefix ~ recipe.dish_id %}
+    <label class="field-label" for="{{ name }}">{{ recipe.name }}</label>
+    <input type="text" inputmode="numeric" id="{{ name }}" name="{{ name }}" value="{{ form.get(name) }}" maxlength="5" placeholder="0">
+    <p class="small">{% for ingredient in recipe.ingredients %}{{ ingredient.per_serving|quantity }} {{ ingredient.unit.value }} {{ ingredient.product_type|replace("_", " ") }}{% if ingredient.name_terms %} ({{ ingredient.name_terms|join(" ") }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %} per serving{% if recipe.left_out %}. Left out: {{ recipe.left_out|join("; ") }}{% endif %}.</p>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>What the kitchen already holds</legend>
+    {% for entry in stock_fields %}
+    {% set name = stock_prefix ~ entry.product_type %}
+    <label class="field-label" for="{{ name }}">{{ entry.product_type|replace("_", " ")|capitalize }}, {{ entry.unit.value }}</label>
+    <input type="text" inputmode="decimal" id="{{ name }}" name="{{ name }}" value="{{ form.get(name) }}" maxlength="12" placeholder="0">
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>When, and what to rule out</legend>
+    <label class="field-label" for="needed_by">Needed by</label>
+    <input type="date" id="needed_by" name="needed_by" value="{{ form.get('needed_by') }}">
+    <label><input type="checkbox" name="require_confirmed" value="yes"{% if form.get('require_confirmed') == "yes" %} checked{% endif %}> Confirmed stock, price and date only</label>
+    <label class="field-label" for="exclude_allergens">Allergens to exclude for every dish (GS1 codes, for example AM for milk)</label>
+    <input type="text" id="exclude_allergens" name="exclude_allergens" value="{{ form.get('exclude_allergens') }}" maxlength="120">
+    <label class="field-label" for="allergen_strictness">Allergen rule, when the profile sets none</label>
+    <select id="allergen_strictness" name="allergen_strictness">
+      <option value=""{% if not form.get('allergen_strictness') %} selected{% endif %}>The profile's rule</option>
+      <option value="STRICT"{% if form.get('allergen_strictness') == "STRICT" %} selected{% endif %}>Strict: no statement goes to the dietitian</option>
+      <option value="DECLARED_ONLY"{% if form.get('allergen_strictness') == "DECLARED_ONLY" %} selected{% endif %}>Declared only</option>
+    </select>
+  </fieldset>
+  <button type="submit" class="primary">Plan the menu</button>
+</form>
+
+{% if view %}
+{% set plan = view.plan %}
+<section id="plan" aria-labelledby="plan-title">
+  <h2 id="plan-title">The plan</h2>
+  {% for note in plan.notes %}<p class="small">{{ note }}</p>{% endfor %}
+
+  {% for dish in plan.dishes %}
+  <h3>{{ dish.name }}, {{ dish.servings }} servings</h3>
+  <table class="menu-plan">
+    <thead><tr><th>Ingredient and its role</th><th>Needed</th><th>In stock</th><th>To order</th><th>What happens</th></tr></thead>
+    <tbody>
+    {% for item in dish.ingredients %}
+    {% set marked = status_marks[item.status] %}
+    <tr>
+      <td><strong>{{ item.recipe_product_type|replace("_", " ") }}</strong>: {{ item.role }}</td>
+      <td>{{ item.needed|quantity }} {{ item.unit.value }}</td>
+      <td>{{ item.in_stock|quantity }} {{ item.unit.value }}</td>
+      <td>{{ item.to_order|quantity }} {{ item.unit.value }}</td>
+      <td>{{ mark(marked[0], marked[1]) }}{% if item.product_type and item.product_type != item.recipe_product_type %} as {{ item.product_type|replace("_", " ") }}{% endif %}{% if item.request_line_index is not none %} (line {{ item.request_line_index + 1 }}){% endif %}
+        <p class="sentence">{{ item.sentence }}</p></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if dish.left_out %}<p class="small">Left out of the recipe: {{ dish.left_out|join("; ") }}.</p>{% endif %}
+  {% endfor %}
+
+  {% if plan.cannot_be_sourced %}
+  <h3>Cannot arrive in time</h3>
+  <ul>
+    {% for item in plan.cannot_be_sourced %}
+    <li>{{ mark("bad", item.quantity|quantity ~ " " ~ item.unit.value ~ " " ~ item.product_type|replace("_", " ")) }} for {{ item.dishes|join(", ") }}. {{ item.sentence }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <h3>Request lines</h3>
+  <ul>
+    {% for line in plan.lines %}
+    <li>{% if line.request_line_index is not none %}Line {{ line.request_line_index + 1 }}: {{ line.to_order|quantity }} {{ line.unit.value }}{% else %}Nothing to order:{% endif %}
+      {{ line.product_type|replace("_", " ") }}{% if line.name_terms %} ({{ line.name_terms|join(" ") }}){% endif %} for {{ line.dishes|join(", ") }}
+      ({{ line.needed|quantity }} needed, {{ line.in_stock|quantity }} in stock){% if line.stands_in_for %} {{ mark("warn", "stands in for " ~ line.stands_in_for|replace("_", " ")) }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if view.offer %}
+{% set offer = view.offer %}
+<section id="options" aria-labelledby="options-title">
+  <h2 id="options-title">The offer: {{ offer.offer_id }}</h2>
+  {% if not offer.options %}<p class="empty">No option could be built. {{ offer.notes|join(" ") }}</p>{% endif %}
+  <div class="options">
+  {% for option in offer.options %}
+  <article class="option option-{{ option.kind|tone }}">
+    <header>
+      <p class="rank">Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}</p>
+      <h3>{{ option.title }}</h3>
+    </header>
+    <p class="summary">{{ option.summary }}</p>
+    <p class="total"><strong>{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax</p>
+    <ul class="lines">
+      {% for line in option.lines %}
+      <li>{{ line.quantity|quantity }} × {{ line.name }} <span class="id">({{ line.product_id }})</span>, line {{ line.request_line_index + 1 }}: {{ line.net|money }} before tax. {{ mark(line.availability.state|tone, line.availability.state|words) }}</li>
+      {% endfor %}
+    </ul>
+    {% if option.decision %}
+    <div class="verdict verdict-{{ option.decision.verdict|tone }}">
+      <p class="headline">{{ mark(option.decision.verdict|tone, option.decision.verdict|words) }}</p>
+      <p>{{ option.decision.sentence }}</p>
+      <ul class="rules">
+        {% for rule in option.decision.fired %}<li><strong>{{ rule.rule_id }}</strong> {{ rule.sentence }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% if option.decision.verdict.value != "BLOCK" %}
+    <form method="post" action="/menu/order" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="who" value="{{ view.asker.id }}">
+      <input type="hidden" name="offer" value="{{ offer.offer_id }}">
+      <input type="hidden" name="option" value="{{ option.option_id }}">
+      <input type="hidden" name="order_key" value="{{ view.order_key }}">
+      <button type="submit">{% if option.decision.verdict.value == "AUTO" %}Order this option{% else %}Send this option for approval{% endif %}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </article>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

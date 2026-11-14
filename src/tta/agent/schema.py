@@ -3,8 +3,8 @@
 It has the fields of the typed request (`tta.contracts.request`), with two differences that keep the model
 from guessing: every field is required and a field the text does not state is `null`, and the fields that are
 not the buyer's to say are left out: the buyer's own words (`text`) are set by the parser, and the standing order
-a request renews (`standing_order_id`) and the recipe ingredient a line stands in for (`stands_in_for`) by the
-gateway (task FALLBACK-1). A test compares the fields with the contract.
+a request renews (`standing_order_id`) and the recipe ingredient a line stands in for (`stands_in_for`,
+`stands_in_role`) by the gateway (tasks FALLBACK-1, MENU-1). A test compares the fields with the contract.
 
 Only keywords the Gemini documentation lists as enforced are used (structured output, read 14 Nov 2026):
 `type`, `properties`, `required`, `additionalProperties`, `enum`, `format`, `items`, `anyOf`, `description`.
