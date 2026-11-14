@@ -1,12 +1,25 @@
 // Orders: everything this kitchen has ordered, and for each order the audit trail as the buyer or Valio sees it.
 import { app, api, deliveryOf, on, refresh, render } from "../core.js";
-import { html, longDate, money, shortDate } from "../dom.js";
+import { customerKnown, customerNote, historyRows } from "../customer.js";
+import { html, longDate, money, num, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
+import { SYNTHETIC } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
-import { netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag } from "./parts.js";
+import { customerPending, netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag } from "./parts.js";
 import { trailView } from "./trail.js";
-import { SYNTHETIC } from "../kitchens.js";
+
+// A same-origin path only, such as "/.well-known/jwks.json": never a link the record could point elsewhere.
+const LOCAL_PATH = /^\/(?!\/)[A-Za-z0-9._~\/-]*$/;
+
+// The gateway's signature of the order record (P12 W8), when it carries one: it says this gateway answered the
+// record, never that Valio Aimo signed it. The shop's own calls carry none, and then nothing is shown.
+function proofLine(order) {
+  const proof = order.proof;
+  if (!proof || typeof proof !== "object") return "";
+  const jwks = typeof proof.jwks_path === "string" && LOCAL_PATH.test(proof.jwks_path) ? proof.jwks_path : null;
+  return html`<p class="small proof">${icon("shield")}<span><b>${proof.demo_key ? "Signed by this gateway (demo key)" : "Signed by this gateway"}</b>${proof.note ? html`. ${plain(proof.note)}` : ""}${jwks ? html` Check it with the key at <a href="${jwks}">${jwks}</a>.` : ""}</span></p>`;
+}
 
 const trail = { orderId: null, reader: "buyer", data: null, problem: null, loading: false };
 
@@ -46,6 +59,7 @@ function detail(order) {
           <div class="card-title"><h3>What was ordered</h3></div>
           ${optionBlock(order.option)}
           <p class="small muted">${plain(order.status_sentence)}</p>
+          ${proofLine(order)}
           ${approval && order.status === "PENDING_APPROVAL" ? html`<div class="decide">${signers(approval)}${progress(approval)}<div class="row"><a class="btn small" href="#/approvals">Go to approvals</a></div></div>` : ""}
         </div>
         <div class="card">
@@ -77,15 +91,17 @@ function detail(order) {
     </div>`;
 }
 
-// Every row of the typed-in history says what it is, also at phone width where the status column is hidden.
+// The customer file's past orders, as the customer route gives them. Every row says what it is, also at phone width
+// where the status column is hidden, and the route's own note says the whole customer is made up. The file gives
+// quantities, not totals, so no total is shown.
 function pastOrders() {
-  const k = active();
+  if (!customerKnown()) return html`<p class="section-label">Earlier orders</p><div class="card">${customerPending()}</div>`;
   return html`<p class="section-label">Earlier orders · synthetic history</p>
-    <div class="card"><table class="table"><thead><tr><th>Delivery</th><th>Products</th><th class="num">Total</th><th class="hide-s">Status</th></tr></thead><tbody>
-    ${k.history.map(
-      (h) => html`<tr><td class="nowrap">${shortDate(h.date)}</td><td>${h.lines.map((l) => html`<div>${l[0]} <span class="muted">× ${l[1]} ${l[2]}</span></div>`)}<div class="tiny muted">${SYNTHETIC}</div></td><td class="num">${money(h.lines.reduce((s, l) => s + l[3], 0))}</td><td class="hide-s"><span class="tag">Delivered</span></td></tr>`
+    <div class="card"><table class="table"><thead><tr><th>Delivery</th><th>Products</th><th class="hide-s">Status</th></tr></thead><tbody>
+    ${historyRows().map(
+      (h) => html`<tr><td class="nowrap">${shortDate(h.date)}</td><td>${h.lines.map((l) => html`<div>${l.label} <span class="muted">× ${num(l.quantity)} ${l.unit}</span></div>`)}<div class="tiny muted">${SYNTHETIC}</div></td><td class="hide-s"><span class="tag">Delivered</span></td></tr>`
     )}
-    </tbody></table><p class="small muted">These past orders were made up for the demonstration and are dated before the demo clock: they are what the agent's "learned" notes refer to.</p></div>`;
+    </tbody></table><p class="small muted">${plain(customerNote())}</p></div>`;
 }
 
 export function view() {

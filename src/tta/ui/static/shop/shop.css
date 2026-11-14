@@ -325,6 +325,8 @@ pre.json {
 .subst { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--petrol); background: #f6f9fb; border-radius: 0 6px 6px 0; }
 .subst-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .subst p { margin: 6px 0 0; color: var(--ink); }
+/* The table never pushes the result card wider: a card clips what overflows it (.answer), so the table scrolls. */
+.formula-wrap { max-width: 100%; overflow-x: auto; }
 .formula { border-collapse: collapse; margin-top: 8px; font-size: 13px; min-width: 260px; }
 .formula th, .formula td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line-soft); text-align: left; font-weight: 500; }
 .formula thead th { font-size: 12px; color: var(--muted); font-weight: 700; }
@@ -602,7 +604,13 @@ select { height: 40px; border: 1px solid var(--line); border-radius: 6px; paddin
   .field { grid-template-columns: minmax(0, 1fr); }
   .table .hide-s { display: none; }
   .formula { min-width: 0; width: 100%; }
+  /* "outside our tolerance" goes under its figure and wraps, so three columns fit 390 px with no scroll */
+  .formula td .tag { display: inline-block; white-space: normal; margin-top: 2px; }
+  .formula .num { white-space: normal; }
   .choices li { grid-template-columns: minmax(0, 1fr); }
+  /* an alternative's words take the full width; its tag and button go under them */
+  .other { flex-wrap: wrap; }
+  .other .what { flex-basis: 100%; }
 }
 
 /* ---------- the clock strip (R8): which instant the data clock shows, folded to its full sentence ---------- */
@@ -648,4 +656,43 @@ details.why.fold summary { font-size: 13px; }
   .clockbar-in { padding: 6px 16px; flex-wrap: wrap; }
   .clockbar summary .more { margin-left: 24px; }
   .clockbar-full p { margin-left: 0; }
+}
+
+/* ---------- suggestions under an offer (P15 R4b): the gateway's sentences, "Add" and "Not now" ---------- */
+
+.suggest { margin-top: 16px; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #fbfcfd; }
+.suggest h4 { margin: 0 0 8px; display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--navy); }
+.suggest h4 svg { width: 18px; height: 18px; flex: none; color: var(--petrol); }
+.suggest h4.apart { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); color: var(--muted); }
+.sugg-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.sugg { background: #fff; border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; min-width: 0; overflow-wrap: anywhere; }
+.sugg > p { margin: 0; font-size: 14px; }
+.sugg-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.sugg .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.sugg .actions + p { margin: 6px 0 0; }
+.sugg details.why.sugg-why { margin-top: 8px; padding-top: 6px; }
+.sugg details.why.sugg-why summary { font-size: 13px; }
+.suggest > details.why { margin-top: 12px; }
+.suggest > p.tiny { margin: 10px 0 0; }
+
+/* the gateway's signature of an order record */
+.proof { display: flex; gap: 6px; align-items: flex-start; margin: 6px 0 0; }
+.proof svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--petrol); }
+
+/* ---------- "you usually order this": a notification at the top of the request view, never a blocking dialog ---------- */
+
+.reorder { border: 1px solid #b9d3df; border-left: 4px solid var(--petrol); background: var(--info-bg); border-radius: 8px; padding: 12px 14px; margin: 0 0 18px; min-width: 0; overflow-wrap: anywhere; }
+.reorder-head { display: flex; align-items: center; gap: 8px; color: var(--petrol-ink); }
+.reorder-head > svg { width: 18px; height: 18px; flex: none; color: var(--petrol); }
+.reorder-head b { flex: 1; }
+.reorder .reorder-x { width: 34px; height: 34px; }
+.reorder .reorder-x svg { width: 18px; height: 18px; }
+.reorder p { margin: 6px 0 0; font-size: 14px; }
+.reorder-lines { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; }
+.reorder .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+/* six links in the main navigation: the chips of the small screens take over before the header crowds */
+@media (max-width: 1120px) {
+  .nav { display: none; }
+  .mobile-nav { display: flex; }
 }

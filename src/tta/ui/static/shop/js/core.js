@@ -5,7 +5,9 @@ import { memory, mine } from "./store.js";
 
 // `authority` is the gateway's own answer about the rules in force for this kitchen's book, never this
 // browser's copy of the settings. `refused` is the last refusal of the settings call, kept until a call succeeds.
-export const freshData = () => ({ authority: null, refused: null, pushing: false, orders: [], approvals: [], ready: false, problem: null });
+// `reorder`: the gateway's "you usually order this" for this customer, read each time the customer is opened or
+// switched to, so a dismissal lasts until then (null: none, or the route did not answer).
+export const freshData = () => ({ authority: null, refused: null, pushing: false, orders: [], approvals: [], ready: false, problem: null, reorder: null, reorderDismissed: false });
 
 export const app = {
   route: { name: "assistant", id: null },

@@ -22,6 +22,8 @@ const EVENT_NAMES = {
   "order.rejected": "Rejected",
   "order.expired": "Expired",
   "authorisation.refused": "Refused",
+  "suggestions.shown": "Suggestions shown",
+  "suggestion.accepted": "Suggestion accepted",
 };
 
 // Left out for a requirement of the buyer's (an allergen it excludes): Valio Aimo gets neither the products nor

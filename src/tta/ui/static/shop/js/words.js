@@ -13,15 +13,12 @@ const ALLERGEN_LIST = new RegExp(
   "g"
 );
 const ONE_CODE = new RegExp(`\\b${CODE}\\b`, "g");
+// The code the gateway puts after an allergen's name ("tree nuts (AN)"): a person reads the name alone.
+const CODE_AFTER_NAME = new RegExp(`\\s\\(${CODE}\\)`, "g");
 const SPELLED = (token) => token.toLowerCase().replaceAll("_", " ");
 
-// A total with a product sold by weight is an estimate: Valio Aimo invoices the weight delivered, which can be above
-// the weight ordered (14 Nov 2026). The offer's summary still calls it a ceiling ("never higher"), which is not so.
-const CEILING = /The total is a ceiling: a product is sold by (?:variable )?weight, so the invoice can be lower, never higher\./g;
-const ESTIMATE = "The total is an estimate: a product is sold by weight, and Valio Aimo invoices the weight delivered.";
-
 const REWRITES = [
-  [CEILING, () => ESTIMATE],
+  [CODE_AFTER_NAME, () => ""],
   [ALLERGEN_LIST, (_, verb, gap, list) => `${verb}${gap}${list.replace(ONE_CODE, (code) => CODES.get(code).toLowerCase())}`],
   [/\bFREE_FROM_([A-Z_]+)\b/g, (_, what) => `${SPELLED(what)} free`],
   [/\bDECLARED_ONLY\b/g, () => "declared only"],

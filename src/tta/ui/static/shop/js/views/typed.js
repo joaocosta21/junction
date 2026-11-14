@@ -5,20 +5,28 @@ import { icon } from "../icons.js";
 
 const DOCS = "/docs";
 const MCP = "/mcp";
-// The tools of the MCP server (`tta.api.mcp_surface.TOOL_NAMES`). None of them approves: that is for a person.
-const MCP_TOOLS = ["get_authority", "search_products", "get_product", "find_substitutes", "get_offer", "place_order", "get_order", "get_audit"];
+// The 13 tools of the MCP server (`tta.api.mcp_surface.TOOL_NAMES`; no shop route lists them). None of them
+// approves: that is for a person.
+const MCP_TOOLS = [
+  "get_authority", "search_products", "get_product", "find_substitutes", "get_offer", "place_order", "get_order",
+  "get_audit", "get_customer", "plan_menu", "set_up_standing_order", "renew_standing_order", "list_standing_orders",
+];
+const HOW = {
+  example: "This example is sent as written, with no reading step.",
+  suggestion: "The suggestion's own request, sent unchanged: it names the suggestion it accepts, so the gateway records the acceptance.",
+};
 
 export function openInterface() {
   return html`<p class="open">The same typed interface is open to any purchasing agent:
     <a href="${DOCS}" target="_blank" rel="noopener">REST API with its OpenAPI description</a>, and an MCP server at
-    <code>${MCP}</code> with ${MCP_TOOLS.length} tools.</p>`;
+    <code>${MCP}</code> with ${MCP_TOOLS.length} tools. None of them approves.</p>`;
 }
 
 // What the page sent: the reading of the text, with what the buyer confirmed here (a brand) added to it.
 export function typedRequest(turn) {
   const request = turn.sent || turn.offer?.request;
   if (!request) return "";
-  const how = turn.reading?.source === "example" ? "This example is sent as written, with no reading step." : "What the agent read from your text.";
+  const how = HOW[turn.reading?.source] || "What the agent read from your text.";
   return html`<details class="why typed">
     <summary>${icon("right")}Typed request sent to the gateway</summary>
     <div class="why-body">

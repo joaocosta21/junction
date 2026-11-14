@@ -2,6 +2,7 @@
 // words of Valio Aimo's webshop: "available in storage", "Delivery date", "Closing time", "Deliverable".
 import { cutoff, html, initials, money, num, shortDate, tile, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
+import { customerKnown, customerProblem, people } from "../customer.js";
 import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
@@ -41,10 +42,10 @@ function formulaTable(formula) {
   const rows = formula?.differences || [];
   if (!rows.length) return "";
   const basis = BASIS[formula.basis] || "Per 100 g or 100 ml";
-  return html`<table class="formula">
+  return html`<div class="formula-wrap"><table class="formula">
     <thead><tr><th scope="col">${basis}</th><th scope="col" class="num">Asked for</th><th scope="col" class="num">This product</th></tr></thead>
     <tbody>${rows.map((d) => html`<tr class="${d.within_tolerance ? "" : "off"}"><th scope="row">${NUTRIENTS[d.nutrient] || plain(d.nutrient)}</th><td class="num">${num(d.original)} g</td><td class="num">${num(d.other)} g${d.within_tolerance ? "" : html` <span class="tag stop">outside our tolerance</span>`}</td></tr>`)}</tbody>
-  </table>
+  </table></div>
   <p class="tiny muted">Only the nutrients whose figures differ are listed.</p>`;
 }
 
@@ -139,7 +140,8 @@ export function statusTag(order) {
   }
 }
 
-export const personFor = (role) => active().people[role] || ROLES[role] || role;
+// Who holds a role at this customer, from the customer file (customer.js); the role's name until the route answers.
+export const personFor = (role) => people()[role] || ROLES[role] || role;
 // The name the audit trail prints for whoever signs in this role.
 export const signerName = (role) => `${personFor(role)}, ${active().name}`;
 
@@ -153,9 +155,17 @@ export function rolesStillNeeded(approval) {
   return (approval.required_roles || []).filter((r) => !signed.has(r));
 }
 
-// kitchens.js writes a role nobody holds as "No dietitian named": nobody on this page can sign for it.
-const NOBODY = /^No\s/;
-export const hasPerson = (role) => Boolean(active().people[role]) && !NOBODY.test(active().people[role]);
+// Somebody of this customer holds the role, as the customer file names them. False while the route has not
+// answered too: then nobody is named, and no button is offered that would sign under a name the page does not know.
+export const hasPerson = (role) => Boolean(people()[role]);
+
+// Where the page would name the customer's people or show its past orders and the customer route has not answered:
+// it says so, and names nobody.
+export function customerPending() {
+  const problem = customerProblem();
+  if (!problem) return html`<p class="small muted">Reading who this customer is from the gateway…</p>`;
+  return html`<p class="small muted">Who this customer is could not be read from the gateway: ${plain(problem.message)} Nobody is named and no past order is shown until it is. <button class="link" data-act="customer-again">Read it again</button></p>`;
+}
 
 export const roleWord = (role) => (ROLES[role] || role).toLowerCase();
 // The gateway's own answer when the page signs for such a role (tta.ui.shop_api, NOBODY_HOLDS): said up front, so
@@ -185,7 +195,7 @@ export function confirmedBy(approval) {
 // One line under the signers: who has confirmed, and who is still awaited, in names and roles.
 export function progress(approval) {
   const done = confirmedBy(approval).map(([name, roles]) => `${name} (${roles.join(", ")})`);
-  const awaited = rolesStillNeeded(approval).map((r) => (hasPerson(r) ? `${personFor(r)} (${roleWord(r)})` : `a ${roleWord(r)}, and none is named for ${active().name}`));
+  const awaited = rolesStillNeeded(approval).map((r) => (hasPerson(r) ? `${personFor(r)} (${roleWord(r)})` : !customerKnown() ? `the ${roleWord(r)}` : `a ${roleWord(r)}, and none is named for ${active().name}`));
   return html`<p class="progress small">${done.length ? html`<b>Confirmed by</b> ${listed(done)}.` : "Nobody has confirmed yet."} ${awaited.length ? html`<b>Still awaited:</b> ${listed(awaited)}.` : "Nobody else is awaited."}</p>`;
 }
 

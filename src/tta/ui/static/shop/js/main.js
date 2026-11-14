@@ -1,21 +1,25 @@
 // The page frame: header with the customer switcher, hash routing, events, and the render function.
 import { health } from "./api.js";
 import { app, freshData, handlers, nextDeliveryDay, on, pendingApprovals, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
+import { contact, loadCustomer } from "./customer.js";
 import { html, initials, isoDay, shortDate } from "./dom.js";
 import { icon } from "./icons.js";
 import { KITCHENS, kitchenById } from "./kitchens.js";
 import { active, memory, save } from "./store.js";
 import { ended, plain } from "./words.js";
+import { loadReorder } from "./views/reorder.js";
 import * as approvals from "./views/approvals.js";
 import * as assistant from "./views/assistant.js";
 import * as deliveries from "./views/deliveries.js";
 import * as orders from "./views/orders.js";
 import * as settings from "./views/settings.js";
+import * as standing from "./views/standing.js";
 import { clockStrip } from "./views/clock.js";
 
-const VIEWS = { assistant, approvals, orders, deliveries, settings };
+const VIEWS = { assistant, approvals, orders, deliveries, settings, standing };
 const NAV = [
   ["assistant", "#/", "Request"],
+  ["standing", "#/standing", "Standing orders"],
   ["deliveries", "#/deliveries", "Deliveries"],
   ["approvals", "#/approvals", "Approvals"],
   ["orders", "#/orders", "Orders"],
@@ -28,12 +32,15 @@ async function load() {
   const data = app.data;
   data.ready = false;
   render();
+  const customer = loadCustomer().catch(() => null); // a refusal is kept and said where people or history show
   try {
     await pushKitchen();
   } catch {
     // kept in app.data.refused until a push succeeds, and shown on every view (rulesBanner)
   }
+  loadReorder(); // "you usually order this", each time the customer is opened or switched to
   data.ready = true;
+  await customer;
   await refresh();
 }
 
@@ -50,7 +57,8 @@ async function switchKitchen(id) {
   if (location.hash && location.hash !== "#/") location.hash = "#/";
   await load();
   const k = kitchenById(id);
-  toast(`Now shopping as ${k.person.name}, ${k.name}`);
+  const me = contact(id);
+  toast(me ? `Now shopping as ${me.name}, ${k.name}` : `Now shopping for ${k.name}`);
 }
 
 on("menu", () => {
@@ -58,6 +66,7 @@ on("menu", () => {
   render();
 });
 on("switch", (el) => switchKitchen(el.dataset.id));
+on("customer-again", () => loadCustomer().catch(() => null));
 on("clock-fold", () => {
   app.ui.clockOpen = !app.ui.clockOpen;
   render();
@@ -142,8 +151,10 @@ function modeLabel() {
   return h.mode === "replay" ? "Recorded Valio Aimo data" : "Live · Valio Aimo mock API";
 }
 
+// Who is shown in the header: the customer file's person once the gateway has said who it is, else the customer.
 function header() {
   const k = active();
+  const me = contact();
   const waiting = pendingApprovals().length;
   const next = nextDeliveryDay();
   const link = ([name, href, label], mobile) =>
@@ -166,16 +177,16 @@ function header() {
           <a class="icon-btn" href="#/approvals" title="Waiting for approval">${icon("bell")}${waiting ? html`<span class="badge">${waiting}</span>` : ""}</a>
           <div class="who">
             <button class="who-btn" data-act="menu" aria-haspopup="menu" aria-expanded="${String(app.ui.menu)}">
-              <span class="avatar ${k.id}">${initials(k.person.name)}</span>
-              <span class="who-text"><b>${k.person.name}</b><span>${k.name}</span></span>
+              <span class="avatar ${k.id}">${initials(me?.name || k.name)}</span>
+              <span class="who-text"><b>${me?.name || k.name}</b><span>${me ? k.name : k.kind}</span></span>
               ${icon("chevron")}
             </button>
             <div class="menu ${app.ui.menu ? "open" : ""}" role="menu">
               <div class="menu-title">Switch customer</div>
               ${KITCHENS.map(
                 (one) => html`<button role="menuitem" data-act="switch" data-id="${one.id}" class="${one.id === k.id ? "on" : ""}">
-                  <span class="avatar ${one.id}">${initials(one.person.name)}</span>
-                  <span><b>${one.person.name}</b><span>${one.name} · ${one.kind}</span></span>
+                  <span class="avatar ${one.id}">${initials(contact(one.id)?.name || one.name)}</span>
+                  <span><b>${one.name}</b><span>${[contact(one.id)?.name, one.kind].filter(Boolean).join(" · ")}</span></span>
                   ${one.id === k.id ? html`<span class="tag ok">${icon("check")}In use</span>` : ""}
                 </button>`
               )}

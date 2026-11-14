@@ -45,6 +45,14 @@ export function gateway(kitchen) {
     read: (text) => call(kitchen, "POST", "/read", { text }),
     offer: (request) => call(kitchen, "POST", "/offers", request),
     getOffer: (id) => call(kitchen, "GET", `/offers/${q(id)}`),
+    // What an offer suggests and what it does not show, with the reason (the buyer's view; nothing is added to it).
+    suggestions: (offerId) => call(kitchen, "GET", `/suggestions?offer_id=${q(offerId)}`),
+    // Who this customer is: its people, usual products and synthetic past orders, from the customer file.
+    customer: () => call(kitchen, "GET", "/customer"),
+    // What this customer ordered week after week, as one request to order again ("you usually order this").
+    reorder: () => call(kitchen, "GET", "/reorder"),
+    // This customer's standing orders ("Standard orders"), each with its trend or none.
+    standingOrders: () => call(kitchen, "GET", "/standing-orders"),
     order: (offerId, optionId, key) => call(kitchen, "POST", "/orders", { offer_id: offerId, option_id: optionId, key }),
     orders: () => call(kitchen, "GET", "/orders"),
     getOrder: (id) => call(kitchen, "GET", `/orders/${q(id)}`),

@@ -3,11 +3,11 @@
 // learned, and the latest results. Orders and approvals themselves live in the gateway.
 import { KITCHENS, kitchenById } from "./kitchens.js";
 
-// v4: each customer's settings are those of its profile file (kitchens.js, PROFILE_SETTINGS). A new key, so a
-// browser that opened an earlier version does not keep its saved settings (saved values win over new defaults at
-// load): the school would stay "declared only" and the bakery at €50 per order.
-const KEY = "tt-shop-v4";
-const OLD_KEYS = ["tt-shop-v1", "tt-shop-v2", "tt-shop-v3"];
+// v5: what the agent assumes no longer cites typed-in past orders, and the bakery's dairy brand is Arla, as its
+// customer file says (v4: each customer's settings are its profile file's). A new key, so a browser that opened an
+// earlier version does not keep what it saved (saved values win over new defaults at load).
+const KEY = "tt-shop-v5";
+const OLD_KEYS = ["tt-shop-v1", "tt-shop-v2", "tt-shop-v3", "tt-shop-v4"];
 const MAX_TURNS = 8;
 
 function forgetOldVersions() {

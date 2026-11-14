@@ -81,9 +81,11 @@ function rulesBox(turn) {
 
 export function failedAnswer(turn) {
   const p = turn.problem || {};
+  // A rate limit or the gateway's daily budget: its own sentence says which, and how long to wait.
   if (p.status === RATE_LIMITED) {
-    return html`<div class="verdict info">${icon("info")}<div><b>Too many requests in one minute</b>
-      <p>The demo allows a few readings a minute per visitor. Wait a moment, or use one of the examples: they skip the reading step.</p>
+    const said = forPeople(p.message);
+    return html`<div class="verdict info">${icon("info")}<div><b>Too many requests for now</b>
+      <p>${said.length ? said.join(" ") : "The gateway asks to wait before the next request."}</p>
       <div class="actions">${tryAgain(turn)}</div></div></div>`;
   }
   if (p.step === "rules") return rulesBox(turn);

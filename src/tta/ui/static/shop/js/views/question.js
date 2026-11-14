@@ -3,10 +3,11 @@
 // the gateway already takes: take the safe product (approve the offer's first option, `option_id`), use this
 // product anyway (approve the option proposed), leave it out (reject). The gateway checks each one again; the page
 // only offers what it would accept.
+import { customerKnown } from "../customer.js";
 import { html } from "../dom.js";
 import { icon } from "../icons.js";
 import { plain } from "../words.js";
-import { hasPerson, netTotal, nobodyHolds, personFor, roleWord } from "./parts.js";
+import { customerPending, hasPerson, netTotal, nobodyHolds, personFor, roleWord } from "./parts.js";
 
 export const DIETITIAN = "dietitian";
 const PREPARED_ONLY = "F-10"; // the rule that only asks a person to confirm (tta.policy.human_approval)
@@ -63,6 +64,9 @@ export function allergenQuestion(approval, order, offer, off) {
   const option = order?.option;
   const rules = dietitianRules(order?.decision);
   const doubtful = productsOf(option, rules);
+  if (!customerKnown()) {
+    return html`<section class="question"><h4>${icon("alert")}The agent is not sure about ${doubtful}</h4>${customerPending()}</section>`;
+  }
   if (!hasPerson(DIETITIAN)) {
     return html`<section class="question"><h4>${icon("alert")}The agent is not sure about ${doubtful}</h4>
       <p>${nobodyHolds(DIETITIAN)} Nothing is ordered: the order waits until it expires.</p></section>`;

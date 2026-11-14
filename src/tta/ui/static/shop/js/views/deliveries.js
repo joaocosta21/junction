@@ -1,6 +1,7 @@
 // Deliveries: a calendar like the shop's delivery calendar, with this kitchen's orders on their delivery days.
 import { app, dataToday, deliveryOf, on, refresh, render } from "../core.js";
-import { html, isoDay, longDate, money, monthName, shortDate } from "../dom.js";
+import { customerOf, historyRows } from "../customer.js";
+import { html, isoDay, longDate, monthName, num, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { SYNTHETIC } from "../kitchens.js";
 import { active } from "../store.js";
@@ -25,7 +26,7 @@ function byDay() {
     const date = deliveryOf(o.option);
     if (date && ["ORDERED", "PENDING_APPROVAL"].includes(o.status)) add(date, { live: o });
   }
-  for (const h of active().history) add(h.date, { past: h });
+  for (const h of historyRows()) add(h.date, { past: h });
   return days;
 }
 
@@ -66,7 +67,7 @@ function dayPanel(days) {
       ? html`<ul class="side-list">${entries.map((e) =>
           e.live
             ? html`<li><span><a href="#/orders/${e.live.order_id}"><b>${e.live.option.lines.map((l) => l.name).join(", ")}</b></a><br>${statusTag(e.live)} <span class="small muted">${netTotal(e.live.option.totals)}</span></span></li>`
-            : html`<li><span><b>${e.past.lines.map((l) => l[0]).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">${money(e.past.lines.reduce((s, l) => s + l[3], 0))} · ${SYNTHETIC}</span></span></li>`
+            : html`<li><span><b>${e.past.lines.map((l) => `${l.label} × ${num(l.quantity)} ${l.unit}`).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">· ${SYNTHETIC}</span></span></li>`
         )}</ul>`
       : html`<p class="small muted">No delivery on this day yet. Write a purchase request for something "by ${shortDate(key)}".</p>`}
   </div>`;
@@ -74,9 +75,10 @@ function dayPanel(days) {
 
 export function view() {
   const k = active();
+  const c = customerOf();
   const days = byDay();
   return html`
-    <div class="page-head"><div><div class="crumbs">${k.name} · ${k.address}</div><h1>Deliveries</h1><div class="sub">Delivery days: ${k.deliveryDays}. Stocked products arrive the next delivery day if ordered before the cut-off; products from a supplier's own warehouse take about two days.</div></div></div>
+    <div class="page-head"><div><div class="crumbs">${[k.name, c?.address].filter(Boolean).join(" · ")}</div><h1>Deliveries</h1><div class="sub">${c?.delivery_days ? `Delivery days: ${c.delivery_days}. ` : ""}Stocked products arrive the next delivery day if ordered before the cut-off; products from a supplier's own warehouse take about two days.</div></div></div>
     <div class="lead">
       <div><b>24 h</b><span>Stocked products: order by the cut-off shown on each product</span></div>
       <div><b>48 h</b><span>Terminal products, delivered from the supplier's warehouse</span></div>

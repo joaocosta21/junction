@@ -1,7 +1,8 @@
 // The request page: the buyer writes what is needed, the gateway reads it into a typed request and answers with
 // an offer, and nothing is ordered until the buyer clicks "Confirm order". Not a chat: each result is one typed
 // request and its answer, newest first. The agent orders alone only where the buyer switched that on.
-import { app, api, deliveryOf, on, refresh, render, verifyRules, withRules } from "../core.js";
+import { app, api, deliveryOf, on, refresh, render, toast, verifyRules, withRules } from "../core.js";
+import { contact, customerKnown, customerOf, loadCustomer, myRoles } from "../customer.js";
 import { clock, html, longDate, num, unit } from "../dom.js";
 import { ROLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
@@ -11,7 +12,9 @@ import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
 import { confirmedBy as confirmedOn, hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
+import { hideReorder, reorderPanel, reorderShown } from "./reorder.js";
 import { side } from "./side.js";
+import { loadWhyNot, suggestionsBox } from "./suggestions.js";
 import { openInterface, typedRequest } from "./typed.js";
 
 const SOURCES = {
@@ -20,6 +23,9 @@ const SOURCES = {
   "hand-built": "read from a hand-written answer",
   "rule-based": "read by fixed rules, no model",
   example: "example, sent as a typed request",
+  suggestion: "a suggestion you added, sent as its own typed request",
+  reorder: "what you usually order, sent as the gateway wrote it",
+  standing: "a standing order renewed once, sent as the gateway wrote it",
 };
 const CONFIRM_NOTE = "Confirmed on the shop's request page.";
 
@@ -29,7 +35,8 @@ const isFirst = (turn, option) => Boolean(option) && option === turn.offer?.opti
 // The order of a result as the gateway has it now, so an order confirmed on the Approvals page shows here too.
 const orderOf = (turn) => (turn.order ? app.data.orders.find((o) => o.order_id === turn.order.order_id) || turn.order : null);
 const roleName = (role) => (ROLES[role] || role).toLowerCase();
-const names = (roles) => roles.map((r) => `${personFor(r)} (${roleName(r)})`).join(" and ");
+// "Hanna Laine (purchasing manager)"; the role alone while the customer route has not named anybody.
+const names = (roles) => roles.map((r) => (hasPerson(r) ? `${personFor(r)} (${roleName(r)})` : `the ${roleName(r)}`)).join(" and ");
 
 function update(turn) {
   save();
@@ -73,18 +80,51 @@ async function ask(text, typed = null) {
     const prepared = prepare(request, k, mine(), app.data.authority?.profile);
     turn.applied = prepared.applied;
     turn.sent = prepared.request;
-    turn.phase = "looking";
-    update(turn);
-    turn.offer = await withRules(() => api().offer(prepared.request));
-    turn.flags = review(turn.offer, mine());
-    turn.phase = "done";
-    update(turn);
-    await act(turn);
+    await answerWith(turn, prepared.request);
   } catch (error) {
     turn.phase = "failed";
     turn.problem = problemOf(error, step);
     update(turn);
   }
+}
+
+// The offer for a typed request, then what it suggests and does not, then the one order placed without a click.
+async function answerWith(turn, request) {
+  turn.phase = "looking";
+  update(turn);
+  turn.offer = await withRules(() => api().offer(request));
+  turn.flags = review(turn.offer, mine());
+  turn.phase = "done";
+  update(turn);
+  loadWhyNot(turn);
+  await act(turn);
+}
+
+// A request the gateway wrote (a suggestion's, "you usually order this", a standing order's renewal), sent unchanged
+// as a new request with a result of its own: the gateway knows it again (a suggestion's names the suggestion it
+// accepts, so the acceptance is recorded). The answer is an offer like any other; nothing is ordered by the click.
+export async function sendAsWritten(source, text, request, extra = {}) {
+  const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "looking", reading: { source }, sent: request, ...extra };
+  mine().thread.push(turn);
+  update(turn);
+  toast("Sent as a new request: its offer is the first result.");
+  let step = "rules";
+  try {
+    await verifyRules(); // never ask under rules the gateway has not confirmed
+    step = "offer";
+    await answerWith(turn, request);
+  } catch (error) {
+    turn.phase = "failed";
+    turn.problem = problemOf(error, step);
+    update(turn);
+  }
+  return turn;
+}
+
+// "Add": the suggestion's own request. Nothing is added to the offer that showed it.
+function accept(suggestion, from = null) {
+  if (from) from.added = { ...(from.added || {}), [suggestion.suggestion_id]: true };
+  return sendAsWritten("suggestion", suggestion.name, suggestion.accept_request, { suggestion });
 }
 
 // The only order placed without a click: the buyer switched ordering alone on (a setting, off in every shipped
@@ -103,7 +143,7 @@ async function signMine(turn) {
   if (order?.status !== "PENDING_APPROVAL" || !order.approval_id) return;
   const approval = app.data.approvals.find((a) => a.approval_id === order.approval_id);
   const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
-  for (const role of needed.filter((r) => active().person.roles.includes(r))) {
+  for (const role of needed.filter((r) => myRoles().includes(r))) {
     turn.order = await api().decide(order.approval_id, role, "APPROVE", CONFIRM_NOTE, signerName(role));
     turn.confirmedBy = [...(turn.confirmedBy || []), { name: personFor(role), role }];
     update(turn);
@@ -116,6 +156,7 @@ async function place(turn, optionId, sign) {
   update(turn);
   try {
     const key = `shop.${active().id}.${turn.offer.offer_id}.${optionId}`;
+    if (sign) await loadCustomer(); // who signs is the customer file's person, never a name the page made up
     await verifyRules(); // the order is judged again when placed, under the rules in force then
     turn.order = await withRules(() => api().order(turn.offer.offer_id, optionId, key));
     if (sign) await signMine(turn);
@@ -144,11 +185,26 @@ async function signPending(turn) {
 function askAgain(turn, text) {
   mine().thread = mine().thread.filter((t) => t !== turn);
   delete app.ui.redraft[turn.id];
+  if (turn.reading?.source === "suggestion" && turn.suggestion) return accept(turn.suggestion);
+  if (["reorder", "standing"].includes(turn.reading?.source) && turn.sent) return sendAsWritten(turn.reading.source, turn.text, turn.sent);
   const example = active().examples.find((e) => e.text === text);
   return ask(text, example?.request || null);
 }
 
 on("ask", (form) => ask(form.elements.text.value));
+on("reorder-hide", () => hideReorder());
+on("reorder-go", () => {
+  const r = reorderShown();
+  if (!r?.request) return;
+  hideReorder();
+  return sendAsWritten("reorder", "Order the same again", r.request);
+});
+on("suggest-add", (el) => {
+  const from = findTurn(el.dataset.turn);
+  const suggestion = from?.offer?.suggestions?.find((s) => s.suggestion_id === el.dataset.id);
+  if (!suggestion?.accept_request || from.added?.[suggestion.suggestion_id]) return;
+  return accept(suggestion, from);
+});
 on("example", (el) => {
   const example = active().examples[Number(el.dataset.i)];
   return ask(example.text, example.request);
@@ -222,7 +278,7 @@ function readAs(request) {
 
 function asked(turn) {
   const request = turn.offer?.request || turn.sent;
-  const wrote = turn.reading?.source === "example" ? "" : `You wrote “${turn.text}”`;
+  const wrote = ["example", "suggestion", "reorder", "standing"].includes(turn.reading?.source) ? "" : `You wrote “${turn.text}”`;
   const data = turn.offer ? (turn.offer.source === "replay" ? "recorded Valio Aimo data" : "live Valio Aimo data") : "";
   const meta = [request ? wrote : "", SOURCES[turn.reading?.source], data, turn.at ? clock(turn.at) : ""].filter(Boolean).join(" · ");
   // What the reading itself says a person should know, e.g. "No allergen rule was given for …: read as strict,
@@ -280,7 +336,7 @@ function orderBox(turn, order) {
   if (order.status === "PENDING_APPROVAL") {
     const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
     const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
-    const canSign = needed.some((r) => active().person.roles.includes(r));
+    const canSign = needed.some((r) => myRoles().includes(r));
     const waitingFor = needed.length ? `waiting for ${names(needed)}` : "waiting for approval";
     const signed = approval ? confirmedOn(approval).length > 0 : Boolean(turn.confirmedBy?.length);
     const head = signed ? `${confirmedBy(turn, approval)}; ${waitingFor}` : waitingFor[0].toUpperCase() + waitingFor.slice(1);
@@ -306,15 +362,16 @@ function verdictBox(turn, option) {
     return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button}</div></div></div>`;
   }
   const needed = d.required_roles || [];
-  // A role nobody of this customer holds (the bakery names no dietitian): no button the gateway would refuse later.
-  const unheld = needed.filter((r) => !hasPerson(r));
+  // A role nobody of this customer holds: no button the gateway would refuse later. Said only once the customer
+  // route has answered; before, the page knows nobody and claims nothing.
+  const unheld = customerKnown() ? needed.filter((r) => !hasPerson(r)) : [];
   if (unheld.length) {
     return html`<div class="verdict stop">${icon("stop")}<div><b>Nobody here can confirm this option</b>
       <p>${unheld.map(nobodyHolds).join(" ")} ${why(d.sentence)}</p>
       <p class="small">Nothing is ordered. Choose another option below, or ask again without it.</p>
     </div></div>`;
   }
-  const others = needed.filter((r) => !active().person.roles.includes(r));
+  const others = needed.filter((r) => !myRoles().includes(r));
   const after = !others.length ? "" : others.length === needed.length ? `Your confirmation sends it to ${names(others)}, who signs it.` : `After you confirm, it also needs ${names(others)}.`;
   return html`<div class="verdict wait">${icon("clock")}<div><b>Prepared: confirm to order</b>
     <p>${needsLine(needed, d.sentence)}</p>
@@ -351,6 +408,7 @@ function nothingOffered(turn) {
   const offer = turn.offer;
   return html`<div class="answer-body">
     <div class="verdict stop">${icon("stop")}<div><b>Nothing can be offered for this request</b><p>Looked at ${offer.candidates_considered ?? 0} products: ${exclusionsSummary(offer) || "none matched"}.</p>${(offer.notes || []).map((n) => html`<p>${plain(n)}</p>`)}</div></div>
+    ${suggestionsBox(turn)}
     ${typedRequest(turn)}
   </div>`;
 }
@@ -372,6 +430,7 @@ function answer(turn) {
     ${verdictBox(turn, option)}
     ${turn.problem ? html`${problemBox(turn.problem)}<div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Ask again</button></div>` : ""}
     ${others(turn, option)}
+    ${turn.superseded ? "" : suggestionsBox(turn)}
     ${prefs.short && !prefs.explain ? "" : whyBlock(turn.offer, option, prefs.explain)}
     ${typedRequest(turn)}
   </div>`);
@@ -381,14 +440,17 @@ function answer(turn) {
 
 export function view() {
   const k = active();
+  const c = customerOf();
+  const me = contact();
   const results = mine().thread;
   return html`
     <div class="page-head">
-      <div><div class="crumbs">${k.name} · customer ${k.customerNo} · ${k.address}</div><h1>Purchase request</h1>
-        <div class="sub">Signed in as ${k.person.name}, ${k.person.title.toLowerCase()}. Nothing is ordered until you confirm it.</div></div>
+      <div><div class="crumbs">${[k.name, c?.customer_number ? `customer ${c.customer_number}` : "", c?.address].filter(Boolean).join(" · ")}</div><h1>Purchase request</h1>
+        <div class="sub">${me ? `Signed in as ${me.name}, ${me.title.toLowerCase()}. ` : ""}Nothing is ordered until you confirm it.</div></div>
       ${results.length ? html`<div class="right"><button class="link quiet" data-act="clear">Clear results</button></div>` : ""}
     </div>
     ${app.data.problem ? problemBox(app.data.problem) : ""}
+    ${reorderPanel()}
     <div class="grid">
       <section>
         <div class="ask">
