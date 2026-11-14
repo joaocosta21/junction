@@ -34,6 +34,7 @@ from tta.contracts.ports import (
     Store,
     ValioGateway,
 )
+from tta.evidence import EvidenceFinder, build_evidence_finder
 from tta.offers import OfferDeps, OfferService
 from tta.orders import OrderBookService, day_committed_net_eur
 from tta.policy import RulePolicyEngine
@@ -153,6 +154,7 @@ def wire(
     request_parser: RequestParser | None = None,
     agent_runner: AgentRunner | None = None,
     max_request_lines: int | None = None,
+    evidence: EvidenceFinder | None = None,
 ) -> tuple[Gateway, AuditSink]:
     """The services over one store: one audit trail, the offer service, the order book, the gateway service."""
     audit = AuditTrail(store, UtcClock(), policy=policy)  # one per store and process
@@ -160,7 +162,9 @@ def wire(
         catalog=catalog, gateway=gateway, policy=policy, clock=clock,
         day_spend=lambda profile_id: day_committed_net_eur(store, clock, profile_id),
     ))
-    orders = OrderBookService(store=store, policy=policy, revalidator=offers, audit=audit, clock=clock)
+    orders = OrderBookService(
+        store=store, policy=policy, revalidator=offers, audit=audit, clock=clock, evidence=evidence
+    )
     service = Gateway(GatewayDeps(
         catalog=catalog, policy=policy, store=store, audit=audit, offers=offers, orders=orders, limiter=limiter,
         request_parser=request_parser, agent_runner=agent_runner, max_request_lines=max_request_lines,
@@ -180,6 +184,7 @@ class _Shared:
     request_parser: RequestParser | None
     agent_runner: AgentRunner | None
     max_request_lines: int | None
+    evidence: EvidenceFinder | None = None  # web evidence on a dietitian's approval card (task S2)
 
     def sandbox(self) -> Sandbox:
         """A new, empty order book in memory, over the shared parts."""
@@ -187,7 +192,7 @@ class _Shared:
         service, audit = wire(
             catalog=self.catalog, policy=self.policy, gateway=self.gateway, clock=self.clock, store=store,
             limiter=self.limiter, request_parser=self.request_parser, agent_runner=self.agent_runner,
-            max_request_lines=self.max_request_lines,
+            max_request_lines=self.max_request_lines, evidence=self.evidence,
         )
         return Sandbox(service=service, store=store, audit=audit)
 
@@ -223,17 +228,20 @@ def build_parts(
         request_parser = request_parser or hooks.request_parser(settings, clock, keys)
         agent_runner = agent_runner or hooks.agent_runner(settings, clock, keys)
         demo = settings.is_demo_environment
+        evidence = build_evidence_finder(settings, settings.tta_data_dir, catalog)
+        opened.insert(0, evidence)
         shared = _Shared(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock,
             # The demonstration tokens are public and shared: there a caller is counted per visitor.
             limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
-            max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None,
+            max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None, evidence=evidence,
         )
         store, start_reasons = _order_book(settings)
         opened.insert(0, store)
         service, audit = wire(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
             request_parser=request_parser, agent_runner=agent_runner, max_request_lines=shared.max_request_lines,
+            evidence=evidence,
         )
     except BaseException:
         close_each(opened)  # a close that fails here is logged; the error that stopped the start is raised

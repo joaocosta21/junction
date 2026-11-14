@@ -77,7 +77,7 @@ def test_the_card_shows_the_evidence_first_with_its_label_and_link(
     assert "Maidoton" in page and "KAURA" in page
     assert "Elovena Kaurajuoma kahviin" in page
     assert "changes no status and no verdict" in page
-    assert "Web evidence for product 469512" not in page  # the stored approval here carries the rule's reason only
+    assert page.count(HEADING) == 1  # the evidence is shown once, however the approval came to carry it
 
 
 def test_page_text_containing_a_script_is_rendered_escaped(

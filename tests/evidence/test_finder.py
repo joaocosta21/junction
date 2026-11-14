@@ -171,8 +171,9 @@ def test_at_most_three_products_are_looked_up_for_one_approval(
     )
 
 
-def test_the_factory_builds_no_finder_without_a_key(tmp_path: Path, catalog: ProductCatalog) -> None:
-    assert build_evidence_finder(Settings.for_tests(), tmp_path, catalog) is None
+def test_without_a_key_the_factory_builds_a_finder_that_asks_nobody(tmp_path: Path, catalog: ProductCatalog) -> None:
+    finder = build_evidence_finder(Settings.for_tests(), tmp_path, catalog)
+    assert finder is not None and finder._answers is None  # no key: recordings and stored answers only, nobody asked
 
 
 def test_the_factory_builds_a_finder_over_the_data_directory_and_the_recordings(

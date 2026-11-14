@@ -122,10 +122,10 @@ class EvidenceFinder:
             return _none_found(product_id, wording.LOOKUP_FAILED)
 
 
-def build_evidence_finder(settings: Settings, data_dir: Path, catalog: Catalog) -> EvidenceFinder | None:
-    """The finder of the gateway, or `None` when no Context.dev key is set. Answers are stored under
-    `<data_dir>/evidence/`; the recordings in `<fixtures>/evidence/` answer the demo products."""
-    if not settings.has_context_dev_key:
-        return None
+def build_evidence_finder(settings: Settings, data_dir: Path, catalog: Catalog) -> EvidenceFinder:
+    """The finder of the gateway. Answers are stored under `<data_dir>/evidence/`; the recordings in
+    `<fixtures>/evidence/` answer the demo products. Without a Context.dev key it reads stored and recorded
+    answers only and asks nobody, so the demo shows the same card with no key (as the recorded model answers do)."""
     cache = EvidenceCache(data_dir / CACHE_FOLDER, recorded=settings.tta_fixtures_dir / RECORDINGS_FOLDER)
-    return EvidenceFinder(catalog=catalog, cache=cache, answers=AnswersClient(settings))
+    answers = AnswersClient(settings) if settings.has_context_dev_key else None
+    return EvidenceFinder(catalog=catalog, cache=cache, answers=answers)
