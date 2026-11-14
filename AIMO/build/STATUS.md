@@ -14,7 +14,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T07 | Offers: options, ranking, combining, substitutes | T01 T02 T03 T04 T05 | done | 143 tests, 98% coverage; a follow-up fills `claims_lost` |
 | T08 | Orders and approvals | T05 T06 | done | 89 tests, 100% coverage; two-thread tests for approvals and idempotency |
 | T09 | API: routes, identity, errors, schemas | T07 T08 | done | 149 tests, 99% coverage; the flow runs over HTTP in replay |
-| T10 | Buyer agent (Gemini) | T09 | done | 120 tests, 97% coverage; **live check blocked**: Gemini answers 503 (05:35 and 07:45); demo runs on hand-written recordings. Run `.venv/bin/python -m tta.agent.record` when Gemini answers |
+| T10 | Buyer agent (Gemini) | T09 | done | 148 tests; **live check passed** on `gemini-3.6-flash` (08:14–08:40): scenarios 1 and 2 and the no-quantity sentence recorded from the model; scenario 1's run stays hand-built by design |
 | T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
 | T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | running | |
@@ -68,6 +68,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:00 FIX-8 done and committed (the first agent had built every finding; the restarted one checked them and added one test). Importers green: ui 159, mcp 54, agent 120, offers 194, orders 157, audit 144.
 - 08:03 T12 done and committed (restarted agent found every item built; fixed one spacing defect, added 6 tests, ran the app in replay). T13, T14 (files only) and T15 started in parallel.
 - 08:15 T10 follow-up done and committed. Gemini is slow today (21.7 s for one word); `gemini-3.6-flash` read scenario 1 correctly in 29 s and is now the default. Recording scenario 2 and the no-quantity sentence (at most 7 requests; 12 used so far of 20).
+- 08:17 Gemini live check passed: `gemini-3.6-flash` read scenario 2 (plant drink, 200 L, AM and AW excluded, confirmed only, by 16 Nov) and ran it (authority → offer → order of option 1 → ORDERED by the agent, €402.00). 'Some milk for Monday' refused for the missing quantity. 17 of 20 model requests used tonight.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
