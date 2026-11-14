@@ -35,6 +35,7 @@ Branch: `replan-build`, to be created from `overnight-build`. Outside calls made
 | 5. The formula, bakery-café | — | — |
 
 ## Log
+- Sat 14 Nov 16:20 — `C2-frontend-branch.md` is in: build on top of Gabriela's shop page after fixes. Merge it first, then Sofia's commit. B0 starts with C2's F2 (the shop stops sending `auto_order_enabled: true`; three tests). The runbook names the shop files the build may edit and the fields the page already prints.
 - Sat 14 Nov 16:10 — `C1-human-approval-branch.md` is in: take Sofia's commit with fixes X1 to X4 (3 tests red on it; the buyer's setting must come back, off by default; her rule holds the id F-10, so the formula rule is F-11). `C2-frontend-branch.md` still running.
 - Sat 14 Nov 16:05 — the baseline now depends on two reviews: `C1-human-approval-branch.md` (Sofia's commit) and `C2-frontend-branch.md` (Gabriela's shop page). Both were still running. The four tech awards have their offline part in L1, L3, L4-2, E2 and wave 4.
 - Sat 14 Nov 15:55 — board written by the planning session. Nothing built yet. The review of `origin/codex/mandatory-human-approval` (file `C1-human-approval-branch.md`) was still running.

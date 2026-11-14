@@ -4,6 +4,20 @@ For the teammate who builds the interface. The build session keeps this file cur
 
 The pages are a front end to the typed interface; the brief says "this is not about replacing today's e-commerce UI with a chatbot". Use Valio's own words where the webshop has one (`P3-webshop.md`, the mapping table): "Closing time", "Delivery date", "N pcs available in storage" for confirmed stock, "Deliverable <date>" where no quantity is known, "Alternative products", "Standard order".
 
+## For Gabriela: the shop page, in this order (`C2-frontend-branch.md`)
+The review of `frontend-shop` says: build on top of it. It runs, it is safe on the points checked, and its answer card passes the five-second test the old pages fail. Four things must change before a Valio judge sees it; the first and the last are the two things Valio told us not to do.
+
+| # | What | Where | Hours |
+|---|---|---|---|
+| **F1** | **Nothing is ordered or sent without a click.** One button, "Confirm order". Remove "Ordered by your agent". Today the school (€99.20) and the ward (€402.00) are ordered with no click | `views/assistant.js` (`act`, line 80; `verdictBox`), `views/parts.js` (`statusTag`), `kitchens.js` (`autoSend`), `store.js:5` (a new storage key, or a browser that already opened the page keeps the old defaults) | 1 |
+| **F4** | **Not a chat.** Valio's slide: "it is NOT a chatbot". Rename "Assistant", drop the greeting, the bubbles and "conversation"; show the typed request that was sent; link `/docs` and the MCP tools | `views/assistant.js`, `main.js`, `shop.css` | 1 |
+| **F3** (your half) | The rules shown are the rules in force: show limits and allergens from the gateway's answer, not from `localStorage`; when a settings call is refused, push again, retry and show the refusal | `core.js`, `main.js` | 0.5 |
+| F6 | The reader's refusal in plain words, and a place for the reader's question. Today an unreadable sentence shows "No GEMINI_API_KEY is set … POST /v1/offers" | `views/assistant.js` (`answer`, the `failed` branch) | 0.5 |
+| F5 (your half) | One definition of the four customers: read them from the new route; `kitchens.js` keeps only presentation. The school's allergen rule and the bakery's substitution scope and brand change (see the runbook, "Four customers, one definition") | `kitchens.js` | 1 |
+| then | What a substitute gives up, in numbers (R5) · the clock strip (R8) · the suggestions box with "Add" and "Not now" (S2) · the three choices on the approval card (R6) · Valio's own words · a link between `/` and `/shop` | — | — |
+
+The build session edits only `shop_api.py`, `tests/ui/test_shop_api.py`, the setting values in `kitchens.js` and the shop's line in `routes.py`. It puts tonight's new sentences into fields your page already prints, so most of them show with no change on your side (the table is in the runbook, "Where a sentence goes so the shop page shows it").
+
 ## What a judge must see in the first five seconds of a result (`A4-judge-run.md`, sections 2 and 3)
 1. What was asked, in one line.
 2. What is suggested, in one line: products, quantity, total.
