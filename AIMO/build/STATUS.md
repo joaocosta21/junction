@@ -24,7 +24,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
 | T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | done | 421 agent tests; **live check blocked**: Gemini 503/504 to all 6 requests; recordings hand-written. Run `.venv/bin/python -m tta.agent.record --only finnish-1 --only finnish-2 --only photo --max-calls 10 --timeout 60` |
-| T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
+| T17 | Final check against the problem statement; `MORNING.md` | all | running | | independent check started at 10:48 on a clean copy of e880ad2
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
 | FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | done | 313 tests; `milk` 91 → 78, lactose-free 35 → 30 |
@@ -40,7 +40,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-12a | Say only what the data says: not in the recording, ingredient lists, cream | T07 T03 | running | |
 | FIX-12b | Coverage per line, substitutes judged like the offer, earliest date, trade-off on the approval card | T07 T12 | running | |
 | FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | running | |
-| DOCS-2 | Documents say what the code does | — | running | |
+| DOCS-2 | Documents say what the code does | — | done | 8 documents aligned; 26 marks wait on S1, T18, FIX-12a, FIX-12b, FEAT-1 |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -92,6 +92,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 10:33 Walkthrough rewritten and committed (17 sections; 25 open questions with examples; decisions split into Valio's and the team's). The human has about 1h30 and 40% of the weekly limit: FEAT-1 (profile page) and DOCS-2 (documents) started on Opus.
 - 10:38 S1 done and committed (67f3b00). The orchestrator wired S2's evidence into every order book (f3286e1) and added `DATABASE_URL` and `CONTEXT_DEV_API_KEY` to the deploy secret and the evidence recordings to the image (cf6681f), both approved by the human. Left for after T18: S1's one-line `/healthz` reason in `routes.py`.
 - 10:39 T18 done and committed (812de0f); S1's `/healthz` reason added. Gemini requests tonight: 17 + 1 (07:13 re-read) + 6 (T18) = 24.
+- 10:48 DOCS-2 done and committed. Two untrue sentences fixed (fresh offer, standing order). T17's independent check started on a clean copy of e880ad2.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
