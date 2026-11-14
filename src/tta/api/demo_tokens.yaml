@@ -12,6 +12,11 @@
 # The approver ids are the ones listed under `approver_roles` in src/tta/policy/profiles/*.yaml: a token
 # alone is not enough, the buyer's profile must name the person for the role.
 # The names are invented for the demonstration.
+#
+# One person confirms. The person who orders holds every role of the hotel and of the bakery, so one confirmation
+# completes an approval whatever rule asked. The ward and the school have a second person, the dietitian, who
+# decides allergen and dietary-claim questions only. No customer has a separate finance signer: a spend-limit
+# stop is decided by the person who orders.
 
 demo-agent-hotel-kitchen:
   kind: AGENT
@@ -42,21 +47,7 @@ demo-approver-hotel-purchasing:
   id: "human:hotel-purchasing"
   display_name: Demo approver Hanna
   profile_id: hotel-kitchen
-  roles: [purchasing_manager]
-
-demo-approver-hotel-finance:
-  kind: APPROVER
-  id: "human:hotel-finance"
-  display_name: Demo approver Mikko
-  profile_id: hotel-kitchen
-  roles: [finance]
-
-demo-approver-hotel-dietitian:
-  kind: APPROVER
-  id: "human:hotel-dietitian"
-  display_name: Demo approver Leena
-  profile_id: hotel-kitchen
-  roles: [dietitian]
+  roles: [purchasing_manager, finance, dietitian]
 
 demo-approver-ward-dietitian:
   kind: APPROVER
@@ -70,14 +61,7 @@ demo-approver-ward-purchasing:
   id: "human:ward-purchasing"
   display_name: Demo approver Jussi
   profile_id: allergy-ward
-  roles: [purchasing_manager]
-
-demo-approver-ward-finance:
-  kind: APPROVER
-  id: "human:ward-finance"
-  display_name: Demo approver Anna
-  profile_id: allergy-ward
-  roles: [finance]
+  roles: [purchasing_manager, finance]
 
 # The school's and the bakery's people (src/tta/customers/data/). The bakery's owner holds every role of the
 # bakery, the dietitian's too: a bakery-café has no dietitian (decision B27).
@@ -86,14 +70,7 @@ demo-approver-school-purchasing:
   id: "human:school-purchasing"
   display_name: Demo approver Päivi
   profile_id: school-kitchen
-  roles: [purchasing_manager]
-
-demo-approver-school-finance:
-  kind: APPROVER
-  id: "human:school-finance"
-  display_name: Demo approver Tuomas
-  profile_id: school-kitchen
-  roles: [finance]
+  roles: [purchasing_manager, finance]
 
 demo-approver-school-dietitian:
   kind: APPROVER

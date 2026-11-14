@@ -728,3 +728,42 @@ details.why.fold summary { font-size: 13px; }
 .regular-bar.amber > svg { color: var(--wait); }
 .regular-bar.done { background: var(--ok-bg); border-color: #c5e3d1; border-left-color: var(--ok); }
 .regular-bar.done > svg { color: var(--ok); }
+
+/* Valio Aimo back office (views/backoffice.js): Valio Aimo's screen, set apart from the customer's menu. */
+.nav a[href="#/backoffice"] { margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--line); border-radius: 0 6px 6px 0; color: var(--petrol); font-style: italic; }
+.mobile-nav a[href="#/backoffice"] { background: var(--lilac); border: 1px dashed var(--navy); }
+.mobile-nav a[href="#/backoffice"].on { background: var(--navy); border-style: solid; }
+.bo-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.bo-block { min-width: 0; overflow-wrap: anywhere; }
+.bo-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.bo-tiles.two { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+.bo-tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #fff; min-width: 0; }
+.bo-tile b { display: block; font-family: var(--head); font-size: 30px; line-height: 1.1; color: var(--navy); font-variant-numeric: tabular-nums; }
+.bo-tile span { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
+.bo-tile.lead { background: var(--info-bg); border-color: #c9dde8; }
+.bo-tile.good { background: var(--ok-bg); border-color: #c5e3d1; }
+.bo-tile.good b { color: var(--ok); }
+.bo-tile.warn { background: var(--wait-bg); border-color: #efd9ad; }
+.bo-tile.warn b { color: var(--wait); }
+.bo-flow { display: flex; align-items: stretch; gap: 8px; }
+.bo-flow .bo-tile { flex: 1; }
+.bo-arrow { display: flex; align-items: center; color: var(--faint); }
+.bo-arrow svg { width: 20px; height: 20px; }
+.bo-say { margin: 14px 0 0; font-size: 15px; }
+.bo-short { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.bo-short li { padding: 8px 12px; border-left: 3px solid var(--wait); background: #fdf8ee; border-radius: 0 6px 6px 0; }
+.bo-short p { margin: 0; }
+.bo-short p + p { margin-top: 4px; }
+.bo-scroll { overflow-x: auto; }
+.bo-table td, .bo-table th { padding: 8px 10px; }
+.bo-table tr.bo-own td { background: var(--lilac); }
+.bo-how { margin: 0; display: grid; gap: 4px; }
+.bo-how dt { font-weight: 700; color: var(--navy); }
+.bo-how dd { margin: 0 0 8px; color: var(--ink); }
+@media (max-width: 640px) {
+  .bo-tiles, .bo-tiles.two { grid-template-columns: minmax(0, 1fr); }
+  .bo-flow { flex-direction: column; }
+  .bo-arrow { justify-content: center; }
+  .bo-arrow svg { transform: rotate(90deg); }
+  .bo-tools { width: 100%; }
+}

@@ -31,9 +31,8 @@ TOKENS_VARIABLE = "TTA_TOKENS"
 BEARER_SCHEME_NAME = "bearerAuth"
 DEMO_TOKEN_NAMES = (
     "demo-agent-hotel-kitchen", "demo-agent-allergy-ward", "demo-agent-school-kitchen", "demo-agent-bakery-cafe",
-    "demo-approver-hotel-purchasing", "demo-approver-hotel-finance", "demo-approver-hotel-dietitian",
-    "demo-approver-ward-dietitian", "demo-approver-ward-purchasing", "demo-approver-ward-finance",
-    "demo-approver-school-purchasing", "demo-approver-school-finance", "demo-approver-school-dietitian",
+    "demo-approver-hotel-purchasing", "demo-approver-ward-dietitian", "demo-approver-ward-purchasing",
+    "demo-approver-school-purchasing", "demo-approver-school-dietitian",
     "demo-approver-bakery-owner", "demo-supplier-valio-aimo",
 )  # the keys of `demo_tokens.yaml`, in its order: a test holds the two together
 BEARER_DESCRIPTION = (
@@ -42,7 +41,8 @@ BEARER_DESCRIPTION = (
     "demonstration tokens work. They are **public by design**, listed in `src/tta/api/demo_tokens.yaml`: "
     + ", ".join(f"`{name}`" for name in DEMO_TOKEN_NAMES[:-1]) + f" and `{DEMO_TOKEN_NAMES[-1]}`. "
     "Four customers (hotel kitchen, allergy ward, school kitchen, bakery and café), each with one agent and its "
-    "people; the bakery's owner holds every role. "
+    "people. One person confirms: the hotel's purchasing manager and the bakery's owner hold every role; the ward "
+    "and the school have a dietitian besides, for allergen questions only. "
     "In any other environment tokens come from the environment and the demonstration tokens do not exist."
 )
 # A token from the environment is a secret someone chose: shorter than this it can be guessed. The

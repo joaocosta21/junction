@@ -10,13 +10,14 @@ import { ended, plain } from "./words.js";
 import { loadReorder } from "./views/reorder.js";
 import * as approvals from "./views/approvals.js";
 import * as assistant from "./views/assistant.js";
+import * as backoffice from "./views/backoffice.js";
 import * as deliveries from "./views/deliveries.js";
 import * as orders from "./views/orders.js";
 import * as settings from "./views/settings.js";
 import * as standing from "./views/standing.js";
 import { clockStrip } from "./views/clock.js";
 
-const VIEWS = { assistant, approvals, orders, deliveries, settings, standing };
+const VIEWS = { assistant, approvals, orders, deliveries, settings, standing, backoffice };
 const NAV = [
   ["assistant", "#/", "Request"],
   ["standing", "#/standing", "Standing orders"],
@@ -24,6 +25,7 @@ const NAV = [
   ["approvals", "#/approvals", "Approvals"],
   ["orders", "#/orders", "Orders"],
   ["settings", "#/settings", "Settings"],
+  ["backoffice", "#/backoffice", "Valio Aimo back office"], // Valio Aimo's screen, set apart in the menu (shop.css)
 ];
 
 // ---- loading and switching customer ----------------------------------------------------------------------

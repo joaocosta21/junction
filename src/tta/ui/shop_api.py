@@ -61,7 +61,7 @@ from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Iden
 from tta.contracts.customer import Customer, CustomerStandingOrder
 from tta.contracts.errors import InvalidRequest, SupplierUnavailable, TtaError
 from tta.contracts.menu import MenuPlan
-from tta.contracts.order import DecisionRequest
+from tta.contracts.order import DecisionRequest, Order
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import ValioGateway
 from tta.contracts.request import PurchaseRequest
@@ -256,6 +256,38 @@ def _signer(customer: Customer, role: ApproverRole, name: str | None) -> str | J
         return _problem(422, "The request cannot be processed",
                         NOT_ONE_OF_THEM.format(person=person, role=role_words, customer=customer.name))
     return signed
+
+
+def _decide_as_one_person(
+    one: Sandbox, customer: Customer, body: DecisionBody, signer: str, approval_id: str
+) -> Order:
+    """One person's decision, signed for every role that person holds and the approval still needs.
+
+    A book has one approver per role, and a customer's person may hold several roles (the customer file's
+    `people`: the hotel's purchasing manager and the bakery's owner hold all three). Their one confirmation is the
+    whole of their part: after the role the page named, each role still missing that the same person holds is signed
+    with the same decision, each checked by the gateway like any signature and written to the log under the person's
+    name. A role held by somebody else is never signed here, and a rejection is one decision."""
+    person = customer.people.get(body.role)
+    signed = {body.role}
+    order = one.service.decide_approval(_signing(body.role, signer), approval_id, body.decision)
+    while order.status is OrderStatus.PENDING_APPROVAL:
+        waiting = one.service.list_approvals(KITCHEN_APPROVERS[0], ApprovalStatus.PENDING)
+        approval = next((each for each in waiting if each.approval_id == approval_id), None)
+        missing = approval.roles_missing if approval is not None else ()
+        role = next((each for each in missing if each not in signed and customer.people.get(each) == person), None)
+        if role is None:
+            break
+        signed.add(role)
+        order = one.service.decide_approval(_signing(role, signer), approval_id, body.decision)
+    return order
+
+
+def _signing(role: ApproverRole, signer: str) -> Identity:
+    """The book's approver of this role, under the name of the customer's person who signs."""
+    approver = _approver(role)
+    assert approver is not None  # every role has an approver in a shop book (KITCHEN_APPROVERS)
+    return approver.model_copy(update={"display_name": signer})
 
 
 def _recorded_prices(prices: ValioGateway, product_ids: list[str]) -> dict[str, Decimal]:
@@ -649,12 +681,12 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         approver = _approver(body.role)
         if approver is None:
             return _problem(422, "The request cannot be processed", NO_SUCH_ROLE)
-        signer = _signer(customers[str(_customer_id(request))], body.role, body.name)
+        customer = customers[str(_customer_id(request))]
+        signer = _signer(customer, body.role, body.name)
         if isinstance(signer, JSONResponse):
             return signer
-        signing = approver.model_copy(update={"display_name": signer})
         return await in_a_worker(
-            request, lambda one: one.service.decide_approval(signing, approval_id, body.decision)
+            request, lambda one: _decide_as_one_person(one, customer, body, signer, approval_id)
         )
 
     @app.get(API + "/audit")
