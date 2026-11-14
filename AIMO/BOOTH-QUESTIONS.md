@@ -286,6 +286,17 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "When a listed substitute is sold in another sales unit than the original, do you expect the buyer to convert the quantity by volume, as we do — is that expected, or did we get something wrong?"
 - **If no answer, we build:** quantities are converted through the pack size and rounded up to the lot step.
 
+**SCOPE-1 · Which of your example scenarios would you most like to see? — ask this first** (from the team, Saturday morning)
+- **Context:** the brief lists six "example scenarios to spark ideas". We built the core you ask for — lookup, an offer at fixed prices, an order placed by the agent within its authority or sent to a named human, and an audit trail for buyer and Valio — plus two of the six: allergen-safe substitution in a hospital kitchen, and a substitute when a product cannot be supplied.
+- **What we can build next, today:** (a) a page where the buyer sets what its agent may decide alone (spend limits, allergens, substitutes); (b) a standing weekly order and a guardrail that sends a renewal to a human when quantities or cost drift; (c) recipe → order: a menu planned around a seasonal ingredient, scaled to the number of covers, with substitutes following the recipe; (d) Valio's own agent suggesting a product to the buyer's agent.
+- **Example to show:** scenario 2 on the live demo (https://joaocostared--trusted-trade-agents.us-east.modal.run): the ward's agent orders 200 L of soya drink alone, €402.00; then scenario 1, where the hotel's €2,580.64 order goes to the purchasing manager.
+- **Ask:** "Of the scenarios in your brief, which would you most like to see an agent do on top of this — the buyer setting its agent's limits, standing-order drift, recipe to order, or your own selling agent?"
+- **Follow-ups, if there is time:**
+  1. "Do your customers set their own ordering limits and approvers today, or does Valio Aimo set them in the customer account?"
+  2. "The mock has no order history. May we define a kitchen's standing order ourselves, or do you have example order patterns?"
+  3. "The product file has no field for new or seasonal products, and no recipes. How would your agent know a product is seasonal — is there a field we missed, or should we bring our own small list?"
+- **If no answer, we build:** (a) and (b) first, both in the controls criterion; (c) if time allows; (d) last, with a lower-carbon alternative from the carbon file instead of "seasonal".
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
