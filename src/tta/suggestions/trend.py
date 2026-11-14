@@ -18,7 +18,7 @@ from tta.contracts.suggestion import Suggestion, SuggestionEvidence, SuggestionK
 from tta.suggestions.history import OrderHistory
 from tta.suggestions.requests import with_line_changed
 from tta.suggestions.thresholds import TREND_MIN_CHANGE, TREND_MIN_STEPS_ONE_WAY, TREND_WINDOW, named
-from tta.suggestions.wording import amount, middle, percent, sentence, tail
+from tta.suggestions.wording import amount, middle, sentence, short_label, tail
 
 HALF = TREND_WINDOW // 2
 RENEWS_ONCE = (
@@ -46,14 +46,11 @@ def quantity_trend(history: OrderHistory, product_id: str, *, standing_order_id:
         return None
     if _within(stored_quantity, recent, tolerance):
         return None
-    if one_way == len(steps):
-        how = f"each {'higher' if rising else 'lower'} than the last"
-    else:
-        how = f"{one_way} of the last {len(steps)} changes were {'increases' if rising else 'decreases'}"
+    label = short_label(history.names.get(product_id), product_id)
     said = sentence(
-        f"Your last {HALF} orders of {history.label(product_id)} have a median of {amount(recent, unit)} against "
-        f"{amount(before, unit)} for the {HALF} before ({percent(change)}), {how}.",
-        f"The standing order still says {amount(stored_quantity, unit)}. Store {amount(recent, unit)}?",
+        f"Your orders of {label} are {'growing' if rising else 'shrinking'}: about {amount(recent, unit)} in your "
+        f"last {HALF} orders, {amount(before, unit)} in the {HALF} before.",
+        f"Your standing order still says {amount(stored_quantity, unit)}. Renew once at {amount(recent, unit)}?",
         tail(history.synthetic),
     )
     evidence = SuggestionEvidence(

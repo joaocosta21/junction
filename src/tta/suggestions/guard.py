@@ -37,7 +37,7 @@ from tta.offers.formula import compare_formula
 from tta.offers.safety import ruled_out
 from tta.offers.substitutes import COVERED_BY, claims_lost
 from tta.suggestions import reasons
-from tta.suggestions.wording import amount, day, euros, number, sentence
+from tta.suggestions.wording import amount, confirmed_words, euros, last_tail, number, packs, sentence, stock_amount
 
 # The kinds whose product is a line the request did not have: accepting adds its cost to the order.
 ADDS_A_LINE = frozenset({SuggestionKind.FORGOTTEN_ITEM, SuggestionKind.FROM_SUPPLIER})
@@ -60,6 +60,7 @@ class DropReason(StrEnum):
     # Valio Aimo's own suggestion only (decision B32): it passed every check above and still stays silent.
     OTHER_PACK_KIND = "OTHER_PACK_KIND"  # a portion pack for a usual bulk product, or the other way round
     ONE_UNIT_IN_STOCK = "ONE_UNIT_IN_STOCK"  # one sales unit confirmed in stock is not a suggestion
+    NO_STATED_BENEFIT = "NO_STATED_BENEFIT"  # it passed every check and has no benefit it can state (lane SG)
 
 
 class DroppedSuggestion(Contract):
@@ -231,9 +232,10 @@ def _stock(candidate: Candidate, need: Need) -> Failure | None:
 
 
 def _sales_units(count: Decimal, *, verb: bool = True) -> str:
-    """ "1 sales unit is", "114 sales units are"; without the verb for a cost."""
+    """ "1 pack is", "114 packs are"; without the verb for a cost. "pack" for the sales unit, whose codes are not
+    documented (`wording.PACKS`)."""
     one = count == 1
-    words = f"{number(count)} sales unit{'' if one else 's'}"
+    words = packs(count)
     return f"{words} {'is' if one else 'are'}" if verb else words
 
 
@@ -242,23 +244,25 @@ def _units(candidate: Candidate, need: Need) -> Decimal:
 
 
 def _complete(suggestion: Suggestion, candidate: Candidate, need: Need, context: GuardContext) -> Suggestion:
-    """The suggestion with what the guard read: availability, confirmed stock, the cost, each check's sentence."""
+    """The suggestion with what the guard read: availability, confirmed stock, the cost, each check's sentence.
+    A suggestion that came without its effect gets the price for its quantity, then the stock, said after the
+    kind's own reason ("Adding 10 L costs €33.10. 114 L confirmed for Monday 16 November."); "From a synthetic
+    order history." stays the last sentence. Prices are before tax, as Valio Aimo's webshop shows them first."""
     units = _units(candidate, need)
     net = round_money(units * candidate.unit_price)
     assessment = candidate.assessment
-    when = f" for delivery on {day(assessment.available_date)}" if assessment.available_date else ""
-    stock = f"{_sales_units(assessment.usable_amount or Decimal(0))} confirmed in stock{when}."
-    cost = (f"{amount(suggestion.quantity, suggestion.unit)} is {_sales_units(units, verb=False)} at "
-            f"{euros(candidate.unit_price)} each: {euros(net)} before tax.")
+    usable = assessment.usable_amount or Decimal(0)
+    stock = confirmed_words(stock_amount(usable, candidate.per_unit, need.unit), assessment.available_date)
+    quantity = amount(suggestion.quantity, suggestion.unit)
     update: dict[str, object] = {
         "availability": assessment, "stock_confirmed": True,
         "checks": (*suggestion.checks, *_check_sentences(suggestion, candidate, context), stock),
     }
     if suggestion.effect is None and suggestion.kind in ADDS_A_LINE:
         update["effect"] = SuggestionEffect(net_change_eur=net)
-        update["sentence"] = sentence(suggestion.sentence, stock, f"Adding it costs {euros(net)} before tax.")
+        update["sentence"] = last_tail(suggestion.sentence, f"Adding {quantity} costs {euros(net)}.", stock)
     elif suggestion.effect is None:
-        update["sentence"] = sentence(suggestion.sentence, stock, cost)
+        update["sentence"] = last_tail(suggestion.sentence, f"For {quantity}: {euros(net)}.", stock)
     return suggestion.model_copy(update=update)
 
 

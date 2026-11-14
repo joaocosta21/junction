@@ -26,10 +26,10 @@ from tta.contracts.suggestion import (
     SuggestionKind,
     suggestion_id_for,
 )
-from tta.suggestions.packs import PackOption, confirmed_for, needed_in_measure, stock_words
+from tta.suggestions.packs import PackOption, confirmed_for, needed_in_measure, pack_label, stock_words
 from tta.suggestions.requests import with_line_changed
 from tta.suggestions.thresholds import CHEAPER_MIN_SAVING, LARGER_PACK_MAX_OVER, named
-from tta.suggestions.wording import MEASURE_WORDS, UNIT_WORDS, amount, euros, number, percent, sentence
+from tta.suggestions.wording import amount, euros, more_or_less, per_measure, sentence
 
 _UNIT_PRICE = Decimal(1).scaleb(-UNIT_PRICE_PLACES)
 _RATIO = Decimal(1).scaleb(-RATIO_PLACES)
@@ -117,14 +117,12 @@ def _suggestion(customer_id: str, request: PurchaseRequest, line_index: int, ori
 
 
 def _sentence(original: PackOption, fit: _Fit, needed: Decimal, before: Decimal, after: Decimal) -> str:
-    """Both prices per measure, that the formula is kept within our tolerance, the total, the confirmed stock."""
+    """ "Because you buy Oatly iKaffe 0.5 L (468319), we suggest Oatly iKaffe Oat drink 1.5 L (473278): the same
+    formula, €1.48 a litre instead of €2.88. For your 30 L: €44.40, €42.00 less. 234 L confirmed for Monday 16
+    November." The formula measure's own sentence is in the suggestion's checks."""
     pack, formula, unit = fit.option.pack, fit.option.formula, original.measure
-    per = MEASURE_WORDS[unit]
-    prices = (f"{pack.name} ({pack.product_id}) costs {euros(pack.price_per_measure)} per {per} against "
-              f"{euros(original.price_per_measure)} for {original.name} ({original.product_id}): "
-              f"{percent(fit.saving).lstrip('+')} less.")
-    brand = "" if formula.outcome in _SAME_BRAND else "It is another brand."
-    kept = f"It keeps the formula within our tolerance. {formula.sentence}"
-    packs = f"{number(fit.packs)} × {number(pack.pack_size)} {UNIT_WORDS[unit]}"
-    total = f"{packs} cover the {amount(needed, unit)} for {euros(after)}, {euros(before - after)} less."
-    return sentence(prices, kept, brand, total, stock_words(pack.availability))
+    same = "the same formula" if formula.outcome in _SAME_BRAND else "another brand with the same formula"
+    reason = (f"Because you buy {pack_label(original)}, we suggest {pack_label(pack)}: {same}, "
+              f"{per_measure(pack.price_per_measure, unit)} instead of {euros(original.price_per_measure)}.")
+    total = f"For your {amount(needed, unit)}: {euros(after)}, {more_or_less(after - before)}."
+    return sentence(reason, total, stock_words(pack))

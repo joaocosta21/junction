@@ -106,7 +106,7 @@ def test_the_schools_oat_drink_has_grown_by_a_fifth_over_its_stored_60_litres() 
     assert stored == Decimal(60)
     assert found is not None
     assert found.quantity == Decimal(84)
-    assert "(+20%), each higher than the last" in found.sentence
+    assert "are growing: about 84 L in your last 3 orders, 70 L in the 3 before." in found.sentence
 
 
 def test_no_other_usual_product_shows_a_trend() -> None:

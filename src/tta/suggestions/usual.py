@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterator
+from decimal import Decimal
 
+from tta.contracts.common import Unit
 from tta.contracts.customer import PastOrder
 from tta.contracts.request import PurchaseRequest
 from tta.contracts.suggestion import Suggestion, SuggestionEvidence, SuggestionKind, suggestion_id_for
@@ -27,7 +29,7 @@ from tta.suggestions.thresholds import (
     USUAL_QUANTITY_WINDOW,
     named,
 )
-from tta.suggestions.wording import CONFIRM_IT, CONFIRM_THE_QUANTITY, amount, middle, number, sentence, tail, type_words
+from tta.suggestions.wording import amount, middle, number, sentence, short_label, tail, type_words
 
 MAX_NAMED_IN_A_QUESTION = 3
 
@@ -75,8 +77,8 @@ def usual_product(history: OrderHistory, product_type: str) -> Suggestion | None
     )
     kind = type_words(product_type)
     said = sentence(
-        f"Your usual {kind} is {history.label(product_id)}: it is in {count} of your last {len(orders)} orders of "
-        f"{kind}.", CONFIRM_IT, tail(history.synthetic),
+        f"You usually buy {short_label(history.names.get(product_id), product_id)}: it was in {count} of your last "
+        f"{len(orders)} {kind} orders. Use it?", tail(history.synthetic),
     )
     return Suggestion(
         suggestion_id=suggestion_id_for(history.customer_id, SuggestionKind.USUAL_PRODUCT, product_id),
@@ -113,9 +115,21 @@ def _for_lines(history: OrderHistory, request: PurchaseRequest) -> Iterator[Sugg
             continue
         yield Suggestion.model_validate({
             **found.model_dump(), "request_line_index": index, "quantity": line.quantity, "unit": line.unit,
-            "sentence": f"This line names {type_words(line.product_type)} and no product. {found.sentence}",
+            "sentence": f"You asked for {type_words(line.product_type)} without naming one. {found.sentence}",
             "accept_request": with_line_changed(request, index, product_ids=[found.product_id]),
         })
+
+
+def _usually(history: OrderHistory, product_id: str, values: tuple[Decimal, ...], unit: Unit) -> str:
+    """ "You usually order about 100 L of Arla Semi skimmed milkdrink (469363): between 98 and 104 L in your
+    last 6 orders." The median, and the range it was taken over."""
+    quantity, low, high = middle(values), min(values), max(values)
+    label = short_label(history.names.get(product_id), product_id)
+    if low == high:
+        return (f"You usually order {amount(quantity, unit)} of {label}: the same in each of your last "
+                f"{len(values)} orders.")
+    return (f"You usually order about {amount(quantity, unit)} of {label}: between {number(low)} and "
+            f"{amount(high, unit)} in your last {len(values)} orders.")
 
 
 def usual_quantity(history: OrderHistory, product_id: str) -> Suggestion | None:
@@ -125,13 +139,8 @@ def usual_quantity(history: OrderHistory, product_id: str) -> Suggestion | None:
     if len(orders) < USUAL_QUANTITY_MIN_ORDERS or unit is None:
         return None
     values = tuple(order.quantities[product_id] for order in orders)
-    quantity, low, high = middle(values), min(values), max(values)
-    spread = f"which were all {amount(low, unit)}" if low == high else (
-        f"which ranged from {number(low)} to {amount(high, unit)}")
-    said = sentence(
-        f"You usually order {amount(quantity, unit)} of {history.label(product_id)}: the median of your last "
-        f"{len(orders)} orders, {spread}.", CONFIRM_THE_QUANTITY, tail(history.synthetic),
-    )
+    quantity = middle(values)
+    said = sentence(_usually(history, product_id, values, unit), tail(history.synthetic))
     evidence = SuggestionEvidence(
         source=history.source, synthetic=history.synthetic, orders_considered=len(orders),
         orders_matching=len(orders), first_order=orders[0].delivered_on, last_order=orders[-1].delivered_on,
@@ -162,9 +171,11 @@ def _quantities_for_lines(history: OrderHistory, request: PurchaseRequest) -> It
             continue
         thresholds = {**found.evidence.thresholds,
                       **named(USUAL_QUANTITY_MIN_DIFFERENCE=USUAL_QUANTITY_MIN_DIFFERENCE)}
+        asked, usual = amount(line.quantity, line.unit), amount(found.quantity, line.unit)
         yield found.model_copy(update={
             "request_line_index": index,
-            "sentence": f"This line asks for {amount(line.quantity, line.unit)}. {found.sentence}",
+            "sentence": sentence(_usually(history, line.product_ids[0], found.evidence.values, line.unit),
+                                 f"This request says {asked}. Order {usual} instead?", tail(history.synthetic)),
             "evidence": found.evidence.model_copy(update={"thresholds": thresholds}),
             "accept_request": with_line_changed(request, index, quantity=found.quantity),
         })

@@ -29,7 +29,7 @@ from tta.suggestions.thresholds import (
     HISTORY_WINDOW_ORDERS,
     named,
 )
-from tta.suggestions.wording import amount, middle, sentence, tail
+from tta.suggestions.wording import amount, middle, sentence, short_label, tail, type_words
 
 
 @dataclass(frozen=True)
@@ -101,19 +101,29 @@ def _buyer_chose(other: str, request: PurchaseRequest, asked: Sequence[str], win
     return any(count < COMPANION_MIN_SUPPORT for count in together.values())
 
 
+def _said(pair: _Pair, history: OrderHistory, window_size: int, quantity: Decimal, unit: Unit,
+          values: tuple[Decimal, ...]) -> str:
+    """ "With this milk you usually also order Arla Pro Cooking cream 10% (463797): it was in 7 of your last 8
+    orders, 10 L each time, and it is not in this request." The reason first, from what the customer buys."""
+    holding, matching = len(pair.holding), len(pair.matching)
+    kind = history.type_of(pair.asked)
+    asked = f"this {type_words(kind)}" if kind else short_label(history.names.get(pair.asked), pair.asked)
+    if holding == window_size:
+        counted = f"it was in {matching} of your last {holding} orders"
+    else:
+        counted = f"it was in {matching} of the {holding} orders with {asked} among your last {window_size}"
+    each = f"{amount(quantity, unit)} each time" if min(values) == max(values) else (
+        f"about {amount(quantity, unit)} each time")
+    other = short_label(history.names.get(pair.other), pair.other)
+    return f"With {asked} you usually also order {other}: {counted}, {each}, and it is not in this request."
+
+
 def _suggestion(pair: _Pair, history: OrderHistory, request: PurchaseRequest, window_size: int) -> Suggestion:
     values = tuple(order.quantities[pair.other] for order in pair.matching)
     quantity, unit = middle(values), history.unit_of(pair.other) or Unit.UNIT  # a unit is known: see _passes
-    holding, matching, asked = len(pair.holding), len(pair.matching), history.label(pair.asked)
-    if holding == window_size:
-        counted = f"In {matching} of your last {holding} orders with {asked}"
-    else:
-        counted = f"In {matching} of the {holding} orders with {asked} among your last {window_size} orders"
+    holding, matching = len(pair.holding), len(pair.matching)
     usually = f"{amount(quantity, unit)} of {history.label(pair.other)}"
-    said = sentence(
-        f"{counted} you also ordered {history.label(pair.other)}, usually {amount(quantity, unit)}.",
-        "It is not in this request.", tail(history.synthetic),
-    )
+    said = sentence(_said(pair, history, window_size, quantity, unit, values), tail(history.synthetic))
     line = RequestLine(text=f"{usually}, suggested from your order history", product_ids=(pair.other,),
                        quantity=quantity, unit=unit)
     evidence = SuggestionEvidence(

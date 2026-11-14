@@ -58,7 +58,8 @@ def test_a_product_that_passes_leaves_complete(world_now: Any) -> None:
     assert isinstance(passed, Suggestion)
     assert passed.stock_confirmed is True and passed.availability.usable_amount == Decimal(114)
     assert passed.effect.net_change_eur == Decimal("33.10")
-    assert passed.checks[-1] == "114 sales units are confirmed in stock for delivery on Monday 16 November."
+    assert passed.checks[-1] == "114 L confirmed for Monday 16 November."
+    assert passed.sentence == "Suggested. Adding 10 L costs €33.10. 114 L confirmed for Monday 16 November."
 
 
 @pytest.mark.parametrize(
@@ -66,7 +67,7 @@ def test_a_product_that_passes_leaves_complete(world_now: Any) -> None:
     [
         (HOTEL, MILK, "9999999", {}, DropReason.UNKNOWN_PRODUCT, "The product is not in the catalog."),
         (HOTEL, MILK, "463797", {"quantity": "500"}, DropReason.STOCK_TOO_LOW,
-         "114 sales units are confirmed in stock and 500 are needed for 500 L."),
+         "114 packs are confirmed in stock and 500 are needed for 500 L."),
         (HOTEL, MILK, "464306", {}, DropReason.STOCK_NOT_CONFIRMED, "Quantity not confirmed: "),
         # FREE_FROM_GLUTEN, which no allergen statement of the cream contradicts: since L2a-2 (P4 F4) a VEGAN line
         # meets the cream's milk in the offer's own check first, and the reason is then ALLERGEN_DECLARED.
@@ -108,7 +109,7 @@ def test_every_drop_carries_its_reason_in_a_few_words(world_now: Any) -> None:
 
     dropped = _check(world_now, HOTEL, request, suggestion)
 
-    assert dropped.summary == "114 sales units are confirmed in stock and 500 are needed"
+    assert dropped.summary == "114 packs are confirmed in stock and 500 are needed"
 
 
 def test_a_product_whose_cut_off_has_passed_is_dropped_with_the_offers_own_reason(world_now: Any) -> None:

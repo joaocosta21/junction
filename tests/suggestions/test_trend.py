@@ -45,8 +45,8 @@ def test_the_schools_oat_drink_has_grown_by_a_fifth_and_the_standing_order_still
         "TREND_WINDOW": 6, "TREND_MIN_CHANGE": Decimal("0.15"), "TREND_MIN_STEPS_ONE_WAY": 4,
     }
     assert found.sentence == (
-        "Your last 3 orders of Oatly oat drink (470863) have a median of 84 L against 70 L for the 3 before (+20%), "
-        "each higher than the last. The standing order still says 60 L. Store 84 L? From a synthetic order history."
+        "Your orders of Oatly oat drink (470863) are growing: about 84 L in your last 3 orders, 70 L in the 3 "
+        "before. Your standing order still says 60 L. Renew once at 84 L? From a synthetic order history."
     )
 
 
@@ -55,14 +55,15 @@ def test_a_fall_is_said_as_a_fall(make_history: Callable[..., OrderHistory]) -> 
 
     assert found is not None
     assert found.quantity == Decimal(70)
-    assert "have a median of 70 L against 84 L for the 3 before (-17%), each lower than the last" in found.sentence
+    assert "are shrinking: about 70 L in your last 3 orders, 84 L in the 3 before." in found.sentence
 
 
 def test_four_steps_of_five_in_one_direction_are_enough(make_history: Callable[..., OrderHistory]) -> None:
     found = _trend(make_history, (60, 66, 64, 74, 80, 84), stored=Decimal(50))
 
     assert found is not None
-    assert "4 of the last 5 changes were increases" in found.sentence
+    assert "are growing: about 80 L in your last 3 orders, 64 L in the 3 before." in found.sentence
+    assert found.evidence.values == (60, 66, 64, 74, 80, 84)  # 4 of the 5 steps rise: the page's "Why?"
 
 
 def test_a_mixed_direction_stays_silent(make_history: Callable[..., OrderHistory]) -> None:

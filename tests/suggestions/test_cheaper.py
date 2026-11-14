@@ -53,11 +53,11 @@ def test_a_cheaper_product_that_keeps_the_formula_states_both_prices_and_the_tol
         SuggestionKind.CHEAPER_SAME_FORMULA, "100002", "100001", 0,
     )
     assert found.sentence == (
-        "Cream 100002 (100002) costs €5.77 per litre against €7.37 for Cream 100001 (100001): 22% less. "
-        f"It keeps the formula within our tolerance. {KEPT} It is another brand. "
-        "40 × 1 L cover the 40 L for €230.80, €64.00 less. "
-        "48 are confirmed in stock for delivery on Monday 16 November."
+        "Because you buy Cream 100001 1 L (100001), we suggest Cream 100002 1 L (100002): another brand with the "
+        "same formula, €5.77 a litre instead of €7.37. For your 40 L: €230.80, €64.00 less. "
+        "48 L confirmed for Monday 16 November."
     )
+    assert found.checks == (KEPT,)  # the formula measure's own sentence, for the page's "Why?"
     assert found.effect is not None and found.effect.net_change_eur == Decimal("-64.00")
     assert found.effect.saving_ratio == Decimal("0.2171")
     assert found.evidence.source is EvidenceSource.CATALOG and found.evidence.synthetic is False

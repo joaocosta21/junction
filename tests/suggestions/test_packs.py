@@ -66,8 +66,9 @@ def test_a_larger_pack_that_is_cheaper_per_litre_is_suggested_with_the_saving() 
     assert found.evidence.source is EvidenceSource.CATALOG
     assert found.evidence.synthetic is False
     assert found.sentence == (
-        "Drink 1.5 L (100002) is the same product in a larger pack: €1.48 per litre against €1.78. 40 × 1.5 L "
-        "cover the 60 L for €88.80, €18.00 less. 156 are confirmed in stock for delivery on Monday 16 November."
+        "Because you buy Drink 1 L (100001) in 1 L packs, we suggest the same product in 1.5 L packs (100002): "
+        "€1.48 a litre instead of €1.78. 40 packs cover your 60 L for €88.80, €18.00 less. "
+        "234 L confirmed for Monday 16 November."
     )
 
 
@@ -130,8 +131,9 @@ def test_exactly_5_percent_cheaper_and_exactly_10_percent_over_speak_and_a_deare
     assert found is not None
     assert found.effect is not None and found.effect.net_change_eur == Decimal("0.45")
     assert found.sentence.startswith(
-        "It costs €0.45 more, for 1 L more than you asked. Drink 5.5 L (100002) is the same product in a larger pack: "
-        "€0.95 per litre against €1.00. 2 × 5.5 L cover the 10 L for €10.45."
+        "Because you buy Drink 1 L (100001) in 1 L packs, we suggest the same product in 5.5 L packs (100002): "
+        "€0.95 a litre instead of €1.00. 2 packs cover your 10 L for €10.45, €0.45 more, with 1 L more than you "
+        "asked."
     )
 
 
@@ -180,5 +182,7 @@ def test_oatly_ikaffe_in_the_15_litre_carton_from_the_recording(
 
     assert found is not None and found.effect is not None
     assert found.effect.net_change_eur == Decimal(after) - Decimal(before)
-    assert f"{packs} × 1.5 L cover the {litres} L for €{after}" in found.sentence
-    assert "156 are confirmed in stock for delivery on Monday 16 November" in found.sentence
+    assert found.sentence.startswith(f"Because you buy Oatly iKaffe ({original_id}) in ")
+    assert f"we suggest the same product in 1.5 L packs (473278): €1.48 a litre instead of " in found.sentence
+    assert f"{packs} packs cover your {litres} L for €{after}" in found.sentence
+    assert "234 L confirmed for Monday 16 November" in found.sentence  # 156 packs of 1.5 L

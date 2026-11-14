@@ -10,7 +10,7 @@ from tta.contracts.audit import EVENT_TYPE_PREFIX, Actor, ActorKind, AuditEventT
 from tta.contracts.common import AuditReader
 from tta.contracts.suggestion import SuggestionKind
 from tta.store import SqliteStore
-from tta.suggestions import suggestion_accepted_facts, suggestions_shown_facts
+from tta.suggestions import DropReason, suggestion_accepted_facts, suggestions_shown_facts
 from tta.suggestions.events import (
     ACCEPTED_EVENT,
     SHOWN_EVENT,
@@ -52,8 +52,10 @@ def test_valio_aimos_facts_say_what_was_shown_and_never_why_one_was_dropped(worl
 
     text = json.dumps(facts)
     assert all(word not in text for word in ("tree nuts", "peanuts", "sesame", "464517", "ALLERGEN", "sentence"))
-    assert facts["dropped_count"] == len(found.dropped) >= 1
-    assert facts["dropped_by_reason"] == {"BUYER_REQUIREMENT": len(found.dropped)}
+    silent = [each for each in found.dropped if each.reason == DropReason.NO_STATED_BENEFIT]
+    assert silent and all(each.product_id not in text for each in silent)  # Valio Aimo's own, silent (lane SG)
+    assert facts["dropped_count"] == len(found.dropped) - len(silent) >= 1
+    assert facts["dropped_by_reason"] == {"BUYER_REQUIREMENT": len(found.dropped) - len(silent)}
     assert [each["product_id"] for each in facts["shown"]] == [each.product_id for each in found.shown]
     assert {"kind", "quantity", "name"} <= set(facts["shown"][0])
     for history_figure in ("orders_considered", "orders_matching", "evidence", "values", "synthetic"):

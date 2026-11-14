@@ -8,6 +8,9 @@ already placed) and returns the at most three to show, one per kind (decision B3
 dropped and what was held back, each with its reason. `events` builds the audit facts and writes the two events
 (`record_suggestions_shown`, `record_suggestion_accepted`). What is the gateway's: the list on the offer, the
 routes, and calling the two writers.
+
+`reorder_prompt` is the "you usually order this: order again?" prompt: the customer's regular order from its past
+orders, each line through the same guard, as a ready-made request that orders nothing (`reorder`).
 """
 
 from tta.suggestions.cheaper import CheaperOption, cheaper_same_formula
@@ -24,6 +27,7 @@ from tta.suggestions.guard import DroppedSuggestion, DropReason
 from tta.suggestions.history import OrderHistory, history_of
 from tta.suggestions.packs import PackOption, larger_pack
 from tta.suggestions.ranking import HeldBackSuggestion, HoldReason, first_suggestions, ranked
+from tta.suggestions.reorder import ReorderPrompt, reorder_prompt
 from tta.suggestions.service import SuggestionList, SuggestionPorts, suggestions_for
 from tta.suggestions.trend import quantity_trend, standing_order_trends
 from tta.suggestions.usual import (
@@ -42,6 +46,7 @@ __all__ = [
     "HoldReason",
     "OrderHistory",
     "PackOption",
+    "ReorderPrompt",
     "SuggestionList",
     "SuggestionPorts",
     "cheaper_same_formula",
@@ -53,6 +58,7 @@ __all__ = [
     "ranked",
     "record_suggestion_accepted",
     "record_suggestions_shown",
+    "reorder_prompt",
     "standing_order_trends",
     "suggestion_accepted_facts",
     "suggestion_accepted_supplier_facts",

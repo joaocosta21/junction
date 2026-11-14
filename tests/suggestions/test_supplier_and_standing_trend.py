@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from tta.catalog.kinds import flavours_of, product_types_of, uses_of
 from tta.contracts.suggestion import EvidenceSource, Serves, SuggestionKind
 from tta.customers import shipped_customer, shipped_customers
 from tta.suggestions import history_of, standing_order_trends
@@ -15,7 +16,7 @@ from tta.suggestions.trend import RENEWS_ONCE
 SCHOOL = "school-kitchen"
 
 
-def test_every_related_product_is_of_the_same_type_and_brand_as_a_usual_one_and_was_never_ordered(
+def test_every_related_product_is_of_the_same_kind_and_brand_as_a_usual_one_and_was_never_ordered(
     world_now: Any,
 ) -> None:
     for customer in shipped_customers().values():
@@ -30,6 +31,9 @@ def test_every_related_product_is_of_the_same_type_and_brand_as_a_usual_one_and_
             product = world_now.catalog.get_product(each.suggestion.product_id)
             anchor = world_now.catalog.get_product(each.anchor_id)
             assert product.id not in known and product.brand == anchor.brand and product.brand
+            assert (product_types_of(product), uses_of(product), flavours_of(product)) == (
+                product_types_of(anchor), uses_of(anchor), flavours_of(anchor)), product.id
+            assert each.suggestion.replaces_product_id == anchor.id
             assert (each.suggestion.kind, each.suggestion.serves, each.suggestion.evidence.source) == (
                 SuggestionKind.FROM_SUPPLIER, Serves.SUPPLIER, EvidenceSource.SUPPLIER,
             )
@@ -65,7 +69,10 @@ def test_the_schools_standing_order_shows_the_oat_drinks_trend_and_no_other_line
     assert (trend.product_id, trend.quantity, trend.standing_order_id, trend.request_line_index) == (
         "470863", Decimal(84), "so_school_weekly", 1,
     )
-    assert "a median of 84 L against 70 L" in trend.sentence and "The standing order still says 60 L." in trend.sentence
+    assert trend.sentence == (
+        "Your orders of product 470863 are growing: about 84 L in your last 3 orders, 70 L in the 3 before. Your "
+        "standing order still says 60 L. Renew once at 84 L? From a synthetic order history."
+    )
     assert trend.checks == (RENEWS_ONCE,)
     renewal = trend.accept_request
     assert renewal.standing_order_id == "so_school_weekly"

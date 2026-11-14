@@ -20,8 +20,7 @@ from __future__ import annotations
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 
-from tta.availability import classify
-from tta.contracts.common import AvailabilityState, Contract
+from tta.contracts.common import Contract
 from tta.contracts.customer import Customer
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.offer import Offer
@@ -36,8 +35,7 @@ from tta.suggestions.companions import forgotten_items
 from tta.suggestions.guard import DroppedSuggestion, GuardContext, Proposal, check
 from tta.suggestions.history import OrderHistory, history_of
 from tta.suggestions.ranking import HeldBackSuggestion, ranked
-from tta.suggestions.supplier import related_products, silenced, unknown_type_notes
-from tta.suggestions.thresholds import MAX_SUPPLIER_SUGGESTIONS, SUPPLIER_MAX_TRIES
+from tta.suggestions.supplier import supplier_suggestion, unknown_type_notes
 from tta.suggestions.trend import standing_order_trends
 from tta.suggestions.usual import usual_products_for_request, usual_quantities_for_request
 
@@ -101,7 +99,8 @@ def _suggestions(
                            already_ordered=already_ordered)
     checked = [check(proposal, context) for proposal in proposals]
     if supplier_suggestions and customer is not None and history is not None:
-        checked += _from_supplier(customer, history, request, in_request, profile, ports, already_ordered)
+        taken = {proposal.suggestion.product_id for proposal in proposals}
+        checked += _from_supplier(customer, history, request, in_request, taken, profile, ports, already_ordered)
     found = ranked(each for each in checked if isinstance(each, Suggestion))
     return SuggestionList(
         shown=found.shown, dropped=tuple(each for each in checked if isinstance(each, DroppedSuggestion)),
@@ -178,28 +177,11 @@ def _from_history(history: OrderHistory | None, request: PurchaseRequest, offer:
 
 
 def _from_supplier(customer: Customer, history: OrderHistory, request: PurchaseRequest,
-                   in_request: Collection[str], profile: BuyerProfile, ports: SuggestionPorts,
-                   already_ordered: Collection[str]) -> list[Suggestion | DroppedSuggestion]:
-    """Valio Aimo's related products through the same guard, best first, until `MAX_SUPPLIER_SUGGESTIONS` pass.
-    Price and stock are asked once for the whole pool; only products with confirmed stock are put to the guard,
-    at most `SUPPLIER_MAX_TRIES` of them, so the log holds a few drops and not the catalog. One that passes and
-    stays silent (decision B32, `supplier.silenced`) is a drop like the others, and the next one is tried."""
-    pool = related_products(customer, history, request, in_request, ports.catalog)
-    if not pool:
-        return []
-    lookup = look_up(ports, (each.suggestion.product_id for each in pool))
-    context = GuardContext(request=request, profile=profile, lookup=lookup, catalog=ports.catalog,
-                           already_ordered=already_ordered)
-    in_stock = [each for each in pool
-                if classify(lookup.line(each.suggestion.product_id), lookup.now).state is AvailabilityState.CONFIRMED]
-    checked: list[Suggestion | DroppedSuggestion] = []
-    passed = 0
-    for each in in_stock[:SUPPLIER_MAX_TRIES]:
-        result = check(Proposal(suggestion=each.suggestion, like_product_id=each.anchor_id), context)
-        if isinstance(result, Suggestion):
-            result = silenced(each, result) or result
-        checked.append(result)
-        passed += isinstance(result, Suggestion)
-        if passed >= MAX_SUPPLIER_SUGGESTIONS:
-            break
-    return checked
+                   in_request: Collection[str], taken: Collection[str], profile: BuyerProfile,
+                   ports: SuggestionPorts, already_ordered: Collection[str]) -> list[Suggestion | DroppedSuggestion]:
+    """Valio Aimo's own suggestion through the same guard, at most `MAX_SUPPLIER_SUGGESTIONS`, shown only with a
+    benefit it can state (`supplier.supplier_suggestion`). `taken`: the products the other kinds put forward, so
+    it never repeats a cheaper product or a larger pack the buyer's own kinds already found."""
+    return supplier_suggestion(customer, history, request, in_request, taken=taken, profile=profile,
+                               catalog=ports.catalog, look_up=lambda ids: look_up(ports, ids),
+                               already_ordered=already_ordered)

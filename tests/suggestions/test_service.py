@@ -40,11 +40,11 @@ def test_the_hotels_forgotten_cream_is_shown_complete_with_its_price_and_confirm
     assert cream.availability is not None and cream.availability.state is AvailabilityState.CONFIRMED
     assert cream.availability.usable_amount == Decimal(114)
     assert cream.effect is not None and cream.effect.net_change_eur == Decimal("33.10")
-    assert cream.sentence.endswith(
-        "114 sales units are confirmed in stock for delivery on Monday 16 November. "
-        "Adding it costs €33.10 before tax."
+    assert cream.sentence == (
+        "With this milk you usually also order Arla Pro Cooking cream 10% (463797): it was in 7 of your last 8 "
+        "orders, 10 L each time, and it is not in this request. Adding 10 L costs €33.10. 114 L confirmed for "
+        "Monday 16 November. From a synthetic order history."
     )
-    assert "From a synthetic order history." in cream.sentence
 
 
 def test_a_suggestion_never_adds_itself_it_carries_the_request_to_post(world: Any) -> None:
@@ -73,7 +73,7 @@ def test_the_schools_forgotten_yoghurt_states_nothing_about_nuts_or_sesame_and_i
 
 
 def test_nothing_the_school_is_shown_leaves_an_excluded_allergen_open(world: Any) -> None:
-    found = world.suggest(SCHOOL, SCHOOL_OAT)
+    found = world.suggest(SCHOOL, SCHOOL_OAT, standing_orders=world.standing_orders(SCHOOL))
 
     assert found.shown
     for each in found.shown:
@@ -121,7 +121,11 @@ def test_a_quantity_far_from_the_usual_one_is_told_the_usual_quantity(world: Any
     usual = next(each for each in found.shown if each.kind is SuggestionKind.USUAL_QUANTITY)
 
     assert (usual.product_id, usual.quantity, usual.request_line_index) == ("469363", Decimal(100), 0)
-    assert usual.sentence.startswith("This line asks for 300 L. You usually order 100 L of ")
+    assert usual.sentence == (
+        "You usually order about 100 L of Arla Semi skimmed milkdrink (469363): between 98 and 104 L in your last 6 "
+        "orders. This request says 300 L. Order 100 L instead? For 100 L: €248.00. 384 L confirmed for Monday 16 "
+        "November. From a synthetic order history."
+    )
     assert usual.accept_request.lines[0].quantity == Decimal(100)
     assert usual.evidence.thresholds["USUAL_QUANTITY_MIN_DIFFERENCE"] == Decimal("0.25")
     assert all(each.kind is not SuggestionKind.USUAL_QUANTITY for each in world.suggest(HOTEL, HOTEL_MILK).shown)
@@ -143,11 +147,13 @@ def test_the_cheaper_product_states_both_prices_and_that_the_formula_is_kept(wor
 
     assert (cheaper.product_id, cheaper.replaces_product_id, cheaper.quantity) == ("473278", "468319", Decimal(30))
     assert cheaper.effect is not None and cheaper.effect.net_change_eur == Decimal("-42.00")
-    assert "costs €1.48 per litre against €2.88 for Oatly iKaffe 0,5L (468319): 49% less." in cheaper.sentence
-    assert "It keeps the formula within our tolerance. Same formula within our tolerance of 15% or 1 g" in (
-        cheaper.sentence
+    assert cheaper.sentence == (
+        "Because you buy Oatly iKaffe 0.5 L (468319), we suggest Oatly iKaffe Oat drink 1.5 L (473278): the same "
+        "formula, €1.48 a litre instead of €2.88. For your 30 L: €44.40, €42.00 less. 234 L confirmed for Monday 16 "
+        "November."
     )
-    assert "20 × 1.5 L cover the 30 L for €44.40, €42.00 less. 156 are confirmed in stock" in cheaper.sentence
+    assert cheaper.checks[0].startswith("Same formula within our tolerance of 15% or 1 g")  # the page's "Why?"
+    assert cheaper.effect.unit_price_before_eur == Decimal("2.88") and cheaper.effect.saving_ratio > 0
     assert cheaper.evidence.source is EvidenceSource.CATALOG and cheaper.stock_confirmed is True
     assert cheaper.accept_request.lines[0].product_ids == ("473278",)
 
@@ -165,8 +171,11 @@ def test_the_trend_of_the_schools_standing_order_speaks_when_the_request_holds_i
     trend = next(each for each in found.shown if each.kind is SuggestionKind.QUANTITY_TREND)
 
     assert (trend.product_id, trend.quantity, trend.standing_order_id) == ("470863", Decimal(84), "so_school_weekly")
-    assert "a median of 84 L against 70 L for the 3 before (+20%)" in trend.sentence
-    assert trend.sentence.endswith("84 L is 84 sales units at €1.40 each: €117.60 before tax.")
+    assert trend.sentence == (
+        "Your orders of Oatly Oat Drink Semi (470863) are growing: about 84 L in your last 3 orders, 70 L in the 3 "
+        "before. Your standing order still says 60 L. Renew once at 84 L? For 84 L: €117.60. 1,414 L confirmed for "
+        "Monday 16 November. From a synthetic order history."
+    )
     assert trend.accept_request.standing_order_id == "so_school_weekly"
     assert not world.suggest(SCHOOL, SCHOOL_OAT).shown or all(
         each.kind is not SuggestionKind.QUANTITY_TREND for each in world.suggest(SCHOOL, SCHOOL_OAT).shown
@@ -174,21 +183,23 @@ def test_the_trend_of_the_schools_standing_order_speaks_when_the_request_holds_i
 
 
 def test_valio_aimos_own_suggestion_is_last_one_only_marked_and_related_to_a_usual_product(world: Any) -> None:
-    usual_requests = ((HOTEL, (HOTEL_MILK,)), (WARD, (WARD_SOYA,)), (BAKERY, (BAKERY_CREAM, BAKERY_COFFEE_MILK)))
-    for customer_id, lines in usual_requests:
-        found = world.suggest(customer_id, *lines)
-        customer = shipped_customer(customer_id)
-        own = [each for each in found.shown if each.kind is SuggestionKind.FROM_SUPPLIER]
+    # Of the usual requests, only the bakery's cream and coffee milk get one (lane SG): the others stay silent.
+    found = world.suggest(BAKERY, BAKERY_CREAM, BAKERY_COFFEE_MILK)
+    customer = shipped_customer(BAKERY)
+    own = [each for each in found.shown if each.kind is SuggestionKind.FROM_SUPPLIER]
 
-        assert len(own) == 1 and found.shown[-1] is own[0], customer_id
-        suggestion = own[0]
-        assert (suggestion.serves, suggestion.evidence.source) == (Serves.SUPPLIER, EvidenceSource.SUPPLIER)
-        assert suggestion.sentence.startswith(f"Valio Aimo suggests {suggestion.name} ({suggestion.product_id}): ")
-        assert "Suggested by Valio Aimo from its catalog, not from your orders." in suggestion.sentence
-        ordered = {product_id for order in customer.history for product_id in order.quantities}
-        assert suggestion.product_id not in ordered | {usual.product_id for usual in customer.usual}
-        assert suggestion.stock_confirmed is True and suggestion.accept_request is not None
-        assert all(each.serves is Serves.BUYER for each in found.shown[:-1])
+    assert len(own) == 1 and found.shown[-1] is own[0]
+    suggestion = own[0]
+    assert (suggestion.serves, suggestion.evidence.source) == (Serves.SUPPLIER, EvidenceSource.SUPPLIER)
+    assert suggestion.sentence.startswith("Because you buy Oatly iKaffe 0.5 L (468319), Valio Aimo suggests ")
+    assert suggestion.sentence.endswith("Suggested by Valio Aimo, not from your orders.")
+    assert "From a synthetic order history." not in suggestion.sentence
+    ordered = {product_id for order in customer.history for product_id in order.quantities}
+    assert suggestion.product_id not in ordered | {usual.product_id for usual in customer.usual}
+    assert suggestion.stock_confirmed is True and suggestion.accept_request is not None
+    assert all(each.serves is Serves.BUYER for each in found.shown[:-1])
+    for customer_id, lines in ((HOTEL, (HOTEL_MILK,)), (WARD, (WARD_SOYA,))):
+        assert all(each.kind is not SuggestionKind.FROM_SUPPLIER for each in world.suggest(customer_id, *lines).shown)
 
 
 def test_valio_aimos_own_suggestion_can_be_switched_off(world: Any) -> None:

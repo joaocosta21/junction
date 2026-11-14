@@ -38,8 +38,8 @@ def test_the_milk_in_every_one_of_the_last_8_milk_orders_is_the_usual_milk_at_it
         SuggestionKind.USUAL_PRODUCT, "469363", Decimal(100), Unit.L,
     )
     assert found.sentence == (
-        "Your usual milk is Arla milk (469363): it is in 8 of your last 8 orders of milk. Confirm it before it is "
-        "ordered. From a synthetic order history."
+        "You usually buy Arla milk (469363): it was in 8 of your last 8 milk orders. Use it? "
+        "From a synthetic order history."
     )
     assert (found.evidence.orders_considered, found.evidence.orders_matching) == (8, 8)
     assert found.evidence.thresholds == {"USUAL_PRODUCT_MIN_ORDERS": 3, "USUAL_PRODUCT_MIN_SHARE": Decimal("0.6")}
@@ -98,8 +98,8 @@ def test_a_type_only_line_is_offered_the_usual_product_and_accepting_pins_it(
     found = suggestions[0]
     assert (found.request_line_index, found.product_id, found.quantity, found.unit) == (0, "469363", 100, Unit.L)
     assert found.sentence == (
-        "This line names milk and no product. Your usual milk is Arla milk (469363): it is in 8 of your last 8 "
-        "orders of milk. Confirm it before it is ordered. From a synthetic order history."
+        "You asked for milk without naming one. You usually buy Arla milk (469363): it was in 8 of your last 8 "
+        "milk orders. Use it? From a synthetic order history."
     )
     assert found.accept_request is not None
     pinned = found.accept_request.lines[0]
@@ -131,8 +131,8 @@ def test_the_usual_quantity_is_the_median_of_the_last_6_orders_with_their_range(
     assert found.evidence.values == (104, 100, 98, 102, 100, 100)
     assert found.evidence.orders_considered == 6
     assert found.sentence == (
-        "You usually order 100 L of Arla milk (469363): the median of your last 6 orders, which ranged from 98 to "
-        "104 L. Confirm the quantity before it is ordered. From a synthetic order history."
+        "You usually order about 100 L of Arla milk (469363): between 98 and 104 L in your last 6 orders. "
+        "From a synthetic order history."
     )
 
 

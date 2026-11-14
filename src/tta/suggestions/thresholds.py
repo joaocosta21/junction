@@ -51,3 +51,12 @@ MAX_SUGGESTIONS = 3  # on one offer (P15 section 4.2: a page of offers is the sh
 def named(**values: int | Decimal) -> dict[str, Decimal]:
     """The thresholds a suggestion passed, by name, for its evidence."""
     return {name: Decimal(value) for name, value in values.items()}
+
+
+# The "you usually order this: order again?" prompt (`tta.suggestions.reorder`). Ours, like every value here.
+REORDER_WINDOW_ORDERS = 4  # the customer's last 4 orders; a history shorter than this gives no prompt
+REORDER_MIN_ORDERS = 3  # a product in at least 3 of them is part of the regular order
+REORDER_MIN_ORDERS_ON_A_WEEKDAY = 2  # of the last `HISTORY_WINDOW_ORDERS` orders, to call a weekday a usual one
+# The most lines of the ready-made request: the demonstration's limit of lines per request
+# (`tta.api.service.MAX_DEMO_REQUEST_LINES`), repeated here so the suggestions do not import the gateway.
+REORDER_MAX_LINES = 5

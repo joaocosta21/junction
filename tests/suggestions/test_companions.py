@@ -49,8 +49,8 @@ def test_cream_in_7_of_the_last_8_milk_orders_is_suggested_with_its_median_quant
     assert found.name == "Arla cooking cream"
     assert found.request_line_index is None  # a new line
     assert found.sentence == (
-        "In 7 of your last 8 orders with Arla milk (469363) you also ordered Arla cooking cream (463797), usually "
-        "10 L. It is not in this request. From a synthetic order history."
+        "With this milk you usually also order Arla cooking cream (463797): it was in 7 of your last 8 orders, "
+        "about 10 L each time, and it is not in this request. From a synthetic order history."
     )
     evidence = found.evidence
     assert (evidence.source, evidence.synthetic) == (EvidenceSource.SYNTHETIC_HISTORY, True)
@@ -190,7 +190,7 @@ def test_a_product_never_ordered_finds_no_companion(make_history: Callable[..., 
 def test_without_a_name_the_sentence_says_the_product_id(make_history: Callable[..., OrderHistory]) -> None:
     found = forgotten_items(make_history(_weeks(8, 8), names={}), _request())[0]
 
-    assert found.sentence.startswith("In 8 of your last 8 orders with product 469363 you also ordered product 463797")
+    assert found.sentence.startswith("With this milk you usually also order product 463797: it was in 8 of your last 8")
 
 
 def test_fewer_orders_with_the_product_than_the_window_are_said_as_such(
@@ -201,7 +201,8 @@ def test_fewer_orders_with_the_product_than_the_window_are_said_as_such(
     found = forgotten_items(make_history(orders), _request())[0]
 
     assert found.sentence.startswith(
-        "In 5 of the 5 orders with Arla milk (469363) among your last 8 orders you also ordered Arla cooking cream"
+        "With this milk you usually also order Arla cooking cream (463797): it was in 5 of the 5 orders with this "
+        "milk among your last 8, 10 L each time"
     )
 
 

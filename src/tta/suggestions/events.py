@@ -38,7 +38,8 @@ _BUYERS_OWN = frozenset({DropReason.ALLERGEN_NOT_RULED_OUT.value, DropReason.DIE
                          "CLAIM_CONTRADICTED"})
 BUYERS_REQUIREMENT = "BUYER_REQUIREMENT"
 # Valio Aimo's own suggestion left silent (decision B32): in the buyer's log, never in Valio Aimo's view.
-_SILENCED = frozenset({DropReason.OTHER_PACK_KIND.value, DropReason.ONE_UNIT_IN_STOCK.value})
+_SILENCED = frozenset({DropReason.OTHER_PACK_KIND.value, DropReason.ONE_UNIT_IN_STOCK.value,
+                       DropReason.NO_STATED_BENEFIT.value})
 
 
 def record_suggestions_shown(audit: AuditSink, actor: Actor, found: SuggestionList, *, offer_id: str,

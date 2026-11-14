@@ -54,8 +54,8 @@ def test_a_bulk_product_for_a_usual_portion_pack_stays_silent_too() -> None:
 
     assert silent is not None and silent.reason == DropReason.OTHER_PACK_KIND
     assert silent.sentence == (
-        "Valio Aimo's own suggestion stays silent: Arla Cafè milk 1 L UHT lactose free (463380) is not a portion "
-        "pack, and the Arla Portion milk 100x2 cl lactose free 1,5% UHT (463203) you usually order is one."
+        "Valio Aimo's own suggestion stays silent: Arla Cafè milk (463380) is not a portion pack, and the Arla "
+        "Portion milk 100x2 cl lactose free 1,5% UHT (463203) you usually order is one."
     )
     assert silent.summary == "it is not a portion pack and your usual milk is one"
     assert silenced(related.__class__(suggestion=suggestion, anchor_id="463203"), suggestion) is None

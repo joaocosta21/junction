@@ -1,6 +1,6 @@
 """Decision B32 on tonight's recording: one suggestion per kind and three in all; Valio Aimo's own suggestion stays
-silent when only another pack kind than the usual product passes, or when one sales unit is in stock; and the
-switch that turns Valio Aimo's own off says nothing about it.
+silent when only another pack kind than the usual product passes, when one pack is in stock, or when it has no
+benefit to state (lane SG); and the switch that turns Valio Aimo's own off says nothing about it.
 
 Measured offline in replay on the recording `2026-11-14-demo`, at the recording's instant and at the demo clock.
 """
@@ -63,39 +63,32 @@ def test_valio_aimos_own_portion_milk_is_not_put_to_the_school_for_its_bulk_milk
     found = world.suggest(SCHOOL, SCHOOL_MILK, SCHOOL_OAT)
 
     assert all(each.product_id != "463203" for each in (*found.shown, *(h.suggestion for h in found.held_back)))
-    silent = next(each for each in found.dropped if each.product_id == "463203")
-    assert (silent.kind, silent.reason) == (K.FROM_SUPPLIER, DropReason.OTHER_PACK_KIND)
-    assert silent.sentence == (
-        "Valio Aimo's own suggestion stays silent: Arla Portion milk 100x2 cl lactose free 1,5% UHT (463203) is a "
-        "portion pack, and the Arla Milkdrink 1L lactose free fat free UHT Suomesta (462775) you usually order is "
-        "not."
-    )
-    assert silent.summary == "it is a portion pack and your usual milk is not"
+    # Another pack kind is tried last and silenced before the guard; the school's five tries end before it.
+    assert all(each.reason == DropReason.OTHER_PACK_KIND for each in found.dropped if each.product_id == "463203")
 
 
-def test_valio_aimos_own_suggestion_with_one_unit_in_stock_stays_silent_for_the_ward(world: Any) -> None:
+def test_valio_aimos_own_suggestion_with_one_pack_in_stock_is_not_suggested_to_the_ward(world: Any) -> None:
     found = world.suggest(WARD, WARD_SOYA)
 
     assert all(each.product_id != "460509" for each in found.shown)
     silent = next(each for each in found.dropped if each.product_id == "460509")
-    assert (silent.kind, silent.reason) == (K.FROM_SUPPLIER, DropReason.ONE_UNIT_IN_STOCK)
-    assert silent.sentence == (
-        "Valio Aimo's own suggestion stays silent: 1 sales unit of Alpro Soya drink, Original 1L (460509) is "
-        "confirmed in stock."
-    )
-    assert silent.summary == "only 1 sales unit is confirmed in stock"
+    # For the ward's own 200 L, 1 pack is short: the guard's own stock check says so before decision B32 does.
+    assert (silent.kind, silent.reason) == (K.FROM_SUPPLIER, DropReason.STOCK_TOO_LOW)
+    assert silent.sentence == "1 pack is confirmed in stock and 200 are needed for 200 L."
+    assert silent.summary == "1 pack is confirmed in stock and 200 are needed"
 
 
 def test_valio_aimo_never_reads_why_its_own_suggestion_stayed_silent(world: Any) -> None:
-    for customer_id, lines in ((SCHOOL, (SCHOOL_MILK, SCHOOL_OAT)), (WARD, (WARD_SOYA,))):
+    for customer_id, lines in ((SCHOOL, (SCHOOL_MILK, SCHOOL_OAT)), (SCHOOL, (SCHOOL_OAT,))):
         found = world.suggest(customer_id, *lines)
-        silenced = [each for each in found.dropped
-                    if each.reason in (DropReason.OTHER_PACK_KIND, DropReason.ONE_UNIT_IN_STOCK)]
+        silenced = [each for each in found.dropped if each.reason in (
+            DropReason.OTHER_PACK_KIND, DropReason.ONE_UNIT_IN_STOCK, DropReason.NO_STATED_BENEFIT)]
         assert silenced, customer_id
 
         facts = suggestions_shown_supplier_facts(found, offer_id="off_1")
 
-        assert DropReason.OTHER_PACK_KIND not in str(facts) and DropReason.ONE_UNIT_IN_STOCK not in str(facts)
+        assert all(reason not in str(facts) for reason in (DropReason.OTHER_PACK_KIND, DropReason.ONE_UNIT_IN_STOCK,
+                                                           DropReason.NO_STATED_BENEFIT))
         assert all(each.product_id not in str(facts) for each in silenced)
         assert facts["dropped_count"] == len(found.dropped) - len(silenced)
         buyers = suggestions_shown_facts(found, offer_id="off_1")

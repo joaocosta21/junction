@@ -35,7 +35,18 @@ from tta.contracts.suggestion import (
 )
 from tta.suggestions.requests import with_line_changed
 from tta.suggestions.thresholds import LARGER_PACK_MAX_OVER, LARGER_PACK_MIN_SAVING, named
-from tta.suggestions.wording import MEASURE_WORDS, UNIT_WORDS, amount, day, euros, number, sentence
+from tta.suggestions.wording import (
+    amount,
+    confirmed_words,
+    euros,
+    more_or_less,
+    packs,
+    per_measure,
+    sentence,
+    short_label,
+    short_name,
+    stock_amount,
+)
 
 MEASURES = (Unit.L, Unit.KG)
 _UNIT_PRICE = Decimal(1).scaleb(-UNIT_PRICE_PLACES)
@@ -154,22 +165,29 @@ def _suggestion(customer_id: str, request: PurchaseRequest, line_index: int, ori
 
 
 def _sentence(original: PackOption, fit: _Fit, needed: Decimal, effect: SuggestionEffect) -> str:
-    """A dearer total first, then the two prices per measure, the packs and the total, then the confirmed stock."""
+    """ "Because you buy Oatly iKaffe (468319) in 0.5 L packs, we suggest the same product in 1 L packs (464320):
+    €1.78 a litre instead of €2.88. 30 packs cover your 30 L for €53.40, €33.00 less." A dearer total says by
+    how much more the packs hold than asked."""
     option, unit = fit.option, original.measure
     change = effect.net_change_eur or Decimal(0)
-    dearer = f"It costs {euros(change)} more, for {amount(fit.covered - needed, unit)} more than you asked."
-    per = MEASURE_WORDS[unit]
-    prices = (f"{option.name} ({option.product_id}) is the same product in a larger pack: "
-              f"{euros(option.price_per_measure)} per {per} against {euros(original.price_per_measure)}.")
-    packs = f"{number(fit.packs)} × {number(option.pack_size)} {UNIT_WORDS[unit]}"
-    total = f"{packs} cover the {amount(needed, unit)} for {euros(fit.packs * option.unit_net_price_eur)}"
-    total += f", {euros(change)} less." if change < 0 else "."
-    return sentence(dearer if change > 0 else "", prices, total, stock_words(option.availability))
+    reason = (f"Because you buy {short_label(original.name, original.product_id)} in {amount(original.pack_size, unit)}"
+              f" packs, we suggest the same product in {amount(option.pack_size, unit)} packs ({option.product_id}): "
+              f"{per_measure(option.price_per_measure, unit)} instead of {euros(original.price_per_measure)}.")
+    over = f", with {amount(fit.covered - needed, unit)} more than you asked" if fit.covered > needed else ""
+    total = (f"{packs(fit.packs)} cover your {amount(needed, unit)} for "
+             f"{euros(fit.packs * option.unit_net_price_eur)}, {more_or_less(change)}{over}.")
+    return sentence(reason, total, stock_words(option))
 
 
-def stock_words(availability: AvailabilityAssessment | None) -> str:
-    """"156 are confirmed in stock for delivery on Monday 16 November."; empty when nothing is confirmed."""
+def pack_label(pack: PackOption) -> str:
+    """ "Oatly iKaffe 0.5 L (468319)": the short name, the pack's size and the id."""
+    return f"{short_name(pack.name)} {amount(pack.pack_size, pack.measure)} ({pack.product_id})"
+
+
+def stock_words(pack: PackOption) -> str:
+    """ "234 L confirmed for Monday 16 November."; empty when nothing is confirmed."""
+    availability = pack.availability
     if availability is None or availability.usable_amount is None:
         return ""
-    when = f" for delivery on {day(availability.available_date)}" if availability.available_date else ""
-    return f"{number(availability.usable_amount)} are confirmed in stock{when}."
+    stock = stock_amount(availability.usable_amount, pack.pack_size, pack.measure)
+    return confirmed_words(stock, availability.available_date)
