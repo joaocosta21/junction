@@ -63,6 +63,21 @@ class ValioGateway(Protocol):
 
 
 @runtime_checkable
+class PairedLookup(Protocol):
+    """A supplier gateway that can answer from more than one source (live, or a recorded capture) implements this.
+
+    One look at price and availability must come from one source: an offer is never built on a live price and a
+    replayed stock figure. The offer package calls `look_up` when the gateway has it, and two calls otherwise.
+    """
+
+    def look_up(
+        self, product_ids: Sequence[str], *, fresh: bool = False
+    ) -> tuple[PriceResponse, AvailabilityResponse]:
+        """Price and availability for the same ids, both from the same source."""
+        ...
+
+
+@runtime_checkable
 class Catalog(Protocol):
     """The local product file. Returns candidates; others judge them."""
 
