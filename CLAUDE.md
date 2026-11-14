@@ -104,6 +104,6 @@ Four people, all from Portugal, all finishing their master's degrees:
 
 ## Status
 - **Challenge: Valio Aimo — "Trusted Trade Agents". Decided.** Working documents are in `AIMO/`. The other challenge briefs in the repo root and `RECOMMENDATION.md` are kept for reference only.
-- **Tech awards entered:** Modal (hosting) and Google Gemini (the agent's model). Aiven was dropped on 14 Nov. Reasons and the awards we skip are in `AIMO/PLAN.md`.
-- **Stack:** Python, FastAPI gateway with auto-generated OpenAPI, LLM agent with tool use, YAML policy engine, human approval panel.
+- **Tech awards entered:** Modal (hosting, the evidence batch, a scheduled witness of the audit trail), Context.dev (manufacturer pages as evidence on allergen doubts) and Aiven (PostgreSQL: an audit trail the database refuses to change, with a read-only view for Valio). Google Gemini was dropped on 14 Nov: the key has no credits and no model is called. What ran and what did not is in `docs/AWARDS.md`; the plan is `AIMO/build/replan/AWARDS-PLAN.md`.
+- **Stack:** Python, FastAPI gateway with auto-generated OpenAPI and an MCP surface, a fixed-rules reader for sentences (a model is optional and off), YAML policy engine, human confirmation of every order by default, a shop page at `/shop`. Live mode asks Valio's API per request; the demo runs in replay from a recording at a chosen clock.
 - **Submission gotchas:** Cloudinary needs its own separate form. Oxylabs requires buying a $500 plan (free first month with code `JUNCTION2026`) — **cancel it after**. Atech kits are first come, first served at their booth. We enter none of these three.
