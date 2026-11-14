@@ -6,6 +6,7 @@ import { icon } from "../icons.js";
 import { allergenName, allergenRule } from "../kitchens.js";
 import { active, mine } from "../store.js";
 import { plain } from "../words.js";
+import { netTotal } from "./parts.js";
 
 function allergensText(profile) {
   const codes = profile.excluded_allergens || [];
@@ -57,7 +58,7 @@ export function side() {
       <div class="card-title"><h3>Coming deliveries</h3><a class="small" href="#/deliveries">Calendar</a></div>
       ${upcoming.length
         ? html`<ul class="side-list">${upcoming.map(
-            ({ o, date }) => html`<li><span class="when">${shortDate(date).split(" ")[1]}<small>${shortDate(date).split(" ")[0]}</small></span><span><a href="#/orders/${o.order_id}">${o.option.lines[0].name}${o.option.lines.length > 1 ? ` +${o.option.lines.length - 1}` : ""}</a><br><span class="small muted">${money(o.option.totals.net)} · ${o.status === "ORDERED" ? "confirmed" : "waiting for approval"}</span></span></li>`
+            ({ o, date }) => html`<li><span class="when">${shortDate(date).split(" ")[1]}<small>${shortDate(date).split(" ")[0]}</small></span><span><a href="#/orders/${o.order_id}">${o.option.lines[0].name}${o.option.lines.length > 1 ? ` +${o.option.lines.length - 1}` : ""}</a><br><span class="small muted">${netTotal(o.option.totals)} · ${o.status === "ORDERED" ? "confirmed" : "waiting for approval"}</span></span></li>`
           )}</ul>`
         : html`<p class="small muted">Nothing ordered yet in this demo. Delivery days for ${k.name}: ${k.deliveryDays}.</p>`}
     </div>

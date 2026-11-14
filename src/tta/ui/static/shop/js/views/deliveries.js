@@ -3,7 +3,7 @@ import { app, dataToday, deliveryOf, on, refresh, render } from "../core.js";
 import { html, isoDay, longDate, money, monthName, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { active } from "../store.js";
-import { statusTag } from "./parts.js";
+import { netTotal, statusTag } from "./parts.js";
 
 const state = { month: null, selected: null };
 
@@ -64,7 +64,7 @@ function dayPanel(days) {
     ${entries.length
       ? html`<ul class="side-list">${entries.map((e) =>
           e.live
-            ? html`<li><span><a href="#/orders/${e.live.order_id}"><b>${e.live.option.lines.map((l) => l.name).join(", ")}</b></a><br>${statusTag(e.live)} <span class="small muted">${money(e.live.option.totals.net)}</span></span></li>`
+            ? html`<li><span><a href="#/orders/${e.live.order_id}"><b>${e.live.option.lines.map((l) => l.name).join(", ")}</b></a><br>${statusTag(e.live)} <span class="small muted">${netTotal(e.live.option.totals)}</span></span></li>`
             : html`<li><span><b>${e.past.lines.map((l) => l[0]).join(", ")}</b><br><span class="tag">Delivered</span> <span class="small muted">${money(e.past.lines.reduce((s, l) => s + l[3], 0))} · demo history</span></span></li>`
         )}</ul>`
       : html`<p class="small muted">No delivery on this day yet. Write a purchase request for something "by ${shortDate(key)}".</p>`}

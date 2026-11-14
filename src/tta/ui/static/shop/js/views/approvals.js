@@ -1,11 +1,11 @@
 // Approvals: what the agent could not order alone, waiting for a named person of this kitchen.
 import { app, api, on, pendingApprovals, refresh, render, toast } from "../core.js";
-import { cutoff, html, initials, money } from "../dom.js";
+import { cutoff, html, initials } from "../dom.js";
 import { icon } from "../icons.js";
 import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
-import { optionBlock, personFor, problemBox, rolesStillNeeded, signerName, signers } from "./parts.js";
+import { hasPerson, netTotal, optionBlock, personFor, problemBox, progress, rolesStillNeeded, signerName, signers } from "./parts.js";
 
 // Only a plain web address becomes a link: never javascript:, data: or anything else a page could carry.
 const WEB_LINK = /^https?:\/\//i;
@@ -49,21 +49,37 @@ function evidenceBlock(approval) {
 
 const notes = {};
 const busy = new Set();
+// The roles signed from this page, per approval: their button goes the moment the gateway accepts the signature,
+// before the approvals are read again. It only ever hides a button; what is still awaited is the gateway's record.
+const signedHere = new Map();
+
+const afterDecision = (order, awaited) =>
+  order.status === "ORDERED" ? "Approved. The order is placed."
+    : order.status === "REJECTED" ? "Rejected. Nothing was ordered."
+    : awaited ? `Signed. Still awaited: ${awaited}.` : "Signed. Waiting for the gateway to complete it.";
 
 async function decide(el, decision) {
   const { id, role } = el.dataset;
   busy.add(id);
   render();
+  let said = null;
   try {
     const order = await api().decide(id, role, decision, notes[id] || "", signerName(role));
     delete notes[id];
-    toast(order.status === "ORDERED" ? "Approved. The order is placed." : order.status === "REJECTED" ? "Rejected. Nothing was ordered." : "Signed. Waiting for the other approver.");
+    signedHere.set(id, new Set([...(signedHere.get(id) || []), role]));
+    await refresh(); // the approval as the gateway has it now: who has confirmed, who is still awaited
+    const approval = app.data.approvals.find((a) => a.approval_id === id);
+    const awaited = approval ? stillNeeded(approval).map((r) => `${personFor(r)} (${(ROLES[r] || r).toLowerCase()})`).join(" and ") : "";
+    said = afterDecision(order, awaited);
   } catch (error) {
-    toast(error.message);
+    said = error.message;
   }
   busy.delete(id);
-  await refresh();
+  toast(said);
 }
+
+// The roles the approval still needs: the gateway's record, less any role just signed here.
+const stillNeeded = (approval) => rolesStillNeeded(approval).filter((r) => !signedHere.get(approval.approval_id)?.has(r));
 
 on("approve", (el) => decide(el, "APPROVE"));
 on("reject", (el) => decide(el, "REJECT"));
@@ -74,33 +90,34 @@ on("note", (el) => {
 function card(approval) {
   const order = app.data.orders.find((o) => o.order_id === approval.order_id);
   const option = order?.option;
-  const needed = rolesStillNeeded(approval);
+  const needed = stillNeeded(approval);
   const k = active();
   const off = busy.has(approval.approval_id) ? "disabled" : "";
   return html`<article class="card">
     <div class="appr-head">
       <div class="t">
-        <b>${option ? option.summary : `Order ${approval.order_id}`}</b>
+        <b>${option ? plain(option.summary) : `Order ${approval.order_id}`}</b>
         <div class="small muted">Asked by your agent · order ${approval.order_id}${approval.valid_until ? html` · decide by <b>${cutoff(approval.valid_until)}</b>, then it expires` : ""}</div>
       </div>
-      ${option ? html`<span class="tag wait">${money(option.totals.net)}</span>` : ""}
+      ${option ? html`<span class="tag wait">${netTotal(option.totals)}</span>` : ""}
     </div>
     ${evidenceBlock(approval)}
     <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${plain(r)}</span></li>`)}</ul>
     ${option ? optionBlock(option, true) : ""}
     <div class="decide">
       ${signers(approval)}
+      ${progress(approval)}
       <div class="row">
         <label class="sr" for="note-${approval.approval_id}">Note</label>
         <input type="text" id="note-${approval.approval_id}" data-input="note" data-id="${approval.approval_id}" placeholder="Note for the audit trail (optional)" value="${notes[approval.approval_id] || ""}">
       </div>
       <div class="row">
-        ${needed.map((role) => {
+        ${needed.filter(hasPerson).map((role) => {
           const name = personFor(role);
           const isMe = k.person.roles.includes(role);
           return html`<button class="btn small ${isMe ? "" : "line"}" data-act="approve" data-id="${approval.approval_id}" data-role="${role}" ${off}>Approve as ${name.split(" ")[0]} · ${(ROLES[role] || role).toLowerCase()}</button>`;
         })}
-        <button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${needed[0] || "purchasing_manager"}" ${off}>Reject</button>
+        <button class="btn small danger" data-act="reject" data-id="${approval.approval_id}" data-role="${needed.find(hasPerson) || "purchasing_manager"}" ${off}>Reject</button>
         <a class="link quiet" href="#/orders/${approval.order_id}">Details</a>
       </div>
     </div>

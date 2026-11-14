@@ -1,10 +1,11 @@
 // Orders: everything this kitchen has ordered, and for each order the audit trail as the buyer or Valio sees it.
 import { app, api, deliveryOf, on, refresh, render } from "../core.js";
-import { clock, html, longDate, money, shortDate } from "../dom.js";
+import { html, longDate, money, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
-import { optionBlock, problemBox, ruleList, signers, spinner, statusTag } from "./parts.js";
+import { netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag } from "./parts.js";
+import { trailView } from "./trail.js";
 
 const trail = { orderId: null, reader: "buyer", data: null, problem: null, loading: false };
 
@@ -29,33 +30,13 @@ on("reader", (el) => {
   return loadTrail();
 });
 
-const EVENT_NAMES = {
-  "request.received": "Request received",
-  "request.parsed": "Request read",
-  "lookup.performed": "Price and stock checked",
-  "offer.created": "Offer made",
-  "policy.evaluated": "Rules checked",
-  "approval.requested": "Sent for approval",
-  "approval.decided": "Approval decided",
-  "order.confirmed": "Ordered",
-  "order.placed_by_agent": "Ordered by the agent",
-  "order.rejected": "Rejected",
-  "order.expired": "Expired",
-  "authorisation.refused": "Refused",
-};
-
-function eventName(type) {
-  const key = String(type).replace(/^tta\.v1\./, "");
-  return EVENT_NAMES[key] || key;
-}
-
 function detail(order) {
   const k = active();
   const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
   const t = trail.data;
   return html`
     <div class="page-head">
-      <div><div class="crumbs"><a href="#/orders">Orders</a> · ${order.order_id}</div><h1>${order.option.summary}</h1>
+      <div><div class="crumbs"><a href="#/orders">Orders</a> · ${order.order_id}</div><h1>${plain(order.option.summary)}</h1>
       <div class="sub">${statusTag(order)} ${deliveryOf(order.option) ? html`<span class="tag info">${icon("truck")}${longDate(deliveryOf(order.option))}</span>` : ""}</div></div>
     </div>
     <div class="grid">
@@ -64,7 +45,7 @@ function detail(order) {
           <div class="card-title"><h3>What was ordered</h3></div>
           ${optionBlock(order.option)}
           <p class="small muted">${plain(order.status_sentence)}</p>
-          ${approval && order.status === "PENDING_APPROVAL" ? html`<div class="decide">${signers(approval)}<div class="row"><a class="btn small" href="#/approvals">Go to approvals</a></div></div>` : ""}
+          ${approval && order.status === "PENDING_APPROVAL" ? html`<div class="decide">${signers(approval)}${progress(approval)}<div class="row"><a class="btn small" href="#/approvals">Go to approvals</a></div></div>` : ""}
         </div>
         <div class="card">
           <div class="card-title"><h3>Audit trail</h3>
@@ -75,25 +56,19 @@ function detail(order) {
           </div>
           ${trail.loading ? spinner("Reading the trail…") : ""}
           ${trail.problem ? problemBox(trail.problem) : ""}
-          ${t && !trail.loading
-            ? html`<div class="verdict ${t.chain?.ok ? "ok" : "stop"}">${icon(t.chain?.ok ? "shield" : "alert")}<div><b>${t.chain?.ok ? "Trail intact" : "Trail does not verify"}</b><p>${t.chain?.sentence}</p></div></div>
-              <ol class="timeline" aria-label="Events">${t.events.map(
-                (e) => html`<li><div class="ev">${clock(e.time)} · <b>${eventName(e.type)}</b> · ${e.actor?.display_name || e.actor?.kind || ""}</div><p>${e.sentence}</p>${e.rule_ids?.length ? html`<div class="ev">${e.rule_ids.map((r) => html`<span class="rule-id">${r}</span> `)}</div>` : ""}</li>`
-              )}</ol>
-              ${trail.reader === "supplier" ? html`<p class="note">Valio Aimo's view leaves out your limits, allergen exclusions, approvers' names, notes and your own words.</p>` : ""}`
-            : ""}
+          ${t && !trail.loading ? trailView(t, trail.reader) : ""}
         </div>
       </section>
       <aside class="side">
         <div class="card">
           <div class="card-title"><h3>Rules that applied</h3></div>
-          ${ruleList(order.decision.fired)}
-          <p class="small muted">Policy fingerprint <span class="rule-id">${String(order.decision.policy_hash).slice(7, 19)}</span> is stored with the order, so anyone can tell later which rules decided.</p>
+          ${ruleList(order.decision?.fired)}
+          ${order.decision?.policy_hash ? html`<p class="small muted">Policy fingerprint <span class="rule-id">${String(order.decision.policy_hash).slice(7, 19)}</span> is stored with the order, so anyone can tell later which rules decided.</p>` : ""}
         </div>
         <div class="card">
           <div class="card-title"><h3>What the order relied on</h3></div>
           <ul class="side-list">${(order.reliance || []).map(
-            (r) => html`<li><span><b>${r.product_id}</b> · ${money(r.unit_net_price)} · ${String(r.availability_state).toLowerCase().replaceAll("_", " ")}<br><span class="small muted">${r.rechecked_at ? `checked again ${shortDate(r.rechecked_at)} ${String(r.rechecked_at).slice(11, 16)}` : ""}${r.closing_time ? ` · cut-off ${shortDate(r.closing_time)} ${String(r.closing_time).slice(11, 16)}` : ""} · ${r.source === "replay" ? "recorded data" : "live data"}</span></span></li>`
+            (r) => html`<li><span><b>${r.product_id}</b> · ${money(r.unit_net_price)} · ${String(r.availability_state).toLowerCase().replaceAll("_", " ")}<br><span class="small muted">${r.rechecked_at ? `checked again ${shortDate(r.rechecked_at)} ${String(r.rechecked_at).slice(11, 16)}` : ""}${r.closing_time ? ` · closing time ${shortDate(r.closing_time)} ${String(r.closing_time).slice(11, 16)}` : ""} · ${r.source === "replay" ? "recorded data" : "live data"}</span></span></li>`
           )}</ul>
           <p class="small muted">${order.record_note}</p>
         </div>
@@ -126,7 +101,7 @@ export function view() {
       ${list.length
         ? html`<table class="table"><thead><tr><th>Order</th><th>Products</th><th class="hide-s">Delivery</th><th class="num">Total</th><th>Status</th></tr></thead><tbody>
           ${list.map(
-            (o) => html`<tr class="click" data-act="open" data-id="${o.order_id}"><td class="nowrap"><a href="#/orders/${o.order_id}">${o.order_id.slice(4, 10)}</a></td><td>${o.option.lines.map((l) => html`<div>${l.name}</div>`)}</td><td class="hide-s nowrap">${deliveryOf(o.option) ? shortDate(deliveryOf(o.option)) : "–"}</td><td class="num">${money(o.option.totals.net)}</td><td>${statusTag(o)}</td></tr>`
+            (o) => html`<tr class="click" data-act="open" data-id="${o.order_id}"><td class="nowrap"><a href="#/orders/${o.order_id}">${o.order_id.slice(4, 10)}</a></td><td>${o.option.lines.map((l) => html`<div>${l.name}</div>`)}</td><td class="hide-s nowrap">${deliveryOf(o.option) ? shortDate(deliveryOf(o.option)) : "–"}</td><td class="num">${netTotal(o.option.totals)}</td><td>${statusTag(o)}</td></tr>`
           )}</tbody></table>`
         : html`<div class="empty"><h3>No orders in this demo yet</h3><p>Orders confirmed on the request page show up here.</p><a class="btn" href="#/">New purchase request</a></div>`}
     </div>

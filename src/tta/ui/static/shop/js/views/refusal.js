@@ -8,12 +8,14 @@ import { problemBox } from "./parts.js";
 
 // Sentences meant for a developer or an operator, never for the buyer.
 const FOR_DEVELOPERS = /GEMINI|Gemini|API key|\b(?:POST|GET|PUT)\b|\/v1\/|\/shop\/api|recorded demonstration|X-Shop/;
-const NOT_READ = /^The fixed rules (?:could not read it either|cannot read this text):\s*/;
+// The openings of the reader's refusals, older and current ("… did not read this request, and nothing was guessed:").
+const NOT_READ = /^The fixed rules (?:could not read it either|cannot read this text|did not read this request, and nothing was guessed):\s*/;
 const RATE_LIMITED = 429;
 const QUESTION_STATUS = 422; // the reader refuses with what is missing: that sentence is its question
 
 // The error kept with a result: what a view needs, and the reader's questions when the gateway passes them on
-// (`question`, or `questions` as sentences or objects with `text`, `question` or `sentence`).
+// (`question`, or `questions` as sentences or objects with `text`, `question` or `sentence`), with what it could
+// not read (`not_read`, the fixed rules' 422 since 14 Nov).
 export function problemOf(error, step) {
   const p = error?.problem || {};
   const asked = [p.question, ...(Array.isArray(p.questions) ? p.questions : [])];
@@ -28,6 +30,7 @@ export function problemOf(error, step) {
     title: error?.title || p.title || null,
     message: error?.message || p.detail || "",
     questions,
+    notRead: typeof p.not_read === "string" ? p.not_read.trim() : "",
   };
 }
 
@@ -45,9 +48,11 @@ function tryAgain(turn) {
 
 function readerBox(turn) {
   const p = turn.problem;
-  const questions = p.questions.map((q) => plain(q));
-  // The refusal's own sentences, without those that only repeat a question listed above them.
-  const said = forPeople(p.message).filter((s) => !questions.some((q) => q.includes(s) || s.includes(q)));
+  const questions = (p.questions || []).map((q) => plain(q));
+  // What was not clear: the reader's own member when it sends one, and then the refusal's sentence is not shown,
+  // for it only says the same twice. Otherwise its sentences, less those that only repeat a question listed.
+  const unclear = p.notRead ? [ended(`What was not clear: ${plain(p.notRead)}`)] : null;
+  const said = unclear || forPeople(p.message).filter((s) => !questions.some((q) => q.includes(s) || s.includes(q)));
   const asks = questions.length ? questions : said;
   const isQuestion = questions.length > 0 || p.status === QUESTION_STATUS;
   const draft = app.ui.redraft?.[turn.id] ?? turn.text;

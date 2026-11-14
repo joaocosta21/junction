@@ -11,7 +11,8 @@ export const app = {
   route: { name: "assistant", id: null },
   data: freshData(),
   ui: { menu: false, toast: null, redraft: {} },
-  health: null,
+  health: null, // the gateway's GET /healthz answer, null when it did not answer
+  healthAsked: false,
 };
 
 let renderer = () => {};
@@ -137,8 +138,11 @@ export async function refresh() {
   render();
 }
 
-// The day the data is about: the gateway's data clock (pinned to the recording in replay), else today.
+// The day the data is about: the gateway's data clock as /healthz states it (the recording's instant, a demo clock
+// we chose, or Valio Aimo's server time), else the latest the gateway stated on an order or offer, else today.
 export function dataToday() {
+  const now = app.health?.clock?.now;
+  if (now) return day(now);
   const stamps = app.data.orders.map((o) => o.created_at);
   for (const t of mine().thread) if (t.offer?.time_now) stamps.push(t.offer.time_now);
   const latest = stamps.sort().at(-1);

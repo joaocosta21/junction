@@ -583,3 +583,48 @@ select { height: 40px; border: 1px solid var(--line); border-radius: 6px; paddin
   .field { grid-template-columns: minmax(0, 1fr); }
   .table .hide-s { display: none; }
 }
+
+/* ---------- the clock strip (R8): which instant the data clock shows, folded to its full sentence ---------- */
+
+.clockbar { background: var(--petrol-ink); color: #dbe7ee; font-size: 13px; }
+.clockbar-in {
+  max-width: 1240px; margin: 0 auto; padding: 6px 24px;
+  display: flex; align-items: center; gap: 8px;
+}
+.clockbar svg { width: 16px; height: 16px; flex: none; color: var(--lime); }
+.clockbar summary { cursor: pointer; list-style: none; }
+.clockbar summary::-webkit-details-marker { display: none; }
+.clockbar summary .more { margin-left: auto; flex: none; color: #fff; text-decoration: underline; text-underline-offset: 2px; }
+.clockbar[open] summary .more { display: none; }
+.clockbar-full { padding-top: 0; }
+.clockbar-full p { margin: 0 0 4px 24px; color: #fff; }
+.clockbar code { color: #fff; }
+
+.foot-links { display: block; margin-top: 6px; }
+.foot code { font-size: 11px; }
+
+/* totals of an option with a product sold by weight */
+.totals .estimate { color: var(--wait); }
+
+/* who has confirmed an approval and who is still awaited */
+.progress { margin: 0; color: var(--ink); }
+
+/* what the reading itself says a person should know, under "Asked" */
+.reading-note { display: flex; gap: 6px; align-items: flex-start; margin: 6px 0 0; color: var(--petrol-ink); }
+.reading-note svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--petrol); }
+
+/* Valio Aimo's view of the trail */
+.valio-view { display: flex; gap: 10px; align-items: flex-start; background: var(--lilac); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.valio-view svg { width: 20px; height: 20px; flex: none; color: var(--navy); margin-top: 1px; }
+.valio-view b { display: block; color: var(--navy); }
+.valio-view p { margin: 2px 0 0; font-size: 13px; }
+details.why.fold { margin-top: 6px; padding-top: 6px; }
+details.why.fold summary { font-size: 13px; }
+.fold .why-list span svg { width: 12px; height: 12px; margin: 0 2px 0 0; vertical-align: -1px; }
+.left-out { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
+
+@media (max-width: 640px) {
+  .clockbar-in { padding: 6px 16px; flex-wrap: wrap; }
+  .clockbar summary .more { margin-left: 24px; }
+  .clockbar-full p { margin-left: 0; }
+}

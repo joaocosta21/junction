@@ -69,6 +69,20 @@ export function clock(value) {
   return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
+// A moment of the real clock (an audit event's stamp) in this browser's time: "Sat 14.11. 18:03".
+export const realTime = (value) => `${shortDate(isoDay(new Date(value)))} ${clock(value)}`;
+
+// An instant as the gateway states it, in its own offset: "2026-11-12T14:15:00+02:00" -> "Thu 12 Nov 2026, 14:15
+// (UTC+02:00)". Read from the text, so the browser's time zone never moves it.
+const OFFSET = /([+-]\d{2}:\d{2}|Z)$/;
+export function instant(value) {
+  const text = String(value || "");
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) return text;
+  const offset = text.match(OFFSET)?.[1];
+  const zone = !offset ? "" : offset === "Z" ? " (UTC)" : ` (UTC${offset})`;
+  return `${longDate(text)} ${text.slice(0, 4)}, ${text.slice(11, 16)}${zone}`;
+}
+
 const UNITS = { ST: "pcs", KPL: "pcs", KI: "crt", KG: "kg", L: "l", PAK: "pac", PS: "bag", RS: "box", PLO: "bot" };
 export const unit = (code) => UNITS[code] || String(code || "").toLowerCase();
 

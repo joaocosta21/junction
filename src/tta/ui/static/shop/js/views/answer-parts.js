@@ -4,19 +4,23 @@ import { icon } from "../icons.js";
 import { plain } from "../words.js";
 import { ruleList } from "./parts.js";
 
-const REASONS = {
+// Why a product was left out, after its count (the codes of `tta.contracts.common.ExclusionReason`). "Closing
+// time" is the word of Valio Aimo's webshop.
+export const REASONS = {
   CUTOFF_PASSED: "closing time passed",
   NOT_DELIVERABLE: "cannot be delivered",
   OUT_OF_STOCK: "out of stock",
   BLOCKED: "sales blocked",
   PORTION_PACK: "single-serve portions",
+  NOT_A_PORTION_PACK: "not single-serve portions",
   PACK_SIZE_UNKNOWN: "pack size unknown",
   LATE_FOR_NEEDED_BY: "arrives too late",
   PRICE_UNAVAILABLE: "no valid price",
+  SUBSTITUTE_ADDS_ALLERGEN: "a substitute that would add an allergen",
   ALLERGEN_DECLARED: "declares an excluded allergen",
   ALLERGEN_NOT_STATED: "allergen not stated",
   QUANTITY_NOT_CONFIRMED: "quantity not confirmed",
-  DELIVERY_NOT_CONFIRMED: "delivery date not confirmed",
+  DELIVERY_DATE_NOT_CONFIRMED: "delivery date not confirmed",
   NOT_IN_RECORDING: "not in the recorded data",
   LABEL_MISSING: "missing a required label",
 };

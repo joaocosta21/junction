@@ -213,7 +213,7 @@ export function view() {
               ["LISTED_BY_SUPPLIER", "Only ones Valio Aimo lists", "The agent may take a substitute the wholesaler lists for the product."],
               ["SAME_CATEGORY", "Same kind of product", "Any product of the same category that passes the allergen check."],
             ])}</div><span></span></div>
-          <div class="field"><div><label for="f-variable_weight">Sold by weight ${rule("P-06")}</label><div class="help">Meat and cheese by the kilo: the invoice can be lower than the offer, never higher.</div></div>
+          <div class="field"><div><label for="f-variable_weight">Sold by weight ${rule("P-06")}</label><div class="help">Meat and cheese by the kilo: the total is an estimate, because Valio Aimo invoices the weight delivered.</div></div>
             <select id="f-variable_weight" data-change="set" data-key="variable_weight"><option value="APPROVAL" ${s.variable_weight === "APPROVAL" ? "selected" : ""}>Ask a person</option><option value="AUTO_WITH_CEILING" ${s.variable_weight === "AUTO_WITH_CEILING" ? "selected" : ""}>Agent may order</option></select></div>
           <div class="field"><div><label for="f-deposits">Deposits ${rule("P-07")}</label><div class="help">Bottles and crates with a deposit that has no published price.</div></div>
             <select id="f-deposits" data-change="set" data-key="deposits"><option value="APPROVAL" ${s.deposits === "APPROVAL" ? "selected" : ""}>Ask finance</option><option value="NOTE" ${s.deposits === "NOTE" ? "selected" : ""}>Agent may order, noted</option></select></div>

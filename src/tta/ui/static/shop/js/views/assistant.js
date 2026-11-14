@@ -2,15 +2,15 @@
 // an offer, and nothing is ordered until the buyer clicks "Confirm order". Not a chat: each result is one typed
 // request and its answer, newest first. The agent orders alone only where the buyer switched that on.
 import { app, api, deliveryOf, on, refresh, render, verifyRules, withRules } from "../core.js";
-import { clock, html, longDate, money, num, unit } from "../dom.js";
+import { clock, html, longDate, num, unit } from "../dom.js";
 import { ROLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
-import { optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner } from "./parts.js";
-import { failedAnswer, problemOf } from "./refusal.js";
+import { confirmedBy as confirmedOn, netTotal, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner } from "./parts.js";
+import { failedAnswer, forPeople, problemOf } from "./refusal.js";
 import { side } from "./side.js";
 import { openInterface, typedRequest } from "./typed.js";
 
@@ -225,11 +225,15 @@ function asked(turn) {
   const wrote = turn.reading?.source === "example" ? "" : `You wrote “${turn.text}”`;
   const data = turn.offer ? (turn.offer.source === "replay" ? "recorded Valio Aimo data" : "live Valio Aimo data") : "";
   const meta = [request ? wrote : "", SOURCES[turn.reading?.source], data, turn.at ? clock(turn.at) : ""].filter(Boolean).join(" · ");
+  // What the reading itself says a person should know, e.g. "No allergen rule was given for …: read as strict,
+  // the safe reading." Sentences about keys or routes are for developers and stay out (forPeople).
+  const reading = turn.reading?.sentence ? forPeople(turn.reading.sentence) : [];
   return html`<div class="asked">
     <span class="label">Asked</span>
     <div class="read">
       <b>${request ? readAs(request) : turn.text}</b>
       ${meta ? html`<div class="small muted">${meta}</div>` : ""}
+      ${reading.length ? html`<p class="reading-note small">${icon("info")}<span>${reading.join(" ")}</span></p>` : ""}
       ${turn.applied?.length ? html`<div class="applied">${turn.applied.map((a) => html`<span class="tag ${a.tone}">${a.text}</span>`)}</div>` : ""}
     </div>
   </div>`;
@@ -248,12 +252,15 @@ function needsLine(roles, sentence) {
   return [roles.length ? `Needs ${names(roles)}.` : "", text].filter(Boolean).join(" ");
 }
 
-// "Confirmed by Marko Heikkinen (purchasing manager, finance)": one name once, with every role it signed.
-function confirmedBy(turn) {
+// "Confirmed by Marko Heikkinen (purchasing manager, finance)": one name once, with every role it signed. From the
+// gateway's record of the approval while it waits (a person may have signed on the Approvals page), else from
+// the signatures given on this page.
+function confirmedBy(turn, approval = null) {
   const byName = new Map();
   for (const c of turn.confirmedBy || []) byName.set(c.name, [...(byName.get(c.name) || []), roleName(c.role)]);
-  if (!byName.size) return "Confirmed";
-  return `Confirmed by ${[...byName].map(([name, roles]) => `${name} (${roles.join(", ")})`).join(" and ")}`;
+  const signed = approval ? confirmedOn(approval) : [...byName];
+  if (!signed.length) return "Confirmed";
+  return `Confirmed by ${signed.map(([name, roles]) => `${name} (${roles.join(", ")})`).join(" and ")}`;
 }
 
 function orderBox(turn, order) {
@@ -262,7 +269,10 @@ function orderBox(turn, order) {
   const trail = html`<a class="link" href="#/orders/${order.order_id}">Order and audit trail</a>`;
   if (order.status === "ORDERED") {
     const alone = order.placed_by === "AGENT";
-    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : confirmedBy(turn)}${when}</b>
+    // Names only when this page saw every role sign; else the gateway's sentence below names who approved.
+    const required = order.decision?.required_roles || [];
+    const seenAll = required.every((r) => (turn.confirmedBy || []).some((c) => c.role === r));
+    return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : seenAll ? confirmedBy(turn) : "Confirmed"}${when}</b>
       <p>${plain(order.status_sentence)}</p>
       ${alone ? html`<p class="small">You let the agent order alone in Settings. It does so only when every statement is confirmed and no rule asks for a person.</p>` : ""}
       <div class="actions">${trail}</div></div></div>`;
@@ -272,7 +282,8 @@ function orderBox(turn, order) {
     const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
     const canSign = needed.some((r) => active().person.roles.includes(r));
     const waitingFor = needed.length ? `waiting for ${names(needed)}` : "waiting for approval";
-    const head = turn.confirmedBy?.length ? `${confirmedBy(turn)}; ${waitingFor}` : waitingFor[0].toUpperCase() + waitingFor.slice(1);
+    const signed = approval ? confirmedOn(approval).length > 0 : Boolean(turn.confirmedBy?.length);
+    const head = signed ? `${confirmedBy(turn, approval)}; ${waitingFor}` : waitingFor[0].toUpperCase() + waitingFor.slice(1);
     return html`<div class="verdict wait">${icon("clock")}<div><b>${head}</b><p>${plain(order.status_sentence)}</p>
       <div class="actions">${canSign ? html`<button class="btn small" data-act="sign" data-turn="${turn.id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>` : ""}<a class="btn small line" href="#/approvals">Open approvals</a>${trail}</div></div></div>`;
   }
@@ -319,7 +330,7 @@ function others(turn, chosen) {
   const locked = Boolean(turn.order) || Boolean(turn.superseded);
   return html`<div class="others"><h4>Alternative products</h4>${rest.map(
     (o) => html`<div class="other">
-      <div class="what"><b>${plain(o.title)}</b> · ${money(o.totals?.net)}<div class="small muted">${plain(o.summary)}</div></div>
+      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}<div class="small muted">${plain(o.summary)}</div></div>
       ${verdictTag(o)}
       ${locked || o.decision?.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="choose" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
     </div>`

@@ -11,6 +11,7 @@ import * as assistant from "./views/assistant.js";
 import * as deliveries from "./views/deliveries.js";
 import * as orders from "./views/orders.js";
 import * as settings from "./views/settings.js";
+import { clockStrip } from "./views/clock.js";
 
 const VIEWS = { assistant, approvals, orders, deliveries, settings };
 const NAV = [
@@ -57,6 +58,10 @@ on("menu", () => {
   render();
 });
 on("switch", (el) => switchKitchen(el.dataset.id));
+on("clock-fold", () => {
+  app.ui.clockOpen = !app.ui.clockOpen;
+  render();
+});
 
 // Send this customer's settings again after a refusal; the answer, or the refusal, is what the page then shows.
 on("push-again", async () => {
@@ -151,6 +156,7 @@ function header() {
       <a class="tab on" href="#/">${icon("agent")}<span>Buying agent</span></a>
       <span class="mode">${modeLabel()}</span>
     </div>
+    ${clockStrip(app.health, app.healthAsked, app.ui.clockOpen)}
     <header class="header">
       <div class="header-in">
         <a class="brand" href="#/"><b>Tukku</b><span>Trusted Trade</span></a>
@@ -195,7 +201,8 @@ function rulesBanner() {
 }
 
 function footer() {
-  return html`<div class="foot">Demo shop on the Trusted Trade gateway. Customers, people and past orders are made up; prices, stock and every rule come from the gateway. Orders are recorded in this browser's demo order book and commit nobody. The same typed interface: <a href="/docs" target="_blank" rel="noopener">REST API (OpenAPI)</a> · MCP server at /mcp.</div>`;
+  return html`<div class="foot">Demo shop on the Trusted Trade gateway. Customers, people and past orders are made up; prices, stock and every rule come from the gateway. Orders are recorded in this browser's demo order book and commit nobody.
+    <span class="foot-links">For developers, the same typed interface: <a href="/docs">REST API pages (OpenAPI)</a> · MCP server at <code>/mcp</code> · <a href="/">the gateway's first pages</a> (request, approvals, kitchen, standing orders, assumptions).</span></div>`;
 }
 
 setRenderer(() => {
@@ -232,6 +239,7 @@ setRenderer(() => {
 route();
 health().then((h) => {
   app.health = h;
+  app.healthAsked = true;
   render();
 });
 load().then(() => VIEWS[app.route.name].enter?.());
