@@ -5,6 +5,10 @@ never printed). It reads the two scenario sentences and the sentence with no qua
 once, against a gateway in replay with a database of its own in a temporary folder: nothing reaches the
 real order book or the live supplier API. Every request to the model is counted and the run stops at
 `--max-calls`. A recording that holds a secret is not written.
+
+Only answers that validated are written (task FIX-9): an `invalid-request` for a fact the text does not give
+is a valid answer and is written; one for an answer that did not validate twice is not. A run that ended
+because the model stopped answering is never written. Each recording names the buyer profile it was made for.
 """
 
 from __future__ import annotations
@@ -20,8 +24,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from tta.agent import profile_strictness
+from tta.agent.days import helsinki_date
 from tta.agent.gemini import REQUEST_TIMEOUT_SECONDS, ContentTransport, GeminiModel, chosen_model, sdk_transport
-from tta.agent.model import AgentModel, ExtractCall, ModelTurn, TurnCall
+from tta.agent.model import AgentModel, AnswerSource, ExtractCall, ModelTurn, TurnCall
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import AGENT_FIXTURES_FOLDER, LIVE_SOURCE, RecordedCall, RecordedTurn, Recording, text_key
 from tta.agent.runner import ModelAgentRunner
@@ -90,6 +95,7 @@ class RecordingModel:
         self._inner = inner
         self._answers: dict[str, str] = {}
         self._turns: dict[str, list[ModelTurn]] = {}
+        self._stopped: set[str] = set()  # sentences whose run the model stopped answering
 
     @property
     def model_id(self) -> str:
@@ -102,22 +108,34 @@ class RecordingModel:
     def label_for(self, request_text: str) -> str:
         return self._inner.label_for(request_text)
 
+    def answer_source(self, request_text: str) -> AnswerSource:
+        return self._inner.answer_source(request_text)
+
     def extract(self, call: ExtractCall) -> str:
         answer = self._inner.extract(call)
         self._answers[text_key(call.text)] = answer  # after a second answer, the one that was used
         return answer
 
     def next_turn(self, call: TurnCall) -> ModelTurn:
-        turn = self._inner.next_turn(call)
-        self._turns.setdefault(text_key(call.request_text), []).append(turn)
+        key = text_key(call.request_text)
+        try:
+            turn = self._inner.next_turn(call)
+        except Exception:
+            self._stopped.add(key)
+            raise
+        self._turns.setdefault(key, []).append(turn)
         return turn
 
+    def stopped(self, text: str) -> bool:
+        """True when the model stopped answering during the run of this sentence."""
+        return text_key(text) in self._stopped
+
     def recording(
-        self, kind: Kind, text: str, *, today: date, recorded_at: datetime, note: str | None = None
+        self, kind: Kind, text: str, *, profile_id: str, today: date, recorded_at: datetime, note: str | None = None
     ) -> Recording:
         """What the model answered for this sentence. Raises `KeyError` when it was never asked."""
-        common = {"kind": kind, "text": text, "model": self.model_id, "source": LIVE_SOURCE,
-                  "recorded_at": recorded_at, "today": today, "note": note}
+        common = {"kind": kind, "text": text, "profile_id": profile_id, "model": self.model_id,
+                  "source": LIVE_SOURCE, "recorded_at": recorded_at, "today": today, "note": note}
         if kind == "parse":
             return Recording(**common, proposal=_as_object(self._answers[text_key(text)]))
         turns = tuple(
@@ -163,28 +181,40 @@ class Recorder:
     today: date  # the date of the data clock the answers are given for
 
     def record(self, task: Task) -> tuple[Path, ...]:
-        identity = Identity(
-            kind=IdentityKind.AGENT, id=f"agent:{task.profile_id}", display_name=f"{task.profile_id} agent",
-            profile_id=task.profile_id,
-        )
-        kinds: tuple[Kind, ...] = ("parse",)
-        try:
-            if task.kind == "run":
-                run = self.runner.run_agent(task.text, identity, self.gateway)
-                kinds = ("parse", "run")
-                logger.info("%s: %s", task.name, run.model_dump_json(include={"steps", "report", "order_status"}))
-            else:
-                logger.info("%s: %s", task.name, self.parser.parse_request(task.text, identity).model_dump_json())
-        except InvalidRequest as refused:  # an answer too: for a sentence with no quantity it is the right one
-            logger.info("%s: invalid-request: %s", task.name, refused.detail)
+        """Writes what validated; returns the files written, none when the answer did not validate."""
+        kinds = self._carry_out(task)
         now = datetime.now(UTC)
         return tuple(
             write_recording(
                 self.directory, f"{kind}-{task.name}",
-                self.live.recording(kind, task.text, today=self.today, recorded_at=now), secrets=self.secrets,
+                self.live.recording(kind, task.text, profile_id=task.profile_id, today=self.today, recorded_at=now),
+                secrets=self.secrets,
             )
             for kind in kinds
         )
+
+    def _carry_out(self, task: Task) -> tuple[Kind, ...]:
+        """The kinds of recording that may be written for this task once it was carried out."""
+        identity = Identity(
+            kind=IdentityKind.AGENT, id=f"agent:{task.profile_id}", display_name=f"{task.profile_id} agent",
+            profile_id=task.profile_id,
+        )
+        try:
+            if task.kind == "parse":
+                logger.info("%s: %s", task.name, self.parser.parse_request(task.text, identity).model_dump_json())
+                return ("parse",)
+            run = self.runner.run_agent(task.text, identity, self.gateway)
+            logger.info("%s: %s", task.name, run.model_dump_json(include={"steps", "report", "order_status"}))
+        except InvalidRequest as refused:
+            if refused.extensions.get("faults"):  # the answer did not validate twice: not an answer to keep
+                logger.warning("%s: not recorded, the answer did not validate: %s", task.name, refused.detail)
+                return ()
+            logger.info("%s: invalid-request: %s", task.name, refused.detail)  # a missing fact: a valid answer
+            return ("parse",)
+        if self.live.stopped(task.text):
+            logger.warning("%s: the run is not recorded, the model stopped answering", task.name)
+            return ("parse",)
+        return ("parse", "run")
 
 
 def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -218,7 +248,7 @@ def _record_all(settings: Settings, tasks: Sequence[Task], budget: CallBudget) -
             recorder = Recorder(
                 live=live, parser=parser, runner=ModelAgentRunner(model=live, parser=parser), gateway=parts.service,
                 directory=settings.tta_fixtures_dir / AGENT_FIXTURES_FOLDER, secrets=_secrets(settings),
-                today=parts.clock.now().date(),
+                today=helsinki_date(parts.clock.now()),
             )
             for task in tasks:
                 for path in recorder.record(task):

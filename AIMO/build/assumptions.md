@@ -244,3 +244,13 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Default model `gemini-3.6-flash`: `gemini-3.8-flash` answered 504 to every request of the live check (30 s and 120 s deadlines). Gemini was slow all morning (a one-word answer took 21.7 s at 08:10; our reading of scenario 1 took 29 s).
 - With a key set, when Gemini cannot be reached for a sentence that has a recording, the reading or the run is served from the recording and the report says so in its first sentence. A sentence with no recording answers `supplier-unavailable`.
 - Waiting for Gemini: a 30-second deadline per request and 2 retries, so a sentence can wait about 90 s before the recording answers. For a live demo, running without the key serves the recordings at once, labelled.
+
+## Buyer agent after the final review (FIX-9)
+- Every reading of the model is checked against the text before it is used: the quantity must be a number in the text, the unit a unit word in it, `needed_by` a date the text names (by the parser's own calendar rule), every allergen the text excludes must be excluded, `require_confirmed` true only when the text asks for confirmed data, product ids whole tokens of the text. A disagreement is asked once more, then refused with the field named; nothing is corrected silently.
+- Number words: English only. Unit words: English and Finnish. "Lactose-free" is a claim, not an exclusion. An extra exclusion the model adds (for example "coeliac" → `AW`) is kept.
+- Every reading says who made it: the model now, a recording of the model (with its date), or an answer written by hand.
+- A run that fails after a gateway call is returned with every step and any order it placed; its report opens with what stopped it.
+- After Gemini fails to answer, it is not asked again for 120 seconds; recordings answer at once, labelled. One retry per request in the gateway (two in the live check).
+- The agent may order only the top option of the latest offer, and makes at most two offers per run; on a stale offer it uses the fresh one the gateway built.
+- A recording is served only to the buyer profile it was recorded for. A recorded `needed_by` is re-resolved when the recording was made on another day. "Today" is the date in Europe/Helsinki.
+- The prompts were edited after the recordings were made; the recordings still pass every check.

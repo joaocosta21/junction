@@ -16,7 +16,10 @@ v1 reference of `generateContent`; "API versions"; "API troubleshooting") and fr
   model's own `Content` unchanged: its thought signatures must come back where they were received
   (`tta.agent.contents`).
 - The SDK does not retry (one attempt); this module retries by its own count, so the number of calls is
-  always known.
+  always known: one retry, so one sentence waits for two attempts at most (task FIX-9).
+- Every exception of the SDK or of the HTTP client becomes this module's own error, named by its HTTP status
+  or by the exception's class name only. After a failure for unreachability the model refuses at once for a
+  while (`tta.agent.outage`).
 
 The key is read from the settings, handed to the SDK and kept nowhere else. No error and no log line of this
 module carries the SDK's error text, which could repeat what the service was sent.
@@ -27,6 +30,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
@@ -34,8 +38,10 @@ from google import genai
 from google.genai import errors, types
 
 from tta.agent.contents import function_tool, model_step, to_contents
-from tta.agent.model import ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.outage import Outage
 from tta.config import Settings
+from tta.contracts.agent import ReadingSource
 from tta.contracts.errors import SupplierUnavailable
 
 # Chosen from the documentation's model list: the newest Flash model marked stable, with structured
@@ -50,7 +56,7 @@ API_VERSION = "v1"  # the stable version ("API versions"); the SDK's default, pi
 THINKING_LEVEL = "low"
 REQUEST_TIMEOUT_SECONDS = 30.0
 MILLISECONDS_PER_SECOND = 1000
-MAX_RETRIES = 2
+MAX_RETRIES = 1  # one sentence waits for two attempts at most (task FIX-9)
 RETRY_WAIT_SECONDS = 0.5  # doubled before each further retry
 SDK_ATTEMPTS = 1  # the SDK does not retry: this module does, and counts
 # The documentation's troubleshooting page: retry 408, 429 and 5xx; never 400, 402 or 403.
@@ -66,7 +72,12 @@ UNREACHABLE = "The language model did not answer after {attempts} attempts ({rea
 REFUSED = "The language model refused the call ({reason}). " + USE_THE_TYPED_REQUEST
 NOT_FINISHED = "The language model did not finish its answer (finish reason {reason}). " + USE_THE_TYPED_REQUEST
 NO_TEXT = "The language model returned no text to read. " + USE_THE_TYPED_REQUEST
+REMEMBERED = (
+    "The language model did not answer a moment ago, so it is not asked again for {seconds:.0f} seconds. "
+    + USE_THE_TYPED_REQUEST
+)
 NO_RESPONSE = "no response: a time-out or a connection failure"
+NO_USABLE_RESPONSE = "no usable response: {name}"
 HTTP_STATUS = "HTTP status {status}"
 NO_CANDIDATE = "none: no candidate was returned"
 NOT_GIVEN = "not given"
@@ -124,13 +135,23 @@ def sdk_transport(
     return _SdkTransport(genai.Client(api_key=settings.gemini_api_key.get_secret_value(), http_options=options))
 
 
-def _reason(status: int | None) -> str:
-    return NO_RESPONSE if status is None else HTTP_STATUS.format(status=status)
+@dataclass(frozen=True)
+class _Failure:
+    """Why one attempt got no answer, in words that never repeat the SDK's text."""
 
+    status: int | None = None
+    error_class: str | None = None
 
-def _may_pass(status: int | None) -> bool:
-    """No response at all, a time-out (408), too many requests (429) or a server error: another try may answer."""
-    return status is None or status in RETRYABLE_STATUSES or status in SERVER_ERRORS
+    @property
+    def reason(self) -> str:
+        if self.status is not None:
+            return HTTP_STATUS.format(status=self.status)
+        return NO_RESPONSE if self.error_class is None else NO_USABLE_RESPONSE.format(name=self.error_class)
+
+    @property
+    def may_pass(self) -> bool:
+        """No answer or no usable one, a time-out (408), too many requests (429) or a server error."""
+        return self.status is None or self.status in RETRYABLE_STATUSES or self.status in SERVER_ERRORS
 
 
 def _config(system: str, **more: Any) -> types.GenerateContentConfig:
@@ -178,11 +199,14 @@ class GeminiModel:
         *,
         max_retries: int = MAX_RETRIES,
         sleep: Callable[[float], None] = time.sleep,
+        outage: Outage | None = None,
     ) -> None:
+        """`outage`: where a failure for unreachability is remembered; `None` asks the model every time."""
         self._transport = transport
         self._model_id = model_id
         self._max_retries = max_retries
         self._sleep = sleep
+        self._outage = outage
 
     @property
     def model_id(self) -> str:
@@ -194,6 +218,9 @@ class GeminiModel:
 
     def label_for(self, request_text: str) -> str:
         return self._model_id
+
+    def answer_source(self, request_text: str) -> AnswerSource:
+        return AnswerSource(ReadingSource.MODEL, self._model_id)
 
     def extract(self, call: ExtractCall) -> str:
         config = _config(call.system, response_mime_type=JSON_MIME_TYPE, response_json_schema=call.schema)
@@ -208,36 +235,44 @@ class GeminiModel:
         return ModelTurn(steps=(model_step(content),), calls=_calls_of(content, call.turn), text=_text_of(content))
 
     def _answer(self, **request: Any) -> types.Content:
-        """The content of one finished answer. Raises `ModelUnreachable` after the retries, or
-        `SupplierUnavailable` at once for a refusal or an answer that another try cannot change."""
+        """The content of one finished answer. Raises `ModelUnreachable` after the retries, or at once while a
+        recent failure is remembered; `SupplierUnavailable` at once for a refusal or an answer that another try
+        cannot change."""
+        if self._outage is not None and self._outage.is_open():
+            raise ModelUnreachable(REMEMBERED.format(seconds=self._outage.seconds))
         attempts = self._max_retries + 1
-        status: int | None = None
+        failure = _Failure()
         for attempt in range(1, attempts + 1):
             if attempt > 1:
                 self._sleep(RETRY_WAIT_SECONDS * 2 ** (attempt - 2))
-            response, status, answered = self._send(request)
-            if answered:
+            response, failure = self._send(request)
+            if failure is None:
                 return self._finished(response)
-            # Logged by its HTTP status only: the SDK's message can repeat what the service was sent.
-            logger.warning("Gemini call failed (attempt %d of %d): %s", attempt, attempts, _reason(status))
-            if not _may_pass(status):
-                raise SupplierUnavailable(REFUSED.format(reason=_reason(status)))
-        raise ModelUnreachable(UNREACHABLE.format(attempts=attempts, reason=_reason(status)))
+            # Logged by its HTTP status or class name only: the SDK's message can repeat what it was sent.
+            logger.warning("Gemini call failed (attempt %d of %d): %s", attempt, attempts, failure.reason)
+            if not failure.may_pass:
+                raise SupplierUnavailable(REFUSED.format(reason=failure.reason))
+        if self._outage is not None:
+            self._outage.note()
+        raise ModelUnreachable(UNREACHABLE.format(attempts=attempts, reason=failure.reason))
 
-    def _send(self, request: Mapping[str, Any]) -> tuple[Any, int | None, bool]:
-        """(the response, None, True), or (None, the HTTP status if any, False) when the SDK raised.
+    def _send(self, request: Mapping[str, Any]) -> tuple[Any, _Failure | None]:
+        """(the response, None), or (None, why) when the SDK or the HTTP client raised.
 
-        The SDK's error is not chained to ours and not re-raised, so its text reaches no log and no caller.
-        The SDK raises `APIError` for an answer with an error status and lets the HTTP client's own error
-        through when no answer came; anything else is a fault of ours and is not caught.
+        Every exception becomes a `_Failure`: an `APIError` by its HTTP status; no answer at all (the HTTP
+        client's `TransportError`) or an answer that could not be read (a decoding error, the SDK's
+        `UnknownApiResponseError`, anything else it raises) by the exception's class name. The exception is
+        not chained and not re-raised, so its text reaches no log and no caller.
         """
         try:
             response = self._transport.create(model=self._model_id, **request)
         except errors.APIError as error:
-            return None, error.code if isinstance(error.code, int) else None, False
+            return None, _Failure(status=error.code if isinstance(error.code, int) else None)
         except httpx.TransportError:
-            return None, None, False
-        return response, None, True
+            return None, _Failure()
+        except Exception as error:  # see above: named by its class, never by its text
+            return None, _Failure(error_class=type(error).__name__)
+        return response, None
 
     def _finished(self, response: Any) -> types.Content:
         candidates = getattr(response, "candidates", None) or ()

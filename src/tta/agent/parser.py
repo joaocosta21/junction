@@ -4,6 +4,15 @@ Scores on the 20% "how precisely the agent matches what the buyer actually asked
 is a proposal held to a JSON Schema; this module validates it and turns it into the contract model.
 What the text does not say (a quantity, a unit, how strict an allergen exclusion is) is reported as
 `invalid-request` and never filled in. An answer that does not validate is asked for once more, then refused.
+
+The answer is also held to the text itself, without a model (`tta.agent.textcheck`, task FIX-9): each quantity
+must be a number the text gives, each unit one it names, `needed_by` the date the calendar rule gives for the
+day it names (none when it names none), every allergen it excludes must be excluded, `require_confirmed` true
+only when it asks for confirmed data, and a product number a whole token of it. A disagreement is a fault like
+any other, named by its field: "the reading did not match the text". It is never corrected here. A text that
+names no number, or no unit word, has its quantity or its unit reported as missing.
+
+`read` says who read the text: the model just now, a recording of it, or a person (`tta.contracts.agent.Reading`).
 """
 
 from __future__ import annotations
@@ -18,10 +27,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from tta.agent.days import helsinki_date
+from tta.agent.labels import reading_sentence
 from tta.agent.model import AgentModel, ExtractCall
 from tta.agent.prompts import parser_instruction
 from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, checked_keys, proposal_schema
-from tta.allergens import describe, normalise_code
+from tta.agent.textcheck import TextFacts
+from tta.allergens import describe, normalise_code, parent_of
+from tta.contracts.agent import Reading
 from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Unit
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import Clock
@@ -54,8 +67,16 @@ NOT_VALID = "not a valid value ({code})"
 NOT_A_KEY = "not a key of the product-type table"
 NOT_A_CLAIM = "not a nutritional claim code of the catalog"
 NOT_AN_ALLERGEN = "not an allergen code a buyer can exclude"
-NOT_IN_TEXT = "a product number that is not in the text"
 BEFORE_TODAY = "before today ({today})"
+NOT_MATCHED = "the reading did not match the text: {why}"
+NO_SUCH_NUMBER = "the text gives no such number"
+ANOTHER_UNIT = "the text names another unit"
+ANOTHER_DAY = "the text names another day"
+NO_DAY = "the text names no day"
+A_DAY_LEFT_OUT = "the text names a day the reading leaves out"
+EXCLUSION_LEFT_OUT = "the text excludes an allergen the reading leaves out"
+NOT_ASKED_CONFIRMED = "the text does not ask for confirmed data"
+NOT_IN_TEXT = "a product number that is not in the text"
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +159,33 @@ def _proposal(answer: str) -> RequestProposal | tuple[Fault, ...]:
         return _validation_faults(error)
 
 
-def _line_faults(index: int, line: LineProposal, text: str, keys: Sequence[str]) -> list[Fault]:
+def _mismatch(path: str, why: str) -> Fault:
+    return Fault(path, NOT_MATCHED.format(why=why))
+
+
+def _covered(code: str, excluded: set[str]) -> bool:
+    """The text's exclusion is in the reading, itself or through its family (tree nuts cover almonds)."""
+    family = parent_of(code)
+    return code in excluded or (family is not None and family in excluded)
+
+
+def _text_faults(at: str, line: LineProposal, facts: TextFacts) -> list[Fault]:
+    """Where the line disagrees with the text. A quantity or a unit the text does not give at all is left to
+    `_line_missing`, which reports it as missing."""
+    faults = []
+    if line.quantity is not None and facts.numbers and line.quantity not in facts.numbers:
+        faults.append(_mismatch(f"{at}.quantity", NO_SUCH_NUMBER))
+    if line.unit is not None and facts.units and line.unit not in facts.units:
+        faults.append(_mismatch(f"{at}.unit", ANOTHER_UNIT))
+    excluded = {normalise_code(code) for code in line.exclude_allergens}
+    if not all(_covered(code, excluded) for code in facts.excluded):
+        faults.append(_mismatch(f"{at}.exclude_allergens", EXCLUSION_LEFT_OUT))
+    if any(product_id not in facts.id_tokens for product_id in line.product_ids):
+        faults.append(_mismatch(f"{at}.product_ids", NOT_IN_TEXT))
+    return faults
+
+
+def _line_faults(index: int, line: LineProposal, facts: TextFacts, keys: Sequence[str]) -> list[Fault]:
     at = f"lines[{index}]"
     faults = []
     if line.product_type is not None and line.product_type not in keys:
@@ -147,29 +194,39 @@ def _line_faults(index: int, line: LineProposal, text: str, keys: Sequence[str])
         faults.append(Fault(f"{at}.required_claims", NOT_A_CLAIM))
     if any(normalise_code(code) not in EXCLUDABLE_ALLERGEN_CODES for code in line.exclude_allergens):
         faults.append(Fault(f"{at}.exclude_allergens", NOT_AN_ALLERGEN))
-    if any(product_id not in text for product_id in line.product_ids):
-        faults.append(Fault(f"{at}.product_ids", NOT_IN_TEXT))
+    return faults + _text_faults(at, line, facts)
+
+
+def _request_faults(proposal: RequestProposal, facts: TextFacts, today: date) -> list[Fault]:
+    faults = []
+    needed_by = proposal.needed_by
+    if needed_by is None and facts.dates:
+        faults.append(_mismatch("needed_by", A_DAY_LEFT_OUT))
+    elif needed_by is not None and needed_by not in facts.dates:
+        faults.append(_mismatch("needed_by", ANOTHER_DAY if facts.dates else NO_DAY))
+    if needed_by is not None and needed_by < today:
+        faults.append(Fault("needed_by", BEFORE_TODAY.format(today=today.isoformat())))
+    if proposal.require_confirmed and not facts.asks_for_confirmed:
+        faults.append(_mismatch("require_confirmed", NOT_ASKED_CONFIRMED))
     return faults
 
 
-def _faults(proposal: RequestProposal, text: str, today: date, keys: Sequence[str]) -> tuple[Fault, ...]:
+def _faults(proposal: RequestProposal, facts: TextFacts, today: date, keys: Sequence[str]) -> tuple[Fault, ...]:
     """What the schema cannot hold the model to: our tables, the buyer's text and the clock."""
-    faults = [fault for index, line in enumerate(proposal.lines) for fault in _line_faults(index, line, text, keys)]
-    if proposal.needed_by is not None and proposal.needed_by < today:
-        faults.append(Fault("needed_by", BEFORE_TODAY.format(today=today.isoformat())))
-    return tuple(faults)
+    lines = [fault for index, line in enumerate(proposal.lines) for fault in _line_faults(index, line, facts, keys)]
+    return (*_request_faults(proposal, facts, today), *lines)
 
 
 def _line_missing(
-    index: int, line: LineProposal, profile_name: str, profile_strictness: AllergenStrictness | None
+    index: int, line: LineProposal, facts: TextFacts, profile_name: str, profile_strictness: AllergenStrictness | None
 ) -> list[Missing]:
     at, number = f"lines[{index}]", index + 1
     missing = []
     if line.product_type is None and not line.product_ids and not line.name_terms:
         missing.append(Missing(f"{at}.product_type", NO_PRODUCT.format(line=number)))
-    if line.quantity is None:
+    if line.quantity is None or not facts.numbers:  # a text with no number gives no quantity, whatever was read
         missing.append(Missing(f"{at}.quantity", NO_QUANTITY.format(line=number)))
-    elif line.unit is None:
+    elif line.unit is None or not facts.units:
         missing.append(Missing(f"{at}.unit", NO_UNIT.format(line=number)))
     if line.exclude_allergens and line.allergen_strictness is None and profile_strictness is None:
         allergens = ", ".join(describe(normalise_code(code)) for code in line.exclude_allergens)
@@ -219,18 +276,35 @@ class ModelRequestParser:
         return self._model.model_id
 
     def parse_request(self, text: str, identity: Identity) -> PurchaseRequest:
-        """Raises `InvalidRequest` naming what the text does not say, or what in the model's answer did not
-        validate after one more try; `SupplierUnavailable` when the model cannot be reached."""
+        """The typed request of `read`."""
+        return self.read(text, identity).request
+
+    def read(self, text: str, identity: Identity) -> Reading:
+        """The typed request and who read it. Raises `InvalidRequest` naming what the text does not say, or what
+        in the model's answer did not validate after one more try; `SupplierUnavailable` when the model cannot
+        be reached."""
         words = text.strip()
         if not words:
             raise InvalidRequest(EMPTY_TEXT)
         if len(words) > MAX_TEXT_LENGTH:
             raise InvalidRequest(TEXT_TOO_LONG.format(limit=MAX_TEXT_LENGTH))
-        today = self._clock.now().date()  # "by Monday" is resolved against the data clock
-        call = ExtractCall(system=parser_instruction(today, self._keys), text=words, schema=self._schema)
+        today = helsinki_date(self._clock.now())  # "by Monday" is resolved against the data clock's day
+        request = self._ask(words, today, identity)
+        answer = self._model.answer_source(words)
+        return Reading(
+            request=request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
+            sentence=reading_sentence(answer),
+        )
+
+    def _ask(self, words: str, today: date, identity: Identity) -> PurchaseRequest:
+        call = ExtractCall(
+            system=parser_instruction(today, self._keys), text=words, schema=self._schema,
+            profile_id=identity.profile_id, today=today,
+        )
+        facts = TextFacts.of(words, today)
         faults: tuple[Fault, ...] = ()
         for answer_number in range(1, MAX_ANSWERS + 1):
-            read = self._read(self._model.extract(call), words, today, identity)
+            read = self._read(self._model.extract(call), words, facts, today, identity)
             if isinstance(read, PurchaseRequest):
                 return read
             faults = read
@@ -240,18 +314,20 @@ class ModelRequestParser:
             faults=[fault.path for fault in faults],
         )
 
-    def _read(self, answer: str, text: str, today: date, identity: Identity) -> PurchaseRequest | tuple[Fault, ...]:
+    def _read(
+        self, answer: str, text: str, facts: TextFacts, today: date, identity: Identity
+    ) -> PurchaseRequest | tuple[Fault, ...]:
         """The typed request, or the faults of this answer. Raises `InvalidRequest` for what the text lacks."""
         proposal = _proposal(answer)
         if not isinstance(proposal, RequestProposal):
             return proposal
-        faults = _faults(proposal, text, today, self._keys)
+        faults = _faults(proposal, facts, today, self._keys)
         if faults:
             return faults
-        self._refuse_what_is_missing(proposal, identity)
+        self._refuse_what_is_missing(proposal, facts, identity)
         return _typed(proposal, text)
 
-    def _refuse_what_is_missing(self, proposal: RequestProposal, identity: Identity) -> None:
+    def _refuse_what_is_missing(self, proposal: RequestProposal, facts: TextFacts, identity: Identity) -> None:
         if not proposal.lines:
             raise InvalidRequest(NOTHING_TO_ORDER, missing=["lines"])
         profile_id = identity.profile_id
@@ -260,7 +336,7 @@ class ModelRequestParser:
         missing = [
             item
             for index, line in enumerate(proposal.lines)
-            for item in _line_missing(index, line, profile_name, strictness)
+            for item in _line_missing(index, line, facts, profile_name, strictness)
         ]
         if missing:
             raise InvalidRequest(

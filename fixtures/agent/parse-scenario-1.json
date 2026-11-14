@@ -1,6 +1,7 @@
 {
   "kind": "parse",
   "text": "1,000 litres of lactose-free milk by Monday",
+  "profile_id": "hotel-kitchen",
   "model": "gemini-3.6-flash",
   "source": "live",
   "recorded_at": "2026-11-14T06:14:08.168025Z",

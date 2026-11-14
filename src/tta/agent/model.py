@@ -8,8 +8,10 @@ model both implement it, so the parser and the loop are the same code with and w
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
+from tta.contracts.agent import ReadingSource
 from tta.contracts.common import JsonDict
 
 
@@ -20,6 +22,10 @@ class ExtractCall:
     system: str  # the instruction: ours, never text from the product file, the API or the buyer
     text: str  # the buyer's words: data to read, also the key of a recorded answer
     schema: JsonDict  # the JSON Schema the answer is held to
+    # Never sent to a live model. A recording is served only for the profile it was recorded for, and its
+    # `needed_by` is read again by the calendar rule when it was recorded on another day than `today`.
+    profile_id: str | None = None
+    today: date | None = None  # the date in Helsinki the request is read on
 
 
 @dataclass(frozen=True)
@@ -31,6 +37,7 @@ class TurnCall:
     history: tuple[JsonDict, ...]  # the conversation so far, as plain steps (`tta.agent.contents`)
     tools: tuple[JsonDict, ...]  # the function declarations
     turn: int  # 1 for the first turn of the run
+    profile_id: str | None = None  # the caller's buyer profile: a recorded run is served only for its own
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,15 @@ class ModelTurn:
     steps: tuple[JsonDict, ...] = ()  # as received, to send back unchanged on the next turn
     calls: tuple[FunctionCall, ...] = ()
     text: str | None = None  # the model's own words; never used as the report
+
+
+@dataclass(frozen=True)
+class AnswerSource:
+    """Who gave the structured answer for a sentence: a model just now, a recording of one, or a person."""
+
+    source: ReadingSource
+    model: str  # the model id; for a recording, the model it was recorded from; "hand-built" for a person
+    recorded_at: datetime | None = None  # when the recording was made
 
 
 @runtime_checkable
@@ -71,6 +87,10 @@ class AgentModel(Protocol):
 
     def extract(self, call: ExtractCall) -> str:
         """The JSON text of a structured answer. It is a proposal: the caller validates it."""
+        ...
+
+    def answer_source(self, request_text: str) -> AnswerSource:
+        """Who gave the structured answer `extract` serves for this sentence."""
         ...
 
     def next_turn(self, call: TurnCall) -> ModelTurn: ...

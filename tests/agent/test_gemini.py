@@ -13,9 +13,11 @@ from typing import Any
 
 import httpx
 import pytest
+from google.genai import errors
 
-from tta.agent.gemini import DEFAULT_MODEL, GeminiModel, ModelUnreachable, chosen_model, sdk_transport
+from tta.agent.gemini import DEFAULT_MODEL, MAX_RETRIES, GeminiModel, ModelUnreachable, chosen_model, sdk_transport
 from tta.agent.model import AgentModel, ExtractCall, TurnCall
+from tta.agent.outage import Outage
 from tta.agent.parser import ModelRequestParser
 from tta.agent.runner import ModelAgentRunner
 from tta.agent.tools import TOOL_DECLARATIONS
@@ -87,12 +89,12 @@ def _error(status: int, message: str = "refused") -> Handler:
     return lambda request: httpx.Response(status, json=body)
 
 
-def _model(gemini: FakeGemini, **retries: int) -> tuple[GeminiModel, list[float]]:
-    """The model as the hooks build it (two retries unless a test lowers them), over the fake service."""
+def _model(gemini: FakeGemini, **options: Any) -> tuple[GeminiModel, list[float]]:
+    """The model as the hooks build it (one retry unless a test sets another count), over the fake service."""
     slept: list[float] = []
     settings = Settings.for_tests(gemini_api_key=KEY)
     transport = sdk_transport(settings, client_args={"transport": httpx.MockTransport(gemini)})
-    return GeminiModel(transport, chosen_model(settings), sleep=slept.append, **retries), slept
+    return GeminiModel(transport, chosen_model(settings), sleep=slept.append, **options), slept
 
 
 # --- the model that is chosen -----------------------------------------------------------------------------
@@ -304,14 +306,22 @@ def test_a_request_the_service_blocked_has_no_answer_and_is_not_asked_again() ->
 # --- time-outs, retries, and a clear error ----------------------------------------------------------------
 
 
-def test_a_failure_that_may_pass_is_tried_again_twice() -> None:
-    gemini = FakeGemini(_error(503), httpx.ReadTimeout("timed out"), _answer(_text("{}")))
+def test_a_failure_that_may_pass_is_tried_again_once() -> None:
+    gemini = FakeGemini(httpx.ReadTimeout("timed out"), _answer(_text("{}")))
     model, slept = _model(gemini)
 
     answer = model.extract(EXTRACT)
 
-    assert answer == "{}" and len(gemini.requests) == 3
-    assert len(slept) == 2 and slept[0] < slept[1]  # waits longer before the second retry
+    assert MAX_RETRIES == 1  # one sentence waits for two attempts at most
+    assert answer == "{}" and len(gemini.requests) == 2 and len(slept) == 1
+
+
+def test_with_more_retries_each_wait_is_longer() -> None:
+    gemini = FakeGemini(_error(503), httpx.ReadTimeout("timed out"), _answer(_text("{}")))
+    model, slept = _model(gemini, max_retries=2)
+
+    assert model.extract(EXTRACT) == "{}" and len(gemini.requests) == 3
+    assert len(slept) == 2 and slept[0] < slept[1]
 
 
 @pytest.mark.parametrize(
@@ -320,7 +330,7 @@ def test_a_failure_that_may_pass_is_tried_again_twice() -> None:
      httpx.ReadTimeout("timed out")],
     ids=["408", "429", "500", "501", "503", "504", "no-connection", "time-out"],
 )
-def test_after_two_retries_the_model_cannot_be_reached(failure: Any) -> None:
+def test_after_one_retry_the_model_cannot_be_reached(failure: Any) -> None:
     gemini = FakeGemini(failure)
     model, slept = _model(gemini)
 
@@ -328,8 +338,8 @@ def test_after_two_retries_the_model_cannot_be_reached(failure: Any) -> None:
         model.next_turn(TURN)
 
     assert isinstance(refused.value, SupplierUnavailable)  # still answered as supplier-unavailable
-    assert len(gemini.requests) == 3 and len(slept) == 2
-    assert "3 attempts" in refused.value.detail
+    assert len(gemini.requests) == 2 and len(slept) == 1
+    assert "2 attempts" in refused.value.detail
     assert "POST /v1/offers" in refused.value.detail
 
 
@@ -346,25 +356,73 @@ def test_a_refusal_that_will_not_pass_is_not_tried_again(status: int) -> None:
     assert not isinstance(refused.value, ModelUnreachable)  # refused, not out of reach: no recording stands in
 
 
-def test_the_number_of_retries_can_be_lowered() -> None:
+def test_the_number_of_retries_can_be_set() -> None:
     gemini = FakeGemini(_error(503))
-    model, _ = _model(gemini, max_retries=1)
+    model, _ = _model(gemini, max_retries=0)
 
     with pytest.raises(SupplierUnavailable) as refused:
         model.extract(EXTRACT)
 
-    assert len(gemini.requests) == 2 and "2 attempts" in refused.value.detail
+    assert len(gemini.requests) == 1 and "1 attempts" in refused.value.detail
 
 
-def test_a_fault_that_is_not_the_models_is_not_hidden() -> None:
-    class Broken:
+RAW = "Raw response: <html>secret-looking body</html>"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [httpx.DecodingError(RAW), errors.UnknownApiResponseError(RAW), ValueError(RAW), KeyError(RAW)],
+    ids=["decoding", "unknown-api-response", "value-error", "key-error"],
+)
+def test_any_other_exception_of_the_sdk_or_the_transport_is_named_by_its_class_only(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    class Raising:
+        calls = 0
+
         def create(self, **request: Any) -> Any:
-            raise KeyError("a fault of ours")
+            Raising.calls += 1
+            raise error
 
-    model = GeminiModel(Broken(), DEFAULT_MODEL)
+    model = GeminiModel(Raising(), DEFAULT_MODEL, sleep=lambda seconds: None)
 
-    with pytest.raises(KeyError):
+    with caplog.at_level(logging.DEBUG), pytest.raises(ModelUnreachable) as refused:
         model.extract(EXTRACT)
+
+    assert type(error).__name__ in refused.value.detail and Raising.calls == 2
+    assert "<html>" not in refused.value.detail and "<html>" not in caplog.text
+    assert refused.value.__cause__ is None and refused.value.__context__ is None
+
+
+# --- an outage is remembered (FIX-9) ----------------------------------------------------------------------
+
+
+def test_once_the_model_could_not_be_reached_it_is_not_asked_again_for_a_while() -> None:
+    now = [0.0]
+    outage = Outage(clock=lambda: now[0])
+    gemini = FakeGemini(_error(503), _error(503), _answer(_text("{}")))
+    model, _ = _model(gemini, outage=outage)
+
+    with pytest.raises(ModelUnreachable):
+        model.extract(EXTRACT)
+    with pytest.raises(ModelUnreachable) as remembered:
+        model.next_turn(TURN)
+    asked_in_the_window = len(gemini.requests)
+    now[0] += outage.seconds
+
+    assert asked_in_the_window == 2 and "not asked again for 120 seconds" in remembered.value.detail
+    assert model.extract(EXTRACT) == "{}" and len(gemini.requests) == 3
+
+
+def test_a_refusal_or_an_unfinished_answer_is_not_an_outage() -> None:
+    outage = Outage()
+    model, _ = _model(FakeGemini(_error(403), _answer(_text("{}"), finish="MAX_TOKENS")), outage=outage)
+
+    for _ in range(2):
+        with pytest.raises(SupplierUnavailable):
+            model.extract(EXTRACT)
+
+    assert not outage.is_open()
 
 
 # --- the key ----------------------------------------------------------------------------------------------

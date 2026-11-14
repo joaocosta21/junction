@@ -1,6 +1,7 @@
 {
   "kind": "parse",
   "text": "Some milk for Monday",
+  "profile_id": "hotel-kitchen",
   "model": "gemini-3.6-flash",
   "source": "live",
   "recorded_at": "2026-11-14T06:17:00.714906Z",

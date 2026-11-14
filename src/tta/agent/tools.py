@@ -3,15 +3,19 @@
 Scores on the 20% "autonomy and controls". The model chooses the next function and, for an order, one
 option of the offer. Everything else is bound here and decided by the gateway:
 - the offer is built for the request the parser read, and for nothing else (`create_offer` takes no argument);
-- an order names an option of the latest offer of this run (`place_order` takes `option_id` only), and the
-  gateway refuses an option it never issued;
-- one run places one order.
+- an order names the top option (rank 1) of the latest offer of this run (`place_order` takes `option_id`
+  only): the gateway ranks the options, the model does not choose among them (task FIX-9);
+- one run asks for at most `MAX_OFFERS_PER_RUN` offers and places one order;
+- when an order is refused because the offer is stale or has expired, the gateway has already made a fresh
+  offer for the same request (`fresh_offer_id` in its problem): that offer becomes the run's latest, and the
+  model is shown it, so it orders its top option without asking for another offer.
 A call that breaks one of these is refused and becomes a failed step; nothing reaches the order book.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -27,7 +31,7 @@ from tta.agent.summaries import (
     refusal,
 )
 from tta.contracts.common import Identity, JsonDict
-from tta.contracts.errors import InvalidRequest, TtaError
+from tta.contracts.errors import InvalidRequest, OfferExpired, OfferStale, TtaError
 from tta.contracts.offer import Offer
 from tta.contracts.order import MAX_RECORD_ID_LENGTH, Order
 from tta.contracts.ports import GatewayService
@@ -53,12 +57,12 @@ TOOL_DECLARATIONS: tuple[JsonDict, ...] = (
     },
     {
         "type": "function", "name": PLACE_ORDER,
-        "description": "Order one option of the latest offer. The gateway decides whether the order is "
-                       "placed at once or waits for a human.",
+        "description": "Order the option ranked 1 of the latest offer; any other option is refused. The "
+                       "gateway decides whether the order is placed at once or waits for a human.",
         "parameters": {
             "type": "object",
             "properties": {
-                OPTION_ID: {"type": "string", "description": "The option_id of an option of the latest offer."},
+                OPTION_ID: {"type": "string", "description": "The option_id of the option ranked 1."},
             },
             "required": [OPTION_ID],
         },
@@ -69,6 +73,8 @@ TOOL_DECLARATIONS: tuple[JsonDict, ...] = (
     },
 )
 FUNCTION_NAMES = tuple(str(tool["name"]) for tool in TOOL_DECLARATIONS)
+MAX_OFFERS_PER_RUN = 2  # the first offer, and one more
+FRESH_OFFER_ID = "fresh_offer_id"  # the extension member of an offer-stale or offer-expired problem
 
 IDEMPOTENCY_PREFIX = "agent-run"
 KEY_DIGEST_CHARACTERS = 16
@@ -86,6 +92,15 @@ OPTION_ID_ONLY = (
     "example opt_1. The products, quantities and prices are those of the offer."
 )
 NO_OFFER_YET = "There is no offer in this run yet: call create_offer first."
+NO_OPTION = "The latest offer has no option, so there is nothing to order."
+ONLY_THE_TOP_OPTION = (
+    "Only the option ranked 1 of the latest offer, {top}, may be ordered by the agent: the gateway ranks the "
+    "options, and the agent does not choose among them. Nothing was ordered."
+)
+OFFERS_SPENT = "This run has asked for {count} offers, the most one run may. Order from the latest offer or stop."
+FRESH_OFFER = "The gateway made a fresh offer for the same request, {offer_id}: order its option ranked 1."
+
+logger = logging.getLogger(__name__)
 NO_ORDER_YET = "There is no order in this run yet, so there is nothing to read."
 ONE_ORDER_PER_RUN = "This run already placed order {order_id}. One run places one order."
 
@@ -98,6 +113,7 @@ class RunState:
     run_id: str
     offer: Offer | None = None
     order: Order | None = None
+    offers_asked: int = 0  # create_offer calls sent to the gateway
 
 
 @dataclass(frozen=True)
@@ -109,6 +125,7 @@ class ToolOutcome:
     result: JsonDict
     sentence: str | None
     state: RunState
+    by_gateway: bool = False  # a refusal of the gateway itself, not of the runner's checks
 
 
 def _short(value: Any) -> Any:
@@ -131,7 +148,7 @@ def _refused(arguments: Mapping[str, Any], state: RunState, detail: str) -> Tool
 
 
 def _refused_by_gateway(sent: JsonDict, state: RunState, error: TtaError) -> ToolOutcome:
-    return ToolOutcome(False, sent, gateway_refusal(error), error.detail, state)
+    return ToolOutcome(False, sent, gateway_refusal(error), error.detail, state, by_gateway=True)
 
 
 def _idempotency_key(state: RunState, offer_id: str, option_id: str) -> str:
@@ -173,12 +190,15 @@ class GatewayTools:
             return _refused(arguments, state, NO_ARGUMENTS.format(name=CREATE_OFFER, why=WHY_NO_OFFER_ARGUMENT))
         if state.order is not None:
             return _refused(arguments, state, ONE_ORDER_PER_RUN.format(order_id=state.order.order_id))
+        if state.offers_asked >= MAX_OFFERS_PER_RUN:
+            return _refused(arguments, state, OFFERS_SPENT.format(count=state.offers_asked))
         sent: JsonDict = {"request": state.request.model_dump(mode="json")}
+        asked = replace(state, offers_asked=state.offers_asked + 1)
         try:
             offer = self._gateway.create_offer(self._identity, state.request)
         except TtaError as error:
-            return _refused_by_gateway(sent, state, error)
-        return ToolOutcome(True, sent, offer_summary(offer), offer_sentence(offer), replace(state, offer=offer))
+            return _refused_by_gateway(sent, asked, error)
+        return ToolOutcome(True, sent, offer_summary(offer), offer_sentence(offer), replace(asked, offer=offer))
 
     def _place_order(self, arguments: Mapping[str, Any], state: RunState) -> ToolOutcome:
         option_id = arguments.get(OPTION_ID)
@@ -188,15 +208,36 @@ class GatewayTools:
             return _refused(arguments, state, NO_OFFER_YET)
         if state.order is not None:
             return _refused(arguments, state, ONE_ORDER_PER_RUN.format(order_id=state.order.order_id))
+        if not state.offer.options:
+            return _refused(arguments, state, NO_OPTION)
+        top = state.offer.options[0].option_id
+        if option_id != top:
+            return _refused(arguments, state, ONLY_THE_TOP_OPTION.format(top=top))
         offer_id = state.offer.offer_id
         sent: JsonDict = {"offer_id": offer_id, OPTION_ID: option_id}
         try:
             order = self._gateway.place_order(
                 self._identity, offer_id, option_id, _idempotency_key(state, offer_id, option_id)
             )
+        except (OfferStale, OfferExpired) as error:
+            return self._fresh_offer(sent, state, error)
         except TtaError as error:
             return _refused_by_gateway(sent, state, error)
         return ToolOutcome(True, sent, order_summary(order), order.status_sentence, replace(state, order=order))
+
+    def _fresh_offer(self, sent: JsonDict, state: RunState, error: TtaError) -> ToolOutcome:
+        """The refusal, with the fresh offer the gateway made as the run's latest offer, when it made one."""
+        fresh_id = error.extensions.get(FRESH_OFFER_ID)
+        if not isinstance(fresh_id, str) or not _RECORD_ID.fullmatch(fresh_id):
+            return _refused_by_gateway(sent, state, error)
+        try:
+            fresh = self._gateway.get_offer(self._identity, fresh_id)
+        except TtaError as unreadable:
+            logger.warning("The fresh offer %s could not be read: %s", fresh_id, unreadable.slug)
+            return _refused_by_gateway(sent, state, error)
+        result = {**gateway_refusal(error), FRESH_OFFER_ID: fresh.offer_id, "fresh_offer": offer_summary(fresh)}
+        sentence = f"{error.detail} {FRESH_OFFER.format(offer_id=fresh.offer_id)}"
+        return ToolOutcome(False, sent, result, sentence, replace(state, offer=fresh), by_gateway=True)
 
     def _get_order(self, arguments: Mapping[str, Any], state: RunState) -> ToolOutcome:
         if arguments:

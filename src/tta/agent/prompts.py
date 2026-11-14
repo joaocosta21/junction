@@ -25,7 +25,7 @@ Rules
 1. Report only what the text says. When it gives no quantity, quantity is null: never estimate one. When it \
 gives a quantity with no unit, unit is null.
 2. needed_by is the date the goods are needed, taken from the calendar below. A weekday means the first such \
-day after today. null when the text gives no date.
+day after today, also after "next". null when the text gives no date.
 3. product_type is the key from the list below that names the kind of product asked for. A substitute for a \
 product is not that product. null when no key fits.
 4. name_terms are words the name of the product must contain. When a key fits, give only a word that narrows \
@@ -35,8 +35,9 @@ words that name the product. A quantity, a unit, a date or an allergen is never 
 5. required_claims are properties the product itself must carry, as the buyer describes the product: \
 lactose-free milk is milk with the claim FREE_FROM_LACTOSE. A claim is never an allergen exclusion.
 6. exclude_allergens are the allergens the buyer says must not be in the product ("no milk", "without \
-nuts", "allergic to eggs"), as codes of the table below. Use the code of the family when the buyer names \
-the family. An exclusion is never a claim.
+nuts", "allergic to eggs", "gluten-free", "nut-free"), as codes of the table below. Use the code of the \
+family when the buyer names the family. An exclusion is never a claim. Lactose-free is the claim \
+FREE_FROM_LACTOSE, never an exclusion.
 7. allergen_strictness is STRICT only when the text itself says the exclusion is strict (for example \
 "strict", "no traces", "also when nothing is declared") and DECLARED_ONLY only when the text says declared \
 allergens are enough. Otherwise it is null: never choose one for the buyer.
@@ -56,9 +57,10 @@ Procedure
 1. Call get_authority to read what you may decide alone.
 2. Call create_offer to get the options for the buyer's request.
 3. When the offer has options, call place_order with the option_id of the option ranked 1. When it has \
-none, order nothing.
-4. When place_order is refused because the offer is stale or has expired, call create_offer once more and \
-order the option ranked 1 of the new offer.
+none, order nothing. Any other option is refused.
+4. When place_order is refused because the offer is stale or has expired, the refusal holds a fresh offer \
+the gateway already made: call place_order with the option_id of its option ranked 1. Do not call \
+create_offer again.
 5. When the order is placed or waits for approval, or when nothing can be ordered, stop calling functions \
 and say in one or two sentences what happened.
 

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from datetime import date
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
+from tta.contracts.agent import ReadingSource
 from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Unit
 from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 from tta.contracts.ports import Clock, RequestParser
@@ -19,6 +22,14 @@ from tta.contracts.ports import Clock, RequestParser
 MONDAY = date(2026, 11, 16)  # the Monday after the capture (Saturday 14 Nov 2026)
 MakeParser = Callable[..., ModelRequestParser]
 Proposal = Callable[..., str]
+
+
+@dataclass(frozen=True)
+class FixedClock:
+    at: datetime
+
+    def now(self) -> datetime:
+        return self.at
 
 
 # --- the scenarios, from the recorded model ---------------------------------------------------------------
@@ -94,7 +105,7 @@ def test_a_missing_quantity_is_reported_at_once_and_the_model_is_not_asked_again
     model = scripted(extracts=[proposal(quantity=None, unit=None)])
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("some milk", agent_hotel)
+        make_parser(model, demo_clock).parse_request("some milk by Monday", agent_hotel)
 
     assert len(model.extract_calls) == 1
     assert refused.value.extensions["missing"] == ["lines[0].quantity"]
@@ -106,7 +117,7 @@ def test_a_quantity_without_a_unit_names_the_unit(
     model = scripted(extracts=[proposal(quantity=40, unit=None)])
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("40 of milk", agent_hotel)
+        make_parser(model, demo_clock).parse_request("40 of milk by Monday", agent_hotel)
 
     assert "unit" in refused.value.detail
     assert refused.value.extensions["missing"] == ["lines[0].unit"]
@@ -118,7 +129,7 @@ def test_an_exclusion_with_no_strictness_for_a_profile_that_sets_none_names_the_
     model = scripted(extracts=[proposal(exclude_allergens=["AN"])])
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("10 litres of milk, no nuts", agent_hotel)
+        make_parser(model, demo_clock).parse_request("10 litres of milk by Monday, no nuts", agent_hotel)
 
     assert "strictness" in refused.value.detail
     assert "STRICT" in refused.value.detail and "DECLARED_ONLY" in refused.value.detail
@@ -131,7 +142,7 @@ def test_an_exclusion_in_the_text_needs_no_strictness_when_the_profile_sets_one(
 ) -> None:
     model = scripted(extracts=[proposal(product_type="plant_drink", exclude_allergens=["an"])])
 
-    request = make_parser(model, demo_clock).parse_request("10 litres of oat drink, no nuts", agent_ward)
+    request = make_parser(model, demo_clock).parse_request("10 litres of oat drink by Monday, no nuts", agent_ward)
 
     assert request.lines[0].exclude_allergens == ("AN",)  # the code as the table spells it
     assert request.lines[0].allergen_strictness is None  # the profile's STRICT applies; the parser adds none
@@ -142,7 +153,7 @@ def test_a_strictness_said_in_the_text_is_kept(
 ) -> None:
     model = scripted(extracts=[proposal(exclude_allergens=["AN"], allergen_strictness="STRICT")])
 
-    request = make_parser(model, demo_clock).parse_request("10 litres of milk, strictly no nuts", agent_hotel)
+    request = make_parser(model, demo_clock).parse_request("10 litres of milk by Monday, strictly no nuts", agent_hotel)
 
     assert request.lines[0].allergen_strictness is AllergenStrictness.STRICT
 
@@ -231,7 +242,7 @@ def test_what_the_model_wrote_never_reaches_the_error(
     model = scripted(extracts=[proposal(product_type="rm -rf everything")] * 2)
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("10 litres of milk", agent_hotel)
+        make_parser(model, demo_clock).parse_request("10 litres of milk by Monday", agent_hotel)
 
     assert "rm -rf" not in refused.value.detail
     assert "rm -rf" not in json.dumps(refused.value.extensions)
@@ -243,7 +254,8 @@ def test_what_the_model_wrote_never_reaches_the_error(
 def test_product_numbers_in_the_text_become_explicit_ids_in_sales_units(
     scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
 ) -> None:
-    model = scripted(extracts=[proposal(product_type=None, product_ids=["464013"], quantity=40, unit="UNIT")])
+    answer = proposal(product_type=None, product_ids=["464013"], quantity=40, unit="UNIT", needed_by=None)
+    model = scripted(extracts=[answer])
 
     request = make_parser(model, demo_clock).parse_request("40 units of product 464013", agent_hotel)
 
@@ -275,7 +287,7 @@ def test_a_quantity_is_read_digit_for_digit_and_never_rounded_through_a_float(
     model = scripted(extracts=[answer, answer])
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("about 100 litres of milk", agent_hotel)
+        make_parser(model, demo_clock).parse_request("about 100 litres of milk by Monday", agent_hotel)
 
     assert "lines[0].quantity" in refused.value.detail
 
@@ -371,6 +383,189 @@ def test_an_identity_with_no_buyer_profile_has_no_strictness_to_fall_back_on(
     model = scripted(extracts=[proposal(exclude_allergens=["AE"])])
 
     with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("10 litres of milk, no eggs", supplier_reader)
+        make_parser(model, demo_clock).parse_request("10 litres of milk by Monday, no eggs", supplier_reader)
 
     assert "eggs (AE)" in refused.value.detail and "the caller" in refused.value.detail
+
+
+# --- the reading is held to the text (FIX-9) --------------------------------------------------------------
+
+SCENARIO_1 = "1,000 litres of lactose-free milk by Monday"
+NOT_MATCHED = "the reading did not match the text"
+
+
+@pytest.mark.parametrize(
+    ("text", "change", "field"),
+    [
+        (SCENARIO_1, {"quantity": 10000}, "lines[0].quantity"),
+        (SCENARIO_1, {"quantity": 100}, "lines[0].quantity"),
+        (SCENARIO_1, {"unit": "KG"}, "lines[0].unit"),
+        (SCENARIO_1, {"needed_by": "2026-11-23"}, "needed_by"),  # the second Monday
+        (SCENARIO_1, {"needed_by": None}, "needed_by"),  # the text names a day the reading leaves out
+        ("1,000 litres of lactose-free milk", {"needed_by": "2026-11-16"}, "needed_by"),  # the text names none
+        (f"{SCENARIO_1}; no nuts", {}, "lines[0].exclude_allergens"),  # an exclusion dropped
+        (f"{SCENARIO_1}; gluten-free", {}, "lines[0].exclude_allergens"),
+        (SCENARIO_1, {"require_confirmed": True}, "require_confirmed"),
+        (SCENARIO_1, {"product_ids": ["1"]}, "lines[0].product_ids"),  # a digit of 1,000 is not a product number
+    ],
+)
+def test_a_reading_that_does_not_match_the_text_is_refused_naming_the_field(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity,
+    text: str, change: dict[str, Any], field: str,
+) -> None:
+    answer = proposal(**{"required_claims": ["FREE_FROM_LACTOSE"], "quantity": 1000, **change})
+    model = scripted(extracts=[answer, answer])
+
+    with pytest.raises(InvalidRequest) as refused:
+        make_parser(model, demo_clock).parse_request(text, agent_hotel)
+
+    assert f"{field}: {NOT_MATCHED}" in refused.value.detail
+    assert field in refused.value.extensions["faults"]
+    assert len(model.extract_calls) == 2  # asked once more, as for any answer that does not validate
+
+
+@pytest.mark.parametrize(
+    ("text", "quantity", "unit"),
+    [("1 000 litres of milk by Monday", 1000, "L"), ("1,5 kg of butter by Monday", "1.5", "KG"),
+     ("a thousand litres of milk by Monday", 1000, "L"), ("40 kpl maitoa maanantaiksi", 40, "UNIT")],
+)
+def test_a_reading_that_matches_the_text_however_it_is_written_is_taken(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity,
+    text: str, quantity: Any, unit: str,
+) -> None:
+    model = scripted(extracts=[proposal(quantity=quantity, unit=unit)])
+
+    request = make_parser(model, demo_clock).parse_request(text, agent_hotel)
+
+    assert (request.lines[0].quantity, request.lines[0].unit) == (Decimal(str(quantity)), Unit(unit))
+
+
+def test_a_second_answer_that_matches_the_text_is_used(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    model = scripted(extracts=[proposal(quantity=10000), proposal(quantity=1000)])
+
+    request = make_parser(model, demo_clock).parse_request("1,000 litres of milk by Monday", agent_hotel)
+
+    assert request.lines[0].quantity == Decimal(1000) and len(model.extract_calls) == 2
+
+
+def test_a_text_that_names_no_number_reports_the_quantity_missing_whatever_the_model_says(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    model = scripted(extracts=[proposal(quantity=10)])
+
+    with pytest.raises(InvalidRequest) as refused:
+        make_parser(model, demo_clock).parse_request("Some milk for Monday", agent_hotel)
+
+    assert refused.value.extensions["missing"] == ["lines[0].quantity"]
+    assert len(model.extract_calls) == 1
+
+
+def test_a_text_that_names_no_unit_reports_the_unit_missing_whatever_the_model_says(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    model = scripted(extracts=[proposal(product_type=None, product_ids=["464013"], quantity=40, unit="UNIT",
+                                        needed_by=None)])
+
+    with pytest.raises(InvalidRequest) as refused:
+        make_parser(model, demo_clock).parse_request("40 of product 464013", agent_hotel)
+
+    assert refused.value.extensions["missing"] == ["lines[0].unit"]
+
+
+def test_an_exclusion_is_covered_by_its_family_and_one_the_text_does_not_name_is_kept(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_ward: Identity
+) -> None:
+    model = scripted(extracts=[proposal(product_type="plant_drink", exclude_allergens=["AN", "AW"])])
+
+    request = make_parser(model, demo_clock).parse_request(
+        "10 litres of oat drink by Monday, no almonds, for a coeliac patient", agent_ward
+    )
+
+    assert request.lines[0].exclude_allergens == ("AN", "AW")  # tree nuts cover almonds; AW is the model's
+
+
+# --- who read it (FIX-9) ----------------------------------------------------------------------------------
+
+
+def test_a_reading_by_a_model_says_so_and_parse_request_is_its_request(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
+) -> None:
+    parser = make_parser(scripted(extracts=[proposal(), proposal()]), demo_clock)
+
+    reading = parser.read("10 litres of milk by Monday", agent_hotel)
+
+    assert (reading.source, reading.model, reading.recorded_at) == (ReadingSource.MODEL, "scripted", None)
+    assert reading.sentence == "Read by scripted."
+    assert parser.parse_request("10 litres of milk by Monday", agent_hotel) == reading.request
+
+
+def test_a_reading_from_a_recording_names_the_model_and_when_it_was_made(
+    recorded_model: RecordedModel, make_parser: MakeParser, demo_clock: Clock, agent_hotel: Identity,
+    texts: dict[str, str],
+) -> None:
+    reading = make_parser(recorded_model, demo_clock).read(texts["scenario_1"], agent_hotel)
+
+    assert (reading.source, reading.model) == (ReadingSource.RECORDING, "gemini-3.6-flash")
+    assert reading.recorded_at == datetime(2026, 11, 14, 6, 14, 8, 168025, tzinfo=UTC)
+    assert reading.sentence == (
+        "Read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 06:14 UTC; no model was asked."
+    )
+    assert reading.request.lines[0].quantity == Decimal(1000)
+
+
+def test_a_reading_a_person_wrote_says_so(
+    make_parser: MakeParser, demo_clock: Clock, agent_hotel: Identity, tmp_path: Path
+) -> None:
+    line = {"product_type": "milk", "product_ids": [], "name_terms": [], "required_claims": [], "quantity": 5,
+            "unit": "L", "exclude_allergens": [], "allergen_strictness": None, "pack": None}
+    recording = {"kind": "parse", "text": "5 litres of milk", "model": "hand-built", "source": "hand-built",
+                 "profile_id": "hotel-kitchen",
+                 "proposal": {"needed_by": None, "require_confirmed": False, "lines": [line]}}
+    (tmp_path / "parse-milk.json").write_text(json.dumps(recording), encoding="utf-8")
+
+    reading = make_parser(RecordedModel(tmp_path), demo_clock).read("5 litres of milk", agent_hotel)
+
+    assert (reading.source, reading.model) == (ReadingSource.HAND_BUILT, "hand-built")
+    assert reading.sentence == "Read from an answer written by hand, not by a model."
+
+
+# --- a recording on another day (FIX-9) -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("day", "monday"), [(15, date(2026, 11, 16)), (16, date(2026, 11, 23))])
+def test_a_recorded_by_monday_is_read_again_by_the_calendar_rule_on_another_day(
+    recorded_model: RecordedModel, make_parser: MakeParser, agent_hotel: Identity, texts: dict[str, str],
+    day: int, monday: date,
+) -> None:
+    later = FixedClock(datetime(2026, 11, day, 9, 0, tzinfo=UTC))  # Sunday 15 or Monday 16 Nov
+
+    request = make_parser(recorded_model, later).parse_request(texts["scenario_1"], agent_hotel)
+
+    assert request.needed_by == monday
+
+
+def test_a_recording_is_read_only_for_the_profile_it_was_recorded_for(
+    recorded_model: RecordedModel, make_parser: MakeParser, demo_clock: Clock, agent_ward: Identity,
+    texts: dict[str, str],
+) -> None:
+    with pytest.raises(SupplierUnavailable) as refused:
+        make_parser(recorded_model, demo_clock).parse_request(texts["scenario_1"], agent_ward)
+
+    assert "another buyer profile" in refused.value.detail
+
+
+def test_a_reading_from_an_undated_recording_names_the_model_only(
+    make_parser: MakeParser, demo_clock: Clock, agent_hotel: Identity, tmp_path: Path
+) -> None:
+    line = {"product_type": "milk", "product_ids": [], "name_terms": [], "required_claims": [], "quantity": 5,
+            "unit": "L", "exclude_allergens": [], "allergen_strictness": None, "pack": None}
+    recording = {"kind": "parse", "text": "5 litres of milk", "model": "gemini-x", "source": "live",
+                 "profile_id": "hotel-kitchen",
+                 "proposal": {"needed_by": None, "require_confirmed": False, "lines": [line]}}
+    (tmp_path / "parse-milk.json").write_text(json.dumps(recording), encoding="utf-8")
+
+    reading = make_parser(RecordedModel(tmp_path), demo_clock).read("5 litres of milk", agent_hotel)
+
+    assert reading.sentence == "Read from a recording of gemini-x; no model was asked."

@@ -1,6 +1,7 @@
 {
   "kind": "run",
   "text": "1,000 litres of lactose-free milk by Monday",
+  "profile_id": "hotel-kitchen",
   "model": "hand-built",
   "source": "hand-built",
   "note": "Written by hand, not by a model: the calls of the scenario 2 run. The live check of task T10 runs scenario 2 only, so `python -m tta.agent.record` does not replace this file.",

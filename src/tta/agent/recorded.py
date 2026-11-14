@@ -7,6 +7,11 @@ recorded call that no longer fits what the gateway answers is refused like any o
 
 A fixture file is input like any other: it is validated when it is loaded, and one that does not validate
 stops the start rather than being skipped.
+
+A recording names the buyer profile it was recorded for and is served only for that profile (task FIX-9). Its
+`needed_by` was resolved on the day it was recorded: on another day it is read again by the parser's calendar
+rule (`tta.agent.days`), so "by Monday" recorded on Saturday 14 Nov still means 16 Nov on Sunday 15 Nov and
+means 23 Nov on Monday 16 Nov.
 """
 
 from __future__ import annotations
@@ -19,8 +24,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
-from tta.agent.model import ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.days import named_dates
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
 from tta.config import Settings
+from tta.contracts.agent import ReadingSource
 from tta.contracts.common import JsonDict
 from tta.contracts.errors import SupplierUnavailable
 
@@ -39,6 +46,11 @@ RUN_NOT_RECORDED = (
     "and this request is not one of them. Send the typed request to POST /v1/offers and the chosen option "
     "to POST /v1/orders instead."
 )
+OTHER_PROFILE = (
+    "This sentence was recorded for another buyer profile, and a recording is served only for the profile it "
+    "was recorded for. Send the typed request to POST /v1/offers instead."
+)
+NEEDED_BY = "needed_by"
 
 
 class RecordingError(ValueError):
@@ -64,6 +76,7 @@ class Recording(_Recorded):
 
     kind: Literal["parse", "run"]
     text: str  # the buyer's sentence
+    profile_id: str  # the buyer profile it was recorded for: it is served for that profile only
     model: str  # the model that answered
     source: Literal["live", "hand-built"]  # "live": saved from a call to the model
     recorded_at: datetime | None = None
@@ -92,6 +105,19 @@ def _read(path: Path) -> Recording:
     except (OSError, ValueError) as error:  # not readable, not JSON, or not a recording (a ValidationError)
         problems = error.error_count() if isinstance(error, ValidationError) else 1
         raise RecordingError(f"{path.name} is not a usable recording ({problems} problem(s)).") from error
+
+
+def _served_for(recording: Recording | None, profile_id: str | None) -> Recording | None:
+    return recording if recording is not None and recording.profile_id == profile_id else None
+
+
+def _on(proposal: JsonDict, recording: Recording, today: date | None) -> JsonDict:
+    """The recorded answer for `today`: its `needed_by` read again by the calendar rule when it was recorded on
+    another day and the text names one day. Any other answer is served as it was recorded."""
+    if today is None or recording.today == today or proposal.get(NEEDED_BY) is None:
+        return proposal
+    dates = named_dates(recording.text, today)
+    return {**proposal, NEEDED_BY: dates[0].isoformat()} if len(dates) == 1 else proposal
 
 
 def load_recordings(directory: Path) -> tuple[Recording, ...]:
@@ -138,26 +164,38 @@ class RecordedModel:
         key = text_key(request_text)
         return tuple(found[key] for found in (self._parses, self._runs) if key in found)
 
-    def holds(self, kind: Literal["parse", "run"], request_text: str) -> bool:
+    def holds(self, kind: Literal["parse", "run"], request_text: str, profile_id: str | None) -> bool:
+        """True when this sentence has a recording of this kind for this buyer profile."""
         found = self._parses if kind == "parse" else self._runs
-        return text_key(request_text) in found
+        return _served_for(found.get(text_key(request_text)), profile_id) is not None
 
     def label_for(self, request_text: str) -> str:
         """"recorded" when every recording of this sentence was saved from a model; else "hand-built"."""
         by_hand = any(recording.source != LIVE_SOURCE for recording in self.recordings_of(request_text))
         return HAND_BUILT_MODEL_ID if by_hand else RECORDED_MODEL_ID
 
+    def answer_source(self, request_text: str) -> AnswerSource:
+        """The recording `extract` serves for this sentence. Raises `KeyError` when there is none."""
+        recording = self._parses[text_key(request_text)]
+        if recording.source != LIVE_SOURCE:
+            return AnswerSource(ReadingSource.HAND_BUILT, HAND_BUILT_MODEL_ID, recording.recorded_at)
+        return AnswerSource(ReadingSource.RECORDING, recording.model, recording.recorded_at)
+
     def extract(self, call: ExtractCall) -> str:
         recording = self._parses.get(text_key(call.text))
         if recording is None:
             raise SupplierUnavailable(NOT_RECORDED.format(count=len(self._parses)))
-        return json.dumps(recording.proposal)
+        if _served_for(recording, call.profile_id) is None:
+            raise SupplierUnavailable(OTHER_PROFILE)
+        return json.dumps(_on(recording.proposal or {}, recording, call.today))
 
     def next_turn(self, call: TurnCall) -> ModelTurn:
         """The recorded calls of this turn; past the last recorded turn, a turn with no call."""
         recording = self._runs.get(text_key(call.request_text))
         if recording is None or recording.turns is None:
             raise SupplierUnavailable(RUN_NOT_RECORDED.format(count=len(self._runs)))
+        if _served_for(recording, call.profile_id) is None:
+            raise SupplierUnavailable(OTHER_PROFILE)
         if call.turn > len(recording.turns):
             return ModelTurn()
         turn = recording.turns[call.turn - 1]

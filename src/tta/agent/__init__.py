@@ -4,6 +4,7 @@ The gateway looks for the two factories below (`tta.api.hooks`). With no key the
 runner over the recorded model, so the demonstration scenarios run without a key. With a Gemini key they
 return the same parser and runner over the Gemini model, with the recorded ones behind them: when Gemini
 cannot be reached, a sentence that has a recording is answered from it, and says so (`tta.agent.fallback`).
+Both Gemini models share the process's memory of an outage (`tta.agent.outage`).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from collections.abc import Callable, Sequence
 from tta.agent.fallback import FallbackParser, FallbackRunner
 from tta.agent.gemini import DEFAULT_MODEL, GeminiModel, chosen_model, sdk_transport
 from tta.agent.model import AgentModel
+from tta.agent.outage import PROCESS_OUTAGE
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
 from tta.agent.runner import ModelAgentRunner
@@ -50,7 +52,7 @@ def _parser(model: AgentModel, clock: Clock, keys: Sequence[str], strictness: St
 
 
 def _gemini(settings: Settings) -> GeminiModel:
-    return GeminiModel(sdk_transport(settings), chosen_model(settings))
+    return GeminiModel(sdk_transport(settings), chosen_model(settings), outage=PROCESS_OUTAGE)
 
 
 def build_request_parser(

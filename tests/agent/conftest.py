@@ -15,13 +15,15 @@ from typing import Any
 
 import pytest
 
-from tta.agent.model import ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.outage import PROCESS_OUTAGE
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
 from tta.agent.runner import ModelAgentRunner
 from tta.api.wiring import Parts, build_parts
 from tta.catalog import ProductCatalog
 from tta.config import REPO_ROOT, Settings
+from tta.contracts.agent import ReadingSource
 from tta.contracts.common import AllergenStrictness
 from tta.contracts.ports import Clock
 
@@ -52,6 +54,9 @@ class ScriptedModel:
     def label_for(self, request_text: str) -> str:
         return self.model_id
 
+    def answer_source(self, request_text: str) -> AnswerSource:
+        return AnswerSource(ReadingSource.MODEL, self.model_id)
+
     def extract(self, call: ExtractCall) -> str:
         self.extract_calls.append(call)
         return self.extracts.pop(0)
@@ -71,6 +76,14 @@ class ScriptedModel:
             {"type": "function_call", "id": one.id, "name": one.name, "arguments": one.arguments} for one in calls
         )
         return ModelTurn(steps=steps, calls=calls)
+
+
+@pytest.fixture(autouse=True)
+def no_remembered_outage() -> Iterator[None]:
+    """The process's memory of a Gemini outage is empty when each test starts and when it ends."""
+    PROCESS_OUTAGE.clear()
+    yield
+    PROCESS_OUTAGE.clear()
 
 
 @pytest.fixture(scope="session")

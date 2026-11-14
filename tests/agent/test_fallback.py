@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,19 +18,24 @@ import tta.agent
 from tta.agent import gemini as gemini_module
 from tta.agent.fallback import FallbackParser, FallbackRunner
 from tta.agent.gemini import DEFAULT_MODEL, GeminiModel, ModelUnreachable, sdk_transport
+from tta.agent.outage import OUTAGE_MEMORY_SECONDS, PROCESS_OUTAGE, Outage
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
 from tta.agent.runner import ModelAgentRunner
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
+from tta.contracts.agent import ReadingSource
 from tta.contracts.common import Identity, OrderStatus
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Clock, GatewayService
 
 KEY = "test-key-5c1e9a7f3b"  # not a real key
 SERVED = "Gemini did not answer; this run was served from "
-WARD_TEXT = "200 litres of plant drink, no milk, no gluten"
+WARD_TEXT = "200 litres of plant drink by Monday, no milk, no gluten, confirmed data only"
+READ_FROM_THE_RECORDING = (
+    "Gemini did not answer; read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 06:14 UTC."
+)
 HAPPY_PATH = [[("get_authority", {})], [("create_offer", {})], [("place_order", {"option_id": "opt_1"})]]
 Handler = Callable[[httpx.Request], httpx.Response]
 Build = Callable[..., tuple[FallbackParser, FallbackRunner, "FakeGemini"]]
@@ -70,7 +76,7 @@ def _calls(name: str) -> Handler:
 
 def _recordings(directory: Path, *, source: str = "live", run_source: str | None = None) -> RecordedModel:
     """A parse and a run of `WARD_TEXT`, as the live check writes them."""
-    common = {"text": WARD_TEXT, "model": DEFAULT_MODEL, "today": "2026-11-14",
+    common = {"text": WARD_TEXT, "profile_id": "allergy-ward", "model": DEFAULT_MODEL, "today": "2026-11-14",
               "recorded_at": "2026-11-14T08:05:00+00:00"}
     line = {"product_type": "plant_drink", "product_ids": [], "name_terms": [], "required_claims": [],
             "quantity": 200, "unit": "L", "exclude_allergens": ["AM", "AW"], "allergen_strictness": None, "pack": None}
@@ -83,15 +89,33 @@ def _recordings(directory: Path, *, source: str = "live", run_source: str | None
     return RecordedModel(directory)
 
 
+class Ticking:
+    """A monotonic clock a test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
 @pytest.fixture
-def build(make_parser: Callable[..., ModelRequestParser], demo_clock: Clock, recorded_model: RecordedModel) -> Build:
-    """The parser and the runner as the hooks build them with a key: Gemini first, the recordings behind it."""
+def ticking() -> Ticking:
+    return Ticking()
+
+
+@pytest.fixture
+def build(
+    make_parser: Callable[..., ModelRequestParser], demo_clock: Clock, recorded_model: RecordedModel, ticking: Ticking
+) -> Build:
+    """The parser and the runner as the hooks build them with a key: Gemini first, the recordings behind it,
+    and a memory of an outage on a clock the test moves."""
 
     def make(*answers: Handler, recordings: RecordedModel = recorded_model) -> tuple[Any, ...]:
         fake = FakeGemini(*answers)
         transport = sdk_transport(Settings.for_tests(gemini_api_key=KEY),
                                   client_args={"transport": httpx.MockTransport(fake)})
-        live = GeminiModel(transport, DEFAULT_MODEL, sleep=lambda seconds: None)
+        live = GeminiModel(transport, DEFAULT_MODEL, sleep=lambda seconds: None, outage=Outage(clock=ticking))
         live_parser, recorded_parser = make_parser(live, demo_clock), make_parser(recordings, demo_clock)
         parser = FallbackParser(live=live_parser, recorded=recorded_parser, recordings=recordings)
         runner = FallbackRunner(
@@ -116,19 +140,36 @@ def test_when_gemini_does_not_answer_a_recorded_sentence_is_read_from_its_record
         request = parser.parse_request(texts["scenario_1"], agent_hotel)
 
     assert request == make_parser(recorded_model, demo_clock).parse_request(texts["scenario_1"], agent_hotel)
+    assert len(fake.requests) == 2  # Gemini was asked, with its one retry, before the recording stood in
+    assert READ_FROM_THE_RECORDING in caplog.text
+
+
+def test_a_reading_from_the_recording_says_so_and_the_parser_names_what_answered(
+    build: Build, proposal: Callable[..., str], agent_hotel: Identity, texts: dict[str, str], ticking: Ticking
+) -> None:
+    parser, _, _ = build(_busy, _busy, _reading(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000)))
     assert parser.model_id == DEFAULT_MODEL
-    assert len(fake.requests) == 3  # Gemini was asked, with its two retries, before the recording stood in
-    assert "Gemini did not answer; this request was read from " in caplog.text
+
+    reading = parser.read(texts["scenario_1"], agent_hotel)
+
+    assert (reading.source, reading.model) == (ReadingSource.RECORDING, "gemini-3.6-flash")
+    assert reading.sentence == READ_FROM_THE_RECORDING
+    assert parser.model_id == "recorded"  # the recording answered, not Gemini
+    ticking.now += OUTAGE_MEMORY_SECONDS
+    again = parser.read(texts["scenario_1"], agent_hotel)
+    assert (again.source, again.sentence, parser.model_id) == (ReadingSource.MODEL, f"Read by {DEFAULT_MODEL}.",
+                                                                 DEFAULT_MODEL)
 
 
 def test_when_gemini_answers_its_own_reading_is_used(
     build: Build, proposal: Callable[..., str], agent_hotel: Identity, texts: dict[str, str]
 ) -> None:
-    parser, _, _ = build(_reading(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=900)))
+    parser, _, _ = build(_reading(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000, pack="ANY")))
 
-    request = parser.parse_request(texts["scenario_1"], agent_hotel)
+    reading = parser.read(texts["scenario_1"], agent_hotel)
 
-    assert request.lines[0].quantity == 900  # not the recording's 1,000
+    assert (reading.source, reading.model) == (ReadingSource.MODEL, DEFAULT_MODEL)
+    assert reading.request.lines[0].pack == "ANY"  # not the recording's, which says nothing of the pack
 
 
 @pytest.mark.parametrize("failure", [_busy, _refused])
@@ -169,7 +210,7 @@ def test_when_gemini_does_not_answer_a_recorded_run_is_served_from_its_recording
     assert run.report.startswith(SERVED)
     assert order.status_sentence in run.report
     assert runner.model_id == DEFAULT_MODEL
-    assert len(fake.requests) == 3
+    assert len(fake.requests) == 2
 
 
 def test_the_report_names_when_the_recording_was_made(
@@ -203,7 +244,7 @@ def test_a_run_whose_first_turn_fails_is_served_whole_from_the_recording(
 
     assert run.recorded is True and run.report.startswith(SERVED)
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer", "place_order"]
-    assert len(fake.requests) == 4  # the reading, then the first turn three times
+    assert len(fake.requests) == 3  # the reading, then the first turn twice
 
 
 def test_a_model_that_stops_after_a_step_is_not_replaced_by_the_recording(
@@ -272,7 +313,8 @@ def test_with_a_key_set_and_gemini_down_the_gateway_serves_the_demonstration_fro
     assert (request.lines[0].product_type, request.lines[0].quantity) == ("milk", 1000)
     assert run.order_status is OrderStatus.ORDERED and run.report.startswith(SERVED)
     assert sum(1 for name in events if name.endswith("request.received")) == 1
-    assert len(gemini_down.requests) == 6  # three tries for the reading of each sentence
+    assert len(gemini_down.requests) == 2  # two tries for the first sentence; the second is not sent at all
+    assert PROCESS_OUTAGE.is_open()
     assert KEY not in run.model_dump_json()
 
 
@@ -283,3 +325,96 @@ def test_the_recordings_say_when_they_were_made(fixtures_agent_dir: Path) -> Non
         if recording["source"] == "live":
             assert datetime.fromisoformat(recording["recorded_at"]).tzinfo is not None
             assert datetime.fromisoformat(recording["recorded_at"]) <= datetime.now(UTC)
+
+
+# --- an outage is remembered (FIX-9) ----------------------------------------------------------------------
+
+
+def test_once_gemini_did_not_answer_a_recorded_sentence_is_answered_at_once_without_asking_it(
+    build: Build, parts: Any, agent_hotel: Identity, agent_ward: Identity, texts: dict[str, str], ticking: Ticking
+) -> None:
+    parser, runner, fake = build(_busy)
+    parser.read(texts["scenario_1"], agent_hotel)
+    asked = len(fake.requests)
+
+    ticking.now += OUTAGE_MEMORY_SECONDS - 1
+    reading = parser.read(texts["scenario_1"], agent_hotel)
+    run = runner.run_agent(texts["scenario_2"], agent_ward, parts.service)
+
+    assert asked == 2 and len(fake.requests) == asked  # nothing more was sent
+    assert reading.sentence == READ_FROM_THE_RECORDING
+    assert run.report.startswith(SERVED) and run.order_status is OrderStatus.ORDERED
+
+
+def test_once_gemini_did_not_answer_a_sentence_with_no_recording_is_refused_at_once(
+    build: Build, agent_hotel: Identity, texts: dict[str, str]
+) -> None:
+    parser, _, fake = build(_busy)
+    parser.read(texts["scenario_1"], agent_hotel)
+
+    with pytest.raises(ModelUnreachable) as refused:
+        parser.read("7 kg of cheese by Friday", agent_hotel)
+
+    assert len(fake.requests) == 2 and "not asked again for 120 seconds" in refused.value.detail
+
+
+def test_after_the_window_gemini_is_asked_again(
+    build: Build, proposal: Callable[..., str], agent_hotel: Identity, texts: dict[str, str], ticking: Ticking
+) -> None:
+    parser, _, fake = build(_busy, _busy, _reading(proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000)))
+    parser.read(texts["scenario_1"], agent_hotel)
+
+    ticking.now += OUTAGE_MEMORY_SECONDS
+    reading = parser.read(texts["scenario_1"], agent_hotel)
+
+    assert OUTAGE_MEMORY_SECONDS == 120
+    assert reading.source is ReadingSource.MODEL and len(fake.requests) == 3
+
+
+def test_a_refusal_is_not_remembered_as_an_outage(build: Build, agent_hotel: Identity, texts: dict[str, str]) -> None:
+    parser, _, fake = build(_refused)
+
+    for _ in range(2):
+        with pytest.raises(SupplierUnavailable):
+            parser.read(texts["scenario_1"], agent_hotel)
+
+    assert len(fake.requests) == 2  # asked each time: a 403 is an answer, not an outage
+
+
+def test_the_memory_of_an_outage_is_safe_from_several_threads() -> None:
+    outage = Outage(seconds=60.0)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda number: outage.note() if number % 2 else outage.is_open(), range(200)))
+
+    assert outage.is_open()
+    outage.clear()
+    assert not outage.is_open()
+
+
+# --- a recording is served for its own profile only (FIX-9) -----------------------------------------------
+
+
+def test_a_recording_stands_in_only_for_the_profile_it_was_recorded_for(
+    build: Build, parts: Any, agent_hotel: Identity, texts: dict[str, str]
+) -> None:
+    parser, runner, _ = build(_busy)
+
+    with pytest.raises(ModelUnreachable):
+        parser.read(texts["scenario_2"], agent_hotel)  # recorded for the allergy ward
+    with pytest.raises(ModelUnreachable):
+        runner.run_agent(texts["scenario_2"], agent_hotel, parts.service)
+
+
+def test_a_run_served_from_an_undated_recording_says_so(
+    build: Build, parts: Any, agent_ward: Identity, tmp_path: Path
+) -> None:
+    recordings = _recordings(tmp_path)
+    for path in tmp_path.glob("*.json"):
+        undated = {key: value for key, value in json.loads(path.read_text()).items() if key != "recorded_at"}
+        path.write_text(json.dumps(undated), encoding="utf-8")
+    _, runner, _ = build(_busy, recordings=RecordedModel(tmp_path))
+
+    run = runner.run_agent(WARD_TEXT, agent_ward, parts.service)
+
+    assert recordings is not None and run.report.startswith(SERVED + "a recording of the model's earlier answers. ")
