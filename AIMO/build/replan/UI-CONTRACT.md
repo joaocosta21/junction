@@ -127,6 +127,14 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 | `offer.suggestions` | `[]` until wave 2 |
 | `lines[].substitute.formula`, `.last_resort` | filled on an offer's stand-in line |
 
+### L3-2 — the formula rule, the preference rule, the log's wording
+- `decision.fired[]` with `rule_id: "F-11"`: show `sentence` ("Cooking blend 15% 1 L (463975) would replace Arla Pro whipping cream 36% 1 L (469346) where the formula matters (Kallio Bakery uses its products as ingredients), and the data does not show the same formula: Different formula: fat 15 g, not 36 g; …"); `facts["line.substitute_formula_differences"]` is a list for bullets.
+- `decision.fired[]` with `rule_id: "P-09"`: "This option is ranked by the buyer's preference and costs €20.00 more before tax than the cheapest confirmed option, a premium of 20%, above the 10% that Harbourside Hotel lets a preference add without a human."
+- `GET /v1/authority` → `profile.formula_matters`, `profile.max_preference_premium_ratio`; two new rows under "The rules in force" (F-11, P-09).
+- Audit `events[].sentence` already says "384 pcs of 469363", "a recorded copy of Valio Aimo's data" and names the buyer: the rewrites in `words.js:24-39` can go.
+- Order confirmed under F-10 alone: "Order ord_… is ordered, confirmed by Hanna Laine (purchasing manager): 200 pcs of 464013 for €402.00 net."
+- To change on the page: `kitchens.js:194-195` bakery `max_order_net_eur: 300`, `max_daily_net_eur: 1000`, `formula_matters: true`, `substitution_without_approval: "NONE"`; the old kitchen page's form has neither new setting.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

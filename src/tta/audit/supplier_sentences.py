@@ -18,6 +18,7 @@ from tta.audit.scope import (
     approvals_given,
     confirmed_by,
     distinct_rule_ids,
+    only_confirmation_asked,
     option_change,
     placed_within_authority,
     rejection,
@@ -140,7 +141,8 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
         return confirmed_text(context, scope, BY_THE_AGENT)
     if by is PlacedBy.HUMAN_APPROVAL:
         roles = [role for entry in approvals_given(context) for role in entry.roles]
-        return confirmed_text(context, scope, f"with approval by {buyers_roles(roles)}")
+        how = "confirmed" if only_confirmation_asked(scope.decision) else "with approval"
+        return confirmed_text(context, scope, f"{how} by {buyers_roles(roles)}")
     return confirmed_text(context, scope, None)
 
 

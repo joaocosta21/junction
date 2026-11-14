@@ -99,7 +99,7 @@ def test_the_bakery_takes_no_substitute_alone_and_names_no_dietitian(engine: Rul
     assert bakery.approver_roles[ApproverRole.PURCHASING_MANAGER] == bakery.approver_roles[ApproverRole.FINANCE]
     assert "formula" in (bakery.description or "")
     assert (bakery.max_order_net_eur, bakery.max_daily_net_eur, bakery.min_fill_ratio) == (
-        Decimal(50), Decimal(400), Decimal(1)
+        Decimal(300), Decimal(1000), Decimal(1)  # decision B19: sized for a wholesale order
     )
 
 

@@ -19,6 +19,7 @@ from tta.contracts.audit import Actor, ActorKind
 from tta.contracts.common import (
     QUANTITY_PLACES,
     ApproverRole,
+    AvailabilityState,
     DataSource,
     OptionKind,
     Unit,
@@ -48,6 +49,9 @@ WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
           "November", "December")
 UNIT_WORDS = {Unit.L: ("litre", "litres"), Unit.KG: ("kg", "kg"), Unit.UNIT: ("unit", "units")}
+# Valio Aimo's sales-unit codes in the words of its own webshop ("384 pcs", "1 crt = 20 pcs":
+# AIMO/build/replan/P3-webshop.md). A code that is not listed is shown as it is.
+SALES_UNIT_WORDS = {"ST": "pcs", "KPL": "pcs", "KI": "crt", "KG": "kg", "L": "L"}
 ROLES_WITH_ARTICLE = {
     ApproverRole.PURCHASING_MANAGER.value: "the purchasing manager",
     ApproverRole.DIETITIAN.value: "the dietitian",
@@ -55,13 +59,20 @@ ROLES_WITH_ARTICLE = {
 }
 OPTION_KINDS = {
     OptionKind.BEST_CONFIRMED: "best confirmed",
-    OptionKind.ALTERNATIVE_UNCONFIRMED: "alternative, quantity not confirmed",
+    OptionKind.ALTERNATIVE_UNCONFIRMED: "alternative",
     OptionKind.CHEAPEST_CONFIRMED: "cheapest confirmed",
     OptionKind.SUBSTITUTE: "substitute",
 }
+# The kind ALTERNATIVE_UNCONFIRMED holds two alternatives: one whose quantity is not confirmed and one whose
+# data does not rule out an excluded allergen, with a confirmed quantity. The offer says which in the title
+# (`tta.offers.options`: "Alternative: allergen not ruled out (partial fill)"); a test checks the two texts agree.
+ALTERNATIVE_TITLE = "Alternative: "
+PARTIAL_TITLE_SUFFIX = " (partial fill)"  # the sentence states the coverage itself
+QUANTITY_NOT_CONFIRMED = "quantity not confirmed"
+MAX_TITLE_CHARACTERS = 80
 SOURCES = {
     DataSource.LIVE: "Valio Aimo's live data",
-    DataSource.REPLAY: "a recorded copy of Valio Aimo's data (replay)",
+    DataSource.REPLAY: "a recorded copy of Valio Aimo's data",
 }
 UNKNOWN_SOURCE = "Valio Aimo's data"
 RECORDED = "The order is recorded in the gateway's order book."
@@ -186,8 +197,30 @@ def source_text(source: DataSource | None) -> str:
     return SOURCES.get(source, UNKNOWN_SOURCE)
 
 
+def sales_unit(code: str) -> str:
+    """pcs for ST, kg for KG, L for L: the webshop's word for a sales-unit code, else the code as data."""
+    return SALES_UNIT_WORDS.get(code) or label(code)
+
+
+def option_kind_text(option: OfferOption, for_buyer: bool) -> str:
+    """best confirmed · alternative, allergen not ruled out · alternative, quantity not confirmed.
+
+    An alternative is phrased from its title, which says what is not confirmed about it; with no such title,
+    from its lines. The supplier is never told that an allergen is in doubt: next to the products of the
+    option and its own allergen data, that would point to what the buyer excludes.
+    """
+    kind = OPTION_KINDS[option.kind]
+    if option.kind is not OptionKind.ALTERNATIVE_UNCONFIRMED:
+        return kind
+    quantity_open = any(line.availability.state is not AvailabilityState.CONFIRMED for line in option.lines)
+    stated = option.title.removesuffix(PARTIAL_TITLE_SUFFIX)
+    if for_buyer and stated.startswith(ALTERNATIVE_TITLE) and stated != ALTERNATIVE_TITLE:
+        return f"{kind}, {plain(stated.removeprefix(ALTERNATIVE_TITLE), MAX_TITLE_CHARACTERS)}"
+    return f"{kind}, {QUANTITY_NOT_CONFIRMED}" if quantity_open else kind
+
+
 def option_text(option: OfferOption) -> str:
-    """698 ST of 463380 and 51 ST of 462775 for €1,980.77 net.
+    """698 pcs of 463380 and 51 pcs of 462775 for €1,980.77 net.
 
     A total that holds a product sold by weight is an estimate, and the sentence says why: Valio Aimo invoices
     the weight delivered, which can be below or above the weight ordered (Valio's answer of 14 Nov, Q16).
@@ -195,7 +228,7 @@ def option_text(option: OfferOption) -> str:
     Quantities are in sales units and prices exclude tax (AIMO/policy/LOG-FORMAT.md, rules 4 and 5).
     """
     lines = joined(
-        f"{number(line.quantity)} {label(line.sales_unit)} of {label(line.product_id)}" for line in option.lines
+        f"{number(line.quantity)} {sales_unit(line.sales_unit)} of {label(line.product_id)}" for line in option.lines
     )
     estimate = "about " if option.totals.is_ceiling else ""
     weight = f" ({BY_WEIGHT})" if option.totals.is_ceiling else ""

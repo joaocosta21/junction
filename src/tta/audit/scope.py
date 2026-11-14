@@ -10,6 +10,7 @@ from tta.contracts.common import DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import OfferOption
 from tta.contracts.order import ApprovalDecision
 from tta.contracts.policy import FiredRule, PolicyDecision
+from tta.policy.human_approval import HUMAN_APPROVAL
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class Scope:
     approval_id: str | None
     option: OfferOption | None
     decision: PolicyDecision | None
+    # The buyer's name as its profile gives it (`BuyerProfile.display_name`), for the buyer's sentences only. It
+    # is not a field of the event: None when neither the context nor the policy engine of the trail has it.
+    profile_name: str | None = None
 
     @property
     def order_label(self) -> str:
@@ -84,6 +88,7 @@ def resolve(context: AuditContext) -> Scope:
         ),
         option=option,
         decision=decision,
+        profile_name=context.profile.display_name if context.profile else None,
     )
 
 
@@ -97,6 +102,12 @@ def rules_with(decision: PolicyDecision | None, verdict: Verdict) -> tuple[Fired
 def distinct_rule_ids(rules: Iterable[FiredRule]) -> tuple[str, ...]:
     """Each rule id once, in the order the rules fired."""
     return tuple(dict.fromkeys(rule.rule_id for rule in rules))
+
+
+def only_confirmation_asked(decision: PolicyDecision | None) -> bool:
+    """True when F-10 is the only rule that asked for a person: the order was prepared and a person confirmed
+    it, which is not the approval of an exception (`tta.orders.wording` says the same of the order)."""
+    return distinct_rule_ids(rules_with(decision, Verdict.APPROVAL)) == (HUMAN_APPROVAL.rule_id,)
 
 
 def option_change(context: AuditContext) -> OptionChange | None:

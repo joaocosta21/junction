@@ -17,8 +17,8 @@ from tta.contracts.common import (
 )
 
 ORDER_BY = "Sunday 15 November 2026 at 17:00 (UTC+02:00)"
-PARTIAL = "698 ST of 463380 and 51 ST of 462775 for €1,980.77 net"
-UNCONFIRMED = "1,000 ST of 464306 for €1,010.00 net"
+PARTIAL = "698 pcs of 463380 and 51 pcs of 462775 for €1,980.77 net"
+UNCONFIRMED = "1,000 pcs of 464306 for €1,010.00 net"
 P01 = "P-01: The order total of €1,980.77 is above the €750.00 limit for one order."
 P03 = "P-03: Only 74.9% of the requested quantity is covered; the profile asks for at least 90%."
 
@@ -30,13 +30,13 @@ def test_an_order_placed_by_the_agent_within_its_authority(trail: AuditTrail, sa
     event = trail.record(AuditEventType.ORDER_PLACED_BY_AGENT, samples.agent_ward, AuditContext(order=order))
 
     assert event.data.sentence == (
-        "The agent placed order ord_2 alone, within its authority under profile allergy-ward: "
-        "200 ST of 464056 for €428.00 net. No rule asked for a human. "
+        "The agent placed order ord_2 alone, within its authority under the rules of profile allergy-ward: "
+        "200 pcs of 464056 for €428.00 net. No rule asked for a human. "
         "The order is recorded in the gateway's order book."
     )
     assert event.data.supplier_sentence == (
         "The agent placed order ord_2 within its authority, without human approval: "
-        "200 ST of 464056 for €428.00 net. The order is recorded in the gateway's order book."
+        "200 pcs of 464056 for €428.00 net. The order is recorded in the gateway's order book."
     )
     assert event.data.rule_ids == ()
 
@@ -73,7 +73,7 @@ def test_an_order_sent_to_two_roles_for_one_rule(trail: AuditTrail, samples) -> 
     assert event.data.sentence == (
         "The agent could not place order ord_1 alone, because 1 rule asks for a human. "
         "P-02: Today's orders would reach €3,400.00, above the €3,000.00 daily limit. "
-        "The order (200 ST of 464056 for €428.00 net) was sent to the purchasing manager and finance, "
+        "The order (200 pcs of 464056 for €428.00 net) was sent to the purchasing manager and finance, "
         f"to be decided by {ORDER_BY}."
     )
 
@@ -176,12 +176,11 @@ def test_the_request_and_the_offer_are_described_with_their_numbers(hotel_flow: 
         'The agent sent a request for profile hotel-kitchen: "1,000 litres of lactose-free milk by Monday".',
         "The request was read as: 1,000 litres of product type lactose_free_milk with claim FREE_FROM_LACTOSE, "
         "needed by Monday 16 November 2026.",
-        "The gateway looked up price and availability of 35 products in a recorded copy of Valio Aimo's data "
-        "(replay).",
-        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data (replay): 2 options from "
+        "The gateway looked up price and availability of 35 products in a recorded copy of Valio Aimo's data.",
+        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data: 2 options from "
         f"35 candidates, 2 products excluded with a reason. Option 1 (best confirmed): {PARTIAL}, covering 74.9% "
         f"of the request. Option 2 (alternative, quantity not confirmed): {UNCONFIRMED}, covering the full quantity.",
-        "The rules of profile hotel-kitchen were checked for option opt_1. The agent cannot place this order "
+        "The rules of Hotel kitchen were checked for option opt_1. The agent cannot place this order "
         "alone: the total of €1,980.77 before tax is above the €750 limit per order (P-01) and only 74.9% of the "
         "requested quantity is covered (P-03). It needs the purchasing manager.",
     ]
@@ -301,11 +300,11 @@ def test_an_offer_with_no_option_says_so(trail: AuditTrail, samples) -> None:
     event = trail.record(AuditEventType.OFFER_CREATED, samples.gateway, AuditContext(offer=offer))
 
     assert event.data.sentence == (
-        "The gateway built offer off_2 from a recorded copy of Valio Aimo's data (replay): no option fits the "
+        "The gateway built offer off_2 from a recorded copy of Valio Aimo's data: no option fits the "
         "request; 12 candidates, 2 products excluded with a reason. Every product declaring AM or AW was left out."
     )
     assert event.data.supplier_sentence == (
-        "The gateway built offer off_2 from a recorded copy of Valio Aimo's data (replay): no option fits the "
+        "The gateway built offer off_2 from a recorded copy of Valio Aimo's data: no option fits the "
         "request; 12 candidates. 2 products were considered and left out: 2 declaring an allergen the buyer "
         "excludes (which allergen and which products are not shown)."
     )
@@ -371,7 +370,7 @@ def test_an_order_confirmed_without_an_approval_says_the_agent_placed_it(trail: 
     event = trail.record(AuditEventType.ORDER_CONFIRMED, samples.gateway, AuditContext(order=order))
 
     expected = (
-        "Order ord_2 is ordered, placed by the agent within its authority: 200 ST of 464056 for €428.00 net. "
+        "Order ord_2 is ordered, placed by the agent within its authority: 200 pcs of 464056 for €428.00 net. "
         "The order is recorded in the gateway's order book."
     )
     assert event.data.sentence == expected
@@ -387,7 +386,7 @@ def test_a_total_by_weight_is_an_estimate_and_missing_deposits_are_said(trail: A
 
     for sentence in (event.data.sentence, event.data.supplier_sentence):
         assert (
-            "200 ST of 464056 for about €428.00 net (an estimate: sold by weight, Valio Aimo invoices the weight "
+            "200 pcs of 464056 for about €428.00 net (an estimate: sold by weight, Valio Aimo invoices the weight "
             "delivered), deposits not included."
         ) in sentence
         assert [word for word in ("at most", "ceiling", "never higher", "maximum") if word in sentence] == []

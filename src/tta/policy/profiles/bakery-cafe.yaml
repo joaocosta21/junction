@@ -1,11 +1,12 @@
 # Buyer profile "bakery-cafe". ILLUSTRATIVE: every value below is ours, chosen for the demonstration.
 # The Valio Aimo mock has no customer model and Valio Aimo publishes no customer limits (AIMO/SPEC.md
-# section 7). The limits are those of the shop page's bakery.
+# section 7). The limits are sized for a wholesale order: its usual 40 L of whipping cream is about 230 EUR
+# before tax, so the 50 and 400 first copied from the shop page sent every order to a person for its spend.
 #
-# The bakery takes no substitute alone: every substitute goes to a person (P-05). Valio Aimo, 14 Nov 2026:
-# "for cakes/things that require the formula the ingredient and chemestry can make a difference". Which of
-# its usual products are ingredients is in the customer file; a rule that reads the formula itself is not
-# part of this file.
+# The formula matters (formula_matters: true). Valio Aimo, 14 Nov 2026: "for cakes/things that require the
+# formula the ingredient and chemestry can make a difference". On every line, a substitute whose formula
+# differs from the original's, or cannot be compared, goes to a person under the fixed rule F-11 of
+# ../rules.yaml, with the differences in numbers. The bakery also takes no substitute alone (P-05).
 #
 # A profile sets limits. It cannot switch off or weaken a fixed rule of ../rules.yaml: a profile file that
 # names one, or carries any setting not listed here, is rejected when it is loaded.
@@ -17,8 +18,8 @@ illustrative: true
 
 auto_order_enabled: false         # off: every order needs a person (F-10). true lets the agent order alone,
                                   # and only when every statement is confirmed and no rule asks for a human
-max_order_net_eur: 50             # EUR before tax per order without a human (P-01)
-max_daily_net_eur: 400            # EUR before tax per day, this order included (P-02)
+max_order_net_eur: 300            # EUR before tax per order without a human (P-01)
+max_daily_net_eur: 1000           # EUR before tax per day, this order included (P-02)
 min_fill_ratio: 1.0               # the whole requested quantity must be covered (P-03)
 excluded_allergens: []            # GS1 codes; a request can add exclusions and can never remove one (P-04)
 substitution_without_approval: NONE   # every substitute goes to a human: the formula matters (P-05)
@@ -26,6 +27,10 @@ variable_weight: APPROVAL         # the cautious value (P-06)
 deposits: APPROVAL                # the cautious value (P-07)
 require_confirmed: false          # true: the offer holds fully confirmed options only
 standing_order_drift_ratio: 0.25  # a renewal 25% above or below the median of its history goes to a human (P-08)
+formula_matters: true             # its products are ingredients: the formula check holds on every line
+max_preference_premium_ratio: 0.1 # the bakery prefers reliability; more than 10% above the cheapest confirmed
+                                  # option goes to a human (P-09). At most 0.25, where the offer stops ranking
+                                  # the preferred option first
 
 # Who holds each role. The owner holds both, so one demonstration identity is listed for each; the customer
 # file names no dietitian, so none is listed here.

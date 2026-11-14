@@ -63,7 +63,7 @@ def test_the_supplier_sees_what_was_ordered_and_the_statements_it_relied_on(hote
     order = confirmed.facts["order"]
     assert confirmed.sentence == (
         "Order ord_1 is ordered, with approval by the buyer's purchasing manager: "
-        "1,000 ST of 464306 for €1,010.00 net. "
+        "1,000 pcs of 464306 for €1,010.00 net. "
         "Price and availability were checked again and had not changed. "
         "The order is recorded in the gateway's order book."
     )

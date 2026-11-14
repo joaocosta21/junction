@@ -12,8 +12,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from tta.audit.phrases import (
+    MAX_NAME_CHARACTERS,
     NOTHING_ORDERED,
-    OPTION_KINDS,
     RECHECKED,
     RECORDED,
     actor_text,
@@ -24,8 +24,10 @@ from tta.audit.phrases import (
     joined,
     label,
     moment,
+    option_kind_text,
     option_text,
     person,
+    plain,
     quoted,
     request_text,
     roles_text,
@@ -37,6 +39,7 @@ from tta.audit.scope import (
     approvals_given,
     confirmed_by,
     distinct_rule_ids,
+    only_confirmation_asked,
     option_change,
     placed_within_authority,
     rejection,
@@ -75,8 +78,17 @@ def checked_for(scope: Scope) -> str:
     return f" for {scope.option_label}" if scope.option else ""
 
 
+def buyer_name(scope: Scope) -> str | None:
+    """Harbourside Hotel: the buyer by the name its profile gives it, read as data (a visitor may have typed
+    it). "profile hotel-kitchen" when the name is not known; None when the event names no profile."""
+    if scope.profile_name:
+        return plain(scope.profile_name, MAX_NAME_CHARACTERS)
+    return f"profile {scope.profile_id}" if scope.profile_id else None
+
+
 def request_received(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    profile = f" for profile {scope.profile_id}" if scope.profile_id else ""
+    buyer = buyer_name(scope)
+    profile = f" for {buyer}" if buyer else ""
     verb = "received" if actor.kind is ActorKind.SYSTEM else "sent"
     start = f"{actor_text(actor)} {verb} a request{profile}"
     text = context.facts.get("text")
@@ -120,7 +132,8 @@ def offer_text(offer: Offer, for_buyer: bool) -> str:
         notes = "".join(f" {ended(note)}" for note in offer.notes) if for_buyer else ""
         return f"{start}no option fits the request; {candidates}{excluded}.{notes}{dropped}"
     options = " ".join(
-        f"Option {option.rank} ({OPTION_KINDS[option.kind]}): {option_text(option)}, {coverage_text(option)}."
+        f"Option {option.rank} ({option_kind_text(option, for_buyer)}): {option_text(option)}, "
+        f"{coverage_text(option)}."
         for option in offer.options
     )
     return f"{start}{count(len(offer.options), 'option')} from {candidates}{excluded}. {options}{dropped}"
@@ -138,7 +151,8 @@ def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decision = scope.decision
     if decision is None:
         return f"The rules were checked{checked_for(scope)}. {DECISION_NOT_RECORDED}"
-    checked = f"The rules of profile {decision.profile_id} were checked for {scope.option_label}."
+    whose = buyer_name(scope) or f"profile {decision.profile_id}"
+    checked = f"The rules of {whose} were checked for {scope.option_label}."
     return f"{checked} {ended(decision.sentence)}"
 
 
@@ -150,7 +164,8 @@ def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> 
             f"The agent placed {scope.order_label} alone{_what(scope)}. {DECISION_BEHIND_NOT_RECORDED}"
             f"{recorded_note(context)}"
         )
-    profile = f" under profile {scope.profile_id}" if scope.profile_id else ""
+    buyer = buyer_name(scope)
+    profile = f" under the rules of {buyer}" if buyer else ""
     return (
         f"The agent placed {scope.order_label} alone, within its authority{profile}{_what(scope)}. "
         f"No rule asked for a human.{recorded_note(context)}"
@@ -217,9 +232,12 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if by is None:
         return confirmed_text(context, scope, None)
     approvers = joined(person(entry.approver_name, entry.roles) for entry in approvals_given(context))
+    # Under F-10 alone the agent prepared the order and a person confirmed it: no exception was approved.
+    confirmed = only_confirmation_asked(scope.decision)
     if approvers:
-        return confirmed_text(context, scope, f"with approval by {approvers}")
-    return confirmed_text(context, scope, "with human approval", APPROVER_NOT_RECORDED)
+        return confirmed_text(context, scope, f"{'confirmed' if confirmed else 'with approval'} by {approvers}")
+    how = "confirmed by a human" if confirmed else "with human approval"
+    return confirmed_text(context, scope, how, APPROVER_NOT_RECORDED)
 
 
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -243,7 +261,8 @@ def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 
 def order_blocked(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    whose = f"The rules of profile {scope.profile_id}" if scope.profile_id else "The rules"
+    buyer = buyer_name(scope)
+    whose = f"The rules of {buyer}" if buyer else "The rules"
     blocking = rules_with(scope.decision, Verdict.BLOCK)
     rules = f" {rule_lines(blocking)}" if blocking else ""
     return (

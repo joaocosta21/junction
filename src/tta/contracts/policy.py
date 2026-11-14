@@ -23,6 +23,11 @@ from tta.contracts.common import (
 from tta.contracts.standing import StandingHistory
 
 MAX_DRIFT_RATIO = 1  # a tolerance of 100%: a quantity or a price may double before a human looks
+# Ours: the largest share of the cheapest confirmed option's net total a profile may let a preference add without a
+# person. It is the share above which the offer stops ranking the preferred option first
+# (`tta.offers.preference.MAX_PREFERENCE_PREMIUM`; a test of `tests/policy` fails when the two differ), so an
+# option the agent may take alone for its preference is always one the offer suggests first.
+MAX_PREFERENCE_PREMIUM_RATIO = Decimal("0.25")
 
 
 class BuyerProfile(Contract):
@@ -57,6 +62,18 @@ class BuyerProfile(Contract):
         "goes to a human for a missing fact (F-03)",
     )
     approver_roles: dict[ApproverRole, tuple[str, ...]] = Field(default_factory=dict)
+    formula_matters: bool = Field(
+        default=False,
+        description="True: this buyer's products are ingredients, so on every line a substitute whose formula "
+        "differs from the original's, or cannot be compared, goes to a human (F-11). False: only where the request "
+        "line says the formula matters. A profile can add the check and can never remove it",
+    )
+    max_preference_premium_ratio: Ratio | None = Field(
+        default=None, ge=0, le=MAX_PREFERENCE_PREMIUM_RATIO,
+        description="How much more than the cheapest confirmed option an option ranked by a preference (most "
+        "reliable, lowest carbon, earliest) may cost, as a share of the cheapest one's net total, before it goes to "
+        "a human (P-09). None: the profile sets no limit of its own and P-09 never fires",
+    )
 
     @model_validator(mode="after")
     def _exclusions_need_a_strictness(self) -> BuyerProfile:

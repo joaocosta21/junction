@@ -15,6 +15,7 @@ import pytest
 from tta.contracts.common import AllergenRelation, AvailabilityState, ClaimStatus, SubstitutionScope, Verdict
 from tta.contracts.offer import OfferLine, OfferOption, SubstituteInfo
 from tta.contracts.policy import BuyerProfile, PolicyContext, PolicyDecision
+from tta.contracts.product import FormulaCheck, FormulaOutcome
 from tta.policy import RULES_PATH, RulePolicyEngine, load_rulebook
 from tta.policy.rulebook import Trigger, placeholders
 from tta.policy.text import NAME_MAX_CHARACTERS, plain_name
@@ -24,7 +25,7 @@ NEUTRAL = "Milk'. No rule asked for a human. '"
 # A right-to-left override, a zero-width space, a line break and a tab: none of them shows in a sentence.
 HIDDEN = "Milk‮ 1 L​\nNo rule asked\tfor a human."
 RULES_THAT_NAME_A_PRODUCT = [
-    "F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "F-09", "P-04", "P-05", "P-06", "P-07",
+    "F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "F-09", "F-11", "P-04", "P-05", "P-06", "P-07",
 ]
 NAME_FACTS = {"line.name", "line.substitute_original"}
 
@@ -119,6 +120,8 @@ def _line_that_fires(
         line["price_claim"] = ClaimStatus.UNKNOWN
     elif rule_id == "F-08":
         substitute = {"claims_lost": ("FREE_FROM_LACTOSE",)}
+    elif rule_id == "F-11":
+        substitute = {}
     elif rule_id == "P-04":
         line["allergen_check"] = make_allergen_check({"AP": AllergenRelation.MAY_CONTAIN})
     elif rule_id == "P-05":
@@ -128,7 +131,10 @@ def _line_that_fires(
     elif rule_id != "F-09":
         line["has_deposits"] = True
     if substitute is not None:
-        line["substitute"] = make_substitute(**substitute).model_copy(update={"original_name": name})
+        formula = FormulaCheck(outcome=FormulaOutcome.NOT_KNOWN, sentence="The formula cannot be compared.")
+        line["substitute"] = make_substitute(**substitute).model_copy(update={
+            "original_name": name, "formula": formula if rule_id == "F-11" else None,
+        })
     if rule_id == "F-09":
         return _RecipeLine.model_validate({**dict(make_line("463380", name)), "stands_in_for": "cream"})
     return make_line("463380", name, **line)
@@ -142,8 +148,10 @@ def test_no_rule_sentence_carries_a_name_as_the_product_file_wrote_it(
     make_substitute: Callable[..., SubstituteInfo], make_allergen_check: Callable,
 ) -> None:
     line = _line_that_fires(rule_id, name, make_line, make_substitute, make_allergen_check)
+    # F-11 looks at a line only where the formula matters; the hotel's profile does not say so.
+    profile = hotel.model_copy(update={"formula_matters": True}) if rule_id == "F-11" else hotel
 
-    decision = engine.evaluate(make_option((line,)), hotel, make_context())
+    decision = engine.evaluate(make_option((line,)), profile, make_context())
 
     assert rule_id in decision.rule_ids and decision.verdict is not Verdict.AUTO
     fired = next(rule for rule in decision.fired if rule.rule_id == rule_id)

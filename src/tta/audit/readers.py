@@ -40,6 +40,7 @@ MASKED_BY_RULE = {
     "P-02": "the amounts are not shown",
     "P-03": "the buyer's minimum is not shown",
     "P-08": "the buyer's tolerance is not shown",
+    "P-09": "the amount and the buyer's limit are not shown",
     **dict.fromkeys(RULES_ABOUT_AN_EXCLUDED_ALLERGEN, "which allergen and which product are not shown"),
 }
 KNOWN_ROLES = tuple(role.value for role in ApproverRole)

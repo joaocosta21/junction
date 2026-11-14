@@ -41,6 +41,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B21 | Plain "milk" with no regular milk in confirmed stock gets a named low-lactose or lactose-free product as the first option, and the offer says it is an alternative to regular milk | A confirmed product a person can accept beats no suggestion; in the recording no regular milk has confirmed stock | L2b |
 | B22 | A preference (most reliable, lowest carbon) may cost up to 25% more than the cheapest confirmed option before the cheapest comes first; a known delivery reliability under 90% ranks with an unknown one. Both are named "our threshold" in the sentence | A preference must not buy the tenderloin (€931) for a stew (€247) | L2b |
 | B23 | Under "declared only", a product with no allergen statement is still never the first option; it is the labelled alternative | The safe product wins | L2b |
+| B24 | F-11 (formula) is a fixed rule: a profile or a request can add the check and never remove it. A substitute that cannot be compared counts as not keeping the formula | P10 decision 4; Valio: not sure means ask | L3-2 |
+| B25 | Ward and bakery let a preference add 10% without a person; hotel and school set no limit. No profile can set more than 25% | They are the two that prefer reliability | L3-2 |
 
 ## C. Questions for the team (domain)
 

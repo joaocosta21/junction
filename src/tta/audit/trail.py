@@ -33,6 +33,7 @@ from tta.contracts.audit import (
     ChainVerification,
 )
 from tta.contracts.common import AuditReader
+from tta.contracts.errors import NotAuthorised
 from tta.contracts.ports import Clock, PolicyEngine, Store
 from tta.store.errors import AuditChainConflict
 
@@ -96,7 +97,7 @@ class AuditTrail:
         now = self._clock.now()
         if now.utcoffset() is None:
             raise ValueError("The clock gave a time with no UTC offset; an audit event needs one (RFC 3339).")
-        scope = self._with_stored_profile(resolve(context))
+        scope = self._with_profile_name(self._with_stored_profile(resolve(context)))
         data = AuditData(
             actor=actor,
             sentence=buyer_sentence(event_type, actor, context, scope),
@@ -213,6 +214,18 @@ class AuditTrail:
             if stored is not None:
                 return replace(scope, profile_id=stored.profile_id)
         return scope
+
+    def _with_profile_name(self, scope: Scope) -> Scope:
+        """The scope with the buyer's name, so that the buyer's sentences name the customer and not a profile
+        id. The name is no field of the event: it is asked of the policy engine this trail holds, and only for
+        the sentence. With no engine, or a profile the engine does not know, the sentence keeps the id."""
+        if scope.profile_name is not None or scope.profile_id is None or self._policy is None:
+            return scope
+        try:
+            profile = self._policy.get_profile(scope.profile_id)
+        except NotAuthorised:
+            return scope
+        return replace(scope, profile_name=profile.display_name)
 
     def _policy_hash(self, context: AuditContext, scope: Scope) -> str | None:
         """The hash of the rules and profile in force: from the decision, else from the offer, else the engine."""

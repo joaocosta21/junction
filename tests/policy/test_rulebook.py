@@ -21,6 +21,7 @@ SPEC_RULES = {
     "F-07": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "F-08": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "F-09": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # task MENU-1: a recipe stand-in
+    "F-11": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # the formula of a substitute
     "P-01": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-02": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
     "P-03": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
@@ -29,6 +30,7 @@ SPEC_RULES = {
     "P-06": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-07": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
     "P-08": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # task STAND-1: standing order drift
+    "P-09": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # what a preference may cost
 }
 
 
@@ -37,6 +39,7 @@ SPEC_RULES = {
 FIXED_VERDICTS = {
     "F-01": Verdict.APPROVAL, "F-02": Verdict.BLOCK, "F-03": Verdict.APPROVAL, "F-04": Verdict.BLOCK,
     "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL, "F-08": Verdict.APPROVAL, "F-09": Verdict.APPROVAL,
+    "F-11": Verdict.APPROVAL,
 }
 OTHER_VERDICT = {Verdict.APPROVAL: Verdict.BLOCK, Verdict.BLOCK: Verdict.APPROVAL}
 
@@ -55,7 +58,7 @@ def test_the_shipped_rules_are_exactly_those_of_the_spec() -> None:
     assert list(dict.fromkeys(rule.id for rule in rulebook.rules)) == sorted(SPEC_RULES)
     assert [rule.id for rule in rulebook.access_rules] == ["F-06"]
     assert rulebook.fixed_rule_ids == frozenset(
-        {"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09"}
+        {"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09", "F-11"}
     )
 
 

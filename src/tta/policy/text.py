@@ -45,22 +45,23 @@ def format_ratio(value: Decimal) -> str:
     return f"{format_number(percent)}%"
 
 
-def plain_name(name: str) -> str:
+def plain_name(name: str, limit: int = NAME_MAX_CHARACTERS) -> str:
     """A name from the supplier's product file as it may stand in a rule sentence: data, never a statement.
 
     A double quotation mark, ASCII or typographic, becomes an apostrophe, so a name cannot close a quotation.
     A control or format character (a line break, a bidirectional override, a zero-width character) becomes a
-    space, so a name stays on one line and hides nothing. At most `NAME_MAX_CHARACTERS` characters; a longer
-    name ends in "…". The audit trail quotes rule sentences as written, so this is done where a name is read.
+    space, so a name stays on one line and hides nothing. At most `limit` characters (`NAME_MAX_CHARACTERS`
+    for a name); a longer text ends in "…". The audit trail quotes rule sentences as written, so this is done
+    where a name is read.
     """
     shown = "".join(
         " " if unicodedata.category(character).startswith(_NOT_SHOWN) else character
         for character in name.translate(_TO_APOSTROPHE)
     )
     one_line = " ".join(shown.split())
-    if len(one_line) <= NAME_MAX_CHARACTERS:
+    if len(one_line) <= limit:
         return one_line
-    return one_line[: NAME_MAX_CHARACTERS - len(CUT_MARK)].rstrip() + CUT_MARK
+    return one_line[: limit - len(CUT_MARK)].rstrip() + CUT_MARK
 
 
 def format_datetime(value: datetime) -> str:

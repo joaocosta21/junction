@@ -27,8 +27,8 @@ from tta.contracts.policy import FiredRule
 from tta.contracts.request import PurchaseRequest, RequestLine
 
 MANAGER = "the buyer's purchasing manager"
-UNCONFIRMED = "1,000 ST of 464306 for €1,010.00 net"
-PARTIAL = "698 ST of 463380 and 51 ST of 462775 for €1,980.77 net"
+UNCONFIRMED = "1,000 pcs of 464306 for €1,010.00 net"
+PARTIAL = "698 pcs of 463380 and 51 pcs of 462775 for €1,980.77 net"
 F01 = "F-01, a fixed rule (rule F-01), on product 464306: approval by the buyer's purchasing manager."
 P01 = (
     "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by the buyer's purchasing manager."
@@ -152,7 +152,7 @@ def test_valio_reads_the_products_considered_and_left_out_by_reason(trail: Audit
     event = trail.record(AuditEventType.OFFER_CREATED, samples.gateway, AuditContext(offer=offer))
 
     assert event.data.supplier_sentence == (
-        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data (replay): "
+        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data: "
         "2 options from 35 candidates. "
         f"Option 1 (best confirmed): {PARTIAL}, covering 74.9% of the request. "
         f"Option 2 (alternative, quantity not confirmed): {UNCONFIRMED}, covering the full quantity. "
@@ -200,7 +200,7 @@ def test_an_offer_with_no_option_still_says_what_was_left_out(trail: AuditTrail,
     event = trail.record(AuditEventType.OFFER_CREATED, samples.gateway, AuditContext(offer=offer))
 
     assert event.data.supplier_sentence == (
-        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data (replay): "
+        "The gateway built offer off_1 from a recorded copy of Valio Aimo's data: "
         "no option fits the request; 35 candidates. "
         "2 products were considered and left out: 1 past the closing time for ordering (471690); "
         "1 sold in portion packs, which the request does not ask for (463203)."

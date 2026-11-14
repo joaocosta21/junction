@@ -14,7 +14,7 @@ S4): neither the buyer's name for it nor the drift, whose sentence states the bu
 from __future__ import annotations
 
 from tta.audit.phrases import actor_text, count, ended, label, quoted, request_text, roles_text
-from tta.audit.scope import Scope
+from tta.audit.scope import Scope, only_confirmation_asked
 from tta.audit.supplier_decisions import rules_applied
 from tta.contracts.audit import Actor, ActorKind, AuditContext
 from tta.contracts.common import OrderStatus, PlacedBy
@@ -69,6 +69,8 @@ def _outcome(context: AuditContext) -> str:
     if order.status is OrderStatus.PENDING_APPROVAL:
         roles = order.decision.required_roles if order.decision is not None else ()
         who = roles_text(roles) if roles else "a human"
+        if only_confirmation_asked(order.decision):  # F-10 alone: prepared by the agent, a person confirms it
+            return f" Order {order.order_id} is prepared and waits for {who} to confirm it."
         return f" Order {order.order_id} waits for approval by {who}."
     return f" Order {order.order_id} is {order.status.value.lower().replace('_', ' ')}."
 

@@ -82,6 +82,9 @@ facts:
   profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
   profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
   profile.deposits:                      {type: enum,   source: profile, label: "the deposit setting", values: [APPROVAL, NOTE]}
+  profile.formula_matters:               {type: bool,   source: profile, label: "whether the formula matters on every line", note: "true for a buyer whose products are ingredients (a bakery); read by line.formula_matters and by the texts of F-11"}
+  profile.max_preference_premium_ratio:  {type: ratio,  source: profile, label: "the premium a preference may add", note: "share of the cheapest confirmed option's net total (P-09); at most 25%, the share above which the offer ranks the cheapest option first; missing when the profile sets none"}
+  profile.limits_preference_premium:     {type: bool,   source: engine,  label: "whether the profile limits what a preference may cost", note: "false when max_preference_premium_ratio is not set: P-09 then never fires and no fact is missing"}
   profile.standing_order_drift_ratio:    {type: ratio,  source: profile, label: "the drift tolerance for standing orders", note: "how far a renewal's quantity or unit price on a line may differ from the median of its history (P-08); missing when the profile sets none"}
   # --- the option ---
   option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
@@ -95,6 +98,8 @@ facts:
   option.needed_by_finding:       {type: string,   source: engine, label: "what the needed-by check found", note: "in words; missing when the date is met or the request gave none"}
   option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is marked as an estimate by weight", note: "totals.is_ceiling, which keeps its name in the contract; the total of a product sold by weight is an estimate, because Valio Aimo invoices the weight delivered"}
   option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
+  option.net_above_cheapest:      {type: money,    source: option, label: "what the option costs above the cheapest confirmed option", note: "OfferOption.net_above_cheapest, set on the option ranked by the buyer's preference when a cheaper confirmed option is offered next to it; 0 when the offer sets none"}
+  option.preference_premium_ratio: {type: ratio,   source: engine, label: "the premium of the preference", note: "option.net_above_cheapest as a share of the cheapest confirmed option's net total (option.net_eur minus option.net_above_cheapest); 0 when the option costs nothing more; missing when that total is not above 0"}
   # --- the order context ---
   context.at_order_time:          {type: bool,  source: context, label: "whether an order is being placed"}
   context.day_committed_net_eur:  {type: money, source: context, label: "today's committed spend", missing_role: finance, note: "ORDERED and PENDING_APPROVAL orders of the profile today, this order excluded"}
@@ -131,6 +136,13 @@ facts:
   line.variable_weight:           {type: bool,   source: option, label: "the variable-weight statement", note: "absent on 3,068 of the 17,546 catalog products (AIMO/FINDINGS.md section 4)"}
   line.has_deposits:              {type: bool,   source: option, label: "whether the product carries a deposit"}
   line.stands_in_for:             {type: string, source: engine, label: "the recipe ingredient the line stands in for", note: "task MENU-1: the line's own product type, the recipe's product type it replaces (RequestLine.stands_in_for) and the ingredient's role in the dish, each read as data like line.name; empty when the line stands in for nothing, which is never a missing fact"}
+  # --- the formula of a substitute (rule F-11; tta.policy.formula_facts) ---
+  line.formula_matters:           {type: bool,   source: engine, label: "whether the formula matters for the line", note: "true when the request line says so or when the buyer profile sets formula_matters; a request or a profile can add the check and neither can remove it. The request line's word is not carried by an offer line yet: absent reads as not said"}
+  line.formula_matters_reason:    {type: string, source: engine, label: "who says the formula matters", note: "the request line, else the buyer profile, named by its display name read as data like line.name"}
+  line.substitute_keeps_formula:  {type: bool,   source: option, label: "whether the substitute keeps the formula", note: "SubstituteInfo.formula.keeps_formula: the offer's measure (six nutrients within 15% or 1 g, salt within 0.25 g, the same fat source; the tolerances are ours) says SAME_PRODUCT_OTHER_PACK, SAME_BRAND or OTHER_BRAND; false for DIFFERENT and for NOT_KNOWN; missing when the substitute carries no comparison"}
+  line.substitute_formula_outcome: {type: enum,  source: option, label: "the outcome of the formula comparison", values: [SAME_PRODUCT_OTHER_PACK, SAME_BRAND, OTHER_BRAND, DIFFERENT, NOT_KNOWN]}
+  line.substitute_formula:        {type: string, source: option, label: "what the formula comparison found", note: "the offer's own sentence with its numbers, read as data like line.name, at most 400 characters"}
+  line.substitute_formula_differences: {type: list, source: option, label: "the figures outside the tolerance", note: "each as 'fat 15 g, not 36 g' per 100 g or ml, then 'another fat source' when one ingredient list names a vegetable oil or fat and the other does not"}
 
 # ---------------------------------------------------------------------------------------------------------
 # Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
@@ -289,6 +301,34 @@ rules:
       - text: "A product type that recipe logic chose in place of a recipe's own ingredient always goes to the purchasing manager, who checks that the dish still works."
     justification: "Valio Aimo's scenarios ask for substitutions through recipe logic rather than a simple SKU swap. Whether a natural yoghurt can carry a quark dessert, or a vegetable-fat cream a sauce, changes the dish a kitchen serves; the recipes and their alternatives are ours and illustrative, so the agent never decides that alone."
 
+  # The formula (Valio Aimo, 14 Nov 2026: "for cakes/things that require the formula the ingredient and
+  # chemestry can make a difference"). The offer measures every substitute against the product it replaces
+  # (tta.offers.formula) and ranks the ones that keep the formula first; this rule is what happens when the
+  # one offered does not. It is FIXED: where the formula matters, no profile setting lets such a substitute
+  # through. "Where the formula matters" is the fact line.formula_matters: the request line says so, or the
+  # buyer profile says so for all its lines (formula_matters: true, the bakery). A profile can therefore ADD
+  # lines the rule looks at and can never remove one, which is why the rule may be fixed although a profile
+  # setting widens it: the `when` below reads no profile.* fact, and a request's own word always holds.
+  # A substitute with no comparison at all leaves the fact missing, so F-03 sends it to a person.
+  - id: F-11
+    fixed: true
+    title: A substitute does not keep the formula where the formula matters
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.formula_matters, op: is_true}
+        - {fact: line.substitute_keeps_formula, op: is_false}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} where the formula matters ({line.formula_matters_reason}), and the data does not show the same formula: {line.substitute_formula}"
+    records: [line.substitute_formula_outcome, line.substitute_formula_differences]
+    authority:
+      - when: {all: [{fact: profile.formula_matters, op: is_true}]}
+        text: "{profile.display_name} uses its products as ingredients, so the formula matters on every line: a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager."
+      - text: "Where a request line says the formula matters, a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager."
+    justification: "A cream with 15% fat does not whip and a vegetable-fat blend does not behave as butter in a dough: the swap changes what the kitchen can make. Of Valio Aimo's 249 listed substitute pairs our measure finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (whole catalog, AIMO/build/replan/P10-formula.md). The tolerances are ours and illustrative; 'cannot be compared' is never read as 'the same'."
+
   # --- Profile rules: the settings of one buyer ---
   # F-10, "Every order needs human approval", is the rule the profile setting `auto_order_enabled` drives.
   # It is NOT an entry of this list: it is written in code (tta.policy.human_approval) and applied twice, when
@@ -303,7 +343,7 @@ rules:
   #     confirmed (price, quantity, delivery date, allergens, origin). One statement that is unknown or
   #     missing, and F-10 still sends the order to the purchasing manager and names it.
   # It is not marked fixed, because a profile setting switches it. It replaces the rule P-00 of earlier
-  # versions of this file, which fired next to every other rule. The id F-11 is kept for the formula rule.
+  # versions of this file, which fired next to every other rule. F-11, the formula rule, is a fixed rule above.
 
   - id: P-01
     fixed: false
@@ -449,6 +489,30 @@ rules:
       - text: "This profile sets no drift tolerance for standing orders: a renewal with enough history goes to the purchasing manager, because the tolerance is missing (F-03)."
     justification: "Valio Aimo's example scenario: 'the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it.' Every renewal of AIMO/USE-CASES.md section 6, 100 to 290 L of 469363, was AUTO with no rule fired. The Valio Aimo mock has no order history: the demonstration's history is synthetic and says so."
 
+  # A preference (most reliable, lowest carbon, earliest) has a price. The offer states it on the option ranked
+  # by the preference, as an amount and as a share of the cheapest confirmed option, and ranks the cheapest
+  # option first when the share is above 25% (tta.offers.preference.MAX_PREFERENCE_PREMIUM, our threshold).
+  # This rule is the buyer's own, lower or equal, limit: above it the preferred option goes to a person. A
+  # profile cannot set more than 25% (tta.contracts.policy.MAX_PREFERENCE_PREMIUM_RATIO; a test checks that the
+  # two values agree), so an option the agent may take alone for its preference is always one the offer ranks
+  # first. A profile that sets no limit leaves profile.limits_preference_premium false: the rule is false.
+  - id: P-09
+    fixed: false
+    title: A preference costs more than the profile accepts
+    scope: order
+    when:
+      all:
+        - {fact: profile.limits_preference_premium, op: is_true}
+        - {fact: option.preference_premium_ratio, op: gt, value: {fact: profile.max_preference_premium_ratio}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "this option is ranked by the buyer's preference and costs €{option.net_above_cheapest} more before tax than the cheapest confirmed option, a premium of {option.preference_premium_ratio}, above the {profile.max_preference_premium_ratio} that {profile.display_name} lets a preference add without a human"
+    authority:
+      - when: {all: [{fact: profile.limits_preference_premium, op: is_true}]}
+        text: "An option ranked by a preference (most reliable, lowest carbon, earliest) that costs more than {profile.max_preference_premium_ratio} above the cheapest confirmed option goes to the purchasing manager."
+      - text: "This profile sets no limit on what a preference may cost. The offer still ranks the cheapest confirmed option first when a preference costs more than 25% above it (our threshold)."
+    justification: "A preference must not buy the tenderloin for a stew: 'most reliable' or 'lowest carbon' says what to favour, not that any price is accepted. The share is the buyer's to set; nothing here is a Valio Aimo limit."
+
 # Fixed rules that are enforced where the caller's identity is known, not by the engine. They are listed
 # here so that this file states every fixed rule and the policy hash covers them.
 access_rules:
@@ -480,5 +544,5 @@ authority:
       text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
       text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
-    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; and any fact a rule needs that is missing."
+    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; a substitute that does not keep the formula where the formula matters; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

@@ -35,6 +35,8 @@ from tta.policy.claims import (
     unconfirmed_reasons,
 )
 from tta.policy.coverage import coverage_by_line, least_covered
+from tta.policy.formula_facts import FORMULA_FACTS
+from tta.policy.premium_facts import PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS
 from tta.policy.reading import Missing, Reading
 from tta.policy.standing_facts import STANDING_FACTS
 from tta.policy.text import format_datetime, join_words, plain_name, unique
@@ -108,6 +110,8 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.variable_weight": lambda profile, _: profile.variable_weight.value,
     "profile.deposits": lambda profile, _: profile.deposits.value,
     "profile.standing_order_drift_ratio": _drift_ratio,
+    "profile.formula_matters": lambda profile, _: profile.formula_matters,
+    **PREMIUM_PROFILE_FACTS,  # rule P-09: what a preference may cost
 }
 
 
@@ -230,6 +234,7 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "revalidation.expired": _revalidation_expired,
     "revalidation.changes": _revalidation_changes,
     **STANDING_FACTS,  # rule P-08: a renewal of a standing order (task STAND-1)
+    **PREMIUM_ORDER_FACTS,  # rule P-09: what a preference costs above the cheapest confirmed option
 }
 
 
@@ -411,6 +416,7 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.variable_weight": _variable_weight,
     "line.has_deposits": lambda _, line: line.has_deposits,
     "line.stands_in_for": _stands_in_for,
+    **FORMULA_FACTS,  # rule F-11: a substitute's formula where the formula matters
 }
 
 LINE_FACT_PREFIX = "line."
