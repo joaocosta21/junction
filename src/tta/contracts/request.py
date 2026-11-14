@@ -20,6 +20,7 @@ MAX_TERMS = 10
 MAX_ALLERGEN_CODES = 30
 MAX_TERM_LENGTH = 60
 MAX_ID_LENGTH = 20
+MAX_SUGGESTION_ID_LENGTH = 120  # as `tta.contracts.suggestion.MAX_ID_LENGTH`, which imports this module
 MAX_ROLE_LENGTH = 200
 
 _FORBIDDEN_IN_A_TERM = frozenset('"\u201c\u201d\u201e\u00ab\u00bb<>')
@@ -116,6 +117,12 @@ class PurchaseRequest(Contract):
         default=None, max_length=MAX_ID_LENGTH * 2, pattern=r"^[A-Za-z0-9_-]+$",
         description="The standing order this request renews: its history is checked (rule P-08). It can only add a "
         "check, never remove one",
+    )
+    accepted_suggestion_id: str | None = Field(
+        default=None, max_length=MAX_SUGGESTION_ID_LENGTH, pattern=r"^[A-Za-z0-9_-]+$",
+        description="The `suggestion_id` of the suggestion this request accepts: set in every suggestion's "
+        "`accept_request`. The gateway records the acceptance in the audit trail when an earlier offer of the same "
+        "buyer showed that suggestion. It changes nothing in the offer: the request meets every rule like any other",
     )
 
 

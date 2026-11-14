@@ -20,6 +20,12 @@ from tta.api.agent_calls import note_offer, note_order, read_with, run_that_stop
 from tta.api.customers import CustomerView, customer_view
 from tta.api.errors import reading_caller_input
 from tta.api.limits import CallKind, CallLimits
+from tta.api.suggesting import (
+    OfferSuggestions,
+    OfferSuggestionsView,
+    acceptance_not_recorded,
+    without_acceptance,
+)
 from tta.contracts.agent import AgentRun, Reading
 from tta.contracts.audit import SYSTEM_ACTOR, AuditContext, AuditEventType, AuditView
 from tta.contracts.common import ApprovalStatus, AuditReader, Identity, OrderStatus
@@ -99,6 +105,7 @@ class GatewayDeps:
     request_parser: RequestParser | None = None
     agent_runner: AgentRunner | None = None
     max_request_lines: int | None = None  # `MAX_DEMO_REQUEST_LINES` in dev and demo; the contract's 20 elsewhere
+    suggestions: OfferSuggestions | None = None  # None: offers carry no suggestion (`tta.api.suggesting`)
 
 
 def _require_agent(identity: Identity) -> None:
@@ -196,9 +203,19 @@ class Gateway:
 
     def _offer(self, identity: Identity, request: PurchaseRequest) -> Offer:
         offer = self._deps.offers.build_offer(request, identity)
+        suggesting = self._deps.suggestions
+        # Suggestions are computed on the finished offer and change none of its options or totals. A failure
+        # there leaves the offer without them, with a note.
+        outcome = None
+        if suggesting is not None:
+            offer, outcome = suggesting.add_to(identity, offer)
+        else:
+            offer = acceptance_not_recorded(offer)  # suggestions are off: an acceptance is said, not dropped
         with self._deps.store.atomic():  # the offer and its events together, or neither
             self._deps.store.save_offer(offer)
             self._record_offer(identity, offer)
+            if suggesting is not None and outcome is not None:
+                suggesting.record(identity, offer, outcome)
         note_offer(offer.offer_id)  # inside a run of the buyer agent: its "request received" is written now
         return offer
 
@@ -234,6 +251,15 @@ class Gateway:
             raise NotFound(NO_SUCH_OFFER)
         return offer
 
+    def get_offer_suggestions(self, identity: Identity, offer_id: str) -> OfferSuggestionsView:
+        """What an offer of the caller's buyer suggested, and what it did not show with the reason: the buyer's
+        own view, so the supplier is refused like any read of an offer."""
+        offer = self.get_offer(identity, offer_id)
+        suggesting = self._deps.suggestions
+        if suggesting is None:
+            return OfferSuggestionsView(offer_id=offer.offer_id, suggestions=offer.suggestions)
+        return suggesting.view(offer)
+
     def place_order(self, identity: Identity, offer_id: str, option_id: str, idempotency_key: str) -> Order:
         """Raises `OfferStale` or `OfferExpired` with `fresh_offer_id`: a new offer for the same request."""
         _require_agent(identity)
@@ -255,7 +281,8 @@ class Gateway:
         if stale is None:
             return None
         try:
-            return self._offer(identity, stale.request)  # part of the same call: not counted by the rate limit again
+            # Part of the same call: not counted by the rate limit again. A suggestion is accepted once.
+            return self._offer(identity, without_acceptance(stale.request))
         except TtaError as error:
             logger.warning("No fresh offer could be built for %s: %s (%s)", offer_id, error.slug, error.detail)
             return None

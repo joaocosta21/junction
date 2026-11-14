@@ -181,7 +181,10 @@ def create_offer(request: Request, response: Response, caller: Caller, purchase:
     """At most three options at fixed prices, each with a status per claim, a check per thing the buyer asked
     for, and the policy verdict for the caller's buyer profile. Everything that dropped out is listed with a
     reason. "Nothing fits" is an offer with no option and the reasons, not an error. A request names at most
-    1,000 product ids. `Location` is the address of the new offer."""
+    1,000 product ids. `Location` is the address of the new offer.
+
+    `suggestions` holds at most three, computed from the customer's past orders and the catalog. Suggestions never
+    add themselves to an order: accept one by sending its `accept_request` as a new request to this route."""
     offer = _service(request).create_offer(caller, purchase)
     response.headers[LOCATION_HEADER] = f"{router.prefix}/offers/{offer.offer_id}"
     return _signed(request, offer)

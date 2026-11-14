@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api import create_app, wiring
-from tta.api.wiring import STORE_FALLBACK, build_parts
+from tta.api.wiring import STORE_FALLBACK, STORE_SCHEMA_REFUSED, GatewayConfigurationError, build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
 from tta.store import SqliteStore
@@ -71,7 +71,7 @@ def test_a_database_that_cannot_be_reached_at_start_up_leaves_the_gateway_on_sql
 
     assert isinstance(parts.store, SqliteStore) and settings.db_path.is_file()
     assert parts.start_reasons == (STORE_FALLBACK,)
-    assert "could not be reached" in caplog.text
+    assert "was not opened (SupplierUnavailable" in caplog.text and "using SQLite" in caplog.text  # the cause's type
     assert PASSWORD not in caplog.text and "127.0.0.1" not in caplog.text
     with TestClient(create_app(settings, parts=parts)) as client:
         offer = make_offer(client, "agent_ward", scenario_2)  # the flow goes on, on SQLite
@@ -100,3 +100,38 @@ def test_the_schema_of_the_order_book_is_a_setting_the_store_reads() -> None:
     assert Settings.for_tests().tta_db_schema == ""
     assert schema_for(Settings.for_tests(tta_env="demo")) == "tta"  # blank: the schema of the environment
     assert schema_for(Settings.for_tests(tta_env="demo", tta_db_schema="tta_public")) == "tta_public"
+
+
+# --- review S7: the cause, a refused schema name, and no fall-back outside dev and demo ---------------------
+
+PROD_TOKENS = ('{"prod-agent-token-of-32-characters-x": {"kind": "AGENT", "id": "agent:hotel-kitchen", '
+               '"display_name": "Hotel agent", "profile_id": "hotel-kitchen"}}')
+
+
+def test_a_schema_name_the_store_refuses_has_a_reason_of_its_own(tmp_path: Path, catalog: ProductCatalog) -> None:
+    settings = _settings(tmp_path, database_url=UNREACHABLE, tta_db_schema="Not A Schema")
+
+    parts = build_parts(settings, catalog=catalog)
+    with TestClient(create_app(settings, parts=parts)) as client:
+        answer = client.get("/healthz")
+
+    assert parts.start_reasons == (STORE_SCHEMA_REFUSED,)
+    assert answer.status_code == 200 and answer.json()["status"] == "degraded"  # dev and demo stay reachable
+    assert answer.json()["store"] == {"kind": "sqlite", "reason": STORE_SCHEMA_REFUSED}
+    assert "TTA_DB_SCHEMA" in STORE_SCHEMA_REFUSED and "/" not in STORE_SCHEMA_REFUSED
+
+
+def test_outside_dev_and_demo_a_database_that_cannot_be_opened_stops_the_start(
+    tmp_path: Path, catalog: ProductCatalog, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.WARNING)
+    settings = Settings.for_tests(tta_env="prod", tta_data_dir=tmp_path / "var", database_url=UNREACHABLE,
+                                  tta_tokens=PROD_TOKENS)
+
+    with pytest.raises(GatewayConfigurationError) as refused:
+        build_parts(settings, catalog=catalog)
+
+    assert "lost at the next restart" in str(refused.value)
+    assert not settings.db_path.exists()  # no local order book was opened in its place
+    for text in (str(refused.value), caplog.text):
+        assert PASSWORD not in text and "127.0.0.1" not in text

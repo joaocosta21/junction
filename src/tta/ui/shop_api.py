@@ -20,9 +20,12 @@ site cannot send, and refuses a request the browser marks as cross-site (`Sec-Fe
 
 The shop's customers are the four of the customer files (`tta.customers`): the header `X-Shop-Kitchen` names one
 of them, by the page's short name or by its customer id, and nothing else (C2 F7). The person who signs is one
-of that customer's people, for the role signed. A book whose settings never arrived answers `409` to every call
-that would apply them (C2 F3): before its first `PUT /kitchen` a book holds a copy of the hotel's profile, and
-the ward's 1,000 litres of milk would be offered under it.
+of that customer's people, for the role signed. The book is told which customer it stands for, so its offers carry
+the suggestions computed from that customer's past orders, judged under the settings the shop sent
+(`GET /suggestions`: what an offer suggests, and what it does not show with the reason; `GET /customer`: the
+customer's people, usual products and synthetic history). A book whose settings never arrived answers `409` to
+every call that would apply them (C2 F3): before its first `PUT /kitchen` a book holds a copy of the hotel's
+profile, and the ward's 1,000 litres of milk would be offered under it.
 """
 
 from __future__ import annotations
@@ -32,11 +35,13 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.concurrency import run_in_threadpool
 
-from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, Sandbox
+from tta.api.customers import customer_view
+from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, Sandbox, file_profile
 from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Identity
 from tta.contracts.customer import Customer
 from tta.contracts.errors import TtaError
@@ -73,6 +78,7 @@ NOT_ONE_OF_THEM = "Only {person} signs as {role} for {customer}. Nothing was sig
 MAX_TEXT = 2000
 MAX_KEY = 100
 MAX_NAME = 80
+MAX_ID = 64
 
 
 class _Body(BaseModel):
@@ -161,6 +167,11 @@ def _signer(customer: Customer, role: ApproverRole, name: str | None) -> str | J
 
 
 async def _body(request: Request, model: type[BaseModel]) -> BaseModel | JSONResponse:
+    """The body as `model`, or the refusal: the guard's first, so a caller that is not the shop page gets its 403
+    whatever it sent."""
+    refused = _guard(request)
+    if refused is not None:
+        return refused
     try:
         raw = json.loads(await request.body() or b"null")
     except ValueError:
@@ -181,7 +192,10 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         raise ValueError(f"The shop's customers have no customer file: {', '.join(missing)}.")
 
     def book(request: Request) -> Sandbox:
-        return site.sandboxes.open(_book_key(request))
+        """This browser's book of the customer the header names, which the book's suggestions are computed for."""
+        one = site.sandboxes.open(_book_key(request))
+        one.customer.name(str(_customer_id(request)))
+        return one
 
     def answer(request: Request, call: Callable[[Sandbox], Any], *, needs_settings: bool = False) -> Response:
         """`needs_settings`: the call applies the customer's settings, so it waits for them to arrive."""
@@ -195,6 +209,14 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
             return _json(call(one))
         except TtaError as error:
             return _refused(error)
+
+    async def in_a_worker(
+        request: Request, call: Callable[[Sandbox], Any], *, needs_settings: bool = False
+    ) -> Response:
+        """`answer` from a route that had to read its body on the event loop: the gateway's work runs in a worker
+        thread, so one slow call does not hold every other visitor's request (the other routes are plain functions,
+        which the framework runs in a worker itself)."""
+        return await run_in_threadpool(lambda: answer(request, call, needs_settings=needs_settings))
 
     @app.get(SHOP_PATH, include_in_schema=False)
     @app.get(SHOP_PATH + "/", include_in_schema=False)
@@ -220,40 +242,68 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
             settings = None
         if not isinstance(settings, dict):
             return _problem(400, "The request cannot be processed", NOT_JSON)
-        try:
-            one = book(request)
-            one.kitchen.set_up(settings)
-            return _json(one.service.get_authority(KITCHEN_AGENT))
-        except PolicyLoadError as error:
-            return _problem(422, "The kitchen settings were refused", str(error))
-        except TtaError as error:
-            return _refused(error)
+
+        def set_up() -> Response:
+            try:
+                one = book(request)
+                one.kitchen.set_up(settings)
+                return _json(one.service.get_authority(KITCHEN_AGENT))
+            except PolicyLoadError as error:
+                return _problem(422, "The kitchen settings were refused", str(error))
+            except TtaError as error:
+                return _refused(error)
+
+        return await run_in_threadpool(set_up)
 
     @app.post(API + "/read")
     async def read(request: Request) -> Response:
         body = await _body(request, ReadBody)
         if isinstance(body, JSONResponse):
             return body
-        return answer(request, lambda one: one.service.read_request(KITCHEN_AGENT, body.text), needs_settings=True)
+        return await in_a_worker(
+            request, lambda one: one.service.read_request(KITCHEN_AGENT, body.text), needs_settings=True
+        )
 
     @app.post(API + "/offers")
     async def offer(request: Request) -> Response:
         body = await _body(request, PurchaseRequest)
         if isinstance(body, JSONResponse):
             return body
-        return answer(request, lambda one: one.service.create_offer(KITCHEN_AGENT, body), needs_settings=True)
+        return await in_a_worker(
+            request, lambda one: one.service.create_offer(KITCHEN_AGENT, body), needs_settings=True
+        )
 
     @app.get(API + "/offers/{offer_id}")
     def one_offer(request: Request, offer_id: str) -> Response:
         """An offer of this book, as it was made: the approvals page reads its options to offer the safe one (R6)."""
         return answer(request, lambda one: one.service.get_offer(KITCHEN_AGENT, offer_id))
 
+    @app.get(API + "/suggestions")
+    def suggestions(request: Request, offer_id: str = Query(min_length=1, max_length=MAX_ID)) -> Response:
+        """What an offer of this book suggests (`suggestions`, as on the offer) and what it does not show, each
+        with the reason (`dropped[].sentence`, `held_back[].summary`): the buyer's own view. Nothing is added to
+        an order: the page posts a suggestion's `accept_request` to `POST /offers`."""
+        return answer(request, lambda one: one.service.get_offer_suggestions(KITCHEN_AGENT, offer_id))
+
+    @app.get(API + "/customer")
+    def customer(request: Request) -> Response:
+        """The shop's selected customer as `GET /v1/customers/{id}` answers it: people, usual products, synthetic
+        history and standing orders from the customer file. The limits are the book's own once the shop sent its
+        settings, and the customer's profile file until then."""
+        customer_id = str(_customer_id(request))
+
+        def call(one: Sandbox) -> Any:
+            own = one.kitchen.profile if one.kitchen.is_set_up else file_profile(customer_id)
+            return customer_view(KITCHEN_AGENT, lambda _: own, customers=lambda _: customers[customer_id])
+
+        return answer(request, call)
+
     @app.post(API + "/orders")
     async def order(request: Request) -> Response:
         body = await _body(request, OrderBody)
         if isinstance(body, JSONResponse):
             return body
-        return answer(
+        return await in_a_worker(
             request, lambda one: one.service.place_order(KITCHEN_AGENT, body.offer_id, body.option_id, body.key),
             needs_settings=True,
         )
@@ -286,7 +336,9 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         if isinstance(signer, JSONResponse):
             return signer
         signing = approver.model_copy(update={"display_name": signer})
-        return answer(request, lambda one: one.service.decide_approval(signing, approval_id, body.decision))
+        return await in_a_worker(
+            request, lambda one: one.service.decide_approval(signing, approval_id, body.decision)
+        )
 
     @app.get(API + "/audit")
     def audit(request: Request, order_id: str, reader: AuditReader = AuditReader.BUYER) -> Response:

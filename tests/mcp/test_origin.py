@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from tta.api.mcp_origin import LOCAL_ORIGINS, ORIGIN_REFUSED, ORIGINS_SETTING, allowed_origins, is_allowed_origin
+from tta.config import Settings
 from tta.contracts.errors import PROBLEM_CONTENT_TYPE
 
 pytestmark = pytest.mark.anyio
@@ -86,9 +87,11 @@ async def test_both_addresses_of_the_endpoint_are_checked(
 
 
 def test_the_allow_list_is_the_local_origins_plus_the_setting() -> None:
-    configured = SimpleNamespace(**{ORIGINS_SETTING: " https://demo.example , https://other.example:8443 ,"})
+    configured = Settings.for_tests(**{ORIGINS_SETTING: " https://demo.example , https://other.example:8443 ,"})
 
-    assert allowed_origins(SimpleNamespace()) == LOCAL_ORIGINS
+    assert allowed_origins(Settings.for_tests(**{ORIGINS_SETTING: ""})) == LOCAL_ORIGINS
+    with pytest.raises(AttributeError):  # a settings object without the field fails loudly (review S18)
+        allowed_origins(SimpleNamespace())  # type: ignore[arg-type]
     assert allowed_origins(configured) == (*LOCAL_ORIGINS, "https://demo.example", "https://other.example:8443")
 
 

@@ -2,8 +2,11 @@
 
 Scores on the 20% "autonomy and controls" and on Valio Aimo's scenario "the agent learns a kitchen's recurring weekly
 order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it". The visitor loads
-the demonstration's standing order (100 L of 469363 a week, six synthetic past weeks), renews it with this week's
-quantity, and sees the drift found and the outcome: ordered alone, or the approval it waits for (rule P-08).
+the standing orders of the demo customers' files (the hotel's: 100 L of 469363 a week) with their synthetic past
+orders, renews one with this week's quantity, and sees the drift found and the outcome: ordered alone, or the
+approval it waits for (rule P-08). Under each standing order the page says what the customer's past orders show
+(`tta.suggestions.standing_order_trends`: the school's oat drink has grown to a median of 84 L against a stored
+60 L), with one button that renews once at that quantity: a renewal like any other, under every rule.
 
 The history the Valio Aimo mock cannot give is synthetic, and the page says so on every such row. Everything is in
 the visitor's own order book; the standing-order service of a book is built on its first use (`StandingBooks`).
@@ -24,17 +27,21 @@ from starlette.datastructures import FormData
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
-from tta.api.sandbox import Sandbox
+from tta.api.sandbox import Sandbox, file_profile
 from tta.config import Settings
 from tta.contracts.audit import EVENT_TYPE_PREFIX, AuditEventType
 from tta.contracts.common import DataSource, Identity
+from tta.contracts.errors import TtaError
 from tta.contracts.order import Order
 from tta.contracts.policy import RuleSummary
 from tta.contracts.ports import Clock, ValioGateway
 from tta.contracts.standing import Renewal, RenewStandingOrder, StandingOrder
+from tta.contracts.suggestion import Suggestion
+from tta.customers import shipped_customer
 from tta.standing import StandingOrders
-from tta.standing.demo import DEMO_PROFILE_ID, load_demo
+from tta.standing.demo import DEMO_PROFILE_ID, DEMO_STANDING_ORDER_ID, load_customer_standing_orders
 from tta.standing.models import RenewalOutcome
+from tta.suggestions import history_of, standing_order_trends
 from tta.ui.site import NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
 from tta.valio import ReplayGateway
 
@@ -78,6 +85,24 @@ class StandingBooks:
 
 
 @dataclass(frozen=True)
+class Trend:
+    """What the customer's past orders say about one line of a standing order, and the quantities of the one
+    renewal its button sends: the suggested quantity on that line, the stored quantity on every other."""
+
+    suggestion: Suggestion
+    quantities: tuple[Decimal, ...]
+
+
+@dataclass(frozen=True)
+class DemoCustomer:
+    """A demo customer whose file holds standing orders, for the sentence beside the load button."""
+
+    name: str
+    standing_orders: int
+    past_orders: int  # synthetic, counted from the customer file
+
+
+@dataclass(frozen=True)
 class Row:
     """One standing order as the page shows it."""
 
@@ -87,6 +112,7 @@ class Row:
     rule: RuleSummary | None  # P-08 with this buyer's tolerance
     last_order: Order | None  # the order of the newest renewal that placed one
     last_drift: str | None  # the drift found then, as the audit trail recorded it
+    trends: tuple[Trend, ...] = ()  # from the customer file's synthetic history; empty for a buyer without a file
 
 
 def data_clock(settings: Settings, replay: ReplayGateway) -> Clock:
@@ -105,6 +131,47 @@ def _drift_recorded(book: Sandbox, order_id: str) -> str | None:
     return sentence if isinstance(sentence, str) else None
 
 
+def _product_names(book: Sandbox, agent: Identity, product_ids: tuple[str, ...]) -> dict[str, str]:
+    """The catalog's name of each product, for the trend's sentence; a product the catalog lacks keeps its id."""
+    names: dict[str, str] = {}
+    for product_id in product_ids:
+        try:
+            names[product_id] = book.service.get_product(agent, product_id).display_name
+        except TtaError:
+            continue
+    return names
+
+
+def _trends(book: Sandbox, agent: Identity, order: StandingOrder) -> tuple[Trend, ...]:
+    """The trend of each line, from the synthetic history of the buyer's customer file, against the tolerance of
+    the buyer's profile file (rule P-08's). None for a buyer with no customer file or no profile file."""
+    customer = shipped_customer(order.profile_id)
+    if customer is None:
+        return ()
+    try:
+        tolerance = file_profile(order.profile_id).standing_order_drift_ratio
+    except TtaError:  # no profile file with this id
+        return ()
+    history = history_of(customer, _product_names(book, agent, tuple(usual.product_id for usual in customer.usual)))
+    stored = tuple(line.quantity for line in order.request.lines)
+    return tuple(
+        Trend(suggestion=trend, quantities=tuple(
+            trend.quantity if index == trend.request_line_index else quantity for index, quantity in enumerate(stored)
+        ))
+        for trend in standing_order_trends(history, order, tolerance=tolerance)
+    )
+
+
+def demo_customers(site: Site) -> tuple[DemoCustomer, ...]:
+    """The demo agents' customers that have standing orders on file, with the number of their past orders."""
+    found = (shipped_customer(agent.profile_id or "") for agent in site.agents)
+    return tuple(
+        DemoCustomer(name=customer.name, standing_orders=len(customer.standing_orders),
+                     past_orders=len(customer.history))
+        for customer in found if customer is not None and customer.standing_orders
+    )
+
+
 def _row(book: Sandbox, standing: StandingOrders, agent: Identity, order: StandingOrder) -> Row:
     renewals = standing.get(agent, order.standing_order_id).renewals
     placed = [renewal for renewal in renewals if renewal.order_id is not None]
@@ -114,6 +181,7 @@ def _row(book: Sandbox, standing: StandingOrders, agent: Identity, order: Standi
         standing=order, agent=agent, renewals=renewals,
         rule=next((rule for rule in rules if rule.rule_id == DRIFT_RULE), None), last_order=last,
         last_drift=_drift_recorded(book, last.order_id) if last is not None else None,
+        trends=_trends(book, agent, order),
     )
 
 
@@ -153,6 +221,7 @@ def add_routes(app: FastAPI, site: Site) -> None:
         return site.render(
             request, TEMPLATE, rows=_rows(site, book, books.of(book)), outcome=outcome,
             quantity_field=QUANTITY_FIELD, has_demo_agent=_agent_of(site, DEMO_PROFILE_ID) is not None,
+            demo_customers=demo_customers(site), hotel_standing_order_id=DEMO_STANDING_ORDER_ID,
         )
 
     @app.get(STANDING_PATH, response_class=HTMLResponse)
@@ -164,7 +233,9 @@ def add_routes(app: FastAPI, site: Site) -> None:
         agent = _agent_of(site, DEMO_PROFILE_ID)
         if agent is None:
             raise page_error(UNPROCESSABLE, *NO_DEMO_AGENT)
-        load_demo(books.of(site.own_book(request)), agent, prices)
+        standing = books.of(site.own_book(request))
+        for each in site.agents:  # every demo customer's standing orders, each once (P1 C3)
+            load_customer_standing_orders(standing, each, prices)
         return RedirectResponse(STANDING_PATH, status_code=SEE_OTHER)
 
     @app.post(DEMO_PATH, response_class=HTMLResponse)

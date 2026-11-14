@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from tta.api import docs
@@ -23,6 +23,8 @@ DEMO_KEY = (
     "nothing is claimed about a signature made with it."
 )
 SET_KEY = "The key this gateway's operator set. The gateway signs with it; Valio Aimo does not."
+DEMO_KEY_IN_USE = "offers and orders are signed with a demo key that changes at every start"
+SERVICE_UNAVAILABLE = 503
 
 
 class AuditHead(BaseModel):
@@ -60,6 +62,9 @@ class Health(BaseModel):
 
     status: str  # "ok", or "degraded" with the reasons
     reasons: tuple[str, ...]
+    # True of this gateway and not a fault in dev and demo, where it leaves `status` as it is: a demo signing key.
+    # Outside dev and demo the same sentence is a reason.
+    notices: tuple[str, ...] = ()
     environment: str
     mode: str  # what was asked for: live or replay
     source: str | None  # where the last look at price and availability came from; null before the first one
@@ -92,20 +97,31 @@ def _looks(gateway: Any, mode: DataSource) -> tuple[DataSource | None, tuple[str
 
 
 @public.get("/healthz", operation_id="get_health", tags=[docs.TAG_OPEN], summary="What is running")
-def get_health(request: Request) -> Health:
+def get_health(request: Request, response: Response) -> Health:
     """The environment, the mode, the source of the last look at price and availability, the clock in force
     (the recording's instant, the supplier's time, or a demo clock that was set), whether the gateway
     is `ok` or `degraded` and why, the head of the audit chain, and which database holds the shared order book
     (`store`: PostgreSQL or SQLite, and why) and the key offers and orders are signed with (`signing`, saying when
     it is a demo key). No token needed; no secret, no path, no host name and no budget
-    figure is shown. Nothing is asked of the supplier and the audit trail is not read through."""
+    figure is shown. Nothing is asked of the supplier and the audit trail is not read through.
+
+    A demo signing key is a `notices` line in dev and demo and a reason anywhere else. A degraded gateway answers
+    200 in dev and demo, so a demonstration stays reachable, and 503 anywhere else."""
     parts, state = request.app.state.parts, request.app.state
     events, last_hash = parts.audit.head()
     source, reasons = _looks(parts.gateway, parts.settings.tta_mode)
-    reasons = (*reasons, *parts.start_reasons)  # what the start had to do without, for example the database
+    # What the start had to do without: the database, a customer's standing orders (`tta.api.app`).
+    reasons = (*reasons, *parts.start_reasons, *getattr(state, "start_reasons", ()))
+    demo = parts.settings.is_demo_environment
+    key_notice = (DEMO_KEY_IN_USE,) if parts.signer.demo_key else ()
+    if not demo:
+        reasons = (*reasons, *key_notice)
+    if reasons and not demo:
+        response.status_code = SERVICE_UNAVAILABLE
     return Health(
         status=DEGRADED if reasons else OK,
         reasons=reasons,
+        notices=key_notice if demo else (),
         environment=parts.settings.tta_env,
         mode=parts.settings.tta_mode.value,
         source=None if source is None else source.value,

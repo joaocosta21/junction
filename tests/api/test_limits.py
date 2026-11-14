@@ -197,8 +197,9 @@ def test_order_and_approval_lists_are_cut_to_the_newest(
 
     assert [order["order_id"] for order in listed] == [orders[2]["order_id"], orders[1]["order_id"]]
     assert [approval["order_id"] for approval in approvals] == [orders[1]["order_id"], orders[2]["order_id"]]
-    # The newest two events of the buyer's trail: the last order's policy check and its request for approval.
-    assert [event["type"] for event in events] == ["tta.v1.policy.evaluated", "tta.v1.approval.requested"]
+    # The newest two events of the buyer's trail: what the last offer suggested (written after its policy
+    # checks) and the request for approval of its order.
+    assert [event["type"] for event in events] == ["tta.v1.suggestions.shown", "tta.v1.approval.requested"]
     assert orders[2]["order_id"] in events[1]["sentence"]
 
 

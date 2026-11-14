@@ -9,13 +9,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
+import tta.api.app as app_module
 from tta.api import create_app, wiring
 from tta.api.wiring import STORE_FALLBACK, STORE_IS_POSTGRESQL, STORE_IS_SQLITE, build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
 from tta.contracts.audit import GENESIS_HASH
+from tta.contracts.errors import SupplierUnavailable
 from tta.store import SqliteStore
 
 Flow = Callable[..., dict[str, Any]]
@@ -79,7 +82,7 @@ def test_health_does_not_show_the_supplier_call_budget(tmp_path: Any, catalog: P
     assert response.json()["settings"] == {
         "env": "dev", "mode": "replay", "replay_capture": "2026-11-14-demo", "valio_key_set": False,
         "gemini_key_set": False, "database_url_set": False, "context_dev_key_set": False, "tokens_set": False,
-        "signing_key_set": False,
+        "signing_key_set": False, "supplier_suggestions": True, "customer_standing_orders": False,
     }
 
 
@@ -142,3 +145,45 @@ def test_the_setting_of_the_mcp_origins_exists_and_is_read() -> None:
     settings = Settings.for_tests(tta_mcp_allowed_origins="https://Inspector.example, https://host.example:8443")
 
     assert allowed_origins(settings) == (*LOCAL_ORIGINS, "https://inspector.example", "https://host.example:8443")
+
+
+# --- review S7, S8, S13: what /healthz says about a demo key and about what the start skipped ----------------
+
+
+def test_a_demo_signing_key_is_a_notice_in_dev_and_leaves_the_status_ok(client: TestClient) -> None:
+    answer = client.get("/healthz")
+
+    body = answer.json()
+    assert answer.status_code == 200 and (body["status"], body["reasons"]) == ("ok", [])
+    assert body["notices"] == ["offers and orders are signed with a demo key that changes at every start"]
+
+
+def test_outside_dev_and_demo_a_demo_signing_key_degrades_the_gateway_and_answers_503(
+    tmp_path: Any, catalog: ProductCatalog
+) -> None:
+    tokens = ('{"prod-agent-token-of-32-characters-x": {"kind": "AGENT", "id": "agent:hotel-kitchen", '
+              '"display_name": "Hotel agent", "profile_id": "hotel-kitchen"}}')
+    settings = Settings.for_tests(tta_env="prod", tta_data_dir=tmp_path / "var", tta_tokens=tokens)
+    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
+        answer = client.get("/healthz")
+
+    body = answer.json()
+    assert answer.status_code == 503 and body["status"] == "degraded" and body["notices"] == []
+    assert body["reasons"] == ["offers and orders are signed with a demo key that changes at every start"]
+
+
+def test_a_customer_whose_standing_orders_cannot_be_set_up_at_start_is_named_in_the_reasons(
+    tmp_path: Any, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_price(standing: Any, identity: Any, prices: Any) -> Any:
+        if identity.profile_id == "school-kitchen":
+            raise SupplierUnavailable("The recorded capture holds no price for product 470863.")
+        return ()
+
+    monkeypatch.setattr(app_module, "load_customer_standing_orders", no_price)
+    settings = Settings.for_tests(tta_data_dir=tmp_path / "var", tta_customer_standing_orders=True)
+    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
+        answer = client.get("/healthz")
+
+    assert answer.status_code == 200 and answer.json()["status"] == "degraded"
+    assert answer.json()["reasons"] == ["the standing orders of school-kitchen were not set up at start"]

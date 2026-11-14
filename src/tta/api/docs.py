@@ -34,6 +34,7 @@ from tta.api.limits import (
 )
 from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_MINUTES
 from tta.api.service import MAX_DEMO_REQUEST_LINES, MAX_LIST_ITEMS
+from tta.api.suggesting import NEVER_ADDED
 from tta.contracts.errors import (
     PROBLEM_CONTENT_TYPE,
     InvalidRequest,
@@ -243,6 +244,27 @@ def describe(not_built: Sequence[str]) -> str:
     return DESCRIPTION + EXAMPLES_NOT_BUILT.format(names="; ".join(not_built))
 
 
+OFFER_SCHEMA_NAME = "Offer"
+SUGGESTIONS_FIELD = "suggestions"
+SUGGESTIONS_DESCRIPTION = (
+    "At most three suggestions for this offer, one per kind, computed from the customer's past orders (synthetic in "
+    "this demonstration) and from the catalog with counts and medians, never by a model: a forgotten item, the usual "
+    "product or quantity, a cheaper product with the same formula, a larger pack, a standing order's trend, and "
+    "last and apart Valio Aimo's own suggestion (`kind` FROM_SUPPLIER, `serves` SUPPLIER). Each one passed the "
+    "buyer's allergen rule, claims and formula check and has confirmed stock for the date. A suggestion is in no "
+    f"option and in no total. {NEVER_ADDED} The new offer meets every rule again, and the audit trail records what "
+    "was shown, what was not and why, and what was accepted. Empty for a buyer with no customer file, and in live "
+    "mode, where the extra looks at price and stock would be spent from the supplier's call budget."
+)
+
+
+def _describe_suggestions(schemas: dict[str, Any]) -> None:
+    """Say on the offer's schema what its suggestions are and how one is accepted (P15 R3)."""
+    field = schemas.get(OFFER_SCHEMA_NAME, {}).get("properties", {}).get(SUGGESTIONS_FIELD)
+    if isinstance(field, dict):
+        field["description"] = SUGGESTIONS_DESCRIPTION
+
+
 def install_openapi(app: FastAPI, examples: Callable[[], BuiltExamples]) -> None:
     """Replace the app's OpenAPI builder: FastAPI's generated document, plus the problem schema and the
     examples. `examples` hands over what was built at start-up, so asking for the document runs no scenario.
@@ -259,6 +281,7 @@ def install_openapi(app: FastAPI, examples: Callable[[], BuiltExamples]) -> None
         document.setdefault("components", {}).setdefault("schemas", {})[PROBLEM_SCHEMA_NAME] = (
             ProblemDetails.model_json_schema()
         )
+        _describe_suggestions(document["components"]["schemas"])
         document["externalDocs"] = dict(EXTERNAL_DOCS)
         for methods in document.get("paths", {}).values():
             for operation in methods.values():

@@ -17,9 +17,10 @@ from tta.api import hooks
 from tta.api.fallback import FallbackGateway
 from tta.api.identity import TokenRegistry, load_tokens
 from tta.api.limits import CallLimits, RateLimit, call_limits
-from tta.api.sandbox import Sandbox, Sandboxes
+from tta.api.sandbox import BookCustomer, Sandbox, Sandboxes
 from tta.api.service import MAX_DEMO_REQUEST_LINES, Gateway, GatewayDeps
 from tta.api.signing import Signer
+from tta.api.suggesting import CustomerOf, OfferSuggestions, customer_on_file
 from tta.audit import AuditTrail
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -37,11 +38,13 @@ from tta.contracts.ports import (
 )
 from tta.evidence import EvidenceFinder, build_evidence_finder
 from tta.offers import OfferDeps, OfferService
-from tta.orders import OrderBookService, day_committed_net_eur
+from tta.orders import OrderBookService
+from tta.orders.spend import day_spend
 from tta.policy import RulePolicyEngine
 from tta.standing import history_lookup
 from tta.store import SqliteStore, open_store
 from tta.store.postgres import open_postgres_store
+from tta.suggestions import SuggestionPorts
 from tta.valio import ReplayGateway, ValioClient
 
 logger = logging.getLogger(__name__)
@@ -56,6 +59,16 @@ STORE_IS_SQLITE = (
 STORE_FALLBACK = (
     "the PostgreSQL database could not be reached at start-up, so orders and the audit trail are kept in the local "
     "database of this process"
+)
+STORE_SCHEMA_REFUSED = (
+    "TTA_DB_SCHEMA holds a name the PostgreSQL store refuses, so the database was not opened and orders and the "
+    "audit trail are kept in the local database of this process"
+)
+STORE_FALLBACKS = (STORE_FALLBACK, STORE_SCHEMA_REFUSED)
+STORE_REQUIRED_IN_PROD = (
+    "DATABASE_URL is set, but the PostgreSQL store could not be opened ({why}). Outside dev and demo the gateway "
+    "does not fall back to the local database of the process, where orders and the audit trail would be lost at "
+    "the next restart: correct the database settings, or unset DATABASE_URL to choose the local database."
 )
 LIVE_CLIENT_NOT_BUILT = (
     "TTA_MODE=live was asked for, but the live supplier client cannot be built: {why} "
@@ -73,8 +86,9 @@ DEMO_CLOCK_NOT_HONOURED = (
 
 class GatewayConfigurationError(RuntimeError):
     """The gateway does not start on these settings. Live mode was asked for with settings the live client
-    refuses (serving the capture instead would look like live mode until someone read an offer's source), or a
-    demo clock is set outside a demonstration."""
+    refuses (serving the capture instead would look like live mode until someone read an offer's source), a
+    demo clock is set outside a demonstration, or outside dev and demo the PostgreSQL store that was asked for
+    cannot be opened."""
 
 
 class UtcClock:
@@ -119,19 +133,20 @@ class Parts:
     store_kind: str = SQLITE  # the database of the shared order book: `POSTGRESQL` or `SQLITE`
     # The key every answered offer and order record is signed with (`tta.api.signing`): the setting's, or a demo key.
     signer: Signer = field(default_factory=lambda: Signer.from_setting(None))
+    evidence: EvidenceFinder | None = None  # held so that its HTTP client is closed with the rest
 
     @property
     def store_reason(self) -> str:
         """Why that store is in use, for `/healthz`: the fall-back's reason when the start had to fall back."""
         if self.store_kind == POSTGRESQL:
             return STORE_IS_POSTGRESQL
-        return STORE_FALLBACK if STORE_FALLBACK in self.start_reasons else STORE_IS_SQLITE
+        return next((reason for reason in STORE_FALLBACKS if reason in self.start_reasons), STORE_IS_SQLITE)
 
     @property
     def opened(self) -> tuple[object, ...]:
-        """What is to be closed, in that order: the sandboxes, the database and, in live mode, the gateway's
-        HTTP client."""
-        return (self.sandboxes, self.store, self.gateway)
+        """What is to be closed, in that order: the sandboxes, the database, the evidence finder's HTTP client
+        and, in live mode, the gateway's."""
+        return (self.sandboxes, self.store, self.evidence, self.gateway)
 
     def close(self) -> None:
         """Release what is open. Each part is closed even when the one before it fails; the first failure is
@@ -143,15 +158,24 @@ class Parts:
 
 def _order_book(settings: Settings) -> tuple[Store, tuple[str, ...], str]:
     """The store of the shared order book, what to report about it and its kind: PostgreSQL when `DATABASE_URL` is set
-    (task S1), the SQLite file otherwise. A database that cannot be reached or prepared at start-up does not stop
-    the gateway: it starts on SQLite and says why. The URL is not repeated."""
+    (task S1), the SQLite file otherwise. In dev and demo a database that cannot be reached or prepared at start-up
+    does not stop the gateway: it starts on SQLite and says why, with a reason of its own for a schema name the
+    store refuses. Anywhere else it raises `GatewayConfigurationError`: a production order book is not moved to a
+    file that a restart may lose. The cause is logged by its type only: the URL and the driver's message, which
+    can hold the host, are not repeated."""
     if not settings.has_database_url:
         return open_store(settings), (), SQLITE
     try:
         return open_postgres_store(settings), (), POSTGRESQL
-    except SupplierUnavailable:
-        logger.warning("DATABASE_URL is set, but the database could not be reached at start-up: using SQLite.")
-        return open_store(settings), (STORE_FALLBACK,), SQLITE
+    except SupplierUnavailable as error:
+        cause = error.__cause__
+        reason = STORE_SCHEMA_REFUSED if isinstance(cause, ValueError) else STORE_FALLBACK
+        why = f"{type(error).__name__}, caused by {type(cause).__name__}" if cause else type(error).__name__
+        if not settings.is_demo_environment:
+            logger.error("DATABASE_URL is set, but the PostgreSQL store was not opened (%s): not starting.", why)
+            raise GatewayConfigurationError(STORE_REQUIRED_IN_PROD.format(why=why)) from error
+        logger.warning("DATABASE_URL is set, but the PostgreSQL store was not opened (%s): using SQLite.", why)
+        return open_store(settings), (reason,), SQLITE
 
 
 def _gateway(settings: Settings, replay: ReplayGateway) -> ValioGateway:
@@ -169,6 +193,14 @@ def _gateway(settings: Settings, replay: ReplayGateway) -> ValioGateway:
     return FallbackGateway(live, replay)
 
 
+def suggestions_in(settings: Settings) -> bool:
+    """Whether offers carry suggestions: in replay only. A suggestion's price and confirmed stock are looked up
+    like an offer's, up to three more looks per offer; in live mode those would be spent from the supplier's call
+    budget and from the visitor's live looks a minute, and an offer that began live would be answered from the
+    capture. So a live offer has no suggestions, and `/openapi.json` says so."""
+    return settings.tta_mode is not DataSource.LIVE
+
+
 def wire(
     *,
     catalog: Catalog,
@@ -181,12 +213,19 @@ def wire(
     agent_runner: AgentRunner | None = None,
     max_request_lines: int | None = None,
     evidence: EvidenceFinder | None = None,
+    supplier_suggestions: bool = True,
+    customer_of: CustomerOf = customer_on_file,
+    suggestions: bool = True,
 ) -> tuple[Gateway, AuditSink]:
-    """The services over one store: one audit trail, the offer service, the order book, the gateway service."""
+    """The services over one store: one audit trail, the offer service, the order book, the gateway service.
+    `supplier_suggestions`: Valio Aimo's own suggestion on an offer (`TTA_SUPPLIER_SUGGESTIONS`). `customer_of`: whose
+    customer file an offer's suggestions are computed from; by default the file of the caller's buyer profile.
+    `suggestions`: False leaves every offer without suggestions (`suggestions_in`: live mode)."""
     audit = AuditTrail(store, UtcClock(), policy=policy)  # one per store and process
     offers = OfferService(OfferDeps(
         catalog=catalog, gateway=gateway, policy=policy, clock=clock,
-        day_spend=lambda profile_id: day_committed_net_eur(store, clock, profile_id),
+        # Both parts of the day's spend, so rule P-02's sentence says what is ordered and what waits for a person.
+        day_spend=lambda profile_id: day_spend(store, clock, profile_id),
         standing_history=history_lookup(store),  # rule P-08 (task STAND-1)
     ))
     orders = OrderBookService(
@@ -195,6 +234,10 @@ def wire(
     service = Gateway(GatewayDeps(
         catalog=catalog, policy=policy, store=store, audit=audit, offers=offers, orders=orders, limiter=limiter,
         request_parser=request_parser, agent_runner=agent_runner, max_request_lines=max_request_lines,
+        suggestions=OfferSuggestions(
+            ports=SuggestionPorts(catalog=catalog, gateway=gateway, clock=clock), policy=policy, store=store,
+            audit=audit, supplier_suggestions=supplier_suggestions, customer_of=customer_of,
+        ) if suggestions else None,
     ))
     return service, audit
 
@@ -212,16 +255,20 @@ class _Shared:
     agent_runner: AgentRunner | None
     max_request_lines: int | None
     evidence: EvidenceFinder | None = None  # web evidence on a dietitian's approval card (task S2)
+    supplier_suggestions: bool = True
+    suggestions: bool = True
 
     def sandbox(self) -> Sandbox:
         """A new, empty order book in memory, over the shared parts."""
         store = SqliteStore()
+        customer = BookCustomer()  # the shop names it; until then "My kitchen" has no customer file
         service, audit = wire(
             catalog=self.catalog, policy=self.policy, gateway=self.gateway, clock=self.clock, store=store,
             limiter=self.limiter, request_parser=self.request_parser, agent_runner=self.agent_runner,
             max_request_lines=self.max_request_lines, evidence=self.evidence,
+            supplier_suggestions=self.supplier_suggestions, customer_of=customer.of, suggestions=self.suggestions,
         )
-        return Sandbox(service=service, store=store, audit=audit)
+        return Sandbox(service=service, store=store, audit=audit, customer=customer)
 
 
 def build_parts(
@@ -269,13 +316,15 @@ def build_parts(
             # The demonstration tokens are public and shared: there a caller is counted per visitor.
             limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
             max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None, evidence=evidence,
+            supplier_suggestions=settings.tta_supplier_suggestions, suggestions=suggestions_in(settings),
         )
         store, start_reasons, store_kind = _order_book(settings)
         opened.insert(0, store)
         service, audit = wire(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
             request_parser=request_parser, agent_runner=agent_runner, max_request_lines=shared.max_request_lines,
-            evidence=evidence,
+            evidence=evidence, supplier_suggestions=settings.tta_supplier_suggestions,
+            suggestions=suggestions_in(settings),
         )
     except BaseException:
         close_each(opened)  # a close that fails here is logged; the error that stopped the start is raised
@@ -284,5 +333,5 @@ def build_parts(
         settings=settings, catalog=catalog, gateway=gateway, replay=replay, clock=clock, policy=policy,
         store=store, audit=audit, service=service, tokens=tokens,
         sandboxes=Sandboxes(shared.sandbox) if demo else None, start_reasons=start_reasons,
-        store_kind=store_kind, signer=signer,
+        store_kind=store_kind, signer=signer, evidence=evidence,
     )

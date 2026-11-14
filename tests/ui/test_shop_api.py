@@ -393,8 +393,10 @@ def test_the_signer_is_one_of_the_customers_people(client: TestClient) -> None:
         refused = _sign(client, path, "purchasing_manager", name=stranger)
         assert refused.status_code == 422, stranger
         assert "Marko Heikkinen" in refused.json()["detail"]
-    nobody = _sign(client, path, "dietitian")
-    assert nobody.status_code == 422 and "Nobody at Kallio Bakery" in nobody.json()["detail"]
+    # The bakery's owner is its dietitian too (decision B27), so the role has a person; this approval does not ask
+    # the dietitian, and the gateway refuses the signature.
+    not_asked = _sign(client, path, "dietitian")
+    assert not_asked.status_code == 403, not_asked.text
 
     signed = _sign(client, path, "purchasing_manager")  # no name sent: the customer's own person signs
     assert signed.status_code == 200, signed.text
@@ -453,3 +455,125 @@ def test_an_offer_reads_back_in_its_own_book_and_in_no_other(client: TestClient)
     _call(client, "PUT", "/kitchen", "school", json=SHOP_CUSTOMERS["school"])
     elsewhere = _call(client, "GET", f"/offers/{made['offer_id']}", "school")
     assert elsewhere.status_code == 404 and elsewhere.headers["content-type"].startswith("application/problem+json")
+
+
+# --- suggestions and the customer, for the shop's selected customer (L4-2d) ----------------------------------
+
+HOTEL_MILK = {"needed_by": MONDAY, "lines": [
+    {"text": "100 L of milk 469363", "product_ids": ["469363"], "quantity": 100, "unit": "L"}]}
+SCHOOL_WEEK = {"needed_by": MONDAY, "lines": [
+    {"text": "120 L of milk 462775", "product_ids": ["462775"], "quantity": 120, "unit": "L"},
+    {"text": "60 L of oat drink 470863", "product_ids": ["470863"], "quantity": 60, "unit": "L"}]}
+
+
+def _shop_offer(client: TestClient, kitchen: str, request: dict[str, Any]) -> dict[str, Any]:
+    saved = _call(client, "PUT", "/kitchen", kitchen, json=SHOP_CUSTOMERS[kitchen])
+    assert saved.status_code == 200, saved.text
+    offered = _call(client, "POST", "/offers", kitchen, json=request)
+    assert offered.status_code == 200, offered.text
+    return offered.json()
+
+
+def test_the_suggestions_route_passes_the_offers_suggestions_through(client: TestClient) -> None:
+    offer = _shop_offer(client, "hotel", HOTEL_MILK)
+
+    answer = _call(client, "GET", f"/suggestions?offer_id={offer['offer_id']}", "hotel")
+
+    assert answer.status_code == 200, answer.text
+    found = answer.json()
+    assert found["offer_id"] == offer["offer_id"] and found["suggestions"] == offer["suggestions"]
+    assert [(each["kind"], each["product_id"]) for each in found["suggestions"]] == [
+        ("FORGOTTEN_ITEM", "463797"), ("FROM_SUPPLIER", "462775")]
+    assert found["note"].startswith("Suggestions never add themselves to an order")
+
+
+def test_accepting_in_the_shop_is_a_new_offer_and_nothing_is_ordered(client: TestClient) -> None:
+    offer = _shop_offer(client, "hotel", HOTEL_MILK)
+
+    accepted = _call(client, "POST", "/offers", "hotel", json=offer["suggestions"][0]["accept_request"])
+
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["options"][0]["totals"]["net"] == 281.1  # €248.00 + €33.10 of cooking cream
+    assert _call(client, "GET", "/orders", "hotel").json() == []
+
+
+def test_the_suggestions_route_says_why_not_under_the_schools_own_settings(client: TestClient) -> None:
+    offer = _shop_offer(client, "school", SCHOOL_WEEK)
+
+    found = _call(client, "GET", f"/suggestions?offer_id={offer['offer_id']}", "school").json()
+
+    why_not = {each["product_id"]: each for each in found["dropped"]}
+    assert "464517" in why_not  # the school's forgotten yoghurt states nothing on nuts or sesame
+    assert "tree nuts (AN)" in why_not["464517"]["sentence"] and why_not["464517"]["summary"]
+    assert "464517" not in [each["product_id"] for each in found["suggestions"]]
+
+
+def test_the_suggestions_of_another_customers_offer_or_of_no_offer_are_not_found(client: TestClient) -> None:
+    offer = _shop_offer(client, "hotel", HOTEL_MILK)
+
+    assert _call(client, "GET", f"/suggestions?offer_id={offer['offer_id']}", "bakery").status_code == 404
+    assert _call(client, "GET", "/suggestions?offer_id=off_nobody", "hotel").status_code == 404
+    assert _call(client, "GET", "/suggestions", "hotel").status_code == 422
+    assert client.get(API + f"/suggestions?offer_id={offer['offer_id']}",
+                      headers={"X-Shop-Kitchen": "hotel"}).status_code == 403
+
+
+@pytest.mark.parametrize("kitchen", sorted(SHOP_KITCHENS))
+def test_the_customer_route_answers_the_shops_selected_customer(kitchen: str, client: TestClient) -> None:
+    answer = _call(client, "GET", "/customer", kitchen)
+
+    assert answer.status_code == 200, answer.text
+    found = answer.json()
+    assert found["customer"]["customer_id"] == SHOP_KITCHENS[kitchen]
+    assert found["customer"]["people"] and found["customer"]["history"] and found["customer"]["usual"]
+    assert found["synthetic"] is True and found["note"].startswith("Synthetic:")
+    # Before the shop sent its settings the limits are the customer's profile file, never the hotel's copy.
+    assert found["limits"]["max_order_net_eur"] == SHOP_CUSTOMERS[kitchen]["max_order_net_eur"]
+
+
+def test_the_customer_route_shows_the_limits_the_shop_set(client: TestClient) -> None:
+    _call(client, "PUT", "/kitchen", "school", json={**SHOP_CUSTOMERS["school"], "max_order_net_eur": 90})
+
+    found = _call(client, "GET", "/customer", "school").json()
+
+    assert found["limits"]["max_order_net_eur"] == 90 and found["display_name"] == "Kilo School"
+
+
+# --- the Python review: the guard first, and no call on the event loop ---------------------------------------
+
+
+@pytest.mark.parametrize("path", ["/read", "/offers", "/orders", "/approvals/apr_x/decision"])
+def test_a_caller_without_the_shop_header_gets_its_403_whatever_the_body(client: TestClient, path: str) -> None:
+    for content in (b"not json", b"[]", b'{"unknown": 1}'):
+        answer = client.post(API + path, content=content, headers={"X-Shop-Kitchen": "bakery"})
+        assert answer.status_code == 403, (path, content, answer.text)
+
+
+def test_two_offers_of_the_shop_are_served_at_the_same_time(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both calls must be inside the gateway at once: a handler that ran it on the event loop would hold the second
+    request until the first had answered, and the barrier would break."""
+    import threading
+
+    from tta.api.service import Gateway
+
+    assert _set_up(client).status_code == 200
+    together = threading.Barrier(2, timeout=20)
+
+    def waits_for_the_other(self: Any, identity: Any, request: Any) -> Any:
+        together.wait()
+        raise InvalidRequest("Both calls were inside the gateway at the same time.")
+
+    monkeypatch.setattr(Gateway, "create_offer", waits_for_the_other)
+    answers: list[Any] = []
+    callers = [threading.Thread(target=lambda: answers.append(_call(client, "POST", "/offers", json=CREAM)))
+               for _ in range(2)]
+    for caller in callers:
+        caller.start()
+    for caller in callers:
+        caller.join(timeout=30)
+
+    assert not together.broken
+    assert [answer.status_code for answer in answers] == [422, 422], [answer.text for answer in answers]
+    assert all("at the same time" in answer.json()["detail"] for answer in answers)

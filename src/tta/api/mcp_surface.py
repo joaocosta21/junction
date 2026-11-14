@@ -258,7 +258,10 @@ class GatewayTools:
         rule asks for a person and every statement is confirmed), `APPROVAL` (submitting it sends it to a
         human) or `BLOCK` (it cannot be ordered). Everything that dropped out is listed with a reason. "Nothing fits"
         is an offer with no option and the reasons, not an error. Every call makes a new offer and records it
-        in the audit trail. To order, give its `offer_id` and one `option_id` to place_order."""
+        in the audit trail. To order, give its `offer_id` and one `option_id` to place_order.
+
+        `suggestions` holds at most three, computed from the customer's past orders and the catalog. Suggestions
+        never add themselves to an order: accept one by calling get_offer again with its `accept_request`."""
         return self._signed(self._service.create_offer(self._caller(), request))
 
     @_answers_problems

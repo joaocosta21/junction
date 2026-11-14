@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # The key the gateway signs every offer and order record with: the 32-byte seed of an Ed25519 key as base64url
     # (`tta.api.signing`). Unset: a demo key is generated at each start and every signature says so.
     tta_signing_key: SecretStr | None = None
+    # Valio Aimo's own suggestion on an offer (the brief's "proactive selling agent", decision B31): a related
+    # product, checked like any other, shown last and apart, never added to an order. False switches it off; the
+    # suggestions computed from the buyer's own orders stay.
+    tta_supplier_suggestions: bool = True
+    # In dev and demo the standing orders of the four demo customers' files are set up in the shared order book
+    # when the gateway starts, with their synthetic past renewals (P1 C3), once per database. False leaves the
+    # book empty at start, as `Settings.for_tests` does: a test that wants them asks for them.
+    tta_customer_standing_orders: bool = True
 
     valio_aimo_api_key: SecretStr | None = None
     valio_aimo_base_url: str = DEFAULT_VALIO_BASE_URL
@@ -143,13 +151,17 @@ class Settings(BaseSettings):
             "context_dev_key_set": self.has_context_dev_key,
             "tokens_set": self.has_tokens,
             "signing_key_set": self.has_signing_key,
+            "supplier_suggestions": self.tta_supplier_suggestions,
+            "customer_standing_orders": self.tta_customer_standing_orders,
         }
 
     @classmethod
     def for_tests(cls, **overrides: Any) -> Settings:
-        """Settings that read no `.env` file and carry no secret unless a test passes one."""
+        """Settings that read no `.env` file and carry no secret unless a test passes one. The order book starts
+        empty: the demo customers' standing orders are set up at start only when a test asks for them."""
         values: dict[str, Any] = {name: None for name in _SECRET_FIELDS}
-        values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None, tta_demo_clock=None)
+        values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None, tta_demo_clock=None,
+                      tta_supplier_suggestions=True, tta_customer_standing_orders=False)
         values.update(overrides)
         return cls(_env_file=None, **values)
 

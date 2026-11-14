@@ -8,6 +8,7 @@ documented standards" (OpenAPI 3.1 generated from the typed models, problem deta
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
@@ -32,12 +33,16 @@ from tta.api.standing_routes import include_standing_routes, with_set_up_limits
 from tta.api.uploads import UploadBodyLimit
 from tta.api.wiring import Parts, build_parts, close_each
 from tta.config import Settings, get_settings
+from tta.contracts.errors import TtaError
 from tta.standing import StandingOrders
+from tta.standing.demo import load_customer_standing_orders
 
 MCP_PATH = "/mcp"
 PAGES_PATH = "/"
 MCP_SURFACE = "mcp"
 PAGES_SURFACE = "pages"
+
+logger = logging.getLogger(__name__)
 
 
 class _McpMount(Mount):
@@ -103,17 +108,42 @@ def _lifespan(parts: Parts, surfaces: dict[str, ASGIApp]) -> Callable[[FastAPI],
     return lifespan
 
 
+STANDING_ORDERS_NOT_SET_UP = "the standing orders of {profile_id} were not set up at start"
+
+
+def load_customers_standing_orders(parts: Parts, standing: StandingOrders) -> tuple[str, ...]:
+    """In dev and demo (and unless `TTA_CUSTOMER_STANDING_ORDERS` is false), set up the standing orders of each
+    demo agent's customer file in the shared book, with their synthetic past renewals (P1 C3): the trend and rule
+    P-08 then have a history to read. Once: an order that is there already, from an earlier start on the same
+    database, is left as it is. A customer whose history cannot be built (the recording holds no price for a
+    product) is logged and skipped: the gateway starts without that customer's standing orders. Returns one reason
+    per customer skipped, for `/healthz`."""
+    if not parts.settings.is_demo_environment or not parts.settings.tta_customer_standing_orders:
+        return ()
+    skipped: list[str] = []
+    for identity in parts.tokens.identities:
+        if not identity.is_agent:
+            continue
+        try:
+            load_customer_standing_orders(standing, identity, parts.replay)
+        except TtaError as error:
+            logger.warning("The standing orders of %s were not set up at start: %s", identity.profile_id, error.detail)
+            skipped.append(STANDING_ORDERS_NOT_SET_UP.format(profile_id=identity.profile_id))
+    return tuple(skipped)
+
+
 def _application(parts: Parts) -> FastAPI:
     # Standing orders, drift checked before each renewal (task STAND-1): one service for REST and the MCP tools.
-    standing = with_set_up_limits(
-        StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock), parts.settings
-    )
+    unlimited = StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock)
+    start_reasons = load_customers_standing_orders(parts, unlimited)  # the gateway's own set-up: not rate-limited
+    standing = with_set_up_limits(unlimited, parts.settings)
     surfaces = _surfaces(parts, standing)
     app = FastAPI(
         title=docs.TITLE, version=docs.VERSION, openapi_tags=docs.TAGS, lifespan=_lifespan(parts, surfaces),
         docs_url=None, redoc_url=None,  # `tta.api.docs_pages` serves both, pinned and under a policy
     )
     app.state.parts = parts
+    app.state.start_reasons = start_reasons  # what the start skipped, for `/healthz`
     app.state.surfaces = {name: name in surfaces for name in (MCP_SURFACE, PAGES_SURFACE)}
     app.state.examples = None  # set when the application starts
     # The last one added is the outermost: the headers cover what the two inside it answer themselves.

@@ -9,8 +9,10 @@ flagged for the purchasing manager.</p>
 
 <div class="banner banner-warn">
   <p><strong>The history marked synthetic is made up for the demonstration.</strong> The Valio Aimo mock has no
-  order history, so the demo standing order starts with six invented past weeks at the capture's price. Each
-  renewal you make here joins the history as a real row of your own demo order book.</p>
+  order history, so each demo standing order starts with the invented past orders of its customer's file{% if demo_customers %}
+  ({% for customer in demo_customers %}{{ customer.name }}: {{ customer.past_orders }}{% if not loop.last %}; {% endif %}{% endfor %}){% endif %},
+  at the capture's price unless the file states another. Each renewal you make here joins the history as a real
+  row of your own demo order book.</p>
 </div>
 
 {% if outcome %}
@@ -25,8 +27,10 @@ flagged for the purchasing manager.</p>
 {% if has_demo_agent %}
 <form method="post" action="/standing-orders/demo" class="inline-form">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <button type="submit"{% if not rows %} class="primary"{% endif %}>Load the demo standing order</button>
-  <span class="small">"Weekly lactose-free milk, hotel kitchen": 100 L of 469363 a week, with six synthetic past weeks.</span>
+  <button type="submit"{% if not rows %} class="primary"{% endif %}>Load the demo standing orders</button>
+  <span class="small">The standing orders of the demo customers' files, each with its synthetic past orders:
+    {% for customer in demo_customers %}{{ customer.name }} ({{ customer.standing_orders }} standing order{{ "" if customer.standing_orders == 1 else "s" }}, {{ customer.past_orders }} past orders){% if not loop.last %}; {% endif %}{% endfor %}.
+    Loading one that is already here changes nothing.</span>
 </form>
 {% endif %}
 
@@ -74,6 +78,20 @@ flagged for the purchasing manager.</p>
   </section>
   {% endif %}
 
+  {% for trend in row.trends %}
+  {% set suggested = trend.suggestion %}
+  <section class="banner banner-plain" aria-label="Trend in the past orders">
+    <p><span class="tag tag-replay">From a synthetic order history</span> {{ suggested.sentence }}</p>
+    <form method="post" action="/standing-orders/{{ standing.standing_order_id }}/renew" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% for quantity in trend.quantities %}<input type="hidden" name="{{ quantity_field.format(index=loop.index0) }}" value="{{ quantity|quantity }}">{% endfor %}
+      <button type="submit">Renew once at {{ suggested.quantity|quantity }} {{ suggested.unit.value }}</button>
+      <span class="small">One renewal at this quantity, checked against every rule (P-08 among them) and confirmed
+        by a person like any other. The quantity the standing order stores does not change.</span>
+    </form>
+  </section>
+  {% endfor %}
+
   <form method="post" action="/standing-orders/{{ standing.standing_order_id }}/renew" class="kitchen-form">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <fieldset>
@@ -83,7 +101,7 @@ flagged for the purchasing manager.</p>
       <label class="field-label" for="{{ standing.standing_order_id }}-{{ field }}">{{ line.text }} ({{ line.unit.value }})</label>
       <input type="text" inputmode="decimal" id="{{ standing.standing_order_id }}-{{ field }}" name="{{ field }}" value="{{ line.quantity|quantity }}">
       {% endfor %}
-      <p class="small">Try the usual 100, then 290: both renewals require approval, and the second highlights the change in quantity.</p>
+      {% if standing.standing_order_id == hotel_standing_order_id %}<p class="small">Try the usual 100, then 290: both renewals require approval, and the second highlights the change in quantity.</p>{% endif %}
     </fieldset>
     <button type="submit" class="primary">Renew</button>
   </form>

@@ -37,9 +37,12 @@ from typing import Any, cast
 
 from tta.api.limits import SECONDS_PER_MINUTE, Counted, RateLimit, RateLimiter, current_client_key
 from tta.api.service import Gateway
+from tta.api.suggesting import customer_on_file
 from tta.contracts.common import ApproverRole, Identity, IdentityKind
+from tta.contracts.customer import Customer
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import AuditSink
+from tta.customers import shipped_customer
 from tta.policy import PolicyLoadError, RulePolicyEngine, profile_in_force
 from tta.policy.rulebook import AccessRule
 from tta.store import SqliteStore
@@ -66,6 +69,8 @@ KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest
     "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
     "excluded_allergens", "allergen_strictness", "allergen_strictness_by_code", "substitution_without_approval",
     "variable_weight", "deposits", "require_confirmed", "standing_order_drift_ratio",
+    # Kept when a kitchen starts from a copy of a profile file: the ward's 10% premium, the bakery's formula rule.
+    "formula_matters", "max_preference_premium_ratio",
 )
 LIMIT_SETTINGS = ("max_order_net_eur", "max_daily_net_eur")
 MAX_LIMIT_EUR = Decimal(100_000)
@@ -107,6 +112,11 @@ _UNSENT_PARTS: Mapping[str, Any] = {"auto_order_enabled": False}
 def _file_policy() -> RulePolicyEngine:
     """The rules and profile files the gateway loads (`tta.api.wiring`): what a kitchen is checked against."""
     return RulePolicyEngine.from_files()
+
+
+def file_profile(profile_id: str) -> BuyerProfile:
+    """A buyer profile as its file states it, whatever a book has in force."""
+    return _file_policy().get_profile(profile_id)
 
 
 def kitchen_profile(policy: RulePolicyEngine, settings: Mapping[str, Any]) -> BuyerProfile:
@@ -198,6 +208,32 @@ class Kitchen:
         return kitchen_profile(self._policy, {**settings, "display_name": KITCHEN_NAME})
 
 
+class BookCustomer:
+    """Whose customer file the book's "My kitchen" stands for. The shop page opens one book per customer of the
+    shop and names it here, so an offer of that book gets the suggestions of that customer's past orders, judged
+    under the kitchen's own settings. Until it is named, "My kitchen" has no customer file and gets no suggestion.
+    A demo agent acting in the book keeps the file of its own buyer profile. Thread-safe."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._customer_id: str | None = None
+
+    @property
+    def customer_id(self) -> str | None:
+        with self._lock:
+            return self._customer_id
+
+    def name(self, customer_id: str) -> None:
+        with self._lock:
+            self._customer_id = customer_id
+
+    def of(self, identity: Identity) -> Customer | None:
+        if identity.profile_id != KITCHEN_PROFILE_ID:
+            return customer_on_file(identity)
+        named = self.customer_id
+        return shipped_customer(named) if named is not None else None
+
+
 class ProfileInForce:
     """A book's gateway service with the book's own kitchen in force during every call made on it. Everything
     else is the service itself."""
@@ -227,6 +263,7 @@ class Sandbox:
     store: SqliteStore
     audit: AuditSink
     kitchen: Kitchen = field(default_factory=Kitchen)
+    customer: BookCustomer = field(default_factory=BookCustomer)
 
     def __post_init__(self) -> None:
         if not isinstance(self.service, ProfileInForce):

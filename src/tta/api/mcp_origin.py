@@ -20,9 +20,10 @@ from collections.abc import Sequence
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tta.api.errors import problem_response, status_problem
+from tta.config import Settings
 
 ORIGIN_HEADER = b"origin"
-ORIGINS_SETTING = "tta_mcp_allowed_origins"  # the field `tta.config.Settings` is asked to declare
+ORIGINS_SETTING = "tta_mcp_allowed_origins"  # the field of `tta.config.Settings` that `allowed_origins` reads
 SEPARATOR = ","
 ANY_PORT = ":*"
 LOCAL_ORIGINS = ("http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*")  # pages on this machine
@@ -34,10 +35,12 @@ ORIGIN_REFUSED = (
 )
 
 
-def allowed_origins(settings: object) -> tuple[str, ...]:
-    """The local origins, then those of the setting, in its order. A blank entry is skipped."""
-    configured = getattr(settings, ORIGINS_SETTING, None) or ""
-    listed = tuple(entry.strip().lower() for entry in str(configured).split(SEPARATOR) if entry.strip())
+def allowed_origins(settings: Settings) -> tuple[str, ...]:
+    """The local origins, then those of the setting, in its order. A blank entry is skipped. The field is read by
+    its name: a renamed setting fails here, loudly, and never reads as "no origin configured"."""
+    listed = tuple(
+        entry.strip().lower() for entry in settings.tta_mcp_allowed_origins.split(SEPARATOR) if entry.strip()
+    )
     return (*LOCAL_ORIGINS, *listed)
 
 

@@ -187,3 +187,22 @@ def test_a_setting_out_of_bounds_or_not_of_the_page_is_refused_and_named(
     assert named in str(refused.value)
     assert kitchen.profile == before and not kitchen.is_set_up
     assert MAX_EXCLUDED_ALLERGENS == 10
+
+
+def test_a_kitchen_copied_from_a_profile_file_keeps_its_premium_and_its_formula_rule() -> None:
+    """Python review, low: the two settings were left out of the copy, so the ward's 10% premium was lost."""
+    from tta.api.sandbox import KITCHEN_SETTINGS, Kitchen, file_profile
+
+    kitchen = Kitchen()
+    copied = kitchen.start_from("allergy-ward")
+
+    assert {"formula_matters", "max_preference_premium_ratio"} <= set(KITCHEN_SETTINGS)
+    assert copied.max_preference_premium_ratio == file_profile("allergy-ward").max_preference_premium_ratio
+    assert copied.max_preference_premium_ratio == Decimal("0.1")
+    assert kitchen.settings["max_preference_premium_ratio"] == Decimal("0.1")
+    assert kitchen.settings["formula_matters"] is file_profile("allergy-ward").formula_matters
+
+
+def test_the_evidence_finder_is_held_by_the_parts_and_closed_with_them(parts: Parts) -> None:
+    """Python review P8: closed on a failed start only, its HTTP client leaked at shutdown."""
+    assert parts.evidence is not None and parts.evidence in parts.opened

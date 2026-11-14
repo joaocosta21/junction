@@ -181,3 +181,25 @@ async def test_the_supplier_reads_over_mcp_what_it_reads_over_rest(
 
     assert trail.structured_content == over_rest.json()
     assert trail.structured_content["reader"] == "supplier"
+
+
+HOTEL_MILK = {"needed_by": "2026-11-16", "lines": [
+    {"text": "100 L of milk 469363", "product_ids": ["469363"], "quantity": 100, "unit": "L"}]}
+
+
+async def test_get_offer_carries_the_suggestions_rest_shows_and_accepting_is_another_get_offer(
+    connect: Connect, rest: httpx.AsyncClient, auth: Auth
+) -> None:
+    async with connect("agent_hotel") as client:
+        offer = (await client.call_tool("get_offer", {"request": HOTEL_MILK})).structured_content
+        forgotten = offer["suggestions"][0]
+        accepted = (await client.call_tool("get_offer", {"request": forgotten["accept_request"]})).structured_content
+    over_rest = await rest.get(f"/v1/offers/{offer['offer_id']}", headers=auth("agent_hotel"))
+    trail = await rest.get("/v1/audit", params={"offer_id": offer["offer_id"]}, headers=auth("agent_hotel"))
+
+    assert [(each["kind"], each["product_id"]) for each in offer["suggestions"]] == [
+        ("FORGOTTEN_ITEM", "463797"), ("FROM_SUPPLIER", "462775")]
+    assert over_rest.json()["suggestions"] == offer["suggestions"]
+    assert accepted["options"][0]["totals"]["net"] == 281.1  # €248.00 + €33.10; a new offer, nothing ordered
+    kinds = [event["type"] for event in trail.json()["events"]]
+    assert "tta.v1.suggestions.shown" in kinds and "tta.v1.suggestion.accepted" in kinds

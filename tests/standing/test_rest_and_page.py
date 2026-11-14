@@ -88,7 +88,8 @@ def test_the_page_loads_the_demo_renews_it_and_shows_the_drift_and_the_outcome(c
     loaded = client.post("/standing-orders/demo", data={"csrf": _csrf(client)}, follow_redirects=False)
     page = client.get("/standing-orders").text
     assert loaded.status_code == 303
-    assert "Weekly lactose-free milk, hotel kitchen" in page and page.count("Synthetic: made up for the demo") == 8
+    assert "Weekly lactose-free milk, hotel kitchen" in page
+    assert page.count("Synthetic: made up for the demo") == 78  # all four customers' past orders, each labelled
     assert "more than 25% from the median" in page  # P-08 with the hotel kitchen's tolerance
 
     usual = client.post("/standing-orders/so_demo_hotel_milk/renew",
