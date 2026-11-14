@@ -8,11 +8,11 @@ Last updated: Sat 14 Nov, 20:50.
 
 | # | Question | What the run does meanwhile | Your answer |
 |---|---|---|---|
-| A1 | **Context.dev budget.** 17 of the 60 requests the team approved are used. Recording a page for every demo product with an allergen doubt, as a Modal fan-out, could go past 60 (up to 20,000 credits). Raise the cap? | Stays within 60 | |
+| A1 | **Context.dev budget.** 17 of the 60 requests the team approved are used. Recording a page for every demo product with an allergen doubt, as a Modal fan-out, could go past 60 (up to 20,000 credits). Raise the cap? | Stays within 60 | **Answered 20:55:** about 48,000 credits remain; go ahead with the fan-out |
 | A2 | **A model on a Modal GPU as the reader.** It is the only thing that meets Modal's main ask ("the most ambitious working AI system built on Modal"). It cannot be made trustworthy tonight and would undo "the fixed-rules reader is the product". Build it anyway? | Not built. Modal gets honest hosting, the evidence batch as a fan-out and a scheduled witness of the audit trail | |
-| A3 | **The repository is private.** Context.dev asks for "a GitHub repository and a demo"; Junction needs the organisers to reach the source. Make it public, and when? The run never pushes | Nothing pushed | |
+| A3 | **The repository is private.** Context.dev asks for "a GitHub repository and a demo"; Junction needs the organisers to reach the source. Make it public, and when? The run never pushes | Nothing pushed | **Answered 20:55:** push approved; making the repository public is still open |
 | A4 | **The shop page in a real browser.** No agent has seen it rendered (layout, phone width, keyboard). Open `/shop` once before the video and tell me what looks wrong | Checked by driving the page's code against a local gateway only | |
-| A6 | **A signing key for the public link.** Without `TTA_SIGNING_KEY` as a Modal secret the link signs with a new demo key at every start. Do you want a fixed key set at the redeploy? (I can generate one; it would live only in Modal's secret store.) | Demo key | |
+| A6 | **A signing key for the public link.** Without `TTA_SIGNING_KEY` as a Modal secret the link signs with a new demo key at every start. Do you want a fixed key set at the redeploy? (I can generate one; it would live only in Modal's secret store.) | Demo key | **Answered 20:55:** a fixed key is fine; a key that resets is also no problem |
 | A5 | **`CLAUDE.md` is out of date** and the run may not edit it: it names Gemini as the agent's model and says Aiven was dropped. Yours to change | Listed here | |
 
 ## B. Decided by the run, as the owner would (say so if you disagree; each is one change to undo)
