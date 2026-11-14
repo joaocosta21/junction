@@ -39,6 +39,8 @@ Term = Annotated[
     AfterValidator(_plain_term),
 ]
 ProductId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_LENGTH, pattern=r"^[A-Za-z0-9]+$")]
+# A role is one plain line of at most 200 characters: the same character check as a term (review A3, finding F4).
+Role = Annotated[str, StringConstraints(max_length=MAX_ROLE_LENGTH), AfterValidator(_plain_term)]
 
 
 class RequestLine(Contract):
@@ -68,13 +70,22 @@ class RequestLine(Contract):
         description="The product type of a recipe this line replaces, set by the menu planner when recipe logic "
         "chose another ingredient (rule F-09: such a line goes to a human). It can only add a check",
     )
-    stands_in_role: str | None = Field(
-        default=None, max_length=MAX_ROLE_LENGTH,
-        description="The job the recipe's ingredient does in the dish, set by the menu planner with stands_in_for",
+    stands_in_role: Role | None = Field(
+        default=None,
+        description="The job the recipe's ingredient does in the dish, set by the menu planner with stands_in_for. "
+        "Shown in rule F-09's sentence only when the recipe table holds it for that product type",
+    )
+    keep_formula: bool | None = Field(
+        default=None,
+        description="The formula matters for this line: a substitute must keep it (six nutrients and the fat "
+        "source within the tolerances), or it goes to a person under rule F-11. It can only add the check: "
+        "false or absent leaves the buyer profile's own setting in force",
     )
     allergen_strictness: AllergenStrictness | None = Field(
         default=None,
-        description="Required when there is any exclusion and the profile sets none. There is no default.",
+        description="How the exclusions are read: STRICT (a product that may contain the allergen, or says nothing "
+        "about it, is not the first option and goes to a person) or DECLARED_ONLY. With no rule here and none in "
+        "the profile an exclusion reads STRICT, the safe reading. A request can make the rule stricter, never looser",
     )
     pack: PackPreference = Field(description="Defaults to BULK for L and KG, ANY for UNIT")
 

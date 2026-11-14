@@ -57,8 +57,11 @@ ROUTES = {
     ("get", "/.well-known/api-catalog"): "get_api_catalog",  # P12 W2: RFC 9727
     ("head", "/.well-known/api-catalog"): "head_api_catalog",
     ("get", "/llms.txt"): "get_llms_txt",
+    ("get", "/v1/customers"): "list_customers",  # task L4-2b: the customer files (review C2 F5)
+    ("get", "/v1/customers/{customer_id}"): "get_customer",
+    ("get", "/.well-known/jwks.json"): "get_signing_keys",  # P12 W8: the key offers and orders are signed with
 }
-PUBLIC = {"get_schemas", "get_health", "get_api_catalog", "head_api_catalog", "get_llms_txt"}
+PUBLIC = {"get_schemas", "get_health", "get_api_catalog", "head_api_catalog", "get_llms_txt", "get_signing_keys"}
 REQUEST_MODELS: dict[str, Any] = {
     "search_products": ProductQuery,
     "find_substitutes": SubstituteQuery,

@@ -370,6 +370,8 @@ def _variable_weight(_: OrderScope, line: OfferLine) -> Reading:
 # Copied from the request line onto the offer line (task MENU-1): the recipe's product type and its role.
 STAND_IN_FIELDS = ("stands_in_for", "stands_in_role")
 OTHER_PRODUCT_TYPE = "another product type"
+ROLE_SEPARATOR = "; "  # between the roles of two dishes, as `tta.menus.needs` joins them
+ROLE_NOT_IN_TABLE = "(the role the request gives for it is not in the recipe table, so it is not shown)"
 
 
 def _stand_in_field(line: OfferLine, name: str) -> str:
@@ -385,14 +387,34 @@ def _line_product_type(scope: OrderScope, line: OfferLine) -> str:
     return OTHER_PRODUCT_TYPE
 
 
+def _recipe_role(line: OfferLine) -> str | None:
+    """The role of the stand-in line when the recipe table holds it, else None (review A3, finding F4). The role
+    arrives in the request, and rule F-09's sentence is read by the person who signs: a role an agent wrote
+    itself would speak there in the gateway's voice. Each part between "; " must be the role of an ingredient of
+    the recipe's product type, as the menu planner writes it (`tta.menus.needs`)."""
+    role = getattr(line, STAND_IN_FIELDS[1], None)
+    if not isinstance(role, str) or not role:
+        return None
+    from tta.menus.recipes import shipped_recipes  # here: tta.menus is not needed to load the policy package
+
+    known = {
+        ingredient.role for recipe in shipped_recipes().values() for ingredient in recipe.ingredients
+        if ingredient.product_type == getattr(line, STAND_IN_FIELDS[0], None)
+    }
+    return role if all(part in known for part in role.split(ROLE_SEPARATOR)) else None
+
+
 def _stands_in_for(scope: OrderScope, line: OfferLine) -> Reading:
     """Rule F-09 (task MENU-1): `yoghurt in place of the recipe's quark, whose role is ...`; empty when the line
-    stands in for nothing. Product types and the role are text of the request, so they are read as data."""
-    recipe_type, role = (_stand_in_field(line, name) for name in STAND_IN_FIELDS)
+    stands in for nothing. The role is shown only when the recipe table holds it for that product type."""
+    recipe_type = _stand_in_field(line, STAND_IN_FIELDS[0])
     if not recipe_type:
         return ""
     stands_in = f"{_line_product_type(scope, line)} in place of the recipe's {recipe_type}"
-    return f"{stands_in}, whose role is {role}" if role else stands_in
+    if not getattr(line, STAND_IN_FIELDS[1], None):
+        return stands_in
+    role = _recipe_role(line)
+    return f"{stands_in}, whose role is {plain_name(role)}" if role else f"{stands_in} {ROLE_NOT_IN_TABLE}"
 
 
 LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {

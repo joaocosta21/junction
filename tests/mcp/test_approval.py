@@ -40,7 +40,7 @@ async def test_no_tool_decides_or_lists_an_approval_whoever_asks(connect: Connec
     async with connect(who) as client:
         tools = (await client.list_tools()).tools
 
-    assert len(tools) == 8
+    assert len(tools) == 13  # the customer, menus and standing orders included: none of them approves
     for tool in tools:
         assert not any(word in tool.name for word in APPROVAL_WORDS), tool.name
         assert "decision" not in tool.input_schema["properties"], tool.name

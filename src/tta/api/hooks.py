@@ -30,9 +30,11 @@ from starlette.types import ASGIApp
 
 from tta.api.sandbox import Sandboxes
 from tta.api.service import Gateway
+from tta.api.signing import Signer
 from tta.config import Settings
 from tta.contracts.common import Identity
 from tta.contracts.ports import AgentRunner, Clock, RequestParser
+from tta.standing import StandingOrders
 
 AGENT_MODULE = "tta.agent"
 PARSER_FACTORY = "build_request_parser"
@@ -59,6 +61,10 @@ class SurfaceContext:
     identify: Callable[[str], Identity | None]  # bearer token -> identity, the same as the REST routes use
     demo_identities: tuple[Identity, ...] = ()
     sandboxes: Sandboxes | None = None  # a private order book per browser session (`tta.api.sandbox`)
+    # The standing orders of the shared book, with the limits of a set-up: the one the REST routes serve. None when
+    # a surface is built without the application (a test): the MCP tools that need it then refuse.
+    standing: StandingOrders | None = None
+    signer: Signer | None = None  # signs the offers and orders a tool answers; None: they are answered unsigned
 
 
 def optional_module(name: str) -> ModuleType | None:

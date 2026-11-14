@@ -20,7 +20,7 @@ from tta.contracts.common import (
     PlacedBy,
     UnitPrice,
 )
-from tta.contracts.offer import OfferOption
+from tta.contracts.offer import OfferOption, Proof
 from tta.contracts.policy import PolicyDecision
 
 MAX_NOTE_LENGTH = 1000
@@ -143,3 +143,5 @@ class Order(Contract):
     record_note: str = ORDER_RECORD_NOTE
     source: DataSource
     extra: JsonDict = Field(default_factory=dict)
+    # Set on the copy a REST route or an MCP tool answers (`tta.api.signing`); never stored, never in the trail.
+    proof: Proof | None = Field(default=None, description="The gateway's signature of this record without `proof`")

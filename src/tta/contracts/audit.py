@@ -42,6 +42,8 @@ class AuditEventType(StrEnum):
     EVIDENCE_ATTACHED = "evidence.attached"
     STANDING_ORDER_CREATED = "standing_order.created"  # task STAND-1
     STANDING_ORDER_RENEWED = "standing_order.renewed"  # with the drift found
+    SUGGESTIONS_SHOWN = "suggestions.shown"  # P15 R4a: shown, dropped and held back for one offer
+    SUGGESTION_ACCEPTED = "suggestion.accepted"  # P15 R4b: its `accept_request` became a new offer
 
 
 class ActorKind(StrEnum):

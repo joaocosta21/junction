@@ -84,8 +84,13 @@ model at `GET /v1/schemas`, each naming its dialect in `$schema`; errors as RFC 
 (`application/problem+json`) with one stable `type` per kind of problem; audit events in a CloudEvents 1.0
 envelope, hash-chained; `Idempotency-Key` on order placement (the IETF draft: missing is `400`, the quoted
 Structured Field String of RFC 9651 is read as the bare key); `Location` on the `201` of a new offer and a new
-order (RFC 9110); ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. The same functions are
-offered as MCP tools at `/mcp` when that surface is installed; a request there whose `Origin` names a foreign
+order (RFC 9110); ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. **Signed records:**
+every offer and order record answered carries `proof`, the gateway's detached JSON Web Signature (RFC 7515, EdDSA
+over Ed25519, RFC 8037) of the record without `proof`, written as RFC 8785 canonical JSON; the public key is a JSON
+Web Key set at `/.well-known/jwks.json`. It says this gateway answered the record, not that Valio Aimo signed it,
+and `demo_key: true` marks a key generated at start, about which nothing is claimed. The same functions are
+offered as MCP tools at `/mcp` when that surface is installed, menus, standing orders and the caller's customer
+(`GET /v1/customers`, synthetic) included; a request there whose `Origin` names a foreign
 site is refused with `403`, as MCP revision 2026-07-28 requires. **Discovery:** an agent that knows only the
 address finds all of this in the API catalog of RFC 9727 at `/.well-known/api-catalog`
 (`application/linkset+json`) and in `/llms.txt`, with no token.
@@ -138,6 +143,7 @@ TAG_SUBSTITUTES = "Exceptions: substitutes"
 TAG_AUDIT = "Audit trail"
 TAG_AGENT = "Buyer agent"
 TAG_MENUS = "Exceptions: recipes and menus"
+TAG_CUSTOMERS = "Customers"
 TAG_OPEN = "Open formats and health"
 TAGS = [
     {"name": TAG_LOOKUP, "description": "The brief: \"a structured way for an external agent to search for and "
@@ -154,6 +160,8 @@ TAGS = [
                                        "The gateway, not the model, decides whether an order goes through."},
     {"name": TAG_MENUS, "description": "Valio's example scenarios: a menu becomes one order, and an ingredient "
                                        "that cannot be had is replaced by recipe logic, never alone (F-09)."},
+    {"name": TAG_CUSTOMERS, "description": "Who the caller's customer is: people, usual products, past orders and "
+                                           "standing orders. Synthetic: the mock has no customer model."},
     {"name": TAG_OPEN, "description": "JSON Schema of every model, what is running, and how an agent that knows "
                                       "only the address finds the interface: the API catalog of RFC 9727 at "
                                       "`/.well-known/api-catalog`, and `/llms.txt`."},

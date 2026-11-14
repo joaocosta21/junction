@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from tta.api import hooks
@@ -19,6 +19,7 @@ from tta.api.identity import TokenRegistry, load_tokens
 from tta.api.limits import CallLimits, RateLimit, call_limits
 from tta.api.sandbox import Sandbox, Sandboxes
 from tta.api.service import MAX_DEMO_REQUEST_LINES, Gateway, GatewayDeps
+from tta.api.signing import Signer
 from tta.audit import AuditTrail
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -46,7 +47,12 @@ from tta.valio import ReplayGateway, ValioClient
 logger = logging.getLogger(__name__)
 
 
-# A reason of `/healthz`: no path, no address, no secret.
+# The store of the shared order book, as `/healthz` names it: no path, no address, no secret.
+POSTGRESQL, SQLITE = "postgresql", "sqlite"
+STORE_IS_POSTGRESQL = "DATABASE_URL is set and the database answered at start-up"
+STORE_IS_SQLITE = (
+    "DATABASE_URL is not set, so orders and the audit trail are kept in the local database of this process"
+)
 STORE_FALLBACK = (
     "the PostgreSQL database could not be reached at start-up, so orders and the audit trail are kept in the local "
     "database of this process"
@@ -110,6 +116,16 @@ class Parts:
     tokens: TokenRegistry
     sandboxes: Sandboxes | None = None  # the pages' private order books: in dev and demo only
     start_reasons: tuple[str, ...] = ()  # what the start had to do without, until a restart: for `/healthz`
+    store_kind: str = SQLITE  # the database of the shared order book: `POSTGRESQL` or `SQLITE`
+    # The key every answered offer and order record is signed with (`tta.api.signing`): the setting's, or a demo key.
+    signer: Signer = field(default_factory=lambda: Signer.from_setting(None))
+
+    @property
+    def store_reason(self) -> str:
+        """Why that store is in use, for `/healthz`: the fall-back's reason when the start had to fall back."""
+        if self.store_kind == POSTGRESQL:
+            return STORE_IS_POSTGRESQL
+        return STORE_FALLBACK if STORE_FALLBACK in self.start_reasons else STORE_IS_SQLITE
 
     @property
     def opened(self) -> tuple[object, ...]:
@@ -125,17 +141,17 @@ class Parts:
             raise failures[0]
 
 
-def _order_book(settings: Settings) -> tuple[Store, tuple[str, ...]]:
-    """The store of the shared order book and what to report about it: PostgreSQL when `DATABASE_URL` is set
+def _order_book(settings: Settings) -> tuple[Store, tuple[str, ...], str]:
+    """The store of the shared order book, what to report about it and its kind: PostgreSQL when `DATABASE_URL` is set
     (task S1), the SQLite file otherwise. A database that cannot be reached or prepared at start-up does not stop
     the gateway: it starts on SQLite and says why. The URL is not repeated."""
     if not settings.has_database_url:
-        return open_store(settings), ()
+        return open_store(settings), (), SQLITE
     try:
-        return open_postgres_store(settings), ()
+        return open_postgres_store(settings), (), POSTGRESQL
     except SupplierUnavailable:
         logger.warning("DATABASE_URL is set, but the database could not be reached at start-up: using SQLite.")
-        return open_store(settings), (STORE_FALLBACK,)
+        return open_store(settings), (STORE_FALLBACK,), SQLITE
 
 
 def _gateway(settings: Settings, replay: ReplayGateway) -> ValioGateway:
@@ -223,6 +239,7 @@ def build_parts(
     Raises `TokenConfigurationError` outside dev and demo when the environment holds no usable tokens,
     `GatewayConfigurationError` when live mode is asked for with an address the live client refuses, or when a
     demo clock is set outside dev and demo,
+    `SigningKeyError` when `TTA_SIGNING_KEY` is set to something that is not an Ed25519 seed,
     `HookError` when an optional package is there without what the gateway calls, and `SupplierUnavailable`
     when the replay capture cannot be read. Whatever this function had opened by then is closed again.
     """
@@ -230,6 +247,7 @@ def build_parts(
         raise GatewayConfigurationError(DEMO_CLOCK_OUTSIDE_DEMO)
     if settings.tta_demo_clock is not None and settings.demo_clock is None:
         logger.warning(DEMO_CLOCK_NOT_HONOURED)
+    signer = Signer.from_setting(settings.tta_signing_key)  # a key that was set and cannot be used stops the start
     policy = RulePolicyEngine.from_files()
     tokens = load_tokens(settings, policy.profile_ids())  # first: without tokens nothing else is worth building
     catalog = catalog or ProductCatalog.from_settings(settings)
@@ -252,7 +270,7 @@ def build_parts(
             limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
             max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None, evidence=evidence,
         )
-        store, start_reasons = _order_book(settings)
+        store, start_reasons, store_kind = _order_book(settings)
         opened.insert(0, store)
         service, audit = wire(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
@@ -266,4 +284,5 @@ def build_parts(
         settings=settings, catalog=catalog, gateway=gateway, replay=replay, clock=clock, policy=policy,
         store=store, audit=audit, service=service, tokens=tokens,
         sandboxes=Sandboxes(shared.sandbox) if demo else None, start_reasons=start_reasons,
+        store_kind=store_kind, signer=signer,
     )

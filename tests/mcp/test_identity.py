@@ -81,7 +81,7 @@ async def test_a_raw_call_with_a_token_is_answered_as_plain_json(
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
-    assert len(response.json()["result"]["tools"]) == 8
+    assert len(response.json()["result"]["tools"]) == 13
     assert "mcp-session-id" not in response.headers  # no session is kept: any replica can answer the next call
 
 
@@ -172,7 +172,7 @@ async def test_a_tool_reached_without_the_http_layer_still_refuses_a_caller_with
         listed = await client.list_tools()
         answer = await client.call_tool("get_authority")
 
-    assert len(listed.tools) == 8
+    assert len(listed.tools) == 13
     assert answer.is_error
     assert answer.structured_content["type"] == NOT_AUTHORISED
     assert answer.structured_content["status"] == UNAUTHORIZED

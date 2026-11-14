@@ -17,15 +17,18 @@ from starlette.routing import Match, Mount
 from starlette.types import ASGIApp, Scope
 
 from tta.api import docs, hooks
+from tta.api.customer_routes import customer_router
 from tta.api.discovery import discovery
 from tta.api.docs_pages import install_docs_pages
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
+from tta.api.health import public
+from tta.api.keys import keys
 from tta.api.limits import ClientKeyMiddleware
 from tta.api.menu_routes import menu_router
-from tta.api.routes import public, router
-from tta.api.standing_routes import include_standing_routes
+from tta.api.routes import router
+from tta.api.standing_routes import include_standing_routes, with_set_up_limits
 from tta.api.uploads import UploadBodyLimit
 from tta.api.wiring import Parts, build_parts, close_each
 from tta.config import Settings, get_settings
@@ -62,7 +65,7 @@ class _PagesMount(Mount):
         return super().matches(scope)
 
 
-def _surfaces(parts: Parts) -> dict[str, ASGIApp]:
+def _surfaces(parts: Parts, standing: StandingOrders) -> dict[str, ASGIApp]:
     """The optional surfaces that exist, by name. The pages act as a demonstration identity chosen on the
     page, with no token, in an order book of the visitor's own, so they are mounted only where those
     identities and books exist: in dev and demo."""
@@ -70,6 +73,7 @@ def _surfaces(parts: Parts) -> dict[str, ASGIApp]:
     context = hooks.SurfaceContext(
         settings=parts.settings, service=parts.service, identify=parts.tokens.identify,
         demo_identities=parts.tokens.identities if demo else (), sandboxes=parts.sandboxes if demo else None,
+        standing=standing, signer=parts.signer,
     )
     found: dict[str, ASGIApp] = {}
     mcp = hooks.surface(hooks.MCP_MODULE, context)
@@ -100,7 +104,11 @@ def _lifespan(parts: Parts, surfaces: dict[str, ASGIApp]) -> Callable[[FastAPI],
 
 
 def _application(parts: Parts) -> FastAPI:
-    surfaces = _surfaces(parts)
+    # Standing orders, drift checked before each renewal (task STAND-1): one service for REST and the MCP tools.
+    standing = with_set_up_limits(
+        StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock), parts.settings
+    )
+    surfaces = _surfaces(parts, standing)
     app = FastAPI(
         title=docs.TITLE, version=docs.VERSION, openapi_tags=docs.TAGS, lifespan=_lifespan(parts, surfaces),
         docs_url=None, redoc_url=None,  # `tta.api.docs_pages` serves both, pinned and under a policy
@@ -115,11 +123,11 @@ def _application(parts: Parts) -> FastAPI:
     install_error_handlers(app)
     app.include_router(router)
     app.include_router(menu_router())  # recipes and menus (task MENU-1)
+    app.include_router(customer_router)  # who the caller's customer is (review C2, finding F5)
     app.include_router(public)
+    app.include_router(keys)  # /.well-known/jwks.json: the key offers and orders are signed with (P12 W8)
     app.include_router(discovery)  # /.well-known/api-catalog (RFC 9727) and /llms.txt, before the pages (P12 W2)
-    include_standing_routes(  # standing orders, drift checked before each renewal (task STAND-1)
-        app, StandingOrders(store=parts.store, audit=parts.audit, gateway=parts.service, clock=parts.clock)
-    )
+    include_standing_routes(app, standing)
     install_docs_pages(app)
     # Without a running application (a script that exports the document) the examples are built when asked for.
     docs.install_openapi(app, lambda: app.state.examples or build_examples(parts))

@@ -22,7 +22,9 @@ DEFAULT_VALIO_BASE_URL = "https://junction26.valioaimo.fi/api"
 DEFAULT_CALL_BUDGET = 150
 DEMO_ENVIRONMENTS = ("dev", "demo")
 MAX_TRUSTED_PROXY_HOPS = 10
-_SECRET_FIELDS = ("valio_aimo_api_key", "gemini_api_key", "database_url", "context_dev_api_key", "tta_tokens")
+_SECRET_FIELDS = (
+    "valio_aimo_api_key", "gemini_api_key", "database_url", "context_dev_api_key", "tta_tokens", "tta_signing_key",
+)
 
 
 def _is_set(secret: SecretStr | None) -> bool:
@@ -60,6 +62,16 @@ class Settings(BaseSettings):
     # How many proxies of ours stand in front of the app, each appending the address it saw to X-Forwarded-For.
     # 0: no forwarded header is believed and the peer address is the visitor (Modal: the peer is the visitor).
     tta_trusted_proxy_hops: int = Field(default=0, ge=0, le=MAX_TRUSTED_PROXY_HOPS)
+    # Origins of web pages that may call the MCP endpoint, comma-separated, for example
+    # "https://inspector.example,https://host.example:8443". Pages on this machine are always allowed and a request
+    # with no Origin header (an agent, a program) is always served (`tta.api.mcp_origin`, MCP revision 2026-07-28).
+    tta_mcp_allowed_origins: str = ""
+    # The PostgreSQL schema of the order book, a plain lower-case identifier. Blank: the schema of the environment
+    # (`tta.store.postgres.schema_for`, which reads this setting and refuses a name the store does not take).
+    tta_db_schema: str = ""
+    # The key the gateway signs every offer and order record with: the 32-byte seed of an Ed25519 key as base64url
+    # (`tta.api.signing`). Unset: a demo key is generated at each start and every signature says so.
+    tta_signing_key: SecretStr | None = None
 
     valio_aimo_api_key: SecretStr | None = None
     valio_aimo_base_url: str = DEFAULT_VALIO_BASE_URL
@@ -114,6 +126,10 @@ class Settings(BaseSettings):
     def has_tokens(self) -> bool:
         return _is_set(self.tta_tokens)
 
+    @property
+    def has_signing_key(self) -> bool:
+        return _is_set(self.tta_signing_key)
+
     def describe(self) -> dict[str, Any]:
         """What is configured, safe to print: secrets appear only as true or false."""
         return {
@@ -126,6 +142,7 @@ class Settings(BaseSettings):
             "database_url_set": self.has_database_url,
             "context_dev_key_set": self.has_context_dev_key,
             "tokens_set": self.has_tokens,
+            "signing_key_set": self.has_signing_key,
         }
 
     @classmethod

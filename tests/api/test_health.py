@@ -11,11 +11,12 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from tta.api import create_app
-from tta.api.wiring import build_parts
+from tta.api import create_app, wiring
+from tta.api.wiring import STORE_FALLBACK, STORE_IS_POSTGRESQL, STORE_IS_SQLITE, build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
 from tta.contracts.audit import GENESIS_HASH
+from tta.store import SqliteStore
 
 Flow = Callable[..., dict[str, Any]]
 SECRET = "a-value-that-must-never-leave-the-process"
@@ -78,6 +79,7 @@ def test_health_does_not_show_the_supplier_call_budget(tmp_path: Any, catalog: P
     assert response.json()["settings"] == {
         "env": "dev", "mode": "replay", "replay_capture": "2026-11-14-demo", "valio_key_set": False,
         "gemini_key_set": False, "database_url_set": False, "context_dev_key_set": False, "tokens_set": False,
+        "signing_key_set": False,
     }
 
 
@@ -92,6 +94,51 @@ def test_health_shows_no_secret_and_no_path(tmp_path: Any, catalog: ProductCatal
 
     assert SECRET not in text
     assert str(tmp_path) not in text
-    assert "sqlite" not in text and "/" not in text.replace("application/", "")
+    # The store's kind is named, never its file; the one path shown is the public address of the signing keys.
+    shown = text.replace("application/", "").replace("/.well-known/jwks.json", "")
+    assert ".sqlite" not in text and "/" not in shown
     assert body["settings"]["valio_key_set"] is True
     assert body["settings"]["gemini_key_set"] is True
+
+
+def test_health_names_the_store_in_use_and_why(client: TestClient) -> None:
+    store = client.get("/healthz").json()["store"]
+
+    assert store == {"kind": "sqlite", "reason": STORE_IS_SQLITE}
+    assert "DATABASE_URL is not set" in store["reason"]
+
+
+def test_health_names_postgresql_when_the_database_answered(
+    tmp_path: Any, catalog: ProductCatalog, monkeypatch: Any
+) -> None:
+    stand_in = SqliteStore()  # stands for the PostgreSQL store: no service is reached here
+    monkeypatch.setattr(wiring, "open_postgres_store", lambda settings: stand_in)
+    settings = Settings.for_tests(tta_data_dir=tmp_path / "var", database_url=f"postgresql://u:{SECRET}@db.internal/x")
+
+    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
+        response = client.get("/healthz")
+
+    assert response.json()["store"] == {"kind": "postgresql", "reason": STORE_IS_POSTGRESQL}
+    assert SECRET not in response.text and "db.internal" not in response.text
+
+
+def test_health_says_sqlite_and_the_reason_when_the_database_could_not_be_reached(
+    tmp_path: Any, catalog: ProductCatalog
+) -> None:
+    unreachable = f"postgresql://tta:{SECRET}@127.0.0.1:1/tta?sslmode=disable"
+    settings = Settings.for_tests(tta_data_dir=tmp_path / "var", database_url=unreachable)
+
+    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
+        response = client.get("/healthz")
+
+    assert response.json()["store"] == {"kind": "sqlite", "reason": STORE_FALLBACK}
+    assert SECRET not in response.text and "127.0.0.1" not in response.text
+
+
+def test_the_setting_of_the_mcp_origins_exists_and_is_read() -> None:
+    from tta.api.mcp_origin import LOCAL_ORIGINS, allowed_origins
+
+    assert Settings.for_tests().tta_mcp_allowed_origins == ""
+    settings = Settings.for_tests(tta_mcp_allowed_origins="https://Inspector.example, https://host.example:8443")
+
+    assert allowed_origins(settings) == (*LOCAL_ORIGINS, "https://inspector.example", "https://host.example:8443")

@@ -32,8 +32,9 @@ max_preference_premium_ratio: 0.1 # the bakery prefers reliability; more than 10
                                   # option goes to a human (P-09). At most 0.25, where the offer stops ranking
                                   # the preferred option first
 
-# Who holds each role. The owner holds both, so one demonstration identity is listed for each; the customer
-# file names no dietitian, so none is listed here.
+# Who holds each role. The owner holds all three, the dietitian's too: a bakery-café has no dietitian, and
+# without one an order with an allergen doubt could never be completed (decision B27).
 approver_roles:
   purchasing_manager: ["human:bakery-owner"]
   finance: ["human:bakery-owner"]
+  dietitian: ["human:bakery-owner"]

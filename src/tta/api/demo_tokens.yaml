@@ -25,6 +25,18 @@ demo-agent-allergy-ward:
   display_name: Allergy ward agent (demo)
   profile_id: allergy-ward
 
+demo-agent-school-kitchen:
+  kind: AGENT
+  id: "agent:school-kitchen"
+  display_name: School kitchen agent (demo)
+  profile_id: school-kitchen
+
+demo-agent-bakery-cafe:
+  kind: AGENT
+  id: "agent:bakery-cafe"
+  display_name: Bakery and café agent (demo)
+  profile_id: bakery-cafe
+
 demo-approver-hotel-purchasing:
   kind: APPROVER
   id: "human:hotel-purchasing"
@@ -66,6 +78,36 @@ demo-approver-ward-finance:
   display_name: Demo approver Anna
   profile_id: allergy-ward
   roles: [finance]
+
+# The school's and the bakery's people (src/tta/customers/data/). The bakery's owner holds every role of the
+# bakery, the dietitian's too: a bakery-café has no dietitian (decision B27).
+demo-approver-school-purchasing:
+  kind: APPROVER
+  id: "human:school-purchasing"
+  display_name: Demo approver Päivi
+  profile_id: school-kitchen
+  roles: [purchasing_manager]
+
+demo-approver-school-finance:
+  kind: APPROVER
+  id: "human:school-finance"
+  display_name: Demo approver Tuomas
+  profile_id: school-kitchen
+  roles: [finance]
+
+demo-approver-school-dietitian:
+  kind: APPROVER
+  id: "human:school-dietitian"
+  display_name: Demo approver Riikka
+  profile_id: school-kitchen
+  roles: [dietitian]
+
+demo-approver-bakery-owner:
+  kind: APPROVER
+  id: "human:bakery-owner"
+  display_name: Demo approver Marko
+  profile_id: bakery-cafe
+  roles: [purchasing_manager, finance, dietitian]
 
 demo-supplier-valio-aimo:
   kind: SUPPLIER

@@ -1,7 +1,7 @@
 """Request, lookup and order over MCP, in replay: the same answers as the REST routes give.
 
 Scores on the 30% "one continuous flow" and the 15% "open standards": an MCP host runs the whole flow with
-the eight tools, and no rule differs between the two transports.
+the tools, and no rule differs between the two transports.
 """
 
 from __future__ import annotations
@@ -52,7 +52,9 @@ async def test_get_offer_returns_the_same_offer_as_the_rest_route_for_scenario_2
     assert not answer.is_error
     over_mcp, over_rest = answer.structured_content, response.json()
     assert over_mcp["offer_id"] != over_rest["offer_id"]  # two offers were made, one per call
-    assert _without(over_mcp, "offer_id") == _without(over_rest, "offer_id")
+    # Each offer carries its own id and the gateway's signature of it: the rest is the same document.
+    assert _without(over_mcp, "offer_id", "proof") == _without(over_rest, "offer_id", "proof")
+    assert over_mcp["proof"]["key_id"] == over_rest["proof"]["key_id"]
     assert json.loads(answer.content[0].text) == over_mcp  # what the model reads is the same document
 
 

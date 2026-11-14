@@ -23,6 +23,8 @@ SPEC_TOOLS = {
     "get_authority", "search_products", "get_product", "find_substitutes", "get_offer", "place_order", "get_order",
     "get_audit",
 }
+# Beyond SPEC section 2 (task L4-2b): the customer, menus and standing orders, REST routes before.
+MORE_TOOLS = {"get_customer", "plan_menu", "set_up_standing_order", "renew_standing_order", "list_standing_orders"}
 # What a caller may never choose: who it is, and which buyer's authority it acts under (SPEC section 2).
 IDENTITY_WORDS = ("profile", "identity", "token", "agent_id", "role", "caller")
 MIN_DESCRIPTION_LENGTH = 40
@@ -40,7 +42,7 @@ async def test_the_server_lists_exactly_the_tools_of_the_spec_each_with_an_input
 ) -> None:
     tools = await _tools(connect, mode)
 
-    assert set(tools) == SPEC_TOOLS
+    assert set(tools) == SPEC_TOOLS | MORE_TOOLS
     for tool in tools.values():
         assert tool.input_schema["type"] == "object", tool.name
         assert "properties" in tool.input_schema, tool.name
@@ -67,6 +69,11 @@ async def test_the_inputs_are_the_contract_models_and_their_fields(connect: Conn
         "place_order": {"offer_id", "option_id", "idempotency_key"},
         "get_order": {"order_id"},
         "get_audit": {"order_id", "offer_id", "reader"},
+        "get_customer": set(),
+        "plan_menu": {"menu"},
+        "set_up_standing_order": {"standing_order"},
+        "renew_standing_order": {"standing_order_id", "renewal"},
+        "list_standing_orders": set(),
     }
     offer_schema = tools["get_offer"].input_schema
     assert offer_schema["required"] == ["request"]

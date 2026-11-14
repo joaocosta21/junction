@@ -25,7 +25,7 @@ Flow = Callable[..., dict[str, Any]]
 Problem = Callable[..., dict[str, Any]]
 
 PUBLIC_PATHS = {"/v1/schemas"}
-PROFILE_IDS = ("allergy-ward", "hotel-kitchen")
+PROFILE_IDS = ("allergy-ward", "bakery-cafe", "hotel-kitchen", "school-kitchen")
 ENV_TOKEN = "an-environment-token-of-forty-characters"
 ENV_TOKENS = json.dumps({
     ENV_TOKEN: {
@@ -227,8 +227,8 @@ def test_demo_tokens_are_loaded_in_dev_and_demo_only(catalog: ProductCatalog, se
     for environment in ("dev", "demo"):
         registry = load_tokens(Settings.for_tests(tta_env=environment), PROFILE_IDS)
         kinds = [identity.kind for identity in registry.identities]
-        assert kinds.count(IdentityKind.AGENT) == 2
-        assert kinds.count(IdentityKind.APPROVER) == 6
+        assert kinds.count(IdentityKind.AGENT) == 4  # one per customer
+        assert kinds.count(IdentityKind.APPROVER) == 10  # three people each; the bakery's owner is one
         assert kinds.count(IdentityKind.SUPPLIER) == 1
 
     production = load_tokens(Settings.for_tests(tta_env="prod", tta_tokens=ENV_TOKENS), PROFILE_IDS)

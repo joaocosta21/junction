@@ -1,7 +1,7 @@
 """What `GET /v1/schemas` serves: the JSON Schema of every contract model, each naming its dialect (P12 W7).
 
 Scores on the 15% "open, documented standards rather than a proprietary format". `tta.contracts.schemas` lists
-the core contract modules; the menu and standing-order models (tasks MENU-1 and STAND-1) are taken here too, so
+the core contract modules; the menu, standing-order and customer models are taken here too, so
 every model a route takes or answers has its schema. Each schema carries `$schema`, so a validator does not have
 to be told which dialect of JSON Schema it reads.
 """
@@ -14,11 +14,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from tta.contracts import menu, standing
+from tta.api import customers
+from tta.contracts import customer, menu, standing
 from tta.contracts.schemas import all_models
 
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"  # the dialect Pydantic v2 writes
-MORE_MODULES = (menu, standing)  # contract modules `tta.contracts.schemas` does not list
+MORE_MODULES = (menu, standing, customer, customers)  # modules `tta.contracts.schemas` does not list
 NAME_USED_TWICE = "Two contract models are both called {name}: /v1/schemas names each model once."
 
 

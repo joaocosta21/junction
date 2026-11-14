@@ -165,6 +165,19 @@ The page's customer values equal the profile files (`tests/ui/test_shop_customer
 - `approval.evidence[]` is present for any allergen doubt that goes to a person. Found, listed host: "The manufacturer's page “Elovena Kaurajuoma kahviin” on raisiofoodsolutions.fi says: contains KAURA; free from Gluteeniton, Laktoositon, Maidoton, Kananmunaton. Asked about milk (AM): Valio Aimo's data states nothing; the page says free from, in its words “Maidoton”." · unlisted host: "A web page whose owner was not checked, “…” on shop.example says: …" · a page that names an excluded allergen: "… check the product before approving. What a page says can add a doubt and never removes one."
 - Headings (`tta.evidence.wording.heading`): "Manufacturer's page, not Valio Aimo data" / "A web page that names this product, not Valio Aimo data (its owner was not checked)". The fixed heading in `_evidence.html` and `shop/js/views/approvals.js` is untrue for an unlisted host: use a neutral heading until `Evidence.is_owner_page` exists.
 
+### L2a-2 — offers, wave 2
+- `replaceable.sentence` on `SubstituteCandidate` and `line.substitute`; `price_difference_per_requested_unit` (e.g. `0.185`: "€0.19 more per litre"), shown in place of `price_difference` when set; `OfferLine.keep_formula`: "The request says the formula matters for this line."
+- New option title "Alternative: a substitute that does not keep the formula"; an offer can hold a third option "Alternative: quantity not confirmed" for a named product.
+- Notes: "29 candidates of the same category that Valio does not list fail the allergen rule and are not shown: …" · "100 sales units of the product asked for hold 100 L: each candidate is counted by its content, not one sales unit for one."
+- The `CEILING` rewrite in `words.js:19-24` is dead: the gateway says "for about €506.40 before tax. The total is an estimate: …".
+
+### L4-2b — the gateway, wave 2
+- MCP tools are 13 (`typed.js:9` prints 8): add `get_customer`, `plan_menu`, `set_up_standing_order`, `renew_standing_order`, `list_standing_orders`. "13 tools. None of them approves."
+- `GET /v1/customers/{id}`: `customer.name`, `people`, `usual[]`, `history[]`, `standing_orders[]`, `limits`, `note` ("Synthetic: every name, number and past order of this customer is made up for the demonstration, …"). The page can read people, usual products and history here instead of `kitchens.js`.
+- New identities: `agent:school-kitchen`, `agent:bakery-cafe`, `human:school-purchasing`, `human:school-finance`, `human:school-dietitian`, `human:bakery-owner` (holds all three roles).
+- `offer.proof`, `order.proof` (REST and MCP): "Signed by this gateway (demo key). Check it with the key at /.well-known/jwks.json." Never "signed by Valio".
+- `/healthz` → `store.reason`, `signing.note`.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

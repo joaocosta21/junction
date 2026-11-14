@@ -23,6 +23,7 @@ dependencies = [
     "mcp",
     "modal",
     "psycopg[binary]",
+    "cryptography",
 ]
 
 [project.optional-dependencies]

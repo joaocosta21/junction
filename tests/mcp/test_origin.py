@@ -3,7 +3,7 @@
 Scores on the 15% "open, documented standards rather than a proprietary format": it was the one MUST of the MCP
 transport we broke. The Streamable HTTP transport of revision 2026-07-28 says: "If the `Origin` header is present
 and invalid, servers MUST respond with HTTP 403 Forbidden". Before, `Origin: https://evil.example` got 200 and
-the eight tools. A request with no `Origin` (an agent, a program, curl) is served as before.
+the tools. A request with no `Origin` (an agent, a program, curl) is served as before.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ async def test_a_request_with_no_origin_is_served_as_before(
     response = await _tools_list(rest, mcp_path, rpc, auth("agent_ward"))
 
     assert response.status_code == 200
-    assert len(response.json()["result"]["tools"]) == 8
+    assert len(response.json()["result"]["tools"]) == 13
 
 
 @pytest.mark.parametrize("origin", LOCAL)
@@ -73,7 +73,7 @@ async def test_a_page_on_the_teams_own_machine_is_served(
     response = await _tools_list(rest, mcp_path, rpc, {**auth("agent_ward"), "Origin": origin})
 
     assert response.status_code == 200
-    assert len(response.json()["result"]["tools"]) == 8
+    assert len(response.json()["result"]["tools"]) == 13
 
 
 @pytest.mark.parametrize("path", ["/mcp", "/mcp/"])

@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from tta.api.agent_calls import note_offer, note_order, read_with, run_that_stopped, traced
+from tta.api.customers import CustomerView, customer_view
 from tta.api.errors import reading_caller_input
 from tta.api.limits import CallKind, CallLimits
 from tta.contracts.agent import AgentRun, Reading
@@ -145,6 +146,11 @@ class Gateway:
         profile = self._deps.policy.get_profile(_require_buyer_side(identity))
         return self._deps.policy.describe_authority(profile)
 
+    def get_customer(self, identity: Identity, customer_id: str | None = None) -> CustomerView:
+        """The caller's own customer (its file, synthetic, with the profile's name and limits). Another customer's
+        id is `not-found`; the supplier is refused (`tta.api.customers`)."""
+        return customer_view(identity, self._deps.policy.get_profile, customer_id)
+
     # --- Core 1: lookup -----------------------------------------------------------------------------------
 
     def search_products(self, identity: Identity, query: ProductQuery) -> SearchResult:
@@ -178,6 +184,14 @@ class Gateway:
         named = sum(len(line.product_ids) for line in request.lines)
         if named > MAX_PRODUCT_IDS:
             raise InvalidRequest(TOO_MANY_PRODUCT_IDS.format(count=named))
+        return self._offer(identity, request)
+
+    def create_menu_offer(self, identity: Identity, request: PurchaseRequest) -> Offer:
+        """An offer for a menu plan: as `create_offer`, under the contract's 20 lines instead of the demonstration's 5.
+        The planner builds each line from the recipe table (a product type and a quantity), so the large free text
+        the 5 keeps out cannot arrive this way. Never a route and never a tool: only `tta.menus.planner` calls it."""
+        _require_agent(identity)
+        self._deps.limiter.check(identity, CallKind.LOOKUP)
         return self._offer(identity, request)
 
     def _offer(self, identity: Identity, request: PurchaseRequest) -> Offer:

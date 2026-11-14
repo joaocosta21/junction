@@ -81,7 +81,8 @@ def test_the_mcp_surface_and_the_pages_are_mounted_when_their_modules_exist(
         assert context.settings is settings
         assert context.identify("demo-agent-hotel-kitchen") == parts.tokens.identify("demo-agent-hotel-kitchen")
         assert context.identify("nobody") is None
-        assert len(context.demo_identities) == 9
+        assert len(context.demo_identities) == 15  # four customers' agents and people, and the supplier
+        assert context.standing is not None  # the standing orders the REST routes serve, for the MCP tools
 
 
 def test_the_path_v1_without_a_slash_belongs_to_the_api_and_not_to_the_pages(

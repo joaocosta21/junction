@@ -92,3 +92,11 @@ def test_health_says_the_gateway_runs_on_the_fallback(tmp_path: Path, catalog: P
     assert body["status"] == "degraded"
     assert STORE_FALLBACK in body["reasons"]
     assert PASSWORD not in str(body)
+
+
+def test_the_schema_of_the_order_book_is_a_setting_the_store_reads() -> None:
+    from tta.store.postgres import schema_for
+
+    assert Settings.for_tests().tta_db_schema == ""
+    assert schema_for(Settings.for_tests(tta_env="demo")) == "tta"  # blank: the schema of the environment
+    assert schema_for(Settings.for_tests(tta_env="demo", tta_db_schema="tta_public")) == "tta_public"

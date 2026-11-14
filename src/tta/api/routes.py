@@ -9,12 +9,11 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response
-from pydantic import BaseModel, BeforeValidator, ConfigDict
+from pydantic import BeforeValidator
 from starlette.concurrency import run_in_threadpool
 
 from tta.api import docs
 from tta.api.agent_calls import header_value
-from tta.api.clock_info import HealthClock, describe_clock
 from tta.api.idempotency import PARAMETER as IDEMPOTENCY_PARAMETER
 from tta.api.idempotency import MissingIdempotencyKey, idempotency_key
 from tta.api.identity import Caller
@@ -23,7 +22,7 @@ from tta.api.service import Gateway
 from tta.api.uploads import READ_IMAGE_PATH, REQUEST_BODY, ImageReading, body_too_large_answer, read_upload
 from tta.contracts.agent import AgentRun, ParseRequestBody
 from tta.contracts.audit import AuditView
-from tta.contracts.common import ApprovalStatus, AuditReader, DataSource
+from tta.contracts.common import ApprovalStatus, AuditReader
 from tta.contracts.errors import (
     InvalidRequest,
     NotAuthorised,
@@ -81,11 +80,15 @@ StatusQuery = Annotated[
 ]
 
 router = APIRouter(prefix="/v1")
-public = APIRouter()
 
 
 def _service(request: Request) -> Gateway:
     return request.app.state.parts.service
+
+
+def _signed[Record: (Offer, Order)](request: Request, record: Record) -> Record:
+    """The offer or order as it is answered: with the gateway's `proof` (`tta.api.signing`)."""
+    return request.app.state.parts.signer.signed(record)
 
 
 # --- Core 3: authority and approval ---------------------------------------------------------------------
@@ -122,7 +125,7 @@ def decide_approval(request: Request, caller: Caller, approval_id: StoredId, dec
     """For approvers. An approval may choose another option of the same offer. Price and availability are
     checked again and the policy runs again: `BLOCK` still blocks. The order is `ORDERED` once humans holding
     every role asked for have approved. **An agent token is refused (rule F-06), and the attempt is recorded.**"""
-    return _service(request).decide_approval(caller, approval_id, decision)
+    return _signed(request, _service(request).decide_approval(caller, approval_id, decision))
 
 
 # --- Core 1: lookup -------------------------------------------------------------------------------------
@@ -181,7 +184,7 @@ def create_offer(request: Request, response: Response, caller: Caller, purchase:
     1,000 product ids. `Location` is the address of the new offer."""
     offer = _service(request).create_offer(caller, purchase)
     response.headers[LOCATION_HEADER] = f"{router.prefix}/offers/{offer.offer_id}"
-    return offer
+    return _signed(request, offer)
 
 
 @router.get(
@@ -190,7 +193,7 @@ def create_offer(request: Request, response: Response, caller: Caller, purchase:
 )
 def get_offer(request: Request, caller: Caller, offer_id: StoredId) -> Offer:
     """The offer as it was made. Another buyer's offer answers as an id nobody issued."""
-    return _service(request).get_offer(caller, offer_id)
+    return _signed(request, _service(request).get_offer(caller, offer_id))
 
 
 @router.post(
@@ -217,7 +220,7 @@ def place_order(
     gateway's order book (the mock has no order endpoint). `Location`: the order, also on a retry with the key."""
     placed = _service(request).place_order(caller, order.offer_id, order.option_id, key)
     response.headers[LOCATION_HEADER] = f"{router.prefix}/orders/{placed.order_id}"
-    return placed
+    return _signed(request, placed)
 
 
 @router.get(
@@ -226,7 +229,7 @@ def place_order(
 )
 def list_orders(request: Request, caller: Caller) -> tuple[Order, ...]:
     """Newest first, at most 100."""
-    return _service(request).list_orders(caller)
+    return tuple(_signed(request, order) for order in _service(request).list_orders(caller))
 
 
 @router.get(
@@ -236,7 +239,7 @@ def list_orders(request: Request, caller: Caller) -> tuple[Order, ...]:
 def get_order(request: Request, caller: Caller, order_id: StoredId) -> Order:
     """The order with its status, the policy decision, the option as ordered and the statements of Valio
     Aimo's data it relied on. A waiting order past its "order by" time is `EXPIRED`."""
-    return _service(request).get_order(caller, order_id)
+    return _signed(request, _service(request).get_order(caller, order_id))
 
 
 # --- audit trail ----------------------------------------------------------------------------------------
@@ -320,7 +323,7 @@ def run_agent(request: Request, caller: Caller, pasted: ParseRequestBody) -> Age
     return _service(request).run_agent(caller, pasted.text)
 
 
-# --- open formats and health ----------------------------------------------------------------------------
+# --- open formats (health: `tta.api.health`) -----------------------------------------------------------
 
 
 @router.get("/schemas", operation_id="get_schemas", tags=[docs.TAG_OPEN], summary="JSON Schema of every model")
@@ -328,72 +331,3 @@ def get_schemas() -> dict[str, dict[str, Any]]:
     """Every contract model by name, the menu and standing-order models included, as JSON Schema 2020-12: each
     schema says so in its `$schema`. No token needed."""
     return exported_schemas()
-
-
-class AuditHead(BaseModel):
-    """Kept by another party, this pair shows an audit trail that was cut short."""
-
-    model_config = ConfigDict(frozen=True)
-
-    events: int
-    last_hash: str
-
-
-class Health(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    status: str  # "ok", or "degraded" with the reasons
-    reasons: tuple[str, ...]
-    environment: str
-    mode: str  # what was asked for: live or replay
-    source: str | None  # where the last look at price and availability came from; null before the first one
-    clock: HealthClock  # the instant order deadlines are judged against, what it rests on, whether it was set
-    audit_head: AuditHead
-    settings: dict[str, Any]  # secrets appear only as true or false
-    agent: dict[str, bool]
-    surfaces: dict[str, bool]
-
-
-OK, DEGRADED = "ok", "degraded"
-LIVE_PAUSED = "live looks are paused after a supplier failure"
-BUDGET_LOW = "the call budget is low"
-CAPTURE_IN_LIVE_MODE = "answers come from the recorded capture while live mode is asked for"
-NOT_SHOWN = ("valio_call_budget",)  # how much is left to spend is nobody's business on a public route
-
-
-def _looks(gateway: Any, mode: DataSource) -> tuple[DataSource | None, tuple[str, ...]]:
-    """The source of the last look and what is wrong, from memory. A gateway with one source (the capture in
-    replay mode) has no state to report: its source is the answer."""
-    state = getattr(gateway, "state", None)
-    if not callable(state):
-        return gateway.source, ()
-    looks = state()
-    in_capture = mode is DataSource.LIVE and looks.last_source is DataSource.REPLAY
-    reasons = ((LIVE_PAUSED, looks.live_paused), (BUDGET_LOW, looks.budget_low), (CAPTURE_IN_LIVE_MODE, in_capture))
-    return looks.last_source, tuple(reason for reason, holds in reasons if holds)
-
-
-@public.get("/healthz", operation_id="get_health", tags=[docs.TAG_OPEN], summary="What is running")
-def get_health(request: Request) -> Health:
-    """The environment, the mode, the source of the last look at price and availability, the clock in force
-    (the recording's instant, the supplier's time, or a demo clock that was set), whether the gateway
-    is `ok` or `degraded` and why, and the head of the audit chain. No token needed; no secret, no path and
-    no budget figure is shown. Nothing is asked of the supplier and the audit trail is not read through."""
-    parts, state = request.app.state.parts, request.app.state
-    events, last_hash = parts.audit.head()
-    source, reasons = _looks(parts.gateway, parts.settings.tta_mode)
-    reasons = (*reasons, *parts.start_reasons)  # what the start had to do without, for example the database
-    return Health(
-        status=DEGRADED if reasons else OK,
-        reasons=reasons,
-        environment=parts.settings.tta_env,
-        mode=parts.settings.tta_mode.value,
-        source=None if source is None else source.value,
-        clock=describe_clock(parts.settings, parts.clock, parts.replay),
-        audit_head=AuditHead(events=events, last_hash=last_hash),
-        settings={name: value for name, value in parts.settings.describe().items() if name not in NOT_SHOWN},
-        agent={
-            "request_parser": parts.service.has_request_parser, "agent_runner": parts.service.has_agent_runner,
-        },
-        surfaces=dict(state.surfaces),
-    )

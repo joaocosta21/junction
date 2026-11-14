@@ -12,6 +12,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | A2 | **A model on a Modal GPU as the reader.** It is the only thing that meets Modal's main ask ("the most ambitious working AI system built on Modal"). It cannot be made trustworthy tonight and would undo "the fixed-rules reader is the product". Build it anyway? | Not built. Modal gets honest hosting, the evidence batch as a fan-out and a scheduled witness of the audit trail | |
 | A3 | **The repository is private.** Context.dev asks for "a GitHub repository and a demo"; Junction needs the organisers to reach the source. Make it public, and when? The run never pushes | Nothing pushed | |
 | A4 | **The shop page in a real browser.** No agent has seen it rendered (layout, phone width, keyboard). Open `/shop` once before the video and tell me what looks wrong | Checked by driving the page's code against a local gateway only | |
+| A6 | **A signing key for the public link.** Without `TTA_SIGNING_KEY` as a Modal secret the link signs with a new demo key at every start. Do you want a fixed key set at the redeploy? (I can generate one; it would live only in Modal's secret store.) | Demo key | |
 | A5 | **`CLAUDE.md` is out of date** and the run may not edit it: it names Gemini as the agent's model and says Aiven was dropped. Yours to change | Listed here | |
 
 ## B. Decided by the run, as the owner would (say so if you disagree; each is one change to undo)
@@ -50,6 +51,11 @@ Last updated: Sat 14 Nov, about 19:00.
 | B30 | "Leave the line out" on the dietitian's card rejects the whole order, and the card says so | The interface cannot drop one line of an order | U3 |
 | B31 | The brief's "proactive selling agent" is built as Valio Aimo's own suggestion of a related product: same type and brand as one the customer buys, never ordered by them, confirmed stock, checked like any product, shown last and apart, on by default | The product file has no "new" or "seasonal" mark, only a record-change date | L4-2a |
 | B32 | At most one suggestion per kind and three in all; Valio's own stays silent when only another pack kind passes or one unit is in stock | Three forgotten items hid the cheaper line; a portion milk for a school's bulk order is not a suggestion | L4-2d |
+| B33 | Confirmed stock of a like-for-like product fills a gap before an unconfirmed product does, even when it covers less (37 L confirmed of the same formula before 52 L unconfirmed) | A kitchen can rely on confirmed stock; the unconfirmed product stays as a labelled alternative | L2a-2 |
+| B34 | Where the request says the formula matters and no formula-keeping substitute can be ordered, the product asked for (quantity not confirmed) is shown before a confirmed substitute that changes the formula. Both go to a person | Suggesting tzatziki for crème fraîche in a recipe is worse than asking | L2a-2 |
+| B35 | The bakery's profile ("the formula matters") labels and ranks substitutes the same way as a request that says so | Otherwise the bakery sees the formula-changing product first unless every request repeats the word | L4-2d |
+| B36 | Valio's token cannot read a customer's people, history or limits (403) | The same line as Valio's view of the log | L4-2b |
+| B37 | Offers and orders are signed by the gateway with a demo key that changes at every start unless `TTA_SIGNING_KEY` is set; every proof says "demo key" and nothing says "signed by Valio" | An honest trust layer without claiming Valio's signature | L4-2b |
 
 ## C. Questions for the team (domain)
 
@@ -61,6 +67,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | C4 | Savoury flavours (garlic, smoke, herbs, cheese) are read only through the word "flavoured". Extend the list? | Not extended |
 | C5 | With no like-for-like candidate, the last-resort list for a coffee milk includes sour milks. Should another product type never be offered, even as a last resort for a person? | Offered as last resort |
 | C6 | The list of hosts treated as "the manufacturer's page" is ours and unverified: elovena → `elovena.fi`, `raisiofoodsolutions.fi`; oddlygood → `oddlygood.com`; fazer → `fazer.com`; valio → `valio.fi`, `valio.com`; arla → `arla.fi`, `arla.com`; alpro → `alpro.com`. Confirm or correct | Any other host reads "a web page whose owner was not checked" |
+| C7 | Tzatziki ranks as a stand-in for crème fraîche and smetana (same category; no product type of ours separates them). Add types? | Not added; F-11 sends it to a person where the formula matters |
 
 ## D. Questions for Valio's mentors (booth shape: context → what we did → what we got → is that expected?)
 
