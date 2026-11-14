@@ -133,9 +133,13 @@ def approver_purchasing() -> Identity:
 
 
 @pytest.fixture(scope="session")
-def approver_finance() -> Identity:
-    return Identity(kind=IdentityKind.APPROVER, id="human:hotel-finance", display_name="Finance (demo)",
-                    profile_id="hotel-kitchen", roles=(ApproverRole.FINANCE,))
+def approver_hotel_buyer() -> Identity:
+    """The hotel's one person as her demonstration token names her: the person who orders holds every role
+    (decision B54), so her one confirmation completes an approval whatever rule asked. `approver_purchasing`
+    is the same person through a token that carries the purchasing manager's role only."""
+    return Identity(kind=IdentityKind.APPROVER, id="human:hotel-purchasing", display_name="Hotel buyer (demo)",
+                    profile_id="hotel-kitchen",
+                    roles=(ApproverRole.PURCHASING_MANAGER, ApproverRole.FINANCE, ApproverRole.DIETITIAN))
 
 
 @pytest.fixture(scope="session")

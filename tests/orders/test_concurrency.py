@@ -33,21 +33,24 @@ def _together(*calls) -> list[Order | BaseException]:
 
 
 def test_two_approvers_deciding_at_the_same_moment_do_not_erase_each_others_decision(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    offer = book.offer(samples.above_daily_limit())
-    pending = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-1")
+    # two people: the ward's order is above its limit per order (P-01) and carries an allergen question (P-04)
+    offer = book.offer(samples.ward_question_above_limit(), profile_id="allergy-ward")
+    pending = book.service.place_order(offer.offer_id, "opt_1", agent_ward, "key-1")
     book.revalidator.delay_seconds = SLOW_CHECK_SECONDS  # widens the window between reading and saving
 
     results = _together(
-        lambda: book.service.decide(pending.approval_id, approver_purchasing, samples.approve()),
-        lambda: book.service.decide(pending.approval_id, approver_finance, samples.approve()),
+        lambda: book.service.decide(pending.approval_id, approver_ward_purchasing, samples.approve()),
+        lambda: book.service.decide(pending.approval_id, approver_dietitian, samples.approve()),
     )
 
     assert sorted(result.status for result in results) == [OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL]
     approval = book.store.get_approval(pending.approval_id)
     assert approval.status is ApprovalStatus.APPROVED and approval.roles_missing == ()
-    assert {decision.approver_id for decision in approval.decisions} == {approver_purchasing.id, approver_finance.id}
+    assert {decision.approver_id for decision in approval.decisions} == {
+        approver_ward_purchasing.id, approver_dietitian.id,
+    }
     assert book.store.get_order(pending.order_id).status is OrderStatus.ORDERED
     assert sorted(book.event_types(pending.order_id)) == [
         "approval.decided", "approval.decided", "approval.requested", "order.confirmed",

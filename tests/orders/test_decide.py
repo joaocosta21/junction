@@ -29,6 +29,8 @@ from tta.contracts.order import Approval, DecisionRequest, Order
 
 PURCHASING = ApproverRole.PURCHASING_MANAGER
 FINANCE = ApproverRole.FINANCE
+DIETITIAN = ApproverRole.DIETITIAN
+WARD = "allergy-ward"
 
 
 def _pending(book, samples, agent: Identity, *options, profile_id: str = "hotel-kitchen") -> Order:
@@ -90,31 +92,58 @@ def test_a_rejection_closes_the_order_and_nothing_is_ordered(
 
 
 def test_with_two_roles_required_the_first_approver_leaves_it_pending_and_the_second_completes_it(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    pending = _pending(book, samples, agent_hotel, samples.above_daily_limit())
-    assert _approval(book, pending).required_roles == (PURCHASING, FINANCE)
+    """Two people are needed only where a customer has a dietitian (decision B54): at the ward, an order above
+    the limit per order (P-01) with an allergen question (P-04)."""
+    pending = _pending(book, samples, agent_ward, samples.ward_question_above_limit(), profile_id=WARD)
+    assert _approval(book, pending).required_roles == (PURCHASING, DIETITIAN)
 
-    after_first = book.service.decide(pending.approval_id, approver_purchasing, samples.approve())
+    after_first = book.service.decide(pending.approval_id, approver_ward_purchasing, samples.approve())
 
     assert after_first.status is OrderStatus.PENDING_APPROVAL and after_first.placed_by is None
     waiting = _approval(book, after_first)
     assert waiting.status is ApprovalStatus.PENDING
-    assert (waiting.roles_obtained, waiting.roles_missing) == ((PURCHASING,), (FINANCE,))
+    assert (waiting.roles_obtained, waiting.roles_missing) == ((PURCHASING,), (DIETITIAN,))
     assert after_first.status_sentence == (
-        "Approved by Purchasing manager (demo) (purchasing manager); still waiting for approval by finance, "
-        "to be decided by Sunday 15 November 2026 at 17:00 (UTC+02:00): rules P-01 and P-02 ask for a human."
+        "Approved by Ward purchasing (demo) (purchasing manager and finance); still waiting for approval by the "
+        "dietitian, to be decided by Sunday 15 November 2026 at 17:00 (UTC+02:00): rules P-01 and P-04 ask for a "
+        "human."
     )
 
-    after_second = book.service.decide(pending.approval_id, approver_finance, samples.approve())
+    after_second = book.service.decide(pending.approval_id, approver_dietitian, samples.approve())
 
     assert after_second.status is OrderStatus.ORDERED and after_second.placed_by is PlacedBy.HUMAN_APPROVAL
     done = _approval(book, after_second)
     assert done.status is ApprovalStatus.APPROVED
-    assert [decision.approver_id for decision in done.decisions] == [approver_purchasing.id, approver_finance.id]
+    assert [decision.approver_id for decision in done.decisions] == [
+        approver_ward_purchasing.id, approver_dietitian.id,
+    ]
     assert book.event_types(pending.order_id) == [
         "approval.requested", "approval.decided", "approval.decided", "order.confirmed",
     ]
+
+
+def test_where_one_person_holds_every_role_one_confirmation_completes_an_approval_that_names_two_roles(
+    book, samples, agent_hotel: Identity, approver_hotel_buyer: Identity
+) -> None:
+    """The hotel has no separate finance signer (decision B54): the limit per order (P-01) and per day (P-02)
+    name two roles, and the person who orders holds both."""
+    pending = _pending(book, samples, agent_hotel, samples.above_daily_limit())
+    assert _approval(book, pending).required_roles == (PURCHASING, FINANCE)
+
+    order = book.service.decide(pending.approval_id, approver_hotel_buyer, samples.approve())
+
+    assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
+    approval = _approval(book, order)
+    assert approval.status is ApprovalStatus.APPROVED and approval.roles_missing == ()
+    (decided,) = approval.decisions
+    assert decided.approver_id == approver_hotel_buyer.id and decided.roles == (PURCHASING, FINANCE, DIETITIAN)
+    assert order.status_sentence == (
+        "Ordered for €3,180.00 net with approval by Hotel buyer (demo) (purchasing manager, finance and "
+        "dietitian): rules P-01 and P-02 asked for a human and were accepted."
+    )
+    assert book.event_types(pending.order_id) == ["approval.requested", "approval.decided", "order.confirmed"]
 
 
 def test_the_approver_picks_the_unconfirmed_alternative_and_f01_is_recorded_as_approved_by_that_human(
@@ -178,18 +207,18 @@ def test_choosing_an_option_the_offer_does_not_hold_is_not_found(
 
 
 def test_choosing_another_option_starts_the_approval_again_on_that_option(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    lines = (samples.line("463380", "1300", "2.65"),)
-    pending = _pending(book, samples, agent_hotel, samples.above_daily_limit("opt_1"), samples.option("opt_2", lines))
-    book.service.decide(pending.approval_id, approver_finance, samples.approve())
+    larger = samples.ward_question_above_limit("opt_2", quantity="320")
+    pending = _pending(book, samples, agent_ward, samples.ward_question_above_limit("opt_1"), larger, profile_id=WARD)
+    book.service.decide(pending.approval_id, approver_dietitian, samples.approve())
 
-    order = book.service.decide(pending.approval_id, approver_purchasing, samples.approve(option_id="opt_2"))
+    order = book.service.decide(pending.approval_id, approver_ward_purchasing, samples.approve(option_id="opt_2"))
 
     approval = _approval(book, order)
     assert order.status is OrderStatus.PENDING_APPROVAL and order.option_id == "opt_2"
-    assert [decision.approver_id for decision in approval.decisions] == [approver_purchasing.id]
-    assert approval.roles_missing == (FINANCE,)  # finance approved €3,180.00, not the €3,445.00 now proposed
+    assert [decision.approver_id for decision in approval.decisions] == [approver_ward_purchasing.id]
+    assert approval.roles_missing == (DIETITIAN,)  # the dietitian approved opt_1, not the option now proposed
 
 
 def test_the_order_being_decided_is_not_counted_twice_in_the_days_spend(
@@ -204,69 +233,96 @@ def test_the_order_being_decided_is_not_counted_twice_in_the_days_spend(
 
 
 def test_a_role_the_policy_asks_for_only_at_approval_time_is_added_before_the_order_can_go_ahead(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
+    first = _pending(book, samples, agent_ward, samples.ward_question(), profile_id=WARD)  # €428.00: P-04
+    second = _pending(book, samples, agent_ward, samples.ward_fills_the_day(), profile_id=WARD)
+    assert _approval(book, first).required_roles == (DIETITIAN,)
+    # €1,112.80 more is above €500 an order (P-01) and above €1,500 a day (P-02): both the orderer's to decide
+    assert _approval(book, second).required_roles == (PURCHASING, FINANCE)
+    ordered = book.service.decide(second.approval_id, approver_ward_purchasing, samples.approve())
+    assert ordered.status is OrderStatus.ORDERED
+
+    still_waiting = book.service.decide(first.approval_id, approver_dietitian, samples.approve())
+
+    assert still_waiting.status is OrderStatus.PENDING_APPROVAL
+    assert still_waiting.decision.rule_ids == ("P-02", "P-04")
+    waiting = _approval(book, first)
+    assert waiting.required_roles == (DIETITIAN, FINANCE) and waiting.roles_missing == (FINANCE,)
+    # P-02, P-04, and why the day is full: the order approved in between (review A4, finding H2).
+    assert len(waiting.reasons) == 3
+    assert (
+        "today's spend of this buyer is €1,112.80 before tax: €1,112.80 ordered and €0.00 waiting"
+        in waiting.reasons[2]
+    )
+    completed = book.service.decide(first.approval_id, approver_ward_purchasing, samples.approve())
+    assert completed.status is OrderStatus.ORDERED
+
+
+def test_a_role_asked_for_only_at_approval_time_is_covered_where_one_person_holds_every_role(
+    book, samples, agent_hotel: Identity, approver_hotel_buyer: Identity
+) -> None:
+    """The hotel's same case: the day fills between the request and the approval, finance's role is added (P-02),
+    and the person who orders holds it, so her one confirmation still completes the order (decision B54)."""
     first = _pending(book, samples, agent_hotel)  # €2,650.00: the purchasing manager (P-01)
     second = _pending(book, samples, agent_hotel, samples.option("opt_1", (samples.line("463380", "250", "2.80"),)))
     assert _approval(book, first).required_roles == (PURCHASING,)
     assert _approval(book, second).required_roles == (FINANCE,)  # €700.00 more is above €3,000 a day (P-02)
-    assert book.service.decide(second.approval_id, approver_finance, samples.approve()).status is OrderStatus.ORDERED
+    paid = book.service.decide(second.approval_id, approver_hotel_buyer, samples.approve())
+    assert paid.status is OrderStatus.ORDERED
 
-    still_waiting = book.service.decide(first.approval_id, approver_purchasing, samples.approve())
+    order = book.service.decide(first.approval_id, approver_hotel_buyer, samples.approve())
 
-    assert still_waiting.status is OrderStatus.PENDING_APPROVAL
-    assert still_waiting.decision.rule_ids == ("P-01", "P-02")
-    waiting = _approval(book, first)
-    assert waiting.required_roles == (PURCHASING, FINANCE) and waiting.roles_missing == (FINANCE,)
-    # P-01, P-02, and why the day is full: the order that finance approved in between (review A4, finding H2).
-    assert len(waiting.reasons) == 3
-    assert "today's spend of this buyer is €700.00 before tax: €700.00 ordered and €0.00 waiting" in waiting.reasons[2]
-    assert book.service.decide(first.approval_id, approver_finance, samples.approve()).status is OrderStatus.ORDERED
+    assert order.status is OrderStatus.ORDERED and order.decision.rule_ids == ("P-01", "P-02")
+    approval = _approval(book, first)
+    assert approval.required_roles == (PURCHASING, FINANCE) and approval.roles_missing == ()
+    assert [decision.roles for decision in approval.decisions] == [(PURCHASING, FINANCE, DIETITIAN)]
 
 
 def test_a_rule_that_no_longer_holds_at_approval_time_is_not_asked_of_the_human(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_hotel: Identity, approver_hotel_buyer: Identity
 ) -> None:
     first = _pending(book, samples, agent_hotel)  # €2,650.00 waiting
     second = _pending(book, samples, agent_hotel, samples.option("opt_1", (samples.line("463380", "250", "2.80"),)))
     assert second.decision.rule_ids == ("P-02",)  # €700.00 more would pass €3,000 a day
-    book.service.decide(first.approval_id, approver_purchasing, samples.reject())
+    book.service.decide(first.approval_id, approver_hotel_buyer, samples.reject())
 
-    order = book.service.decide(second.approval_id, approver_finance, samples.approve())
+    order = book.service.decide(second.approval_id, approver_hotel_buyer, samples.approve())
 
-    # The spend rule no longer holds, so only F-10 is left: it asks for a person, and the role the approval
-    # names is one. Finance completes the approval it was asked for.
+    # The spend rule no longer holds, so only F-10 is left: it asks for a person, the purchasing manager. The
+    # person who orders holds that role too, so finance's role is no longer asked of her.
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
-    assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (FINANCE,)
+    assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (PURCHASING,)
     assert order.decision.sentence == (
-        "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): a role this "
-        "approval already names confirms."
+        "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): the purchasing "
+        "manager confirms."
     )
     assert order.status_sentence == (
-        "Confirmed by Finance (demo) (finance): ordered for €700.00 net."
+        "Confirmed by Hotel buyer (demo) (purchasing manager, finance and dietitian): ordered for €700.00 net."
     )
 
 
 def test_only_the_roles_the_profile_lists_for_the_approver_are_signed(
-    book, samples, agent_hotel: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_dietitian: Identity
 ) -> None:
-    both_in_token = samples.approver("human:hotel-purchasing", "hotel-kitchen", PURCHASING, FINANCE)
-    pending = _pending(book, samples, agent_hotel, samples.above_daily_limit())
+    both_in_token = samples.approver("human:ward-purchasing", WARD, PURCHASING, DIETITIAN)
+    pending = _pending(book, samples, agent_ward, samples.ward_question_above_limit(), profile_id=WARD)
 
     order = book.service.decide(pending.approval_id, both_in_token, samples.approve())
 
     approval = _approval(book, order)
     assert order.status is OrderStatus.PENDING_APPROVAL
-    assert approval.decisions[0].roles == (PURCHASING,) and approval.roles_missing == (FINANCE,)
-    assert book.service.decide(pending.approval_id, approver_finance, samples.approve()).status is OrderStatus.ORDERED
+    assert approval.decisions[0].roles == (PURCHASING,) and approval.roles_missing == (DIETITIAN,)
+    assert book.service.decide(pending.approval_id, approver_dietitian, samples.approve()).status is OrderStatus.ORDERED
 
 
 def test_every_evaluation_of_the_policy_is_at_order_time_with_a_fresh_check(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    pending = _pending(book, samples, agent_hotel, samples.above_daily_limit("opt_1"), samples.unconfirmed("opt_2"))
-    book.service.decide(pending.approval_id, approver_finance, samples.approve())
-    book.service.decide(pending.approval_id, approver_purchasing, samples.approve(option_id="opt_2"))
+    other = samples.ward_question_above_limit("opt_2", quantity="320")
+    pending = _pending(book, samples, agent_ward, samples.ward_question_above_limit("opt_1"), other, profile_id=WARD)
+    book.service.decide(pending.approval_id, approver_dietitian, samples.approve())
+    book.service.decide(pending.approval_id, approver_ward_purchasing, samples.approve(option_id="opt_2"))
 
     assert len(book.policy.contexts) == len(book.revalidator.calls) == 3
     assert all(context.at_order_time and context.revalidation is not None for context in book.policy.contexts)
@@ -322,10 +378,9 @@ def test_the_supplier_on_an_approval_nobody_issued_is_refused_before_any_lookup(
     ("caller", "reason"),
     [
         ("approver_intern", "not listed"),
-        ("approver_finance", "holds none of them"),
         ("supplier_reader", "Only an approver"),
     ],
-    ids=["not listed in the profile", "role not asked for", "supplier reader"],
+    ids=["not listed in the profile", "supplier reader"],
 )
 def test_a_caller_who_may_not_decide_is_refused_and_the_attempt_is_recorded(
     caller: str, reason: str, book, samples, agent_hotel: Identity, request: pytest.FixtureRequest
@@ -344,6 +399,27 @@ def test_a_caller_who_may_not_decide_is_refused_and_the_attempt_is_recorded(
     refused = book.events(pending.order_id)[-1]
     assert refused.data.actor.id == identity.id and refused.data.rule_ids == ()
     assert reason in refused.data.facts["reason"] and reason in refused.data.sentence
+
+
+def test_the_dietitian_cannot_decide_a_spend_limit_stop_and_the_attempt_is_recorded(
+    book, samples, agent_ward: Identity, approver_dietitian: Identity
+) -> None:
+    """The ward's dietitian decides allergen and dietary-claim questions and nothing else (decision B54): an
+    order that waits for its limit per order (P-01) is not hers to approve or reject."""
+    pending = _pending(book, samples, agent_ward, samples.ward_fills_the_day(), profile_id=WARD)
+    assert _approval(book, pending).required_roles == (PURCHASING,)
+
+    for decision in (samples.approve(), samples.reject()):
+        with pytest.raises(NotAuthorised):
+            book.service.decide(pending.approval_id, approver_dietitian, decision)
+
+    assert book.store.get_order(pending.order_id) == pending and _approval(book, pending).decisions == ()
+    assert book.event_types(pending.order_id) == [
+        "approval.requested", "authorisation.refused", "authorisation.refused",
+    ]
+    refused = book.events(pending.order_id)[-1]
+    assert refused.data.actor.id == approver_dietitian.id and refused.data.rule_ids == ()
+    assert "holds none of them" in refused.data.facts["reason"] and "holds none of them" in refused.data.sentence
 
 
 def test_an_approver_who_already_gave_their_role_cannot_decide_again(
@@ -455,23 +531,23 @@ def test_an_approval_whose_order_is_not_in_the_book_is_not_found(
 
 
 def test_when_only_f10_is_left_one_of_two_named_roles_completes_the_approval(
-    book, samples, agent_hotel: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_dietitian: Identity
 ) -> None:
-    """Review finding P9. The approval names the purchasing manager (P-01) and finance (P-02). Finance approves
-    the small option instead: no limit holds for it, only F-10 is left, and one signature of a role the approval
-    names completes it. Before, both named roles still had to sign."""
-    big, small = samples.above_daily_limit("opt_1"), samples.within_authority("opt_2")
-    pending = _pending(book, samples, agent_hotel, big, small)
-    assert _approval(book, pending).required_roles == (PURCHASING, FINANCE)
+    """Review finding P9. The approval names the purchasing manager (P-01) and the dietitian (P-04). The
+    dietitian approves the small safe option instead: no rule but F-10 holds for it, and one signature of a role
+    the approval names completes it. Before, both named roles still had to sign."""
+    big, small = samples.ward_question_above_limit("opt_1"), samples.ward_safe("opt_2")
+    pending = _pending(book, samples, agent_ward, big, small, profile_id=WARD)
+    assert _approval(book, pending).required_roles == (PURCHASING, DIETITIAN)
 
-    order = book.service.decide(pending.approval_id, approver_finance, samples.approve(option_id="opt_2"))
+    order = book.service.decide(pending.approval_id, approver_dietitian, samples.approve(option_id="opt_2"))
 
     approval = _approval(book, order)
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
-    assert order.decision.rule_ids == ("F-10",) and order.decision.required_roles == (FINANCE,)
+    assert order.decision.rule_ids == ("F-10",) and order.decision.required_roles == (DIETITIAN,)
     assert approval.status is ApprovalStatus.APPROVED and approval.roles_missing == ()
     assert order.decision.sentence == (
         "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): a role this "
         "approval already names confirms."
     )
-    assert order.status_sentence == "Confirmed by Finance (demo) (finance): ordered for €265.00 net."
+    assert order.status_sentence == "Confirmed by Dietitian (demo) (dietitian): ordered for €428.00 net."

@@ -276,6 +276,23 @@ class Samples:
         check = self.allergen_check({"AM": AllergenRelation.FREE_FROM, "AW": AllergenRelation.FREE_FROM})
         return self.option(option_id, (self.line("464056", "200", "2.14", allergens=check),))
 
+    def ward_question(self, option_id: str = "opt_1", quantity: str = "200") -> OfferOption:
+        """Soya drink that may contain milk, for a buyer who excludes it: the dietitian decides (P-04). 200 units
+        are EUR 428.00 net, within the ward's EUR 500 per order."""
+        check = self.allergen_check({"AM": AllergenRelation.MAY_CONTAIN, "AW": AllergenRelation.FREE_FROM})
+        return self.option(option_id, (self.line("464056", quantity, "2.14", allergens=check),))
+
+    def ward_question_above_limit(self, option_id: str = "opt_1", quantity: str = "300") -> OfferOption:
+        """The same question on EUR 642.00 net, above the ward's EUR 500 per order: two people, the person who
+        orders for the limit (P-01) and the dietitian for the allergen (P-04)."""
+        return self.ward_question(option_id, quantity)
+
+    def ward_fills_the_day(self, option_id: str = "opt_1") -> OfferOption:
+        """520 units of safe soya drink for EUR 1,112.80 net: above the ward's limit per order (P-01) and, with
+        EUR 428.00 more, above its EUR 1,500 a day (P-02). Both are decided by the person who orders."""
+        check = self.allergen_check({"AM": AllergenRelation.FREE_FROM, "AW": AllergenRelation.FREE_FROM})
+        return self.option(option_id, (self.line("464056", "520", "2.14", allergens=check),))
+
     def ward_declares_milk(self, option_id: str = "opt_1") -> OfferOption:
         """A product that declares milk, for a buyer who excludes it (F-02): cannot be ordered."""
         check = self.allergen_check({"AM": AllergenRelation.CONTAINS, "AW": AllergenRelation.FREE_FROM})
@@ -377,4 +394,7 @@ def approver_intern(samples: Samples) -> Identity:
 
 @pytest.fixture(scope="session")
 def approver_ward_purchasing(samples: Samples) -> Identity:
-    return samples.approver("human:ward-purchasing", WARD, ApproverRole.PURCHASING_MANAGER)
+    """The ward's person who orders: also decides a spend-limit stop, so there is no separate finance signer
+    (decision B54). The ward's second person is the dietitian (`approver_dietitian`)."""
+    return Identity(kind=IdentityKind.APPROVER, id="human:ward-purchasing", display_name="Ward purchasing (demo)",
+                    profile_id=WARD, roles=(ApproverRole.PURCHASING_MANAGER, ApproverRole.FINANCE))

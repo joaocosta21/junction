@@ -5,11 +5,12 @@ Valio Aimo does not confirm the stock of `473609` (it reports a placeholder). Of
 for it, `471881` and `464320` add gluten cereals (`AW`, contains) to a gluten-free product and can never be
 ordered as a substitute; `471690` adds no allergen.
 
-What is offered depends on the clock, and both answers are tested here (decision B16):
-- at the recording's clock (Saturday 02:52) the cut-off of `471690` has passed, and a confirmed barista oat drink,
-  `475224`, is the first option (€174.00); the product asked for stays as "quantity not confirmed" (€137.00);
-- at the demo clock (Thursday 14:15) `471690` can still be ordered, but its quantity is not confirmed either: the
-  offer holds two labelled alternatives and no confirmed option.
+The first option is the same at both clocks (decisions B16 and B52): a confirmed barista oat drink, `475224`, for
+€174.00, because confirmed stock of the same kind stands in before an unconfirmed product, also one Valio lists.
+The product asked for stays as "quantity not confirmed" (€137.00). What differs by clock:
+- at the recording's clock (Saturday 02:52) the cut-off of `471690` has passed, so it is not offered;
+- at the demo clock (Thursday 14:15) `471690` can still be ordered, but its quantity is not confirmed: it is a
+  labelled alternative (€155.50) after the confirmed option.
 With "confirmed data only" the answer is the same at both clocks: 100 x `475224`, with what it gives up in numbers.
 
 Scores on the 15% "partial availability, substitutions and delivery constraints".
@@ -101,14 +102,16 @@ def test_scenario_3_at_both_clocks_nothing_unconfirmed_is_suggested_and_no_optio
     assert lines_of(original) == {ORIGINAL: Decimal(100)}
     assert money(original["totals"]["net"]) == Decimal("137.00") and fired(original) == {"F-01"}
 
-    first = offer["options"][0]
+    first = offer["options"][0]  # confirmed stock of the same kind leads at both clocks (decision B52)
+    assert first["kind"] == OptionKind.SUBSTITUTE and lines_of(first) == {CONFIRMED_STAND_IN: Decimal(100)}
+    assert money(first["totals"]["net"]) == Decimal("174.00") and fired(first) == {"F-10"}
+    assert not _unconfirmed(first)
+    assert all(_unconfirmed(option) for option in offer["options"][1:])  # the one confirmed option; the rest labelled
     if both.clock == "recording":
-        assert first["kind"] == OptionKind.SUBSTITUTE and lines_of(first) == {CONFIRMED_STAND_IN: Decimal(100)}
-        assert money(first["totals"]["net"]) == Decimal("174.00") and fired(first) == {"F-10"}
         assert PASSES not in offered  # its cut-off has passed
     else:
-        assert all(_unconfirmed(option) for option in offer["options"])  # no confirmed option on this clock
-        listed = option_of(offer, PASSES)
+        listed = option_of(offer, PASSES)  # Valio's own listed substitute: in time, quantity not confirmed
+        assert listed is not first
         assert listed["lines"][0]["substitute"]["listed_by_supplier"] is True
         assert money(listed["totals"]["net"]) == Decimal("155.50") and "F-01" in fired(listed)
         assert "1.5 g" in listed["lines"][0]["substitute"]["gives_up"]  # its fat, against the original's 3 g
@@ -140,7 +143,7 @@ def test_scenario_3_with_confirmed_data_only_the_confirmed_stand_in_is_prepared_
     decided = both.confirm("hotel", order, NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Confirmed by Demo approver Hanna (purchasing manager): ordered for €174.00 net."
+        "Confirmed by Demo approver Hanna (purchasing manager, finance and dietitian): ordered for €174.00 net."
     )
     own, _ = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=NOTE)
     assert event_types(own)[-3:] == ["approval.requested", "approval.decided", "order.confirmed"]

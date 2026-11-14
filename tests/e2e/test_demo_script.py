@@ -44,7 +44,7 @@ def test_demo_script_the_scenarios_in_order_on_one_database_never_meet_the_limit
     second = both.get_order("ward", both.run_agent("ward", texts.scenario_2)["order_id"])  # 2: the ward
     both.confirm("ward", second, "Reviewed.")
     placed.append(both.order("hotel", both.offer("hotel", texts.scenario_3_request)))  # 3: the stock-out
-    doubt = both.offer("hotel", texts.dietitian_request)  # 4a: the dietitian takes the safe product
+    doubt = both.offer("hotel", texts.dietitian_request)  # 4a: the hotel's one person takes the safe product
     asked = both.order("hotel", doubt, option=1)
     placed.append(both.confirm("hotel", asked, "Took the safe product.", option_id=doubt["options"][0]["option_id"]))
     both.run_agent("school", texts.almond)  # 4b: the school's almond drink waits for its dietitian
@@ -61,8 +61,8 @@ def test_demo_script_the_scenarios_in_order_on_one_database_never_meet_the_limit
         OrderStatus.PENDING_APPROVAL,
     ]
     assert all(order["placed_by"] in (None, PlacedBy.HUMAN_APPROVAL) for order in placed)  # never the agent alone
-    stock_out = {"recording": "174.00", "demo": "137.00"}[both.clock]  # scenario 3's first option, by clock
-    spent = Decimal("1083.39") + Decimal(stock_out) + Decimal("236.00") + Decimal("281.10") + Decimal("719.20")
+    stock_out = Decimal("174.00")  # scenario 3's first option: the confirmed stand-in, at both clocks (B52)
+    spent = Decimal("1083.39") + stock_out + Decimal("236.00") + Decimal("281.10") + Decimal("719.20")
     assert _day_spend(both, "hotel", money) == spent < HOTEL_DAILY_LIMIT
     assert _day_spend(both, "ward", money) == Decimal("402.00")
     for buyer in ("hotel", "ward", "school", "bakery"):
@@ -72,7 +72,8 @@ def test_demo_script_the_scenarios_in_order_on_one_database_never_meet_the_limit
 def test_demo_script_run_twice_on_one_database_changes_the_outcome_so_start_empty(
     demo: Any, texts: Any, money: Any, fired: Any
 ) -> None:
-    """The fourth scenario 2 of one replay day is above the ward's €1,500 a day: finance must approve (P-02)."""
+    """The fourth scenario 2 of one replay day is above the ward's €1,500 a day: the limit per day stops it too (P-02),
+    which the person who orders decides."""
     statuses = [demo.run_agent("ward", texts.scenario_2)["order_status"] for _ in range(4)]
     assert statuses == [OrderStatus.PENDING_APPROVAL] * 4
     assert _day_spend(demo, "ward", money) > WARD_DAILY_LIMIT
@@ -82,5 +83,5 @@ def test_demo_script_run_twice_on_one_database_changes_the_outcome_so_start_empt
     assert fired(second) == {"P-01", "P-03"}  # 2 x 1,083.39 = 2,166.78: a second one is still under €3,000 a day
     demo.order("hotel", demo.offer("hotel", texts.milk(1000)))
     again = demo.offer("hotel", texts.milk(1000))["options"][0]
-    assert fired(again) == {"P-01", "P-02", "P-03"}  # a third scenario 1 the same day also needs finance
+    assert fired(again) == {"P-01", "P-02", "P-03"}  # a third scenario 1 the same day also meets the limit per day
     assert _day_spend(demo, "hotel", money) + money(again["totals"]["net"]) > HOTEL_DAILY_LIMIT

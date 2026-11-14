@@ -10,12 +10,13 @@ from tta.contracts.common import AuditReader, Identity, OrderStatus
 
 
 def test_the_audit_events_of_one_order_in_order_form_a_valid_chain(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    offer = book.offer(samples.above_daily_limit())
-    pending = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-1")
-    book.service.decide(pending.approval_id, approver_purchasing, samples.approve())
-    book.service.decide(pending.approval_id, approver_finance, samples.approve(note="Within the month's budget."))
+    # two people decide: the ward's order is above its limit per order and carries an allergen question
+    offer = book.offer(samples.ward_question_above_limit(), profile_id="allergy-ward")
+    pending = book.service.place_order(offer.offer_id, "opt_1", agent_ward, "key-1")
+    book.service.decide(pending.approval_id, approver_ward_purchasing, samples.approve())
+    book.service.decide(pending.approval_id, approver_dietitian, samples.approve(note="Checked with the maker."))
 
     events = book.events(pending.order_id)
 
@@ -52,7 +53,7 @@ def test_who_acted_is_on_every_event(
 
 
 def test_no_status_changes_without_an_audit_event_in_the_same_call(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_hotel: Identity, approver_purchasing: Identity
 ) -> None:
     """Walks every status change of SPEC section 8 and counts the events each call adds."""
     seen: dict[str, OrderStatus | None] = {}

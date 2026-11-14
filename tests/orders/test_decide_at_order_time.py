@@ -8,6 +8,7 @@ from datetime import timedelta
 import pytest
 
 from tta.contracts.common import (
+    AllergenRelation,
     ApprovalStatus,
     ApproverRole,
     AvailabilityState,
@@ -22,6 +23,8 @@ from tta.contracts.order import Order
 
 PURCHASING = ApproverRole.PURCHASING_MANAGER
 FINANCE = ApproverRole.FINANCE
+DIETITIAN = ApproverRole.DIETITIAN
+WARD = "allergy-ward"
 
 
 def _small_order(samples, option_id: str = "opt_1"):
@@ -43,20 +46,38 @@ def _waiting_for_finance_only(book, samples, agent: Identity) -> tuple[Order, Or
     return large, small
 
 
+def _ward_waiting_for_the_dietitian_only(book, samples, agent: Identity) -> Order:
+    """€428.00 with an allergen question waits for the ward's dietitian (P-04); its other option is €101.00 of
+    a safe product whose quantity is not confirmed, which the purchasing manager decides (F-01)."""
+    safe = samples.allergen_check({"AM": AllergenRelation.FREE_FROM, "AW": AllergenRelation.FREE_FROM})
+    lines = (samples.line(
+        "464306", "100", "1.01", state=AvailabilityState.QUANTITY_NOT_CONFIRMED, allergens=safe,
+    ),)
+    unconfirmed = samples.option("opt_2", lines, kind=OptionKind.ALTERNATIVE_UNCONFIRMED)
+    order = book.waiting(agent, samples.ward_question(), unconfirmed, profile_id=WARD)
+    assert book.store.get_approval(order.approval_id).required_roles == (DIETITIAN,)
+    return order
+
+
 def test_an_approver_whose_role_the_policy_asks_for_only_now_is_not_refused(
-    book, samples, agent_hotel: Identity, approver_purchasing: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_ward_purchasing: Identity, approver_dietitian: Identity
 ) -> None:
-    large, small = _waiting_for_finance_only(book, samples, agent_hotel)
-    assert book.service.decide(small.approval_id, approver_finance, samples.approve()).status is OrderStatus.ORDERED
-    assert book.store.get_approval(large.approval_id).roles_missing == (PURCHASING,)  # as it was first asked
+    """Two people exist only where a customer has a dietitian (decision B54). The ward's order waits for her
+    alone; then the day fills, and the person who orders, whom the approval did not name, is asked too (P-02)."""
+    question = _ward_waiting_for_the_dietitian_only(book, samples, agent_ward)
+    filler = book.waiting(agent_ward, samples.ward_fills_the_day(), profile_id=WARD)  # €1,112.80 more
+    ordered = book.service.decide(filler.approval_id, approver_ward_purchasing, samples.approve())
+    assert ordered.status is OrderStatus.ORDERED
+    assert book.store.get_approval(question.approval_id).roles_missing == (DIETITIAN,)  # as it was first asked
 
-    after_finance = book.service.decide(large.approval_id, approver_finance, samples.approve())
+    after_orderer = book.service.decide(question.approval_id, approver_ward_purchasing, samples.approve())
 
-    approval = book.store.get_approval(large.approval_id)
-    assert after_finance.status is OrderStatus.PENDING_APPROVAL and after_finance.decision.rule_ids == ("P-01", "P-02")
-    assert approval.required_roles == (PURCHASING, FINANCE) and approval.roles_missing == (PURCHASING,)
-    assert [entry.approver_id for entry in approval.decisions] == [approver_finance.id]
-    assert book.service.decide(large.approval_id, approver_purchasing, samples.approve()).status is OrderStatus.ORDERED
+    approval = book.store.get_approval(question.approval_id)
+    assert after_orderer.status is OrderStatus.PENDING_APPROVAL and after_orderer.decision.rule_ids == ("P-02", "P-04")
+    assert approval.required_roles == (DIETITIAN, FINANCE) and approval.roles_missing == (DIETITIAN,)
+    assert [entry.approver_id for entry in approval.decisions] == [approver_ward_purchasing.id]
+    completed = book.service.decide(question.approval_id, approver_dietitian, samples.approve())
+    assert completed.status is OrderStatus.ORDERED
 
 
 def test_the_approver_who_picks_another_option_needs_a_role_that_option_asks_for(
@@ -73,15 +94,17 @@ def test_the_approver_who_picks_another_option_needs_a_role_that_option_asks_for
 
 
 def test_an_approver_who_holds_no_role_the_new_decision_asks_for_is_refused_after_the_check(
-    book, samples, agent_hotel: Identity, approver_finance: Identity
+    book, samples, agent_ward: Identity, approver_dietitian: Identity
 ) -> None:
-    _, small = _waiting_for_finance_only(book, samples, agent_hotel)
+    """The ward's dietitian is asked the allergen question; the option without one is not hers to choose."""
+    small = _ward_waiting_for_the_dietitian_only(book, samples, agent_ward)
 
     with pytest.raises(NotAuthorised) as raised:
-        book.service.decide(small.approval_id, approver_finance, samples.approve(option_id="opt_2"))
+        book.service.decide(small.approval_id, approver_dietitian, samples.approve(option_id="opt_2"))
 
     assert raised.value.detail == (
-        "The approval still needs the purchasing manager; this approver counts for finance and holds none of them."
+        "The approval still needs the purchasing manager; this approver counts for the dietitian and holds none "
+        "of them."
     )
     assert [option.option_id for option in book.revalidator.calls][-1] == "opt_2"
     assert book.store.get_order(small.order_id) == small

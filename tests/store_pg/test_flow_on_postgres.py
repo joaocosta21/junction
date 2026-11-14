@@ -32,13 +32,8 @@ SCENARIO_1 = {
     "lines": [{"text": "1,000 litres of lactose-free milk by Monday", "product_type": "milk",
                "required_claims": ["FREE_FROM_LACTOSE"], "quantity": 1000, "unit": "L"}],
 }
-TOKENS = {
-    "agent_hotel": "demo-agent-hotel-kitchen", "hotel_purchasing": "demo-approver-hotel-purchasing",
-    "hotel_finance": "demo-approver-hotel-finance", "hotel_dietitian": "demo-approver-hotel-dietitian",
-}
-APPROVER_BY_ROLE = {
-    "purchasing_manager": "hotel_purchasing", "finance": "hotel_finance", "dietitian": "hotel_dietitian",
-}
+# One person confirms (decision B54): the hotel's person who orders holds every role a rule can ask for.
+TOKENS = {"agent_hotel": "demo-agent-hotel-kitchen", "hotel_purchasing": "demo-approver-hotel-purchasing"}
 
 
 def _auth(who: str, key: str | None = None) -> dict[str, str]:
@@ -88,14 +83,13 @@ def _order_and_approve(client: TestClient) -> dict[str, Any]:
     assert order["status"] == "PENDING_APPROVAL"
     queue = client.get("/v1/approvals", params={"status": "pending"}, headers=_auth("hotel_purchasing")).json()
     approval = next(entry for entry in queue if entry["approval_id"] == order["approval_id"])
-    for role in approval["required_roles"]:
-        decided = client.post(
-            f"/v1/approvals/{order['approval_id']}/decision",
-            json={"decision": "APPROVE", "note": "Approved for the weekend."}, headers=_auth(APPROVER_BY_ROLE[role]),
-        )
-        assert decided.status_code == 200, decided.text
-        order = decided.json()
-    return order
+    assert approval["required_roles"]
+    decided = client.post(
+        f"/v1/approvals/{order['approval_id']}/decision",
+        json={"decision": "APPROVE", "note": "Approved for the weekend."}, headers=_auth("hotel_purchasing"),
+    )
+    assert decided.status_code == 200, decided.text
+    return decided.json()  # her one decision is the whole confirmation, whatever roles were asked
 
 
 def test_the_flow_runs_on_postgresql_and_a_new_gateway_finds_its_record(

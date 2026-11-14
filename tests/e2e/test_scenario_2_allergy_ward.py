@@ -137,7 +137,7 @@ def test_scenario_2_at_both_clocks_the_sentence_is_read_prepared_confirmed_by_a_
     decided = both.confirm("ward", order, NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Confirmed by Demo approver Jussi (purchasing manager): ordered for €402.00 net."
+        "Confirmed by Demo approver Jussi (purchasing manager and finance): ordered for €402.00 net."
     )
 
     own, valio = two_views(both, "ward", decided, decided_by="ward:purchasing_manager", note=NOTE)

@@ -34,7 +34,9 @@ from tta.contracts.errors import PROBLEM_CONTENT_TYPE, PROBLEM_TYPE_BASE
 CAPTURE = "2026-11-14-demo"  # tonight's capture, Saturday 14 Nov 2026 02:52 server time
 MONDAY = "2026-11-16"
 EVENT_PREFIX = "tta.v1."
-# The demonstration tokens of src/tta/api/demo_tokens.yaml. They are public by design.
+# The demonstration tokens of src/tta/api/demo_tokens.yaml. They are public by design. One person confirms
+# (decision B54): the hotel's and the bakery's person who orders holds every role; at the ward and the school that
+# person also holds finance's role, and the dietitian is the only second person.
 DEMO_CLOCK = "2026-11-12T14:15:00+02:00"  # Thursday 12 Nov 2026 14:15 Helsinki time: the clock the demo is shown at
 RECORDING, THURSDAY = "recording", "demo"  # the two clocks of the `both` fixture
 TOKENS = {
@@ -43,26 +45,26 @@ TOKENS = {
     "school": "demo-agent-school-kitchen",
     "bakery": "demo-agent-bakery-cafe",
     "school:purchasing_manager": "demo-approver-school-purchasing",
-    "school:finance": "demo-approver-school-finance",
+    "school:finance": "demo-approver-school-purchasing",
     "school:dietitian": "demo-approver-school-dietitian",
     "bakery:purchasing_manager": "demo-approver-bakery-owner",  # the owner holds every role of the bakery (B27)
     "bakery:finance": "demo-approver-bakery-owner",
     "bakery:dietitian": "demo-approver-bakery-owner",
     "hotel:purchasing_manager": "demo-approver-hotel-purchasing",
-    "hotel:finance": "demo-approver-hotel-finance",
-    "hotel:dietitian": "demo-approver-hotel-dietitian",
+    "hotel:finance": "demo-approver-hotel-purchasing",
+    "hotel:dietitian": "demo-approver-hotel-purchasing",
     "ward:purchasing_manager": "demo-approver-ward-purchasing",
-    "ward:finance": "demo-approver-ward-finance",
+    "ward:finance": "demo-approver-ward-purchasing",
     "ward:dietitian": "demo-approver-ward-dietitian",
     "supplier": "demo-supplier-valio-aimo",
 }
 
 # The people of src/tta/api/demo_tokens.yaml, as the buyer's view of the log names them.
 APPROVERS = {
-    "hotel:purchasing_manager": "Demo approver Hanna", "hotel:finance": "Demo approver Mikko",
-    "hotel:dietitian": "Demo approver Leena", "ward:purchasing_manager": "Demo approver Jussi",
-    "ward:finance": "Demo approver Anna", "ward:dietitian": "Demo approver Sari",
-    "school:purchasing_manager": "Demo approver Päivi", "school:finance": "Demo approver Tuomas",
+    "hotel:purchasing_manager": "Demo approver Hanna", "hotel:finance": "Demo approver Hanna",
+    "hotel:dietitian": "Demo approver Hanna", "ward:purchasing_manager": "Demo approver Jussi",
+    "ward:finance": "Demo approver Jussi", "ward:dietitian": "Demo approver Sari",
+    "school:purchasing_manager": "Demo approver Päivi", "school:finance": "Demo approver Päivi",
     "school:dietitian": "Demo approver Riikka", "bakery:purchasing_manager": "Demo approver Marko",
     "bakery:finance": "Demo approver Marko", "bakery:dietitian": "Demo approver Marko",
 }
@@ -71,7 +73,7 @@ APPROVERS = {
 LIMIT_AMOUNTS = ("€750", "€3,000", "€500", "€1,500", "€250", "€800", "€300", "€1,000")
 NAMES = (
     "Harbourside", "City Hospital", "Kilo School", "Kallio", "hotel-kitchen", "allergy-ward", "school-kitchen",
-    "bakery-cafe", "Hanna", "Mikko", "Leena", "Jussi", "Anna", "Sari", "Päivi", "Tuomas", "Riikka", "Marko",
+    "bakery-cafe", "Hanna", "Jussi", "Sari", "Päivi", "Riikka", "Marko",
 )
 # A GS1 allergen code as a word of its own, or an allergen named with its code as the buyer's view writes it.
 ALLERGEN_CODE = re.compile(r"\b(AM|AW|AN|AP|AS|SA)\b|tree nuts|peanuts|sesame|excluding allergen")
@@ -214,12 +216,21 @@ class Demo:
         return found[0]
 
     def approve_all_roles(self, buyer: str, order: dict[str, Any], note: str) -> dict[str, Any]:
-        """Each role the order's approval needs approves it, through that role's demo approver."""
+        """Each person the order's approval needs approves it once, through that person's demo token: one
+        person who holds several of the roles decides once for all of them."""
         approval = self.approval_of(buyer, order)
         decided: dict[str, Any] = {}
-        for role in approval["required_roles"]:
-            decided = self._json(self.decide(f"{buyer}:{role}", approval["approval_id"], note=note), 200)
+        for who in self.people(buyer, approval["required_roles"]):
+            decided = self._json(self.decide(who, approval["approval_id"], note=note), 200)
         return decided
+
+    @staticmethod
+    def people(buyer: str, roles: list[str]) -> list[str]:
+        """One "buyer:role" per person who holds any of these roles, in the roles' order."""
+        first_role_of: dict[str, str] = {}
+        for role in roles:
+            first_role_of.setdefault(TOKENS[f"{buyer}:{role}"], f"{buyer}:{role}")
+        return list(first_role_of.values())
 
     def approval_for(self, approver: str, order: dict[str, Any]) -> dict[str, Any]:
         """The pending approval of an order as one approver ("hotel:dietitian") finds it in the queue."""
@@ -228,12 +239,13 @@ class Demo:
         return found[0]
 
     def confirm(self, buyer: str, order: dict[str, Any], note: str, option_id: str | None = None) -> dict[str, Any]:
-        """Each role the order asks for approves it, with a note; `option_id` takes another option of the offer."""
+        """Each person the order asks for approves it once, with a note; `option_id` takes another option of the
+        offer."""
         decided: dict[str, Any] = {}
-        for role in order["decision"]["required_roles"]:
+        for who in self.people(buyer, order["decision"]["required_roles"]):
             body = {"decision": "APPROVE", "note": note, **({} if option_id is None else {"option_id": option_id})}
             answer = self.client.post(
-                f"/v1/approvals/{order['approval_id']}/decision", json=body, headers=self.headers(f"{buyer}:{role}")
+                f"/v1/approvals/{order['approval_id']}/decision", json=body, headers=self.headers(who)
             )
             decided = self._json(answer, 200)
         return decided

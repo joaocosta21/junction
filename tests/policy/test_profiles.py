@@ -45,7 +45,9 @@ def test_hotel_kitchen_carries_the_values_of_the_spec_and_is_marked_illustrative
     assert hotel.deposits is DepositRule.APPROVAL
     assert hotel.require_confirmed is False
     assert hotel.approver_roles[ApproverRole.PURCHASING_MANAGER] == ("human:hotel-purchasing",)
-    assert hotel.approver_roles[ApproverRole.FINANCE] == ("human:hotel-finance",)
+    # One person confirms (decision B54): the person who orders holds every role, there is no separate signer.
+    assert hotel.approver_roles[ApproverRole.FINANCE] == ("human:hotel-purchasing",)
+    assert hotel.approver_roles[ApproverRole.DIETITIAN] == ("human:hotel-purchasing",)
 
 
 def test_allergy_ward_carries_the_values_of_the_spec_and_is_marked_illustrative(ward: BuyerProfile) -> None:

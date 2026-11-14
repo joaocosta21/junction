@@ -14,7 +14,7 @@ def _pending(book, samples, agent: Identity, key: str = "key-1") -> Order:
     return book.service.place_order(offer.offer_id, "opt_1", agent, key)
 
 
-@pytest.mark.parametrize("reader", ["agent_hotel", "approver_purchasing", "approver_finance"])
+@pytest.mark.parametrize("reader", ["agent_hotel", "approver_purchasing", "approver_hotel_buyer"])
 def test_the_agent_and_the_approvers_of_a_buyer_read_its_orders_and_approvals(
     reader: str, book, samples, agent_hotel: Identity, request: pytest.FixtureRequest
 ) -> None:

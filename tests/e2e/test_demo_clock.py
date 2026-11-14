@@ -95,7 +95,10 @@ def test_with_the_setting_health_says_which_clock_is_in_force_and_that_it_was_se
         "Demo clock: Thursday 12 November 2026 at 14:15 (UTC+02:00), set with TTA_DEMO_CLOCK. Order deadlines are "
         "judged against it. We chose it: Valio Aimo said on 14 Nov 2026 that its test data is static. The data "
         "was recorded on Saturday 14 November 2026 at 02:52 (UTC+02:00). The audit trail is stamped with the real "
-        "time."
+        "time. 394 of the 1,163 recorded products were recorded later than the rest: on Saturday 14 Nov at 21:12 "
+        "(recording 2026-11-14-baking), against Saturday 14 Nov at 02:52 for the other 769 (recording "
+        "2026-11-14-demo, which gives the clock). Valio Aimo said on 14 Nov 2026 that its test data is static, "
+        "which is why two recordings of the same Saturday are read as one."
     )
 
 

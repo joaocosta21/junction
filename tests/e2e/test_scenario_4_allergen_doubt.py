@@ -2,13 +2,15 @@
 
 4a, the hotel: "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk, strict rule". Valio
 Aimo's data states nothing about milk for `469512`. The first option is a product whose data rules milk out; the
-product asked for is a labelled alternative that only the dietitian can release (rule P-04). The dietitian has
-three choices: take the safe product, use the product asked for anyway, or leave it out. The manufacturer's page
-is attached as evidence; it changes no verdict.
+product asked for is a labelled alternative that only the holder of the dietitian's role can release (rule P-04).
+At the hotel that is the person who orders: one person confirms (decision B54), so the question is hers and no
+second person is asked. She has three choices: take the safe product, use the product asked for anyway, or leave
+it out. The manufacturer's page is attached as evidence; it changes no verdict.
 
 4b, the school: "20 litres of almond drink by Monday". The school's profile excludes tree nuts, peanuts and sesame
 under the strict rule. No almond drink's data rules tree nuts out, so no option is suggested as safe. For
-`465793` Valio Aimo's data says "may contain"; the manufacturer's recorded page says it contains almond.
+`465793` Valio Aimo's data says "may contain"; the manufacturer's recorded page says it contains almond. The
+school has a dietitian: she is the second person, and the person who orders cannot decide this question.
 
 The evidence is read from `fixtures/evidence/` (recorded pages): no outside call is made.
 Scores on the 20% guardrails (who must sign, and why), the 15% substitutions and the brief's "allergen-safe
@@ -78,7 +80,7 @@ def test_scenario_4a_the_safe_product_comes_first_and_the_doubtful_one_is_a_labe
     assert "(469512)" in rule["sentence"] and rule["approver_role"] == "dietitian"  # the wording is the rule's own
 
 
-def test_scenario_4a_the_dietitian_sees_the_manufacturers_page_as_evidence_and_nobody_else_can_decide(
+def test_scenario_4a_the_person_who_orders_sees_the_manufacturers_page_as_evidence_and_the_agent_cannot_decide(
     both: Any, texts: Any
 ) -> None:
     order = _order_the_doubtful_option(both, "hotel", both.offer("hotel", texts.dietitian_request), ELOVENA)
@@ -91,13 +93,20 @@ def test_scenario_4a_the_dietitian_sees_the_manufacturers_page_as_evidence_and_n
     assert any("it is not Valio Aimo's data" in reason and reason.endswith("It changes no verdict: a human decides.")
                for reason in approval["reasons"])
 
-    for other in ("hotel", "hotel:purchasing_manager", "hotel:finance"):  # the agent, and roles not asked for
-        assert both.decide(other, order["approval_id"]).status_code == 403, other
+    assert both.decide("hotel", order["approval_id"]).status_code == 403  # the agent never decides (F-06)
+    assert both.get_order("hotel", order["order_id"])["status"] == OrderStatus.PENDING_APPROVAL
+    # the tokens of the hotel's former second and third person are no longer issued (decision B54)
+    for gone in ("demo-approver-hotel-dietitian", "demo-approver-hotel-finance"):
+        answer = both.client.post(
+            f"/v1/approvals/{order['approval_id']}/decision", json={"decision": "APPROVE"},
+            headers={"Authorization": f"Bearer {gone}"},
+        )
+        assert answer.status_code == 401, gone
     assert both.get_order("hotel", order["order_id"])["status"] == OrderStatus.PENDING_APPROVAL
 
 
 @pytest.mark.parametrize("choice", ["take the safe product", "use it anyway", "leave it out"])
-def test_scenario_4a_each_of_the_dietitians_three_choices_ends_in_the_log(
+def test_scenario_4a_each_of_the_three_choices_is_one_decision_by_the_person_who_orders_and_ends_in_the_log(
     both: Any, texts: Any, money: Any, lines_of: Any, event_types: Any, two_views: Any, choice: str
 ) -> None:
     offer = both.offer("hotel", texts.dietitian_request)
@@ -108,7 +117,9 @@ def test_scenario_4a_each_of_the_dietitians_three_choices_ends_in_the_log(
         assert answer.status_code == 200, answer.text
         decided = answer.json()
         assert (decided["status"], decided["placed_by"]) == (OrderStatus.REJECTED, None)
-        assert decided["status_sentence"] == "Rejected by Demo approver Leena (dietitian): nothing was ordered."
+        assert decided["status_sentence"] == (
+            "Rejected by Demo approver Hanna (purchasing manager, finance and dietitian): nothing was ordered."
+        )
     else:
         safe = offer["options"][0]["option_id"] if choice == "take the safe product" else None
         decided = both.confirm("hotel", order, NOTE, option_id=safe)
@@ -118,6 +129,7 @@ def test_scenario_4a_each_of_the_dietitians_three_choices_ends_in_the_log(
 
     own, valio = two_views(both, "hotel", order, decided_by="hotel:dietitian", note=NOTE)
     assert "evidence.attached" in event_types(own)
+    assert event_types(own).count("approval.decided") == 1  # one person, one decision: no second signature
     chosen = next(event for event in own["events"] if event["type"].endswith("approval.decided"))
     if choice == "take the safe product":
         assert "chose another option of the same offer" in chosen["sentence"]
