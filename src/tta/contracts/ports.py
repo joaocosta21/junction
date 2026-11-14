@@ -37,7 +37,10 @@ from tta.contracts.request import ProductQuery, PurchaseRequest
 @runtime_checkable
 class Clock(Protocol):
     def now(self) -> datetime:
-        """Timezone-aware current time: the server's `timeNow` in live mode, the pinned time in replay."""
+        """Timezone-aware current time.
+
+        Live: the server's `timeNow` as last told, carried forward by the time passed since. Replay: pinned.
+        """
         ...
 
 

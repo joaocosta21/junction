@@ -239,6 +239,14 @@ The build agents add questions here in the same shape as above. Empty until the 
 
 ### For Valio
 
+**T01-1 · Must an agent send a named User-Agent?** (from the Valio client)
+- **Context:** the API sits behind Cloudflare. The brief wants the wholesaler "openly readable by autonomous agents"; many agents call through an HTTP library with its default user agent.
+- **We did:** called `GET /api/ping` with the same key and two user agents (14 Nov, 02:40), then `/api/availability` and `/api/price` at 03:13 with `User-Agent: tta-gateway/0.1`.
+- **We got:** 403 with Python's default user agent, 200 a minute later with a named one; 200 on both later calls.
+- **Example to show:** the same ping, once with the library default and once with `User-Agent: tta-gateway/0.1`.
+- **Ask:** "A call with a library's default User-Agent got 403 while the same key with a named one got 200 — is that expected, or did we get something wrong? If expected, is a named User-Agent the rule an external agent should follow?"
+- **If no answer, we build:** the client always sends a named User-Agent and `Accept: application/json`; a 403 is reported once as `supplier-unavailable` with that hint and never retried.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
@@ -248,6 +256,13 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Example to show:** `469363`, 384 units confirmed, cut-off Sunday 17:00 — with "by Monday" all five are confirmed; with no date the delivery-date claim is unknown.
 - **Ask:** "Should the agent be held back by a claim the buyer did not ask about?"
 - **Built overnight (change it if you disagree):** price, quantity and allergens always count; the delivery date counts only when the request gives a date; origin is shown and never holds an order back (SPEC §4).
+
+**T01-2 · Which date do we send as `requestedDate`?** (from the Valio client)
+- **Context:** both endpoints require `requestedDate`; the mock ignores it (24 products × 4 dates gave identical product fields).
+- **We did:** the client sends the clock's current date; tonight's capture was taken with 2026-11-16.
+- **We got:** the same answer for both dates (`469363`: 384 units, €2.48, cut-off Sunday 17:00, delivery 16 Nov).
+- **Ask:** "Should the buyer's needed-by date be passed down to the Valio call, for a real API that honours it?"
+- **Built overnight:** the clock's current date. The needed-by date is compared with `availableDate` in our own code, so the demo does not depend on it. Passing the date down is listed as a next step (it needs one argument on two port methods).
 
 ---
 

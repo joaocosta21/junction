@@ -20,3 +20,15 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Claim `origin`: the placeholder codes `zy`, `xs`, `zz` count as not stated (80 of 17,546 catalog products state no origin).
 - Which claims gate an order without a human: price, quantity, allergens always; delivery date only for a dated request; origin never (SPEC section 4).
 - Dates and times are written in the offset Valio sent (Helsinki). Sales-unit codes (`ST`, `KI`, `KG`) are shown as Valio sends them: no translation is published.
+
+## Valio client (T01)
+- The live clock is the server's last `timeNow` carried forward by the time passed since; before the first availability answer it is UTC now. Only an availability answer moves it (`/api/price` states no server time).
+- `requestedDate` sent to the mock is the clock's current date; the mock ignores it. Passing the buyer's needed-by date down is a next step.
+- Cache: 60 seconds, keyed by endpoint and the sorted distinct ids of the whole call. A cache hit costs no budget.
+- Call budget: every HTTP attempt counts, retries included; the count is kept in `var/valio_call_budget.json`. A budget file that cannot be read stops every call.
+- Retries: a time-out or a 5xx, after 1 s and 2 s. A 4xx (429 included) and a connection failure are reported at once.
+- Every failure of the supplier call is `supplier-unavailable`; the underlying HTTP error is never attached, because it holds the request and the request holds the key.
+- Parsing is strict: a body that breaks the published shape, or leaves out a requested id, refuses the whole answer.
+- Replay answers an id outside the capture as the live API answers an unknown id (confirmed live with `459999`).
+- Live mode needs a writable data directory: every answer is recorded, and the call fails if it cannot be.
+- Agents must identify themselves: the client sends `User-Agent: tta-gateway/0.1` (question T01-1).
