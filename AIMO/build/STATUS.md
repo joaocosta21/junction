@@ -42,6 +42,10 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | done | b91e135; 54 new tests; `/kitchen` in the menu; profile checked as a file is; in force only in that browser's book |
 | DOCS-2 | Documents say what the code does | — | done | 8 documents aligned; 26 marks wait on S1, T18, FIX-12a, FIX-12b, FEAT-1 |
 | DOCS-3 | Documents say what is committed: marks settled, limits checked, assumptions for price and the ceiling | DOCS-2 | done | d342dfb; 26 marks settled, 8 deploy marks settled by the orchestrator after the redeploy |
+| SUST-1 | Delivery time and sustainability comparison (brief's optional direction) | 576e4cc | running | asked by the human, 11:40; hand back by 15:30 |
+| STAND-1 | Standing orders with drift detection before renewal (rule P-08) | 576e4cc | running | asked by the human, 11:40; hand back by 15:30 |
+| MENU-1 | Recipe logic: menu → order, substitutions by role (rule F-09) | d4ad9b7 | running | asked by the human, 11:40; hand back by 15:30 |
+| FALLBACK-1 | Rule-based reader when the model cannot answer; model schema learns the new fields | 576e4cc | running | asked by the human, 11:40 (Gemini on a zero balance); hand back by 15:30 |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -104,3 +108,4 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 11:10 DOCS-3 handed back; netPriceFound is true on 50 of 769 price lines (it corrected the orchestrator's premise, taken from T17). Committed d342dfb.
 - 11:15 **redeploy** from d342dfb with the approved command; `deploy/check.py` 7 of 7; /healthz live, no fall-back; /kitchen 200; almond drink → P-04 on the deployed app.
 - 11:20 MORNING.md written; PLAN §5 and §8 updated; loop ended.
+- 12:10 the human asked for A (sustainability), B (standing-order drift), C (recipes) and a rule-based fallback, plus one more redeploy when they are verified. Contracts 576e4cc and d4ad9b7 by the orchestrator; four agents launched.
