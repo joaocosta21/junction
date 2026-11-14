@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from tta.agent import profile_strictness
-from tta.agent.gemini import GeminiModel, InteractionsTransport, chosen_model, sdk_transport
+from tta.agent.gemini import REQUEST_TIMEOUT_SECONDS, ContentTransport, GeminiModel, chosen_model, sdk_transport
 from tta.agent.model import AgentModel, ExtractCall, ModelTurn, TurnCall
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import AGENT_FIXTURES_FOLDER, LIVE_SOURCE, RecordedCall, RecordedTurn, Recording, text_key
@@ -67,7 +67,7 @@ PLAN: tuple[Task, ...] = (
 class CallBudget:
     """A transport that counts every request sent to the model and refuses the one beyond the budget."""
 
-    def __init__(self, transport: InteractionsTransport, max_calls: int) -> None:
+    def __init__(self, transport: ContentTransport, max_calls: int) -> None:
         self._transport = transport
         self._max_calls = max_calls
         self._calls = 0
@@ -191,6 +191,8 @@ def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Record the Gemini model's answers for the demonstration sentences.")
     parser.add_argument("--max-calls", type=int, default=MAX_LIVE_CALLS, help="requests to the model, at most")
     parser.add_argument("--only", action="append", choices=[task.name for task in PLAN], help="one task of the plan")
+    parser.add_argument("--timeout", type=float, default=REQUEST_TIMEOUT_SECONDS,
+                        help="seconds the model has for each request; the gateway always gives it the default")
     return parser.parse_args(argv)
 
 
@@ -237,7 +239,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("GEMINI_API_KEY is not set: nothing was called and nothing was recorded.")
         return EXIT_NO_KEY
     tasks = [task for task in PLAN if not arguments.only or task.name in arguments.only]
-    budget = CallBudget(sdk_transport(settings), arguments.max_calls)
+    budget = CallBudget(sdk_transport(settings, timeout_seconds=arguments.timeout), arguments.max_calls)
     try:
         return _record_all(settings, tasks, budget)
     finally:

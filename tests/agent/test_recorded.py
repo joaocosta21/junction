@@ -140,3 +140,16 @@ def test_the_fixtures_of_the_repository_hold_the_demonstration_sentences_and_no_
     for path in fixtures_agent_dir.glob("*.json"):
         content = path.read_text(encoding="utf-8").lower()
         assert not any(word in content for word in ("x-goog-api-key", "authorization", "bearer ", "aiza"))
+
+
+def test_the_model_says_which_sentences_it_holds_and_what_it_holds_for_them(tmp_path: Path) -> None:
+    model = RecordedModel(_write(tmp_path, parse=PARSE, run=RUN))
+    (tmp_path / "parse-only").mkdir()
+    parse_only = RecordedModel(_write(tmp_path / "parse-only", parse=PARSE))
+
+    held = model.recordings_of("5 KG of butter.")
+
+    assert [(recording.kind, recording.source) for recording in held] == [("parse", "live"), ("run", "hand-built")]
+    assert model.holds("parse", "5 kg of butter") and model.holds("run", "5 kg of butter")
+    assert parse_only.holds("parse", "5 kg of butter") and not parse_only.holds("run", "5 kg of butter")
+    assert model.recordings_of("7 kg of cheese") == () and not model.holds("parse", "7 kg of cheese")

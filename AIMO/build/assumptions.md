@@ -238,3 +238,9 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Every piece of dynamic text is escaped; the assumptions page renders a small Markdown subset in which every character is escaped and only `http(s)` links are made.
 - The page keeps the last 200 agent runs in memory (question T12-4). One server process is assumed: the run log, the rate limiter and the SQLite file are per process.
 - In replay the day's spend never resets (question T12-1).
+
+## Buyer agent after the follow-up (T10 follow-up)
+- The Gemini module calls `generateContent` (API version v1), not the Interactions API: on 14 Nov the Interactions endpoint answered 503 to every request, while `generateContent` answered.
+- Default model `gemini-3.6-flash`: `gemini-3.8-flash` answered 504 to every request of the live check (30 s and 120 s deadlines). Gemini was slow all morning (a one-word answer took 21.7 s at 08:10; our reading of scenario 1 took 29 s).
+- With a key set, when Gemini cannot be reached for a sentence that has a recording, the reading or the run is served from the recording and the report says so in its first sentence. A sentence with no recording answers `supplier-unavailable`.
+- Waiting for Gemini: a 30-second deadline per request and 2 retries, so a sentence can wait about 90 s before the recording answers. For a live demo, running without the key serves the recordings at once, labelled.

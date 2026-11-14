@@ -161,3 +161,17 @@ def test_without_a_key_the_live_check_calls_nothing_and_says_so(
 
     assert code == record.EXIT_NO_KEY == 2
     assert "GEMINI_API_KEY is not set" in caplog.text
+
+
+def test_the_live_check_can_give_the_model_longer_than_the_gateway_does(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    given: dict[str, Any] = {}
+    monkeypatch.setattr(record, "get_settings", lambda: Settings.for_tests(gemini_api_key="test-key-0"))
+    monkeypatch.setattr(record, "sdk_transport", lambda settings, **options: given.update(options) or object())
+    monkeypatch.setattr(record, "_record_all", lambda settings, tasks, budget: record.EXIT_OK)
+
+    assert record.main(["--only", "scenario-1", "--timeout", "90"]) == record.EXIT_OK
+    assert given == {"timeout_seconds": 90.0}
+    assert record.main(["--only", "scenario-1"]) == record.EXIT_OK
+    assert given == {"timeout_seconds": record.REQUEST_TIMEOUT_SECONDS}

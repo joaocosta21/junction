@@ -1,10 +1,10 @@
 {
   "kind": "parse",
   "text": "1,000 litres of lactose-free milk by Monday",
-  "model": "hand-built",
-  "source": "hand-built",
+  "model": "gemini-3.6-flash",
+  "source": "live",
+  "recorded_at": "2026-11-14T06:14:08.168025Z",
   "today": "2026-11-14",
-  "note": "Written by hand, not by a model: the live check of 14 Nov 2026 got HTTP 503 from the Gemini API on both of its two attempts and was stopped (AIMO/build/AGENT-RULES.md, rule 10). `.venv/bin/python -m tta.agent.record` replaces this file with the model's own answer.",
   "proposal": {
     "needed_by": "2026-11-16",
     "require_confirmed": false,
@@ -16,7 +16,7 @@
         "required_claims": [
           "FREE_FROM_LACTOSE"
         ],
-        "quantity": 1000,
+        "quantity": 1000.0,
         "unit": "L",
         "exclude_allergens": [],
         "allergen_strictness": null,

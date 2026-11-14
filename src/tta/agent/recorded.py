@@ -133,11 +133,18 @@ class RecordedModel:
     def recorded(self) -> bool:
         return True
 
+    def recordings_of(self, request_text: str) -> tuple[Recording, ...]:
+        """What is held for this sentence: its parse, then its run, each when there is one."""
+        key = text_key(request_text)
+        return tuple(found[key] for found in (self._parses, self._runs) if key in found)
+
+    def holds(self, kind: Literal["parse", "run"], request_text: str) -> bool:
+        found = self._parses if kind == "parse" else self._runs
+        return text_key(request_text) in found
+
     def label_for(self, request_text: str) -> str:
         """"recorded" when every recording of this sentence was saved from a model; else "hand-built"."""
-        key = text_key(request_text)
-        held = [found[key] for found in (self._parses, self._runs) if key in found]
-        by_hand = any(recording.source != LIVE_SOURCE for recording in held)
+        by_hand = any(recording.source != LIVE_SOURCE for recording in self.recordings_of(request_text))
         return HAND_BUILT_MODEL_ID if by_hand else RECORDED_MODEL_ID
 
     def extract(self, call: ExtractCall) -> str:

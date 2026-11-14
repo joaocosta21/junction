@@ -28,7 +28,7 @@ class TurnCall:
 
     system: str  # the instruction: the same on every turn of a run
     request_text: str  # the buyer's words: the key of a recorded run, not sent to a live model
-    history: tuple[JsonDict, ...]  # the conversation so far, as steps of the Interactions API
+    history: tuple[JsonDict, ...]  # the conversation so far, as plain steps (`tta.agent.contents`)
     tools: tuple[JsonDict, ...]  # the function declarations
     turn: int  # 1 for the first turn of the run
 
