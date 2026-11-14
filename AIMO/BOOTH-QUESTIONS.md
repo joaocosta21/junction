@@ -485,6 +485,11 @@ The build agents add questions here in the same shape as above. Empty until the 
 **T12-4 · The agent's steps are not stored**
 - **Built overnight:** the page keeps the last 200 agent runs in memory; after a restart the offer, the order and the outcome are still there, the agent's steps are not.
 
+**T13-1 · The partial fill of scenario 1 needs 1,500 litres tonight** (from the scenarios task, for information)
+- Tonight three confirmed milks cover 1,000 L in full (€2,580.64, needs the purchasing manager by P-01). The partial fill and rule P-03 of the plan come back with **1,500 litres**: 1,133 L confirmed, 75.5% covered, P-01 and P-03, €2,933.09. It is tested and is a Q&A moment in `docs/DEMO.md`.
+- The live run (6 calls to the Valio mock at 08:12) matched the 02:52 capture exactly: same products, stock, prices, cut-offs and verdicts.
+- The shared day spend on the public link is question T12-1.
+
 ---
 
 ## Claims we no longer make

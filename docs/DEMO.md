@@ -1,0 +1,127 @@
+# Demo script
+
+The demo of the Trusted Trade Agents gateway, click by click: three scenarios and a backup. Every number below was checked on 14 Nov 2026 against tonight's replay capture (`fixtures/valio/2026-11-14-demo`, Valio's server time Saturday 14 Nov 02:52). The end-to-end tests in `tests/e2e/` check them on every run.
+
+## How tonight's data changes the plan
+
+| Plan (Friday's data) | Tonight's capture | What the demo shows instead |
+|---|---|---|
+| Scenario 1: confirmed stock covers 749 L, so option 1 is a partial fill | Three confirmed milks cover the full 1,000 L for €2,580.64 (`469363` 384, `462775` 51, `463380` 565) | A combined full fill. It still goes to a human: €2,580.64 is above the hotel's €750 limit per order (P-01). For a partial fill, ask for **1,500 litres**: confirmed stock is 1,133 L, so 75.5% is covered, which is below the 90% minimum (P-03). See "Extra moments". |
+| Scenario 2: `464056` Alpro Barista Soya, €2.14, €428.00 | `464013` Alpro No Sugars Soya, €2.01, 200 × = €402.00 | The same story. It states `FREE_FROM` milk and gluten, every claim is confirmed, and €402.00 is within the ward's €500 limit, so the agent orders alone. |
+| Scenario 3: `471690` passes | `471690` passes the allergen rule, but its cut-off has passed (Thursday 12 Nov 15:00) | It passes and still cannot be ordered, and the page shows the reason. `471881` and `464320` add gluten (`AW`, contains) and can never be ordered. The best substitute that can be ordered is `475224`. |
+
+**Live check, 14 Nov at 08:12 Valio time (6 calls):** the live mock gave the same result as the capture for all three scenarios: the same products, quantities, prices, stock figures, cut-offs, exclusions, verdicts and rules. Every answer was labelled `live`, and `/healthz` read `ok · live · live`.
+
+## Before you start
+
+**Mode: demo in replay**, from an empty database, with the scenarios run once each in the order 1, 2, 3.
+- **Replay** answers from tonight's capture with the clock pinned to Saturday 02:52. The outcomes below are then certain. They do not depend on the mock being up or on stock moving, and no supplier calls are spent. Every page says so in a yellow box: "Replay: recorded Valio Aimo data, clock pinned to the recording".
+- **Empty database:** the daily spend limit (P-02) counts the buyer's orders of the data clock's date. In replay that date never ends, so a second run changes the outcome. On one database the fourth scenario 2 goes to finance, a second scenario 1 needs finance as well, and scenario 3 is ordered alone only while the hotel's day stays under €3,000. `tests/e2e/test_demo_script.py` shows both.
+- **No Gemini key** (`GEMINI_API_KEY=` empty): scenarios 1 and 2 are then read and run from the recordings in `fixtures/agent/`. Both readings and scenario 2's run were recorded from `gemini-3.6-flash` on 14 Nov; scenario 1's run is still written by hand. The page names where the answers came from: "Model hand-built · recorded answers, no live model call." for scenario 1 and "Model recorded · recorded answers, no live model call." for scenario 2. With a key set, the buyer agent calls Gemini, and a slow model holds the page. If Gemini cannot be reached, a recorded sentence is answered from its recording, and the run's report says so.
+
+```sh
+rm -f var/demo.sqlite3
+GEMINI_API_KEY= TTA_ENV=demo TTA_MODE=replay TTA_DB_PATH=var/demo.sqlite3 \
+  .venv/bin/python -m uvicorn --factory tta.api:create_app --port 8000
+```
+Open `http://127.0.0.1:8000/`. `TTA_ENV=demo` is required: without it the app runs as `prod`, which has no demo tokens and does not start.
+
+**Live mode** is `TTA_MODE=live` (the Valio key and base URL come from the environment). Every offer then says `live` or `replay`. If the mock cannot answer, or the call budget runs low, the capture answers and the page shows the replay label. To switch back to replay, restart with `TTA_MODE=replay` (on Modal, set the same variable; see `docs/DEPLOY.md`).
+
+**Who is asking.** Both buyer profiles are illustrative and ours. The page says so, and the mock has no customer limits.
+| Agent | May order alone up to | Also |
+|---|---|---|
+| Hotel kitchen agent (demo), profile `hotel-kitchen` | €750 per order, €3,000 per day, at least 90% of the quantity covered | Substitutes of the same category allowed; variable weight goes to a human |
+| Allergy ward agent (demo), profile `allergy-ward` | €500 per order, €1,500 per day, 100% covered | Excludes `AM` milk and `AW` gluten (strict), confirmed data only, no substitute without a human |
+
+## Scenario 1: hotel kitchen, "1,000 litres of lactose-free milk by Monday"
+
+1. **Click** "Scenario 1 · hotel kitchen". The example brings its own agent, the hotel kitchen. The browser opens at the summary strip.
+   - Green **Confirmed**: "3 confirmed products cover the 1,000 L asked for, for €2,580.64 before tax."
+   - Yellow **Not confirmed**: "… (464306) for the 1,000 L asked for, €1,010.00 before tax. Valio does not confirm the quantity in stock, so a human must approve this option."
+   - Red **Excluded**: "19 products, each with its reason: 17 × Cut-off passed, 1 × Portion pack, 1 × Not deliverable."
+   - **Outcome**: "? Sent for approval".
+   *Scores on:* 30% (one flow from request to approval) · 15% (unknown stock and passed cut-offs are handled, not hidden).
+2. **Scroll to "The request, as the gateway read it"**: "read as 1,000 L of product type milk, with claim FREE_FROM_LACTOSE, pack: bulk." · "Needed by: Monday 16 Nov 2026" · "Products looked up: 30" · "The text was read and run by the buyer agent". *Scores on:* 20% (a precise match to what was asked).
+3. **Options, side by side.** Option 1 "✓ Confirmed stock": 384 × `469363`, 51 × `462775`, 565 × `463380`, each with "✓ Price / Quantity / Delivery date / Allergens / Origin: confirmed". It says "Covers 1,000 of 1,000 L (100%). Order by Sunday 15 Nov 2026 at 17:00 (UTC+02:00)." Option 2 "? Quantity not confirmed", `464306` at €1.01: "Quantity not confirmed: Valio reports 9,999,999,999 ST, a placeholder that means the stock is not known." Under each option, "What the buyer asked for" shows five checks, among them "Every product offered carries the nutritional claim FREE_FROM_LACTOSE. A claim is not an allergen statement." *Scores on:* trust protocol (a status for every claim) · 20% (good-better-best, ready for the approver to pick).
+4. **"What the agent may do"** on option 1: "? A human must approve. The agent cannot place this order alone: the total of €2,580.64 before tax is above the €750 limit per order of profile hotel-kitchen (P-01). It needs the purchasing manager." Option 2 adds **F-01**, tagged "fixed rule: no profile can switch it off". *Scores on:* 20% controls (the verdict is known before ordering, with each rule named).
+5. **Excluded products:** "✕ Portion pack Arla Portion milk 100x2 cl … (463203) This is a pack of single-serve portions: one sales unit holds 100 portions of 0.02 L. The request is for bulk packs." and "✕ Cut-off passed … Order cut-off passed on Thursday 12 Nov at 15:00, so delivery on Monday 16 Nov cannot be promised." *Scores on:* 15% (every exclusion has a reason).
+6. **"What the buyer agent did"**: `✓ get_authority`, `✓ create_offer`, `✓ place_order`, then "The model chooses which function to call; the gateway decides every price, quantity and verdict." *Scores on:* 20% controls (the model never decides a price, a quantity or a verdict).
+7. **Click** "Decide as Demo approver Hanna (purchasing manager)". The approval card says "? Waiting for approval · Order by Sunday 15 Nov 2026 at 17:00 (UTC+02:00): after that the order expires." Under "Why a human is needed": "The total of €2,580.64 before tax is above the €750 limit per order of profile hotel-kitchen." · "Needs: purchasing manager". Option 1 is checked and tagged "proposed by the agent". The cheaper option 2 can be picked instead. Point at the lead text: "An agent can never approve: the gateway refuses agent tokens here (rule F-06)."
+8. **Type a note** ("Checked with the kitchen.") and **click** "Approve the chosen option". The order record opens: "✓ Ordered with human approval · Ordered for €2,580.64 net with approval by Demo approver Hanna (purchasing manager): rule P-01 asked for a human and was accepted." Below it: "Recorded in the gateway's order book. The Valio Aimo mock has no order endpoint; this record holds everything a supplier order message would need. It commits nobody." *Scores on:* Core 3 · 30%.
+9. **Scroll the order record.** "The statements this order relied on" lists price, stock stated (384, 51, 698), delivery date, order by and the time Valio stated it, for each product. "Audit trail: the buyer's view" begins with "✓ The hash chain verifies · The audit trail is intact: each of the 9 events shown here matches its hash …". The trail has nine sentences, from "The agent sent a request for profile hotel-kitchen: …" to "Order ord_… is ordered, with approval by Demo approver Hanna (purchasing manager): … Price and availability were checked again and had not changed." *Scores on:* 20% (decisions logged and auditable).
+10. **Click** the tab "Valio Aimo's view (supplier)". The same nine events appear in the supplier's words: "The buyer's agent sent a purchase request." · "a human at the buyer must approve this order" · "A human at the buyer approved order …". They hold no limit value, no approver name and no note. *Scores on:* audit trail for "both buyer and Valio Aimo" · 15% (a CloudEvents envelope with a hash chain).
+
+## Scenario 2: allergy ward, "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
+
+1. **Go back to Request, click** "Scenario 2 · allergy ward". The example brings the allergy ward agent.
+   - **Confirmed**: "1 confirmed product covers the 200 L asked for, for €402.00 before tax."
+   - **Not confirmed**: "Nothing unconfirmed is offered."
+   - **Excluded**: "41 products, each with its reason: 18 × Declares an excluded allergen, 12 × Cut-off passed, 6 × Not deliverable, 5 × Allergen not stated."
+   - **Outcome**: "✓ Ordered by the agent".
+   *Scores on:* 20% controls (the autonomous path).
+2. **The request as read**: "read as 200 L of product type plant_drink, excluding allergens AM, AW, pack: bulk." · "Confirmed data only: yes". *Scores on:* 20% (no milk, no gluten and confirmed only are all kept).
+3. **The option**: 200 × Alpro No Sugars Soya drink 1L (`464013`), €2.01, "478 ST confirmed in stock". It shows "The product states it is free from milk (AM)." and "The product states it is free from cereals containing gluten (AW)." All seven checks are met, the last being "✓ Confirmed data only: met". "✓ The agent may order alone. The agent may place this order alone: the total of €402.00 before tax is within the €500 limit per order, today's spend would be €402.00 of the €1,500 limit per day of profile allergy-ward, 100% of the requested quantity is covered, and no rule asks for a human."
+4. **Excluded**: "✕ Declares an excluded allergen Oatly Oat Drink Organic 1L (460825) The product declares that it contains cereals containing gluten (AW), which the buyer excludes." Under the strict rule, a product that makes no statement about milk, or that declares oats when gluten is excluded, goes to a dietitian, so with confirmed data only it is excluded: "✕ Allergen not stated … Confirmed data only was asked for. The product makes no statement about milk (AM): a dietitian must decide." *Scores on:* trust protocol (no data means unknown, not safe; a claim is never an allergen statement).
+5. **Outcome**: "The agent placed this order alone for €402.00 net: no rule of profile allergy-ward asked for a human." Open the order record: the last audit sentence reads "The agent placed order ord_… alone, within its authority under profile allergy-ward: 200 ST of 464013 for €402.00 net. No rule asked for a human." *Scores on:* 20% ("what the agent can decide alone", logged).
+
+## Scenario 3: substitutes, "100 litres of Oddlygood Barista oat drink, product 473609, by Monday"
+
+Asked by the hotel kitchen agent. The sentence has no recording, so the page uses the example's typed request and says so: "The buyer agent could not run: No GEMINI_API_KEY is set, so the gateway can read only the 3 recorded demonstration requests … Read from the typed request of this example. No model was asked."
+
+1. **Click** "Scenario 3 · substitutes".
+   - **Confirmed**: "Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT (475224) in place of Oddlygood® Barista oat drink 1 l UHT gluten free (473609): the 100 L asked for, for €174.00 before tax."
+   - **Not confirmed**: `473609` itself, €137.00, which needs a human (F-01).
+   - **Outcome**: "✓ Ordered by the agent".
+2. **Option 1 "? Substitute"** says what the buyer gives up: "it does not carry the original's nutritional claim FREE_FROM_PRESERVATIVES; the brand is Fazer Aito, not Oddlygood®; Valio does not list it as a substitute; it costs €0.37 more per L". The check reads "✕ Product asked for: not met". The verdict: "✓ The agent may order alone … today's spend would be €2,754.64 of the €3,000 limit per day". That holds only after scenario 1 has been run once. *Scores on:* 15% (substitution) · 20% (the profile allows substitutes of the same category).
+3. **"Substitutes, ranked"** under "Listed by Valio Aimo as substitutes: 3":
+   - "1. Oddlygood® Barista oat drink 1 L Delight UHT gluten free (471690) · ✓ Passes the allergen rule · ✕ Cannot be ordered: Cut-off passed · It adds no allergen, but it cannot be ordered now. Order cut-off passed on Thursday 12 Nov at 15:00 …"
+   - "12. Oatly iKaffe Oat drink 1L (464320) · ✕ Fails the allergen rule · ✕ Cannot be ordered: Substitute adds an allergen · The substitute adds 1 allergen that the original does not declare: cereals containing gluten (AW, contains). It can never be ordered as a substitute."
+   - "13. Oddlygood® Barista oat drink 0,5 l UHT gluten free (471881)", with the same failure. It is the same brand and carries the `FREE_FROM_GLUTEN` claim, yet it declares gluten cereals: a claim is not an allergen statement.
+   *Scores on:* 15% (a substitute Valio itself lists fails the buyer's rule) · 20% (it can never be ordered, for any buyer).
+
+## Backup: hotel kitchen, "30 kg beef chuck"
+
+Use this if a scenario breaks. It has no button and no recording: pasted as text, it gets "A service the gateway depends on cannot be reached. No GEMINI_API_KEY is set …" (status 503). Send the typed request through `/docs` ("Try it out" on `POST /v1/offers`, token `demo-agent-hotel-kitchen`) or with curl:
+```sh
+curl -s -X POST http://127.0.0.1:8000/v1/offers -H "Authorization: Bearer demo-agent-hotel-kitchen" \
+  -H "Content-Type: application/json" \
+  -d '{"lines":[{"text":"30 kg beef chuck","product_type":"beef_chuck","quantity":30,"unit":"KG"}]}'
+curl -s -X POST http://127.0.0.1:8000/v1/orders -H "Authorization: Bearer demo-agent-hotel-kitchen" \
+  -H "Idempotency-Key: backup-1" -H "Content-Type: application/json" \
+  -d '{"offer_id":"<offer_id from the first answer>","option_id":"opt_1"}'
+```
+Then open `/?offer=<offer_id>` on the page, which now shows "Sent for approval", and approve on `/approvals`.
+- **What appears:** 30 × Well Beef chuck roll (`466988`), €16.88 per kg, €506.40 before tax: "1 confirmed product covers the 30 kg asked for, for €506.40 before tax. The total is a ceiling: a product is sold by weight, so the invoice can be lower, never higher." The lot step is 3 kg: 31 kg is sold as 33 kg (€557.04).
+- **Verdict on an empty database:** `APPROVAL` by P-06 (variable weight), sent to the purchasing manager. **After scenarios 1 and 3** the hotel's day would reach €3,261.04, so P-02 fires as well and finance must also approve: "It needs the purchasing manager and finance."
+- *Scores on:* 20% (lot step and quantity) · 15% (variable weight as a delivery constraint).
+
+## Extra moments for the Q&A (typed requests, `/docs` or curl)
+
+- **Partial fill:** scenario 1 with `"quantity": 1500`. Option 1 is 384 + 51 + 698 = 1,133 L for €2,933.09: "3 confirmed products cover 1,133 L of the 1,500 L asked for (367 L missing)". The quantity check shows "NOT_MET", and P-01 and P-03 fire (75.5%, below the 90% minimum). The unconfirmed alternative is 1,500 × `464306`. *Scores on:* 15% (partial availability).
+- **An agent cannot approve:** `POST /v1/approvals/<approval_id>/decision` with `Authorization: Bearer demo-agent-hotel-kitchen` answers 403 `application/problem+json`, type `…/not-authorised`: "An agent cannot approve or reject an order (F-06). A human with the role asked for decides." The attempt is written to the audit trail (`authorisation.refused`).
+- **A retry places one order:** send the same `POST /v1/orders` twice with the same `Idempotency-Key`. The second answer is the first order.
+
+## The 90-second cut
+
+| Time | Screen | Say | Criterion |
+|---|---|---|---|
+| 0:00–0:10 | `/`, the two agents | "A buyer's agent asks the wholesaler. Its authority is a profile: €750 an order for the hotel." | 20% controls |
+| 0:10–0:35 | Scenario 1, summary strip, then the two options | "Three confirmed milks cover the 1,000 litres. The cheaper one has no confirmed stock, so it is offered, but only a human can pick it. Nineteen products are excluded, each with its reason." | 30% · 20% match · 15% |
+| 0:35–0:50 | Approval card, then Approve | "€2,580 is above the agent's limit: P-01, purchasing manager. The agent cannot approve its own order." | 20% controls · Core 3 |
+| 0:50–1:05 | Order record, audit trail, then the supplier tab | "Nine steps, one sentence each, hash-chained. Valio sees the same steps without the buyer's limits or names." | 20% audit · 15% open standards |
+| 1:05–1:20 | Scenario 2, the green outcome | "The allergy ward: no milk, no gluten, confirmed data only. Every claim is confirmed and €402 is within its limit, so the agent orders alone." | 20% autonomy |
+| 1:20–1:30 | Scenario 3, the ranked substitutes | "Two substitutes Valio itself lists add gluten. The gateway shows them and never lets them be ordered." | 15% robustness |
+
+## For a judge who wants to point an agent at it
+
+- **MCP:** `POST <demo address>/mcp/` (Streamable HTTP, no session, JSON answers) with the header `Authorization: Bearer demo-agent-allergy-ward` or `Authorization: Bearer demo-agent-hotel-kitchen`. It has eight tools: `get_authority`, `search_products`, `get_product`, `find_substitutes`, `get_offer` (takes the typed request and makes an offer), `place_order`, `get_order`, `get_audit`. No tool approves: approvals are REST routes for approver tokens only. Without a token the answer is 401. Checked by hand today: `initialize` and `tools/list` answer 200 with the token.
+- **REST:** OpenAPI at `<demo address>/openapi.json` and `/docs`, JSON Schemas at `/v1/schemas`, health at `/healthz`. The demo tokens are in `src/tta/api/demo_tokens.yaml`. They are public by design and are loaded only when `TTA_ENV` is `dev` or `demo`.
+- **Orders commit nobody.** `ORDERED` means recorded in this gateway's order book; the Valio Aimo mock has no order endpoint. Every page says so.
+
+## If something goes wrong
+
+- **An outcome differs from this script:** the database was not empty, or a scenario was run twice. Stop the app, delete the database file and start again.
+- **Free text answers 503:** with no Gemini key, only the recorded sentences can be read. Use the example buttons, or send the typed request.
+- **The page waits on the model:** a Gemini key is set and Gemini is slow. Restart with `GEMINI_API_KEY=` empty.
+- **The mock is down in live mode:** offers come from the capture and say `replay`; `/healthz` shows `degraded` and the reason. Nothing else changes.
