@@ -1,0 +1,53 @@
+{
+  "product_id": "464517",
+  "retrieved_at": "2026-11-14T17:57:26.259480+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'AIMO NATURAL YOGURT 5KG 2% LACTOSE FREE' (Finnish name 'AIMO MAUSTAMATON JOGURTTI 5KG LAKTON'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.valioaimo.fi/ammattilaistuotteet/valio-a-luonnonjogurtti-sanko/",
+      "page_title": "Valio A+™ luonnonjogurtti sanko",
+      "product_name_on_page": "Valio A+™ luonnonjogurtti maustamaton laktoositon 5 kg",
+      "contains": [
+        "Maito ja maitotuotteet"
+      ],
+      "may_contain": [],
+      "free_from": [
+        "laktoositon"
+      ]
+    },
+    "sources": [
+      "https://www.valioaimo.fi/ammattilaistuotteet/valio-a-luomu-luonnonjogurtti-rasvaton-sanko/",
+      "https://www.valioaimo.fi/ammattilaistuotteet/valio-a-luonnonjogurtti-sanko/",
+      "https://www.valioaimo.fi/ammattilaistuotteet/valio-a-luonnonjogurtti-laktoositon/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 49185
+    },
+    "request_id": "e7c97669-6d09-4c6e-9a5f-73f1061a254e"
+  }
+}

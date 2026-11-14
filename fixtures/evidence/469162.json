@@ -1,0 +1,52 @@
+{
+  "product_id": "469162",
+  "retrieved_at": "2026-11-14T17:58:01.864398+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'Valio cooking cream alternative 15 % 1 l lactose free' (Finnish name 'Valio Ruoka 15 % 1 l laktoositon', brand 'Valio'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.valio.fi/tuotteet/valio-ruoka-15/",
+      "page_title": "Valio Ruoka 15%",
+      "product_name_on_page": "Valio Ruoka 15%",
+      "contains": [
+        "maito"
+      ],
+      "may_contain": [],
+      "free_from": [
+        "laktoositon"
+      ]
+    },
+    "sources": [
+      "https://www.valio.fi/tuotteet/valio-ruoka-15/",
+      "https://www.valio.fi/tuotteet/valio-ruoka-15/10-l-pahvilaatikko/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 48885
+    },
+    "request_id": "01b0a45b-e48d-4476-a574-7e5d555f0dda"
+  }
+}

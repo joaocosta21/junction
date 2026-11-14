@@ -1,0 +1,52 @@
+{
+  "product_id": "463975",
+  "retrieved_at": "2026-11-14T17:56:58.254746+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'Arla Pro Ruoka 1 L 15% lactose free vegetable mix Uht' (Finnish name 'Arla Pro Ruoka 1 L 15% laktoositon kasvirasvasekoite Uht', brand 'Arla Pro'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.arlapro.com/fi/tuotteet/arla-ruoka-15-laktoositon-1l-uht/",
+      "page_title": "Arla Pro ruoka 15% 1L laktoositon (UHT)",
+      "product_name_on_page": "Arla Pro ruoka 15% 1L laktoositon (UHT)",
+      "contains": [
+        "maito"
+      ],
+      "may_contain": [],
+      "free_from": [
+        "laktoositon"
+      ]
+    },
+    "sources": [
+      "https://www.arla.fi/tuotteet/arla-pro-arla-pro-ruoka-15pct-laktoositon-1l-uht-1010g-294227/",
+      "https://www.arlapro.com/fi/tuotteet/arla-ruoka-15-laktoositon-1l-uht/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 49385
+    },
+    "request_id": "f63ef168-fa7b-4f03-9025-eac570101fdf"
+  }
+}
