@@ -20,7 +20,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | todo | the human chose to build it (Saturday); starts after FIX-10 and the first deployment |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | todo | the human chose to build it (Saturday); ask Context.dev's CTO whether it counts as core flow; starts after FIX-10 |
-| T14 | Deployment on Modal | T13 | review | files built and committed (49 tests); deploy after the final review fixes |
+| T14 | Deployment on Modal | T13 | done | **deployed** https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` all 7 checks passed; a redeploy at the end is approved |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
 | T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | todo | added Saturday for the Gemini award; starts after FIX-10 |
@@ -35,7 +35,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | done | 251 API tests; all 14 findings fixed; `/mcp` and `/v1` exact paths |
 | T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | done | 148 tests; `gemini-3.8-flash` 504 every time, `gemini-3.6-flash` answers (now the default); first real recording (scenario 1) |
 | FIX-9 | Agent: proposals checked against the text, no lost order, readings labelled, outage remembered | T10 | done | 294 agent tests, 99% coverage; all nine findings fixed |
-| FIX-10 | Pages and API: a private sandbox per browser, per-visitor limits by kind, honest labels, no double order | T09 T12 | running | |
+| FIX-10 | Pages and API: a private sandbox per browser, per-visitor limits by kind, honest labels, no double order | T09 T12 | done | all 14 findings fixed; whole suite 2,475 tests |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -78,6 +78,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:38 T16 final round back: no critical finding; 6 high (shared order book; one visitor can fill the global ceilings; spoofable forwarded address; a second order on resend after a failure; a recorded reading not labelled; the model's quantity, date and exclusions not checked against the text). Decided: a private sandbox per browser for the pages; per-visitor limits by kind; the deployed budget at 120 live calls, so the night's total stays within the 150 approved. FIX-9 (agent) and FIX-10 (pages and API) started.
 - 09:13 FIX-9 done and committed.
 - 09:26 The human chose (Saturday morning): build what can win a tech award when it meets the brief, otherwise the best Aimo program; redeploy at the end is approved. Plan: first deployment after FIX-10, then S1 (Aiven), S2 (Context.dev), T18 (Gemini photo and Finnish) in parallel, then a final redeploy. `psycopg[binary]` added to `pyproject.toml` and installed. Walkthrough written: `AIMO/WALKTHROUGH.md`.
+- 09:44 FIX-10 done and committed; ports gained `read`, `read_request`, `order_for_offer`. **First deployment** from commit 237b37f with the approved command: https://joaocostared--trusted-trade-agents.us-east.modal.run. `deploy/check.py`: health ok (live), page 200, scenario 2 offer from live data → `AUTO` → ORDERED by the agent, 6 audit events intact, MCP 401 without a token and 8 tools with one.
 
 ## Live API calls used
-10 of 150 (T00 capture 2, T01 live check 2, T13 live run 6)
+10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)

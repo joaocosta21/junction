@@ -47,16 +47,14 @@ We built that interface: a gateway over Valio Aimo's mock API, with REST and MCP
 
 ## Best Use of Modal
 
-<!-- check: every claim in this section depends on deploy/ and docs/DEPLOY.md (T14), which did not exist when this was written; deploy/ was empty. Confirm each line against them, and replace "prepared" with the URL only if AIMO/build/STATUS.md says T14 is done and deployed. -->
+**What Modal powers: the public demo of the gateway, live at https://joaocostared--trusted-trade-agents.us-east.modal.run.** Deployed on 14 Nov 2026 with `modal deploy deploy/modal_app.py`; the checks of `deploy/check.py` passed right after (health, pages, scenario 2 ordered by the agent on live Valio data, the audit chain, MCP).
 
-**What Modal powers: the public demo of the gateway. The deployment is prepared, not live.** The orchestrator deploys once, after the final review.
-
-What the deployment is set up to do, from the deployment task (`AIMO/build/tasks/T14-deploy.md`):
-- `deploy/modal_app.py` builds an image with the package, the product file and the recorded fixtures, and serves the FastAPI app as an ASGI web endpoint with a public URL. <!-- check: deploy/modal_app.py -->
-- One container at a time, because the order book and the audit trail are in SQLite; a Modal Volume holds `var/`. <!-- check: deploy/modal_app.py -->
-- `TTA_ENV=demo`: only the demo identities are accepted. Live mode, falling back to the recorded capture, labelled, when the mock cannot be reached or the call budget runs low. <!-- check: deploy/modal_app.py -->
-- Only the values the app uses reach Modal, as a Modal Secret built from the local environment at deploy time: the Valio API key and base URL, and the Gemini key. Never the whole `.env`. <!-- check: docs/DEPLOY.md -->
-- `docs/DEPLOY.md` gives the commands to deploy, check and roll back. <!-- check: docs/DEPLOY.md -->
+What the deployment does (`deploy/modal_app.py`, `docs/DEPLOY.md`):
+- One image with the package, the product file, the two CSV files and the recorded fixtures; the FastAPI app served as an ASGI web endpoint with a public URL. No Dockerfile.
+- One container at most, scaling to zero after 10 idle minutes. SQLite runs on the container's disk; a copy is saved to a Modal Volume after each change and put back at start, so the order book and the audit trail survive a restart. The Volume also holds the call budget and the recordings of live answers.
+- `TTA_ENV=demo` (only the public demo identities) and `TTA_MODE=live`, falling back to the recorded capture, labelled, when the mock cannot be reached or the budget runs low. The deployed app may make at most 120 calls to the Valio mock.
+- Only the values the app uses reach Modal, as a Modal Secret built from the local environment at deploy time with `modal.Secret.from_dict`: the Valio API key and base URL, and the Gemini key. Never the whole `.env`.
+- `docs/DEPLOY.md` gives the commands to deploy, check, redeploy and stop.
 
 **What it does not do.** The Modal brief asks for heavy lifting: an open model on a GPU, agent code in Sandboxes, fine-tuning, or a fan-out batch job. We do none of these. Modal hosts the gateway, keeps its secrets and holds its data on a Volume. The model runs on Google's API. By the brief's own bar this is a light use of Modal; we use it because the judges need a link they can open, and it is the step from laptop to a public URL.
 

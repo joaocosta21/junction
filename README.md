@@ -54,7 +54,7 @@ curl -s -H "Authorization: Bearer demo-agent-allergy-ward" http://127.0.0.1:8000
 ```
 
 The click-by-click demo, with the exact sentences on screen and a 90-second cut, is in [docs/DEMO.md](docs/DEMO.md).
-Deployment on Modal is prepared, not live: see [docs/DEPLOY.md](docs/DEPLOY.md). <!-- check: deploy/ and docs/DEPLOY.md exist (T14); replace with the URL only if T14 deployed -->
+**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal; demo tokens in `src/tta/api/demo_tokens.yaml`; see [docs/DEPLOY.md](docs/DEPLOY.md)). Each browser gets its own order book on the pages.
 
 ## Run the tests
 
@@ -110,7 +110,6 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 ## What is not done
 
 - The agent's run of scenario 1 is a hand-written recording (by plan); the other four recordings come from Gemini. A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
-- Not deployed. The Modal files are prepared (T14). <!-- check: T14 state in AIMO/build/STATUS.md -->
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
 - Delivery-time and sustainability comparison (an optional direction of the brief) is not built.
 - The stretch tasks on Aiven PostgreSQL and Context.dev were not built.

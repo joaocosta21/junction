@@ -82,7 +82,7 @@ Fields from the checklist in `CLAUDE.md`. Fields that need a person's details ar
 
 **Technologies used** (draft): Python 3.13, FastAPI, Pydantic v2, Uvicorn, SQLite, Jinja2, httpx, PyYAML, Google Gemini API (`google-genai`, `gemini-3.6-flash`), Model Context Protocol (official Python SDK), Modal, OpenAPI 3.1, JSON Schema 2020-12, CloudEvents 1.0, RFC 9457 problem details, GS1 allergen code lists, pytest, ruff.
 
-**Demo link:** _the Modal URL, once deployed_ <!-- check: T14 deployment URL in AIMO/build/STATUS.md -->
+**Demo link:** https://joaocostared--trusted-trade-agents.us-east.modal.run
 
 **Source code link and publicity:** _the GitHub repository; public, MIT licence_. Before it goes public, decide whether Valio's datasets and recorded answers may stay in it (`AIMO/BOOTH-QUESTIONS.md`, "Ask any Valio person").
 
