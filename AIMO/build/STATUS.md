@@ -31,7 +31,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | done | 378 policy tests; the orders boundary change is committed with FIX-7 |
 | FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | done | 185 offers tests; 7 of 8 findings fixed, one as a note (question FIX6-1) |
 | FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
-| FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | running | restarted on Opus at 07:45 from the work in the tree |
+| FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | done | 251 API tests; all 14 findings fixed; `/mcp` and `/v1` exact paths |
 | T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | running | |
 
 ## Log
@@ -65,6 +65,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 05:40 T10, T12 and FIX-8 stopped on the Fable usage limit (resets 12:00); their work stayed in the tree, all tests green.
 - 07:42 the human switched the session to Opus 5.5. T10 checked and committed as done with its live check blocked: Gemini answered 503 again at 07:45 (2 more requests; 4 of 20 used in all). T12 and FIX-8 restarted on Opus from the work in the tree. S1 and S2 skipped by the 06:30 rule.
 - 07:50 Gemini probe: `generateContent` answers for `gemini-3.8-flash` and `gemini-3.6-flash` with the same key; only the Interactions endpoint answers 503. T10 follow-up started (switch endpoint, fall back to recordings, live check with at most 14 more model requests; 6 used tonight).
+- 08:00 FIX-8 done and committed (the first agent had built every finding; the restarted one checked them and added one test). Importers green: ui 159, mcp 54, agent 120, offers 194, orders 157, audit 144.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
