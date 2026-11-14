@@ -17,12 +17,12 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T10 | Buyer agent (Gemini) | T09 | done | 148 tests; **live check passed** on `gemini-3.6-flash` (08:14–08:40): scenarios 1 and 2 and the no-quantity sentence recorded from the model; scenario 1's run stays hand-built by design |
 | T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
 | T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
-| T13 | Scenarios end to end, demo script | T09 T10 T12 | running | |
+| T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30 (usage limit 05:40–07:40). Task file ready for the day |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30. Task file ready for the day |
 | T14 | Deployment on Modal | T13 | running | files only; the orchestrator deploys once after the final review |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | running | | started before T13 ends, to recover time; reads `docs/DEMO.md` last
-| T16 | Review and fixes | each wave | running | rounds 1 and 2 done (FIX-1 to FIX-7 in); round 3 (API) running; final round to come |
+| T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
@@ -69,6 +69,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:03 T12 done and committed (restarted agent found every item built; fixed one spacing defect, added 6 tests, ran the app in replay). T13, T14 (files only) and T15 started in parallel.
 - 08:15 T10 follow-up done and committed. Gemini is slow today (21.7 s for one word); `gemini-3.6-flash` read scenario 1 correctly in 29 s and is now the default. Recording scenario 2 and the no-quantity sentence (at most 7 requests; 12 used so far of 20).
 - 08:17 Gemini live check passed: `gemini-3.6-flash` read scenario 2 (plant drink, 200 L, AM and AW excluded, confirmed only, by 16 Nov) and ran it (authority → offer → order of option 1 → ORDERED by the agent, €402.00). 'Some milk for Monday' refused for the missing quantity. 17 of 20 model requests used tonight.
+- 08:21 T13 done and committed. Tonight's capture gives a full fill for scenario 1 (partial fill at 1,500 L, tested). T16 final round started: three reviewers on the agent, pages, MCP surface and FIX-8.
 
 ## Live API calls used
-4 of 150 (T00 capture 2, T01 live check 2)
+10 of 150 (T00 capture 2, T01 live check 2, T13 live run 6)
