@@ -27,18 +27,17 @@ from tta.contracts.errors import InvalidRequest
 from tta.contracts.menu import MAX_DISHES, DishOrder, MenuPlan, MenuRequest, Recipe
 from tta.contracts.offer import Offer
 from tta.contracts.ports import GatewayService
+from tta.menus.ingredients import named_as_a_dish, no_dish_named
 from tta.menus.planner import plan_menu
 from tta.menus.recipes import dish_names
-from tta.menus.wording import joined
+from tta.menus.wording import THE_DISHES, joined
 from tta.offers.recorded import later_recorded_note as offer_later_recorded_note
 from tta.valio.replay import ReplayGateway, recording_instant
 
-THE_DISHES = "The dishes are: {dishes}."
 NOTHING_ASKED = (
     'Name at least one dish: in `dishes`, or in `text` as a sentence, for example "chocolate cake for 20". '
     + THE_DISHES
 )
-NO_DISH_NAMED = "The sentence names no dish of the recipe table. " + THE_DISHES
 NO_RECIPE = "No recipe for {unknown} in the recipe table. " + THE_DISHES
 READ_AS = "Read as: {what}."
 TYPED_DISHES_WIN = " The typed dishes were used, not the sentence's."
@@ -83,14 +82,21 @@ def dish_list(recipes: Mapping[str, Recipe]) -> str:
     return joined([names[0] for names in dish_names(recipes).values()])
 
 
-def _refuse(reading: DishSentence | None, recipes: Mapping[str, Recipe], *, need_dishes: bool) -> None:
-    """Raises `InvalidRequest` with the question to answer when the sentence cannot be used as it is."""
+def _refuse(
+    reading: DishSentence | None, recipes: Mapping[str, Recipe], text: str, *, need_dishes: bool
+) -> None:
+    """Raises `InvalidRequest` with the question to answer when the sentence cannot be used as it is. A
+    sentence that names no dish is answered with the dishes that use the ingredient it names, when it names
+    one (`tta.menus.ingredients`)."""
     dishes = dish_list(recipes)
     if reading is None:
         if need_dishes:
-            raise InvalidRequest(NO_DISH_NAMED.format(dishes=dishes))
+            raise no_dish_named(text, recipes, dishes)
         return
     if need_dishes and reading.unknown:
+        ingredient = None if reading.dishes else named_as_a_dish(reading.unknown, text, recipes)
+        if ingredient is not None:
+            raise ingredient
         unknown = joined([f'"{name}"' for name in reading.unknown])
         raise InvalidRequest(NO_RECIPE.format(unknown=unknown, dishes=dishes))
     problems = reading.problems if need_dishes else tuple(
@@ -99,7 +105,7 @@ def _refuse(reading: DishSentence | None, recipes: Mapping[str, Recipe], *, need
     if problems:
         raise InvalidRequest(" ".join(problems))
     if need_dishes and not reading.dishes:
-        raise InvalidRequest(NO_DISH_NAMED.format(dishes=dishes))
+        raise no_dish_named(text, recipes, dishes)
 
 
 def _read_as(reading: DishSentence, recipes: Mapping[str, Recipe], *, dishes_used: bool, date_used: bool) -> str:
@@ -127,7 +133,7 @@ def resolve(ask: MenuAsk, recipes: Mapping[str, Recipe], today: date) -> Resolve
             raise InvalidRequest(NOTHING_ASKED.format(dishes=dish_list(recipes)))
         return Resolved(MenuRequest.model_validate(typed))
     reading = read_dishes(text, dish_names(recipes), today)
-    _refuse(reading, recipes, need_dishes=not ask.dishes)
+    _refuse(reading, recipes, text, need_dishes=not ask.dishes)
     if reading is None:
         return Resolved(MenuRequest.model_validate(typed))
     dishes_used, date_used = not ask.dishes, ask.needed_by is None

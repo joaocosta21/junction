@@ -79,9 +79,10 @@ def offered_words(offer: Offer | None, index: int | None, needed: Decimal, unit:
     return ""
 
 
-def total_words(option: OfferOption) -> str:
-    """One option's total and who must confirm it, as the policy's own sentence says."""
-    decision = option.decision.sentence if option.decision is not None else ""
+def total_words(option: OfferOption, said: str | None = None) -> str:
+    """One option's total and who must confirm it: `said` when the plan words it (`tta.menus.cover`, an option
+    that leaves an ingredient out), else the policy's own sentence."""
+    decision = said if said is not None else option.decision.sentence if option.decision is not None else ""
     return TOTAL.format(
         rank=option.rank, title=option.title, net=money(option.totals.net), gross=money(option.totals.gross),
         decision=decision,

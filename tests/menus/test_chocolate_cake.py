@@ -236,7 +236,7 @@ def test_for_two_servings_each_sentence_says_the_pack_and_what_is_left_over(
         "stock. 0.002 kg is needed and the pack holds 0.7 kg, so 0.698 kg is left over."
     )
     sugar = _sentence(plan, "sugar")
-    assert "option 2 (Alternative: quantity not confirmed) covers 100%" in sugar
+    assert "It is not in option 1 (Best confirmed option (partial fill)): it has no confirmed stock." in sugar
     assert sugar.endswith(
         "Option 2 offers 1 × Dansukker Rawsugar Granulated 500g (461329) for €1.98 before tax, quantity not "
         "confirmed. 0.04 kg is needed and the pack holds 0.5 kg, so 0.46 kg is left over."
@@ -266,11 +266,14 @@ def test_the_notes_give_each_options_total_and_who_must_confirm(
     plan, _ = _planned(bakery_parts, recipes, 20)
     confirmed_net, alternative_net = TOTALS[clock, 20]
 
-    first, second = plan.notes[-2:]
+    first, second = [note for note in plan.notes if note.startswith(("Option 1, ", "Option 2, "))]
+    # Lane FIX-M (review row C3-F8): nothing is late and four of seven ingredients are covered in full, so the
+    # note counts them and no longer says a date is not met or a share of one request line.
     assert first.startswith(
-        f"Option 1, Best confirmed option (partial fill): €{confirmed_net} before tax, €17.24 with tax. The agent "
-        "cannot place this order alone: the needed-by date 2026-11-16 is not met for this option (F-07)"
+        f"Option 1, Best confirmed option (partial fill): €{confirmed_net} before tax, €17.24 with tax. 4 of the 7 "
+        "ingredients are covered in full: flour, cocoa powder, milk and baking powder. Sugar"
     )
+    assert "no confirmed stock" in first and "is not met" not in first and "0%" not in first
     assert second.startswith(f"Option 2, Alternative: quantity not confirmed: €{alternative_net} before tax, ")
     assert first.endswith("It needs the purchasing manager.") and second.endswith("It needs the purchasing manager.")
 

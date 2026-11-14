@@ -142,6 +142,10 @@ class IngredientPlan(Contract):
     product_type: str | None = None  # the type ordered: the recipe's own or its alternative; None when nothing is
     alternative_reason: str | None = None  # why the alternative does the same job, and what changes
     request_line_index: int | None = Field(default=None, ge=0)  # its line in the final offer
+    # Set when it cannot arrive by `needed_by`: the earliest day in Valio Aimo's data on which it could (the
+    # recipe's own product type when nothing is offered for it; the products offered when they arrive later than
+    # asked). None: it arrives in time, no day was asked, or the data names no later day.
+    earliest_date: date | None = None
     sentence: str  # one sentence a person can read
 
 
@@ -175,6 +179,9 @@ class Unsourced(Contract):
     quantity: Quantity  # what was to be ordered
     dishes: tuple[str, ...]
     tried: tuple[str, ...] = ()  # the alternative product types tried, in the role's order
+    # The earliest day in Valio Aimo's data on which the recipe's own product type could arrive, when it is later
+    # than `needed_by`. None: no date asked, or no product of the type has a later date that otherwise fits.
+    earliest_date: date | None = None
     sentence: str  # why: what the offers found for the recipe's type and for each alternative
 
 

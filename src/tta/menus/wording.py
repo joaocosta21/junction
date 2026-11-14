@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from tta.availability.wording import format_amount
+from tta.availability.wording import format_amount, format_day
 from tta.contracts.common import ExclusionReason, Unit
 from tta.contracts.offer import Exclusion
 
@@ -38,6 +38,7 @@ REASON_WORDS: Mapping[ExclusionReason, str] = {
 }
 # The reasons that mean "it cannot be here by the date", named first in a sentence.
 LATE_REASONS = (ExclusionReason.CUTOFF_PASSED, ExclusionReason.NOT_DELIVERABLE, ExclusionReason.LATE_FOR_NEEDED_BY)
+THE_DISHES = "The dishes are: {dishes}."  # every dish of the recipe table, in a refusal that lists them
 
 
 def amount_words(value: Decimal, unit: Unit) -> str:
@@ -84,13 +85,19 @@ def exclusion_words(excluded: Sequence[Exclusion]) -> str:
     return ", ".join(f"{counts[reason]:,} {REASON_WORDS[reason]}" for reason in order if counts[reason])
 
 
-def found_words(choice: Choice, excluded: Sequence[Exclusion], fill: Decimal, needed_by: date | None) -> str:
-    """What one offer found for one line: `quark (maitorahka): none of 49 products can be offered by ...`."""
+def found_words(
+    choice: Choice, excluded: Sequence[Exclusion], fill: Decimal, needed_by: date | None,
+    earliest: date | None = None,
+) -> str:
+    """What one offer found for one line: `quark (maitorahka): none of 49 products can be offered by ...`.
+    `earliest`: the earliest day it could arrive, when the offer names one after the day asked (review row
+    C3-F6): `..., and the earliest it could arrive is Monday 16 Nov`."""
     when = date_words(needed_by)
+    could = f", and the earliest it could arrive is {format_day(earliest)}" if earliest is not None else ""
     if fill > 0:
         return f"{choice_words(choice)}: only {fill:.0%} of it can be offered {when}"
     if not excluded:
-        return f"{choice_words(choice)}: no product of this type can be offered {when}"
+        return f"{choice_words(choice)}: no product of this type can be offered {when}{could}"
     if only_missing_from_recording(excluded):
         count = len(excluded)
         products = "its one product is not" if count == 1 else f"none of its {count:,} products is"
@@ -100,5 +107,5 @@ def found_words(choice: Choice, excluded: Sequence[Exclusion], fill: Decimal, ne
         )
     return (
         f"{choice_words(choice)}: none of {len(excluded):,} products can be offered {when} "
-        f"({exclusion_words(excluded)})"
+        f"({exclusion_words(excluded)}){could}"
     )

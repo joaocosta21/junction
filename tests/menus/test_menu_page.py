@@ -272,8 +272,10 @@ def test_at_the_demo_clock_the_page_counts_the_day_from_thursday(
         friday = html.unescape(_plan(pages, {"who": BAKERY_AGENT, "text": "chocolate cake for 20 on Friday"}).text)
         text = html.unescape(_plan(pages, {"who": BAKERY_AGENT, "text": "chocolate cake for 20 by Monday"}).text)
 
-        # "On Friday" said on Thursday 12 Nov is the next day: no recorded product is delivered before Monday.
+        # "On Friday" said on Thursday 12 Nov is the next day: no recorded product is delivered before Monday, and
+        # the plan names that day (lane FIX-M, review row C3-F6). Whether the offer holds an option for the later
+        # day, and so an order button, is the offers code's to decide (decision B67): it is not pinned here.
         assert "Read as: chocolate cake, 20 servings, by Friday 13 Nov." in friday
-        assert 'action="/menu/order"' not in friday
+        assert "Monday 16 Nov" in friday
         assert "Read as: chocolate cake, 20 servings, by Monday 16 Nov." in text
         assert "Option 2, Alternative: quantity not confirmed: €22.50 before tax, €25.54 with tax." in text

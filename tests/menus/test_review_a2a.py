@@ -203,8 +203,12 @@ def test_m4_without_confirmed_only_the_recipes_own_quark_is_kept_because_an_opti
     offer = parts.service.get_offer(agent_hotel, plan.offer_id)
     unconfirmed = next(option for option in offer.options if option.kind is OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert "477044" in unconfirmed.product_ids
-    assert "Option 1 (Best confirmed option (partial fill)) covers 0% of that line" in quark.sentence
-    assert "option 2 (Alternative: quantity not confirmed) covers 100%" in quark.sentence
+    # Lane FIX-M (review row C3-F8): the reason in words, no share of a line.
+    assert (
+        "It is not in option 1 (Best confirmed option (partial fill)): it has no confirmed stock that can arrive by "
+        "Monday 16 Nov."
+    ) in quark.sentence  # 6 of the 10 plain quarks are past their order cut-off; the other 4 have no confirmed stock
+    assert "Option 2 offers 3 × " in quark.sentence and "covers 0%" not in quark.sentence
     assert all(line.stands_in_for is None for line in plan.lines)
 
 
