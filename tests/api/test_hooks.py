@@ -1,25 +1,21 @@
-"""The hooks for what other tasks add: the request parser and the buyer agent (T10), the MCP surface (T11)
-and the pages (T12). Until they land, the gateway answers without them and says so."""
+"""The hooks for the request parser and the buyer agent (T10). Without that package the gateway answers
+without them and says so; a package that is there without its factories stops the start (FIX-8, finding 7).
+The MCP surface and the pages: `test_surfaces.py`."""
 
 from __future__ import annotations
 
 import sys
 import types
-from collections.abc import AsyncIterator, Callable, Iterator
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Iterator
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse
-from starlette.routing import Route
 
 from tta.api import create_app
-from tta.api.hooks import SurfaceContext
+from tta.api.hooks import HookError
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -71,9 +67,6 @@ def with_agent(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClie
         yield client
 
 
-# --- T10: request parser and buyer agent ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize("path", ["/v1/requests/parse", "/v1/agent/run"])
 def test_until_the_agent_package_lands_both_routes_answer_supplier_unavailable(
     client: TestClient, auth: Auth, assert_problem: Problem, path: str
@@ -93,23 +86,26 @@ def test_a_text_that_is_empty_or_too_long_is_an_invalid_request(
     assert_problem(client.post(path, json={"text": "x" * 2001}, headers=auth("agent_ward")), "invalid-request", 422)
 
 
-def test_parse_calls_the_parser_port_and_records_the_pasted_text(with_agent: TestClient, auth: Auth) -> None:
+def test_parse_calls_the_parser_port_and_writes_no_event_when_it_succeeds(with_agent: TestClient, auth: Auth) -> None:
     response = with_agent.post("/v1/requests/parse", json={"text": TEXT}, headers=auth("agent_ward"))
 
     assert response.status_code == 200
     assert PurchaseRequest.model_validate(response.json()) == TYPED
-    events = with_agent.get("/v1/audit", headers=auth("agent_ward")).json()["events"]
-    assert [event["type"] for event in events] == ["tta.v1.request.received"]
-    assert TEXT in events[0]["sentence"]
-    assert events[0]["actor"]["id"] == "agent:allergy-ward"
+    # "Request received" is written with the offer that follows, so that an offer has exactly one (T09-1).
+    assert with_agent.get("/v1/audit", headers=auth("agent_ward")).json()["events"] == []
 
 
-def test_what_the_parser_refuses_leaves_as_its_typed_error(
+def test_what_the_parser_refuses_leaves_as_its_typed_error_and_the_request_is_recorded_as_received(
     with_agent: TestClient, auth: Auth, assert_problem: Problem
 ) -> None:
     response = with_agent.post("/v1/requests/parse", json={"text": "something"}, headers=auth("agent_ward"))
 
     assert assert_problem(response, "invalid-request", 422)["detail"] == "The request names no quantity."
+    # No offer follows a request that could not be read: this is the only trace of it.
+    events = with_agent.get("/v1/audit", headers=auth("agent_ward")).json()["events"]
+    assert [event["type"] for event in events] == ["tta.v1.request.received"]
+    assert '"something"' in events[0]["sentence"]
+    assert events[0]["actor"]["id"] == "agent:allergy-ward"
 
 
 def test_agent_run_gives_the_runner_the_gateway_itself_and_returns_its_trace(
@@ -125,7 +121,58 @@ def test_agent_run_gives_the_runner_the_gateway_itself_and_returns_its_trace(
     assert order["status"] == "ORDERED"
     types_seen = [event["type"] for event in with_agent.get("/v1/audit", headers=auth("agent_ward")).json()["events"]]
     assert types_seen[0] == "tta.v1.request.received"
+    assert types_seen.count("tta.v1.request.received") == 1  # written with the offer, not a second time by the run
     assert "tta.v1.order.placed_by_agent" in types_seen
+    # And it is in the trail of the order, which is found through its offer.
+    trail = with_agent.get("/v1/audit", params={"order_id": run.order_id}, headers=auth("agent_ward")).json()
+    assert trail["events"][0]["type"] == "tta.v1.request.received"
+    assert TEXT in trail["events"][0]["facts"]["text"]
+
+
+class RunnerWithoutAnOffer:
+    """A run that ends before any offer: by a typed error, or with a trace that holds no offer."""
+
+    def __init__(self, *, raises: bool) -> None:
+        self._raises = raises
+
+    def run_agent(self, text: str, identity: Identity, tools: GatewayService) -> AgentRun:
+        if self._raises:
+            raise InvalidRequest("The request names no quantity.")
+        return AgentRun(text=text, model="recorded", recorded=True, steps=(), report="Nothing was ordered.")
+
+
+class RunnerThatFailsAfterItsOffer:
+    def run_agent(self, text: str, identity: Identity, tools: GatewayService) -> AgentRun:
+        tools.create_offer(identity, TYPED)
+        raise InvalidRequest("The model named an option the offer does not have.")
+
+
+@pytest.mark.parametrize("raises", [True, False])
+def test_an_agent_run_that_makes_no_offer_records_the_request_as_received(
+    settings: Settings, catalog: ProductCatalog, auth: Auth, raises: bool
+) -> None:
+    parts = build_parts(settings, catalog=catalog, agent_runner=RunnerWithoutAnOffer(raises=raises))
+    with TestClient(create_app(settings, parts=parts)) as client:
+        response = client.post("/v1/agent/run", json={"text": "Some milk for Monday"}, headers=auth("agent_ward"))
+        events = client.get("/v1/audit", headers=auth("agent_ward")).json()["events"]
+
+    assert response.status_code == (422 if raises else 200)
+    assert [event["type"] for event in events] == ["tta.v1.request.received"]
+    assert '"Some milk for Monday"' in events[0]["sentence"]
+
+
+def test_an_agent_run_that_fails_after_its_offer_does_not_record_the_request_twice(
+    settings: Settings, catalog: ProductCatalog, auth: Auth, assert_problem: Problem
+) -> None:
+    parts = build_parts(settings, catalog=catalog, agent_runner=RunnerThatFailsAfterItsOffer())
+    with TestClient(create_app(settings, parts=parts)) as client:
+        response = client.post("/v1/agent/run", json={"text": TEXT}, headers=auth("agent_ward"))
+        events = client.get("/v1/audit", headers=auth("agent_ward")).json()["events"]
+        received = parts.store.list_audit_events()[0]
+
+    assert_problem(response, "invalid-request", 422)
+    assert [event["type"] for event in events].count("tta.v1.request.received") == 1
+    assert received.type == "tta.v1.request.received" and received.data.offer_id is not None
 
 
 def test_only_an_agent_may_paste_a_request(with_agent: TestClient, auth: Auth, assert_problem: Problem) -> None:
@@ -174,117 +221,51 @@ def test_a_factory_that_returns_something_else_stops_the_start(
         build_parts(settings, catalog=catalog)
 
 
-# --- T11 and T12: the MCP surface and the pages ---------------------------------------------------------
-
-
-def _surface(name: str, started: list[str], contexts: list[SurfaceContext]) -> types.ModuleType:
-    def create_surface(context: SurfaceContext) -> Starlette:
-        contexts.append(context)
-
-        @asynccontextmanager
-        async def lifespan(app: Starlette) -> AsyncIterator[None]:
-            started.append(f"{name} started")
-            yield
-            started.append(f"{name} stopped")
-
-        async def page(request: Request) -> PlainTextResponse:
-            return PlainTextResponse(f"{name} at {request.url.path}")
-
-        return Starlette(routes=[Route("/", page), Route("/{rest:path}", page)], lifespan=lifespan)
-
-    module = types.ModuleType(name)
-    module.create_surface = create_surface  # type: ignore[attr-defined]
-    return module
-
-
-def test_without_the_optional_modules_nothing_is_mounted(client: TestClient) -> None:
-    assert client.get("/mcp/").status_code == 404
-    assert client.get("/").status_code == 404
-    assert client.get("/healthz").json()["surfaces"] == {"mcp": False, "pages": False}
-
-
-def test_the_mcp_surface_and_the_pages_are_mounted_when_their_modules_exist(
-    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch, auth: Auth
+def test_an_agent_package_that_defines_neither_factory_stops_the_start(
+    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    started: list[str] = []
-    contexts: list[SurfaceContext] = []
-    monkeypatch.setitem(sys.modules, "tta.api.mcp_surface", _surface("mcp", started, contexts))
-    monkeypatch.setitem(sys.modules, "tta.ui.routes", _surface("pages", started, contexts))
-    parts = build_parts(settings, catalog=catalog)
+    # A package that is there and offers nothing is a broken install, not "no agent": say so at the start.
+    monkeypatch.setitem(sys.modules, "tta.agent", types.ModuleType("tta.agent"))
 
+    with pytest.raises(HookError) as refused:
+        build_parts(settings, catalog=catalog)
+
+    assert "build_request_parser" in str(refused.value) and "build_agent_runner" in str(refused.value)
+    assert not settings.db_path.exists()  # stopped before anything was opened
+
+
+@pytest.mark.parametrize(
+    ("defined", "missing", "expected"),
+    [
+        ("build_request_parser", "build_agent_runner", {"request_parser": True, "agent_runner": False}),
+        ("build_agent_runner", "build_request_parser", {"request_parser": False, "agent_runner": True}),
+    ],
+)
+def test_an_agent_package_with_one_factory_starts_and_the_missing_one_is_logged(
+    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    defined: str, missing: str, expected: dict[str, bool],
+) -> None:
+    module = types.ModuleType("tta.agent")
+    setattr(module, defined, lambda **given: FakeParser() if defined == "build_request_parser" else FakeRunner())
+    monkeypatch.setitem(sys.modules, "tta.agent", module)
+
+    with caplog.at_level("WARNING", logger="tta.api.hooks"):
+        parts = build_parts(settings, catalog=catalog)
     with TestClient(create_app(settings, parts=parts)) as client:
-        assert client.get("/mcp/").text == "mcp at /mcp/"
-        assert client.get("/").text == "pages at /"
-        assert client.get("/approvals").text == "pages at /approvals"
-        # The API keeps its own paths, also for a path or a method it does not have.
-        assert client.get("/healthz").json()["surfaces"] == {"mcp": True, "pages": True}
-        assert client.get("/v1/schemas").status_code == 200
-        assert client.get("/v1/authority", headers=auth("agent_hotel")).status_code == 200
-        assert client.get("/openapi.json").status_code == 200
-        for response, status in ((client.get("/v1/no-such-thing"), 404), (client.delete("/v1/orders"), 405)):
-            assert response.status_code == status
-            assert response.headers["content-type"] == "application/problem+json"
-        assert started == ["mcp started", "pages started"]
-    assert started[2:] == ["pages stopped", "mcp stopped"]
+        health = client.get("/healthz").json()
 
-    assert len(contexts) == 2
-    for context in contexts:
-        assert context.service is parts.service
-        assert context.settings is settings
-        assert context.identify("demo-agent-hotel-kitchen") == parts.tokens.identify("demo-agent-hotel-kitchen")
-        assert context.identify("nobody") is None
-        assert len(context.demo_identities) == 9
+    assert health["agent"] == expected
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert missing in warnings[0] and defined not in warnings[0]
 
 
-def test_outside_dev_and_demo_the_pages_are_not_mounted_and_no_demo_identity_is_handed_out(
-    tmp_path: Any, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    contexts: list[SurfaceContext] = []
-    monkeypatch.setitem(sys.modules, "tta.api.mcp_surface", _surface("mcp", [], contexts))
-    monkeypatch.setitem(sys.modules, "tta.ui.routes", _surface("pages", [], contexts))
-    tokens = '{"a-token-from-the-environment": {"kind": "SUPPLIER", "id": "supplier:x", "display_name": "X"}}'
-    settings = Settings.for_tests(tta_env="prod", tta_tokens=tokens, tta_data_dir=tmp_path / "var")
-
-    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
-        assert client.get("/").status_code == 404
-        assert client.get("/mcp/").status_code == 200
-        assert client.get("/healthz").json()["surfaces"] == {"mcp": True, "pages": False}
-
-    assert [context.demo_identities for context in contexts] == [()]
-
-
-def test_an_optional_module_without_its_hook_stops_the_start(
+def test_parts_handed_in_are_used_without_asking_the_agent_package(
     settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setitem(sys.modules, "tta.ui.routes", types.ModuleType("tta.ui.routes"))
+    monkeypatch.setitem(sys.modules, "tta.agent", types.ModuleType("tta.agent"))  # defines neither factory
 
-    with pytest.raises(RuntimeError, match="create_surface"):
-        create_app(settings, parts=build_parts(settings, catalog=catalog))
+    parts = build_parts(settings, catalog=catalog, request_parser=FakeParser(), agent_runner=FakeRunner())
 
-
-def test_a_surface_that_is_a_bare_asgi_callable_is_mounted_too(
-    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async def bare(scope: Any, receive: Any, send: Any) -> None:
-        await PlainTextResponse("bare")(scope, receive, send)
-
-    module = types.ModuleType("tta.api.mcp_surface")
-    module.create_surface = lambda context: bare  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "tta.api.mcp_surface", module)
-
-    with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
-        assert client.get("/mcp/").text == "bare"
-
-
-def test_an_optional_module_that_exists_but_cannot_be_imported_stops_the_start(
-    monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tta.api import hooks
-
-    def broken(name: str) -> Any:
-        raise ModuleNotFoundError("No module named 'something_it_needs'", name="something_it_needs")
-
-    monkeypatch.setattr(hooks.importlib, "import_module", broken)
-
-    with pytest.raises(ModuleNotFoundError, match="something_it_needs"):
-        hooks.optional_module("tta.ui.routes")
+    assert (parts.service.has_request_parser, parts.service.has_agent_runner) == (True, True)
+    parts.close()

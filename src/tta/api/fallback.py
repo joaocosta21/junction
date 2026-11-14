@@ -1,8 +1,11 @@
-"""Live price and availability with a fall-back to the replay capture (SPEC section 10, task T09).
+"""Live price and availability with a fall-back to the replay capture (SPEC section 10, tasks T09 and FIX-8).
 
-Scores on the 30% "working end-to-end demo": the flow survives the mock API being down or its call budget
-running out. It is never silent about it: every answer states its own source, an offer carries that source,
-and `/healthz` shows the one in use.
+Scores on the 30% "working end-to-end demo": the flow survives the mock API being down, its call budget
+running out, or more visitors than the budget can serve. It is never silent about it: every answer states
+its own source, an offer carries that source, and `/healthz` shows the source of the last look and why.
+
+One look is a price call and an availability call. Both are answered by the live API, or, when either
+fails or the live API cannot be asked, both by the capture: an offer is never built on two sources.
 """
 
 from __future__ import annotations
@@ -11,21 +14,29 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Protocol
 
+from tta.api.limits import MAX_LIVE_LOOKS_PER_MINUTE, SECONDS_PER_MINUTE, RateLimit, RateLimiter
 from tta.contracts.availability import AvailabilityResponse, PriceResponse
 from tta.contracts.common import DataSource
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Clock, ValioGateway
 
-# Below this many calls left in the budget the live API is not asked any more: what is left is kept for the
-# re-checks of orders already under way (task T09).
+# Below this many calls left in the budget the live API is not asked any more (task T09). A look needs
+# two calls, so it is asked only while the second one would still be made at or above the floor.
 MIN_CALLS_REMAINING = 10
-# After a failure the capture answers for this long before the live API is tried again. One lookup is a
-# price call and an availability call: the pause keeps both on one source, and keeps a request from
-# waiting through the live client's retries every time while the API is down.
+LIVE_CALLS_PER_LOOK = 2
+SINGLE_CALL = 1
+# After a failure the capture answers for this long before the live API is tried again, so that a request
+# does not wait through the live client's retries every time while the API is down.
 RETRY_LIVE_AFTER_SECONDS = 30.0
+LIVE_LOOKS = "live looks"
+
+# Why the live API is not asked. The budget and the looks a minute are logged once, when they start to hold.
+PAUSED = f"it failed less than {RETRY_LIVE_AFTER_SECONDS:.0f} seconds ago"  # said when it failed
+BUDGET_LOW = f"fewer than {MIN_CALLS_REMAINING} calls would be left in the supplier call budget"
+TOO_MANY_LOOKS = f"more than {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute were asked for"
 
 logger = logging.getLogger(__name__)
 
@@ -40,51 +51,54 @@ class LiveGateway(ValioGateway, Protocol):
     def calls_remaining(self) -> int: ...
 
 
-class ReplayingGateway(ValioGateway, Protocol):
-    """What the fall-back needs of the capture (`tta.valio.ReplayGateway`)."""
+@dataclass(frozen=True)
+class LookState:
+    """What `/healthz` reports of the fall-back, read from memory: no call and no file is touched for it."""
 
-    @property
-    def clock(self) -> Clock: ...
-
-
-class _SourceClock:
-    """The data clock: the capture's pinned time after a replayed answer, the live clock otherwise."""
-
-    def __init__(self, gateway: FallbackGateway) -> None:
-        self._gateway = gateway
-
-    def now(self) -> datetime:
-        return self._gateway.clock_of_last_answer().now()
+    last_source: DataSource | None  # of the last completed look; `None` before the first one
+    live_paused: bool  # the live API failed and is not asked again yet
+    budget_low: bool  # as found at the last look
 
 
 class FallbackGateway:
-    """The `ValioGateway` port over the live client, answering from the capture when the live API cannot."""
+    """The `ValioGateway` and `PairedLookup` ports over the live client, answering from the capture when the
+    live API cannot. The offer package asks through `look_up`; the two single calls are the port's."""
 
     def __init__(
         self,
         live: LiveGateway,
-        replay: ReplayingGateway,
+        replay: ValioGateway,
         *,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._live = live
         self._replay = replay
         self._monotonic = monotonic
-        self._lock = threading.Lock()
+        self._live_looks = RateLimiter(
+            RateLimit(calls=MAX_LIVE_LOOKS_PER_MINUTE, window_seconds=SECONDS_PER_MINUTE), monotonic=monotonic
+        )
+        self._lock = threading.Lock()  # guards the four fields below; never held while a gateway is asked
         self._live_paused_until: float | None = None
-        self._last_source = DataSource.LIVE if self._budget_allows_live() else DataSource.REPLAY
+        self._last_source: DataSource | None = None
+        self._budget_low = False
+        self._not_live_because: str | None = None
 
     @property
     def source(self) -> DataSource:
-        """Where the last answer came from; before any answer, where the budget lets the first one come from."""
-        return self._last_source
+        """The source this gateway asks first, and the one its clock belongs to. Each answer states its own
+        source; `state()` says where the last look came from."""
+        return DataSource.LIVE
 
     @property
     def clock(self) -> Clock:
-        return _SourceClock(self)
+        """The data clock of live mode: always the live clock (real time, the supplier's `timeNow` carried
+        forward), also while the capture answers. A replayed answer still carries the capture's own time."""
+        return self._live.clock
 
-    def clock_of_last_answer(self) -> Clock:
-        return self._replay.clock if self._last_source is DataSource.REPLAY else self._live.clock
+    def state(self) -> LookState:
+        with self._lock:
+            paused = self._live_paused_until is not None and self._monotonic() < self._live_paused_until
+            return LookState(last_source=self._last_source, live_paused=paused, budget_low=self._budget_low)
 
     def close(self) -> None:
         """Close the live client's connection, when it has one to close."""
@@ -92,16 +106,26 @@ class FallbackGateway:
         if callable(close):
             close()
 
+    def look_up(
+        self, product_ids: Sequence[str], *, fresh: bool = False
+    ) -> tuple[PriceResponse, AvailabilityResponse]:
+        """Price and availability for the same ids, both live or both from the capture."""
+        return self._ask(
+            lambda gateway: (gateway.price(product_ids, fresh=fresh), gateway.availability(product_ids, fresh=fresh)),
+            LIVE_CALLS_PER_LOOK,
+        )
+
     def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:
-        return self._ask(lambda gateway: gateway.price(product_ids, fresh=fresh))
+        return self._ask(lambda gateway: gateway.price(product_ids, fresh=fresh), SINGLE_CALL)
 
     def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse:
-        return self._ask(lambda gateway: gateway.availability(product_ids, fresh=fresh))
+        return self._ask(lambda gateway: gateway.availability(product_ids, fresh=fresh), SINGLE_CALL)
 
-    def _ask[Answer: (PriceResponse, AvailabilityResponse)](self, call: Callable[[ValioGateway], Answer]) -> Answer:
-        if self._live_can_be_asked():
+    def _ask[Answer](self, ask: Callable[[ValioGateway], Answer], live_calls: int) -> Answer:
+        """The whole answer from the live API, or the whole answer from the capture."""
+        if self._live_can_be_asked(live_calls):
             try:
-                answer = call(self._live)
+                answer = ask(self._live)
             except SupplierUnavailable as error:
                 # The detail of this error never holds the key (tta.valio.client).
                 logger.warning(
@@ -110,30 +134,38 @@ class FallbackGateway:
                 )
                 self._pause_live()
             else:
-                self._last_source = DataSource.LIVE
+                self._completed(DataSource.LIVE)
                 return answer
-        answer = call(self._replay)  # raises `SupplierUnavailable` itself when the capture cannot be used
-        self._last_source = DataSource.REPLAY
+        answer = ask(self._replay)  # raises `SupplierUnavailable` itself when the capture cannot be used
+        self._completed(DataSource.REPLAY)
         return answer
 
-    def _budget_allows_live(self) -> bool:
-        return self._live.calls_remaining >= MIN_CALLS_REMAINING
-
-    def _live_can_be_asked(self) -> bool:
+    def _live_can_be_asked(self, live_calls: int) -> bool:
+        reason = self._why_not_live(live_calls)
         with self._lock:
-            paused_until = self._live_paused_until
-            if paused_until is not None and self._monotonic() < paused_until:
-                return False
+            said, self._not_live_because = self._not_live_because, reason
+        if reason not in (None, said, PAUSED):
+            logger.warning("The live supplier API is not asked: %s. Answering from the replay capture.", reason)
+        return reason is None
+
+    def _why_not_live(self, live_calls: int) -> str | None:
+        """The reason the live API is not asked for this look, or `None` after taking one of the minute's looks."""
+        with self._lock:
+            if self._live_paused_until is not None and self._monotonic() < self._live_paused_until:
+                return PAUSED
             self._live_paused_until = None
-        if self._budget_allows_live():
-            return True
-        if self._last_source is DataSource.LIVE:
-            logger.warning(
-                "Fewer than %d calls are left in the supplier call budget. Answering from the replay capture.",
-                MIN_CALLS_REMAINING,
-            )
-        return False
+        budget_low = self._live.calls_remaining - (live_calls - 1) < MIN_CALLS_REMAINING  # reads a file: no lock
+        with self._lock:
+            self._budget_low = budget_low
+        if budget_low:
+            return BUDGET_LOW
+        # Asked last, so that a look the capture answers anyway does not take one of the minute's live looks.
+        return None if self._live_looks.allows(LIVE_LOOKS) else TOO_MANY_LOOKS
 
     def _pause_live(self) -> None:
         with self._lock:
             self._live_paused_until = self._monotonic() + RETRY_LIVE_AFTER_SECONDS
+
+    def _completed(self, source: DataSource) -> None:
+        with self._lock:
+            self._last_source = source

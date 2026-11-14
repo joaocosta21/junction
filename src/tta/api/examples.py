@@ -4,19 +4,23 @@ Scores on the 15% "open, documented standards": a reader of the generated interf
 the real answer to it. Nothing here is written by hand: the scenarios of SPEC section 13 are run through
 the gateway's own service against the replay capture, in a private in-memory store, and each answer is kept
 as the contract model serialises it. So an example cannot drift from the code.
+
+Each scenario is run on its own. One that cannot be run is logged and named in `not_built`, and the others
+are still built: the document is served without that example and says so. Building never raises.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel
 
-from tta.api.limits import RateLimit, RateLimiter
+from tta.api.docs import BuiltExamples
+from tta.api.limits import CallKind, CallLimits, RateLimit
 from tta.api.service import Gateway
 from tta.api.wiring import Parts, wire
 from tta.contracts.agent import AgentRun, AgentStep, ParseRequestBody
@@ -45,8 +49,11 @@ SEARCH_EXAMPLE_LIMIT = 3
 EXAMPLE_NOTE = "Checked against the standing order."
 EXAMPLE_KEYS = ("scenario-1", "scenario-2")
 MONDAY = 0
-NO_LIMIT = RateLimit(calls=1_000_000)
+UNLIMITED_CALLS = 1_000_000  # the examples are built by the gateway itself, in a private store
 RECORDED_MODEL = "recorded"
+
+EVERY_EXAMPLE = "every example (the scenarios could not be set up)"
+NOTHING_FITS = "{scenario}: the order and what follows it (the recorded capture holds nothing that fits the request)"
 
 Json = Any
 Named = dict[str, dict[str, Json]]  # example name -> {"summary": ..., "value": ...}
@@ -86,6 +93,12 @@ def scenario_requests(today: date) -> tuple[PurchaseRequest, PurchaseRequest]:
     )
 
 
+def _no_limits() -> CallLimits:
+    return CallLimits(
+        RateLimit(calls=UNLIMITED_CALLS), per_visitor=False, ceilings=dict.fromkeys(CallKind, UNLIMITED_CALLS)
+    )
+
+
 def _agent(profile_id: str) -> Identity:
     return Identity(
         kind=IdentityKind.AGENT, id=f"agent:{profile_id}", display_name="Example agent", profile_id=profile_id
@@ -99,10 +112,13 @@ class _Examples:
         self._parts = parts
         self._service: Gateway = wire(
             catalog=parts.catalog, policy=parts.policy, gateway=parts.replay, clock=parts.replay.clock,
-            store=store, limiter=RateLimiter(NO_LIMIT),
+            store=store, limiter=_no_limits(),
         )[0]
+        self._ward, self._hotel = _agent(WARD_PROFILE), _agent(HOTEL_PROFILE)
+        self._orders: dict[str, Order] = {}  # the order each scenario ended with, for the steps that follow it
         self.requests: dict[str, Named] = {}
         self.answers: dict[str, Named] = {}
+        self.not_built: list[str] = []
 
     def _keep(self, operation: str, name: str, summary: str, answer: Any, request: BaseModel | None = None) -> None:
         self.answers.setdefault(operation, {})[name] = _example(summary, answer)
@@ -110,17 +126,30 @@ class _Examples:
             self.requests.setdefault(operation, {})[name] = _example(summary, request)
 
     def run(self) -> None:
-        first, second = scenario_requests(self._parts.replay.time_now.date())
-        ward, hotel = _agent(WARD_PROFILE), _agent(HOTEL_PROFILE)
-        self._lookups(ward, hotel)
-        ward_order = self._order(ward, second, "scenario_2", "Scenario 2: the allergy ward's agent", EXAMPLE_KEYS[1])
-        hotel_order = self._order(hotel, first, "scenario_1", "Scenario 1: the hotel kitchen's agent", EXAMPLE_KEYS[0])
-        self._approval(hotel_order)
-        self._audit(ward, ward_order)
-        self._pasted(ward, first, ward_order)
+        """Each step on its own: one that fails is logged and named, and the next one still runs."""
+        steps: tuple[tuple[str, Callable[[], None]], ...] = (
+            ("the lookups (authority, search, one product)", self._lookups),
+            ("scenario 3 (ranked substitutes)", self._substitutes),
+            ("scenario 2 (the allergy ward's order and its audit trail)", self._scenario_2),
+            ("scenario 1 (the hotel kitchen's order and its approval)", self._scenario_1),
+            ("the pasted request and the agent's run", self._pasted),
+        )
+        for name, step in steps:
+            try:
+                step()
+            except TtaError as error:
+                logger.warning("No OpenAPI example for %s: it could not be run (%s).", name, error.slug)
+                self.not_built.append(name)
+            except Exception:
+                # The document is still served: a fault here must not take the published interface down.
+                logger.exception("No OpenAPI example for %s: it failed in a way nobody expected.", name)
+                self.not_built.append(name)
 
-    def _lookups(self, agent: Identity, without_exclusions: Identity) -> None:
-        service = self._service
+    def _requests(self) -> tuple[PurchaseRequest, PurchaseRequest]:
+        return scenario_requests(self._parts.replay.time_now.date())
+
+    def _lookups(self) -> None:
+        service, agent = self._service, self._ward
         self._keep("get_authority", "allergy_ward", "What the allergy ward's agent may decide alone",
                    service.get_authority(agent))
         query = ProductQuery(product_type="plant_drink", limit=SEARCH_EXAMPLE_LIMIT)
@@ -129,17 +158,29 @@ class _Examples:
         if found.products:
             self._keep("get_product", "plant_drink", "One product with its allergen statements and claims",
                        service.get_product(agent, found.products[0].id))
+
+    def _substitutes(self) -> None:
         substitutes = SubstituteQuery()
         self._keep(
             "find_substitutes", "scenario_3", f"Scenario 3: ranked substitutes of product {SCENARIO_3_PRODUCT}",
-            service.find_substitutes(without_exclusions, SCENARIO_3_PRODUCT, substitutes), substitutes,
+            self._service.find_substitutes(self._hotel, SCENARIO_3_PRODUCT, substitutes), substitutes,
         )
+
+    def _scenario_2(self) -> None:
+        summary = "Scenario 2: the allergy ward's agent"
+        order = self._order(self._ward, self._requests()[1], "scenario_2", summary, EXAMPLE_KEYS[1])
+        self._audit(self._ward, order)
+
+    def _scenario_1(self) -> None:
+        summary = "Scenario 1: the hotel kitchen's agent"
+        self._approval(self._order(self._hotel, self._requests()[0], "scenario_1", summary, EXAMPLE_KEYS[0]))
 
     def _order(self, agent: Identity, request: PurchaseRequest, name: str, summary: str, key: str) -> Order | None:
         offer: Offer = self._service.create_offer(agent, request)
         self._keep("create_offer", name, summary, offer, request)
         self.answers.setdefault("get_offer", {name: _example(summary, offer)})  # one is enough for a read
         if not offer.options:
+            self.not_built.append(NOTHING_FITS.format(scenario=name.replace("_", " ")))
             return None
         placed = PlaceOrderRequest(offer_id=offer.offer_id, option_id=offer.options[0].option_id)
         order = self._service.place_order(agent, placed.offer_id, placed.option_id, key)
@@ -147,6 +188,7 @@ class _Examples:
         self.answers.setdefault("get_order", {name: _example(summary, order)})
         listed = _example("The orders of the caller's buyer, newest first", self._service.list_orders(agent))
         self.answers.setdefault("list_orders", {name: listed})
+        self._orders[name] = order
         return order
 
     def _approver(self, profile_id: str, role: ApproverRole) -> Identity | None:
@@ -181,11 +223,12 @@ class _Examples:
             self._keep("get_audit", reader.value, f"Scenario 2: the trail of the order as the {reader.value} sees it",
                        view)
 
-    def _pasted(self, agent: Identity, typed: PurchaseRequest, order: Order | None) -> None:
+    def _pasted(self) -> None:
         """The two routes that start from a pasted sentence. The trace is put together from the answers the
-        gateway gave above: no model is called to build an example."""
-        self._keep("parse_request", "scenario_1", "Scenario 1: the pasted sentence as a typed request", typed,
-                   ParseRequestBody(text=SCENARIO_1_TEXT))
+        gateway gave in scenario 2: no model is called to build an example."""
+        self._keep("parse_request", "scenario_1", "Scenario 1: the pasted sentence as a typed request",
+                   self._requests()[0], ParseRequestBody(text=SCENARIO_1_TEXT))
+        order = self._orders.get("scenario_2")
         if order is None:
             return
         steps = (
@@ -205,16 +248,20 @@ class _Examples:
                    ParseRequestBody(text=SCENARIO_2_TEXT))
 
 
-def build_examples(parts: Parts) -> tuple[dict[str, Named], dict[str, Named]]:
-    """(request examples, answer examples), each by operation id. When a scenario cannot be run (another
-    capture, another set of profiles) the examples gathered so far are returned and the rest are left out."""
-    store = SqliteStore()  # in memory: nothing of an example reaches the real order book or audit trail
+def build_examples(parts: Parts) -> BuiltExamples:
+    """The examples of every scenario that can be run, and the names of those that cannot (another capture,
+    another set of profiles, a fault). Never raises: the published interface is served either way."""
+    try:
+        store = SqliteStore()  # in memory: nothing of an example reaches the real order book or audit trail
+    except Exception:
+        logger.exception("No OpenAPI example was built: the private store could not be opened.")
+        return BuiltExamples(requests={}, answers={}, not_built=(EVERY_EXAMPLE,))
     try:
         examples = _Examples(parts, store)
-        try:
-            examples.run()
-        except TtaError as error:
-            logger.warning("The OpenAPI examples are incomplete: a scenario could not be run (%s).", error.slug)
-        return examples.requests, examples.answers
+        examples.run()
+        return BuiltExamples(examples.requests, examples.answers, tuple(examples.not_built))
+    except Exception:
+        logger.exception("No OpenAPI example was built: the scenarios could not be set up.")
+        return BuiltExamples(requests={}, answers={}, not_built=(EVERY_EXAMPLE,))
     finally:
         store.close()

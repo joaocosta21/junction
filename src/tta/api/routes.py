@@ -16,7 +16,7 @@ from tta.api.identity import Caller
 from tta.api.service import Gateway
 from tta.contracts.agent import AgentRun, ParseRequestBody
 from tta.contracts.audit import AuditView
-from tta.contracts.common import ApprovalStatus, AuditReader
+from tta.contracts.common import ApprovalStatus, AuditReader, DataSource
 from tta.contracts.errors import (
     InvalidRequest,
     NotAuthorised,
@@ -283,29 +283,52 @@ class AuditHead(BaseModel):
 class Health(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    status: str
+    status: str  # "ok", or "degraded" with the reasons
+    reasons: tuple[str, ...]
     environment: str
     mode: str  # what was asked for: live or replay
-    source: str  # where the last answer about price and availability came from
+    source: str | None  # where the last look at price and availability came from; null before the first one
     audit_head: AuditHead
     settings: dict[str, Any]  # secrets appear only as true or false
     agent: dict[str, bool]
     surfaces: dict[str, bool]
 
 
+OK, DEGRADED = "ok", "degraded"
+LIVE_PAUSED = "live looks are paused after a supplier failure"
+BUDGET_LOW = "the call budget is low"
+CAPTURE_IN_LIVE_MODE = "answers come from the recorded capture while live mode is asked for"
+NOT_SHOWN = ("valio_call_budget",)  # how much is left to spend is nobody's business on a public route
+
+
+def _looks(gateway: Any, mode: DataSource) -> tuple[DataSource | None, tuple[str, ...]]:
+    """The source of the last look and what is wrong, from memory. A gateway with one source (the capture in
+    replay mode) has no state to report: its source is the answer."""
+    state = getattr(gateway, "state", None)
+    if not callable(state):
+        return gateway.source, ()
+    looks = state()
+    in_capture = mode is DataSource.LIVE and looks.last_source is DataSource.REPLAY
+    reasons = ((LIVE_PAUSED, looks.live_paused), (BUDGET_LOW, looks.budget_low), (CAPTURE_IN_LIVE_MODE, in_capture))
+    return looks.last_source, tuple(reason for reason, holds in reasons if holds)
+
+
 @public.get("/healthz", operation_id="get_health", tags=[docs.TAG_OPEN], summary="What is running")
 def get_health(request: Request) -> Health:
-    """The environment, the mode, the data source in use and the head of the audit chain. No token needed;
-    no secret and no path is shown."""
+    """The environment, the mode, the source of the last look at price and availability, whether the gateway
+    is `ok` or `degraded` and why, and the head of the audit chain. No token needed; no secret, no path and
+    no budget figure is shown. Nothing is asked of the supplier and the audit trail is not read through."""
     parts, state = request.app.state.parts, request.app.state
     events, last_hash = parts.audit.head()
+    source, reasons = _looks(parts.gateway, parts.settings.tta_mode)
     return Health(
-        status="ok",
+        status=DEGRADED if reasons else OK,
+        reasons=reasons,
         environment=parts.settings.tta_env,
         mode=parts.settings.tta_mode.value,
-        source=parts.gateway.source.value,
+        source=None if source is None else source.value,
         audit_head=AuditHead(events=events, last_hash=last_hash),
-        settings=parts.settings.describe(),
+        settings={name: value for name, value in parts.settings.describe().items() if name not in NOT_SHOWN},
         agent={
             "request_parser": parts.service.has_request_parser, "agent_runner": parts.service.has_agent_runner,
         },

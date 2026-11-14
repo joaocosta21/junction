@@ -2,19 +2,21 @@
 
 Scores on the 30% "one continuous flow": every package was built against ports; this is where they meet.
 `TTA_MODE=replay` answers from the capture with the clock pinned to it; `TTA_MODE=live` asks the mock API
-and falls back to the capture when it cannot answer.
+and falls back to the capture when it cannot answer. A configuration that cannot work stops the start; only
+an outage, a spent budget or a full minute falls back. What a failed start had opened, it closes.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from tta.api import hooks
 from tta.api.fallback import FallbackGateway
 from tta.api.identity import TokenRegistry, load_tokens
-from tta.api.limits import RateLimit, RateLimiter, default_rate_limit
+from tta.api.limits import CallLimits, RateLimit
 from tta.api.service import Gateway, GatewayDeps
 from tta.audit import AuditTrail
 from tta.catalog import ProductCatalog
@@ -40,12 +42,38 @@ from tta.valio import ReplayGateway, ValioClient
 logger = logging.getLogger(__name__)
 
 
+LIVE_CLIENT_NOT_BUILT = (
+    "TTA_MODE=live was asked for, but the live supplier client cannot be built: {why} "
+    "Correct VALIO_AIMO_BASE_URL, or start with TTA_MODE=replay."
+)
+
+
+class GatewayConfigurationError(RuntimeError):
+    """Live mode was asked for with settings the live client refuses. The gateway does not start: serving
+    the capture instead would look like live mode until someone read an offer's source."""
+
+
 class UtcClock:
     """The real time, for audit events: an event is stamped when it is written, never with the pinned
     replay clock (decision T06-2)."""
 
     def now(self) -> datetime:
         return datetime.now(UTC)
+
+
+def close_each(parts: Iterable[object]) -> list[Exception]:
+    """Close every part that can be closed, also after one of them fails. Each failure is logged and returned."""
+    failures: list[Exception] = []
+    for part in parts:
+        close = getattr(part, "close", None)
+        if not callable(close):
+            continue
+        try:
+            close()
+        except Exception as error:  # every part gets its turn; the caller decides what to raise
+            logger.error("%s could not be closed: %s", type(part).__name__, error, exc_info=error)
+            failures.append(error)
+    return failures
 
 
 @dataclass(frozen=True)
@@ -56,30 +84,39 @@ class Parts:
     catalog: Catalog
     gateway: ValioGateway  # the capture, or the live client with its fall-back
     replay: ReplayGateway  # the capture itself: the examples of /openapi.json are built from it in every mode
-    clock: Clock  # the data clock: pinned to the capture after a replayed answer, the server's time otherwise
+    clock: Clock  # the data clock: pinned to the capture in replay mode, the live clock in live mode
     policy: PolicyEngine
     store: Store
     audit: AuditSink
     service: Gateway
     tokens: TokenRegistry
 
+    @property
+    def opened(self) -> tuple[object, ...]:
+        """What is to be closed, in that order: the database and, in live mode, the gateway's HTTP client."""
+        return (self.store, self.gateway)
+
     def close(self) -> None:
-        """Release what `build_parts` opened: the database and, in live mode, the HTTP client."""
-        for part in (self.store, self.gateway):
-            close = getattr(part, "close", None)
-            if callable(close):
-                close()
+        """Release what is open. Each part is closed even when the one before it fails; the first failure is
+        raised when all have had their turn."""
+        failures = close_each(self.opened)
+        if failures:
+            raise failures[0]
 
 
 def _gateway(settings: Settings, replay: ReplayGateway) -> ValioGateway:
+    """The capture in replay mode; in live mode the live client with its fall-back to the capture.
+
+    Raises `GatewayConfigurationError` when the live client refuses its settings (an address that would
+    carry the key in clear text, `tta.valio.client`). The address is not repeated.
+    """
     if settings.tta_mode is not DataSource.LIVE:
         return replay
     try:
-        return FallbackGateway(ValioClient(settings), replay)
+        live = ValioClient(settings)
     except SupplierUnavailable as error:
-        # The live client refuses an address that would carry the key in clear text (tta.valio.client).
-        logger.warning("The live supplier client cannot be used (%s). Answering from the replay capture.", error.detail)
-        return replay
+        raise GatewayConfigurationError(LIVE_CLIENT_NOT_BUILT.format(why=error.detail)) from error
+    return FallbackGateway(live, replay)
 
 
 def wire(
@@ -89,7 +126,7 @@ def wire(
     gateway: ValioGateway,
     clock: Clock,
     store: Store,
-    limiter: RateLimiter,
+    limiter: CallLimits,
     request_parser: RequestParser | None = None,
     agent_runner: AgentRunner | None = None,
 ) -> tuple[Gateway, AuditSink]:
@@ -119,23 +156,35 @@ def build_parts(
     """Wire the gateway for these settings. The keyword arguments replace one part each, for a test or a
     caller that already holds it (the catalog takes about 1.3 seconds to build).
 
-    Raises `TokenConfigurationError` outside dev and demo when the environment holds no usable tokens, and
-    `SupplierUnavailable` when the replay capture cannot be read.
+    Raises `TokenConfigurationError` outside dev and demo when the environment holds no usable tokens,
+    `GatewayConfigurationError` when live mode is asked for with an address the live client refuses,
+    `HookError` when an optional package is there without what the gateway calls, and `SupplierUnavailable`
+    when the replay capture cannot be read. Whatever this function had opened by then is closed again.
     """
     policy = RulePolicyEngine.from_files()
     tokens = load_tokens(settings, policy.profile_ids())  # first: without tokens nothing else is worth building
     catalog = catalog or ProductCatalog.from_settings(settings)
     replay = ReplayGateway(settings.replay_capture_dir)
-    gateway = gateway or _gateway(settings, replay)
-    clock: Clock = gateway.clock if hasattr(gateway, "clock") else replay.clock
-    keys = catalog.product_type_keys()
-    store = open_store(settings)
-    service, audit = wire(
-        catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store,
-        limiter=RateLimiter(rate_limit or default_rate_limit(settings.is_demo_environment)),
-        request_parser=request_parser or hooks.request_parser(settings, clock, keys),
-        agent_runner=agent_runner or hooks.agent_runner(settings, clock, keys),
-    )
+    opened: list[object] = []  # what this call opened itself, newest first: a gateway handed in is the caller's
+    try:
+        if gateway is None:
+            gateway = _gateway(settings, replay)
+            opened.insert(0, gateway)
+        clock: Clock = gateway.clock if hasattr(gateway, "clock") else replay.clock
+        keys = catalog.product_type_keys()
+        request_parser = request_parser or hooks.request_parser(settings, clock, keys)
+        agent_runner = agent_runner or hooks.agent_runner(settings, clock, keys)
+        store = open_store(settings)
+        opened.insert(0, store)
+        service, audit = wire(
+            catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store,
+            # The demonstration tokens are public and shared: there a caller is counted per visitor.
+            limiter=CallLimits(rate_limit or RateLimit(), per_visitor=settings.is_demo_environment),
+            request_parser=request_parser, agent_runner=agent_runner,
+        )
+    except BaseException:
+        close_each(opened)  # a close that fails here is logged; the error that stopped the start is raised
+        raise
     return Parts(
         settings=settings, catalog=catalog, gateway=gateway, replay=replay, clock=clock, policy=policy,
         store=store, audit=audit, service=service, tokens=tokens,

@@ -10,9 +10,15 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from tta.contracts.availability import AvailabilityLine, PriceLine
+from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
 from tta.contracts.common import DataSource
-from tta.contracts.ports import Catalog, Clock, PolicyEngine, ValioGateway
+from tta.contracts.errors import SupplierUnavailable
+from tta.contracts.ports import Catalog, Clock, PairedLookup, PolicyEngine, ValioGateway
+
+TWO_SOURCES = (
+    "Price came from the {price} source and availability from the {availability} source. An offer is never "
+    "built on two sources, so nothing was looked up. The same request can be sent again."
+)
 
 
 @dataclass(frozen=True)
@@ -45,15 +51,28 @@ class Lookup:
 
 
 def look_up(deps: OfferDeps, product_ids: Iterable[str], *, fresh: bool = False) -> Lookup:
-    """One price call and one availability call for the ids (SPEC section 5, step 1). No id: no call.
+    """One look at price and availability for the ids, both from one source (SPEC section 5, step 1). No id:
+    no call.
 
     `fresh=True` is for the re-check before an order: it must not read a cached answer.
+    Raises `SupplierUnavailable` when the two answers state different sources.
     """
     ids = tuple(dict.fromkeys(product_ids))
     if not ids:
         return Lookup(prices={}, availability={}, now=deps.clock.now(), source=deps.gateway.source)
-    prices = deps.gateway.price(ids, fresh=fresh)
-    availability = deps.gateway.availability(ids, fresh=fresh)
+    prices, availability = _pair(deps.gateway, ids, fresh)
+    if prices.source is not availability.source:
+        raise SupplierUnavailable(
+            TWO_SOURCES.format(price=prices.source.value, availability=availability.source.value)
+        )
     return Lookup(
         prices=prices.by_id(), availability=availability.by_id(), now=availability.time_now, source=availability.source
     )
+
+
+def _pair(gateway: ValioGateway, ids: tuple[str, ...], fresh: bool) -> tuple[PriceResponse, AvailabilityResponse]:
+    """A gateway that can answer from more than one source is asked for both at once, so that it can keep
+    them on one source; any other gateway gets one price call and one availability call."""
+    if isinstance(gateway, PairedLookup):
+        return gateway.look_up(ids, fresh=fresh)
+    return gateway.price(ids, fresh=fresh), gateway.availability(ids, fresh=fresh)

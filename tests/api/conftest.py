@@ -6,8 +6,9 @@ No test here calls a live service, and nothing reads `.env`.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterator, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -62,9 +63,23 @@ SCENARIO_2 = {
     }],
 }
 
+# What other tasks add to the gateway (`tta.api.hooks`). They may or may not have landed.
+OPTIONAL_MODULES = ("tta.agent", "tta.api.mcp_surface", "tta.ui.routes")
+
 Headers = dict[str, str]
 Auth = Callable[..., Headers]
 Flow = Callable[..., dict[str, Any]]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def without_optional_modules() -> Iterator[None]:
+    """The API is tested on its own: the buyer agent, the MCP surface and the pages read as not installed,
+    whatever their tasks have landed. A test that needs one puts its own stand-in into `sys.modules`.
+    Module scope, so that the other test folders of the same run see the real modules again."""
+    with pytest.MonkeyPatch.context() as patch:
+        for name in OPTIONAL_MODULES:
+            patch.setitem(sys.modules, name, None)
+        yield
 
 
 class ChangingGateway:
@@ -119,6 +134,82 @@ class ChangingGateway:
         self._check()
         answer = self._replay.availability(product_ids, fresh=fresh)
         return answer.model_copy(update={"time_now": self.now()})
+
+
+class FakeLive:
+    """Stands in for the live client: the capture's data labelled `live`, every price one euro higher so that
+    a live price can be told from a replayed one. A test makes one endpoint or both fail, and counts the calls."""
+
+    NOW = datetime(2026, 11, 14, 9, 30, tzinfo=UTC)
+    PRICE_RISE = Decimal("1.00")
+    ENDPOINTS = frozenset({"price", "availability"})
+
+    def __init__(self, replay: ReplayGateway, calls_remaining: int = 100) -> None:
+        self._replay = replay
+        self.calls_remaining = calls_remaining
+        self.failing: set[str] = set()
+        self.asked: list[str] = []
+        self.closed = False
+
+    @property
+    def calls(self) -> int:
+        return len(self.asked)
+
+    @property
+    def down(self) -> bool:
+        return self.failing == self.ENDPOINTS
+
+    @down.setter
+    def down(self, value: bool) -> None:
+        self.failing = set(self.ENDPOINTS) if value else set()
+
+    @property
+    def source(self) -> DataSource:
+        return DataSource.LIVE
+
+    @property
+    def clock(self) -> FakeLive:
+        return self
+
+    def now(self) -> datetime:
+        return self.NOW
+
+    def close(self) -> None:
+        self.closed = True
+
+    def _answer(self, endpoint: str) -> None:
+        self.asked.append(endpoint)
+        if endpoint in self.failing:
+            raise SupplierUnavailable("The supplier cannot be asked right now, so no call was made.")
+
+    def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:
+        self._answer("price")
+        answer = self._replay.price(product_ids, fresh=fresh)
+        lines = tuple(
+            line if line.catalog_price is None else line.model_copy(update={
+                "catalog_price": line.catalog_price.model_copy(
+                    update={"value": line.catalog_price.value + self.PRICE_RISE}
+                ),
+            })
+            for line in answer.lines
+        )
+        return answer.model_copy(update={"lines": lines, "source": DataSource.LIVE, "retrieved_at": self.NOW})
+
+    def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse:
+        self._answer("availability")
+        answer = self._replay.availability(product_ids, fresh=fresh)
+        return answer.model_copy(update={"source": DataSource.LIVE, "time_now": self.NOW})
+
+
+@pytest.fixture(scope="session")
+def replay() -> ReplayGateway:
+    """The capture itself. A test that changes one of its methods does it with `monkeypatch`."""
+    return ReplayGateway(Settings.for_tests().replay_capture_dir)
+
+
+@pytest.fixture
+def live(replay: ReplayGateway) -> FakeLive:
+    return FakeLive(replay)
 
 
 @pytest.fixture(scope="session")

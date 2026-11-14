@@ -457,6 +457,18 @@ The build agents add questions here in the same shape as above. Empty until the 
 **T10-5 · The recorded run of scenario 1 is hand-written by design**
 - The live check records the run of scenario 2 only; scenario 1's run file holds the same three calls, marked hand-built.
 
+**FIX8-1 · Per-visitor limits on the deployed demo depend on the address Modal hands the app**
+- **Built overnight:** each visitor using a shared demo token gets its own rate-limit window, keyed by the client address (the first `X-Forwarded-For` address when the direct peer is private). Global ceilings per minute: 120 offers and substitute searches, 120 orders and decisions, 30 model calls; at most 6 live looks a minute reach the Valio mock, above that the recorded capture answers, labelled replay.
+- **Not checked on Modal yet:** which peer address the app sees there. Check after deploying: from two phones on different networks, three offers each with the ward token and the limit set to 2 — each phone should get 201, 201, 429.
+
+**FIX8-2 · What `/healthz` shows**
+- **Built overnight:** `ok` or `degraded` with reasons, the mode asked for, the source of the last answer, the audit head (event count and last hash), which optional parts are in, and which settings are set (true or false only, never a value or the budget).
+- **Ask:** "Keep the environment name and the capture name in the public health answer?"
+
+**FIX8-3 · Live mode without a supplier key**
+- **Built overnight:** it serves the recorded capture and `/healthz` says `degraded`. A configuration that is wrong in another way (a base URL that is not https) stops the start.
+- **Ask:** "Should a missing key stop the start too?"
+
 ---
 
 ## Claims we no longer make

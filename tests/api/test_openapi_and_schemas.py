@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from typing import Any
 
@@ -202,6 +203,76 @@ def test_the_order_route_documents_its_idempotency_key(document: dict[str, Any])
     assert header["in"] == "header"
     assert header["required"] is True
     assert header["schema"]["maxLength"] == 100
+
+
+def test_the_examples_are_built_once_at_start_up_and_off_the_event_loop(
+    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tta.api import app as app_module
+
+    genuine = app_module.build_examples
+    builds: list[bool] = []
+
+    def watched(parts: Any) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            builds.append(False)  # no event loop runs in this thread: a worker thread
+        else:
+            builds.append(True)
+        return genuine(parts)
+
+    monkeypatch.setattr(app_module, "build_examples", watched)
+    app = create_app(settings, parts=build_parts(settings, catalog=catalog))
+    assert builds == []  # not while the application is put together
+
+    with TestClient(app) as client:
+        assert builds == [False]  # at start-up, before the first request
+        documents = [client.get("/openapi.json") for _ in range(3)]
+
+    assert [document.status_code for document in documents] == [200, 200, 200]
+    assert builds == [False]  # a request for the document builds nothing
+    examples = documents[0].json()["paths"]["/v1/offers"]["post"]["requestBody"]["content"]["application/json"]
+    assert set(examples["examples"]) == {"scenario_1", "scenario_2"}
+    assert "could not be built" not in documents[0].json()["info"]["description"]
+
+
+def test_a_document_asked_for_without_a_running_application_still_has_its_examples(
+    settings: Settings, catalog: ProductCatalog
+) -> None:
+    # A script that exports the document calls `app.openapi()` and never starts the application.
+    parts = build_parts(settings, catalog=catalog)
+    try:
+        document = create_app(settings, parts=parts).openapi()
+    finally:
+        parts.close()
+
+    assert document["paths"]["/v1/offers"]["post"]["responses"]["201"]["content"]["application/json"]["examples"]
+
+
+def test_the_document_is_served_without_the_example_of_a_scenario_that_failed_and_says_so(
+    settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parts = build_parts(settings, catalog=catalog)
+    genuine = parts.replay.availability
+
+    def broken_for_the_plant_drinks(product_ids: Any, *, fresh: bool = False) -> Any:
+        if "464013" in product_ids:  # scenario 2 and scenario 3 look at it
+            raise RuntimeError("a fault with the text do-not-show-this-to-a-reader")
+        return genuine(product_ids, fresh=fresh)
+
+    monkeypatch.setattr(parts.replay, "availability", broken_for_the_plant_drinks)
+
+    with TestClient(create_app(settings, parts=parts)) as client:
+        response = client.get("/openapi.json")
+
+    assert response.status_code == 200  # never a 500 for the document
+    document = response.json()
+    offers = document["paths"]["/v1/offers"]["post"]["responses"]["201"]["content"]["application/json"]["examples"]
+    assert set(offers) == {"scenario_1"}
+    description = document["info"]["description"]
+    assert "could not be built" in description and "scenario 2" in description.lower()
+    assert "do-not-show" not in response.text
 
 
 def test_the_schemas_route_returns_every_contract_model_without_a_token(client: TestClient) -> None:

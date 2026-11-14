@@ -278,6 +278,69 @@ def test_outside_dev_and_demo_the_app_refuses_to_start_without_usable_tokens(
     assert "a-secret-looking-value" not in str(refused.value)
 
 
+def _identity(identity_id: str) -> dict[str, str]:
+    return {"kind": "SUPPLIER", "id": identity_id, "display_name": "A reader"}
+
+
+def _refused(value: str) -> str:
+    with pytest.raises(RuntimeError) as refused:
+        load_tokens(Settings.for_tests(tta_env="prod", tta_tokens=value), PROFILE_IDS)
+    return str(refused.value)
+
+
+def test_a_token_from_the_environment_shorter_than_24_characters_stops_the_start() -> None:
+    short, long_enough = "only-23-characters-long", "this-one-has-24-letters!"
+    assert (len(short), len(long_enough)) == (23, 24)
+
+    message = _refused(json.dumps({ENV_TOKEN: _identity("supplier:a"), short: _identity("supplier:b")}))
+
+    assert "entry 2" in message and "24" in message
+    assert short not in message and ENV_TOKEN not in message
+    accepted = load_tokens(
+        Settings.for_tests(tta_env="prod", tta_tokens=json.dumps({long_enough: _identity("supplier:a")})), PROFILE_IDS
+    )
+    assert accepted.identify(long_enough) is not None
+
+
+def test_a_token_mapped_twice_stops_the_start_and_only_positions_are_named() -> None:
+    # A JSON object may repeat a key; the parser would silently keep the last one.
+    first, other, again = (json.dumps(_identity(f"supplier:{name}")) for name in ("a", "b", "c"))
+    text = f'{{"{ENV_TOKEN}": {first}, "another-token-from-the-environment": {other}, "{ENV_TOKEN}": {again}}}'
+
+    message = _refused(text)
+
+    assert "entries 1 and 3" in message and "same token" in message
+    assert ENV_TOKEN not in message and "another-token" not in message
+
+
+def test_two_tokens_with_the_same_identity_id_stop_the_start() -> None:
+    tokens = {
+        ENV_TOKEN: _identity("supplier:a"),
+        "another-token-from-the-environment": _identity("supplier:b"),
+        "a-third-token-from-the-environment": _identity("supplier:a"),
+    }
+
+    message = _refused(json.dumps(tokens))
+
+    assert "entries 1 and 3" in message and "same identity id" in message
+    assert all(token not in message for token in tokens)
+
+
+def test_an_identity_that_repeats_a_field_stops_the_start() -> None:
+    text = f'{{"{ENV_TOKEN}": {{"kind": "SUPPLIER", "id": "supplier:a", "id": "supplier:b", "display_name": "X"}}}}'
+
+    message = _refused(text)
+
+    assert "entry 1" in message
+    assert ENV_TOKEN not in message
+
+
+def test_the_demonstration_tokens_are_not_held_to_the_length_of_a_secret() -> None:
+    registry = load_tokens(Settings.for_tests(tta_env="demo"), PROFILE_IDS)
+
+    assert registry.identify("demo-agent-allergy-ward") is not None  # 23 characters, and public by design
+
+
 def test_every_known_token_is_compared_in_constant_time(monkeypatch: pytest.MonkeyPatch) -> None:
     supplier = Identity(kind=IdentityKind.SUPPLIER, id="supplier:one", display_name="One")
     other = Identity(kind=IdentityKind.SUPPLIER, id="supplier:two", display_name="Two")

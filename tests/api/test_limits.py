@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api import create_app
-from tta.api.limits import MAX_BODY_BYTES, BodyLimitMiddleware, RateLimit, RateLimiter, default_rate_limit
+from tta.api.limits import MAX_BODY_BYTES, BodyLimitMiddleware, RateLimit, RateLimiter
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -72,6 +72,20 @@ def test_a_declared_length_over_the_limit_is_answered_without_reading_a_byte() -
     assert (b"content-type", b"application/problem+json") in sent[0]["headers"]
 
 
+def test_a_message_that_is_not_part_of_the_body_passes_uncounted() -> None:
+    seen: list[dict[str, Any]] = []
+
+    async def application(scope: Any, receive: Any, send: Any) -> None:
+        seen.append(await receive())
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.disconnect"}
+
+    asyncio.run(BodyLimitMiddleware(application)({"type": "http", "path": "/v1/offers", "headers": []}, receive, None))
+
+    assert seen == [{"type": "http.disconnect"}]
+
+
 def test_a_body_sent_in_pieces_with_no_length_is_cut_off_at_the_limit(
     client: TestClient, auth: Auth, assert_problem: Problem
 ) -> None:
@@ -94,6 +108,28 @@ def test_a_length_that_is_not_a_number_is_refused(client: TestClient, auth: Auth
     response = client.post("/v1/offers", content=b"{}", headers=headers)
 
     assert response.status_code in (400, 413)
+
+
+@pytest.mark.parametrize("length", [b"\xb2", b"\xb9\xb2", b"-1", b"1e3", b""])
+def test_a_length_python_calls_a_digit_but_cannot_read_is_refused_too(length: bytes) -> None:
+    # "\xb2" is the superscript two in latin-1: `str.isdigit` is true for it and `int` raises on it.
+    sent: list[dict[str, Any]] = []
+
+    async def never_reached(scope: Any, receive: Any, send: Any) -> None:
+        raise AssertionError("the application must not be called")
+
+    async def receive() -> dict[str, Any]:
+        raise AssertionError("the body must not be read")
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    scope = {"type": "http", "path": "/v1/offers", "headers": [(b"content-length", length)]}
+
+    asyncio.run(BodyLimitMiddleware(never_reached)(scope, receive, send))
+
+    assert sent[0]["status"] == 400
+    assert (b"content-type", b"application/problem+json") in sent[0]["headers"]
 
 
 def test_a_body_at_the_size_of_a_real_request_passes(
@@ -188,6 +224,21 @@ def test_the_limiter_counts_per_caller_and_forgets_after_the_window() -> None:
     assert "agent:a" not in refused.value.detail
 
 
+def test_a_call_leaves_the_window_one_window_after_it_was_made_and_the_later_ones_stay() -> None:
+    time = FakeTime()
+    limiter = RateLimiter(RateLimit(calls=2, window_seconds=60), monotonic=time)
+    limiter.check("agent:a")
+    time.seconds += 30
+    limiter.check("agent:a")
+
+    time.seconds += 31  # the first call is 61 seconds old, the second 31
+    limiter.check("agent:a")
+    with pytest.raises(RateLimited) as refused:
+        limiter.check("agent:a")
+
+    assert refused.value.extensions["retry_after_seconds"] == 29
+
+
 def test_a_refused_call_does_not_extend_the_wait() -> None:
     time = FakeTime()
     limiter = RateLimiter(RateLimit(calls=1, window_seconds=60), monotonic=time)
@@ -202,9 +253,31 @@ def test_a_refused_call_does_not_extend_the_wait() -> None:
     limiter.check("agent:a")
 
 
-def test_a_private_token_gets_60_calls_a_minute_and_a_shared_demonstration_token_240() -> None:
-    assert default_rate_limit(shared_demo_tokens=False) == RateLimit(calls=60, window_seconds=60)
-    assert default_rate_limit(shared_demo_tokens=True) == RateLimit(calls=240, window_seconds=60)
+def test_one_caller_gets_60_calls_a_minute_by_default() -> None:
+    assert RateLimit() == RateLimit(calls=60, window_seconds=60)
+
+
+def test_the_limiter_forgets_a_caller_whose_window_has_passed() -> None:
+    # A caller can be made up (a forged forwarding header), so a window nobody uses any more must not be kept.
+    time = FakeTime()
+    limiter = RateLimiter(RateLimit(calls=2, window_seconds=60), monotonic=time)
+    for number in range(50):
+        limiter.check(f"made-up-{number}")
+    assert len(limiter) == 50
+
+    time.seconds += 61
+    limiter.check("agent:a")
+
+    assert len(limiter) == 1
+
+
+def test_a_refused_caller_is_not_remembered() -> None:
+    limiter = RateLimiter(RateLimit(calls=0, window_seconds=60), monotonic=FakeTime())
+
+    with pytest.raises(RateLimited):
+        limiter.check("made-up")
+
+    assert len(limiter) == 0
 
 
 @pytest.fixture

@@ -8,7 +8,8 @@ and the examples from the scenarios run in replay; none of them is written by ha
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI
@@ -17,8 +18,11 @@ from fastapi.openapi.utils import get_openapi
 from tta.api.limits import (
     DEFAULT_RATE_LIMIT_CALLS,
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
-    DEMO_RATE_LIMIT_CALLS,
     MAX_BODY_KILOBYTES,
+    MAX_LIVE_LOOKS_PER_MINUTE,
+    MAX_MODEL_CALLS_PER_MINUTE,
+    MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE,
+    MAX_ORDERS_AND_DECISIONS_PER_MINUTE,
 )
 from tta.api.service import MAX_LIST_ITEMS
 from tta.contracts.errors import (
@@ -69,12 +73,23 @@ profile is never a request field. The demonstration tokens are **public by desig
 customer model. `ORDERED` means recorded in this gateway's order book: the mock has no order endpoint, and
 the record commits nobody. Answers say whether their data is `live` or a `replay` of recorded responses.
 
-**Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise). A
-request names at most {MAX_PRODUCT_IDS:,} product ids. A list answers at most {MAX_LIST_ITEMS} items, the
-newest. One token makes at most {DEFAULT_RATE_LIMIT_CALLS} calls in {DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g}
-seconds to the routes that reach the supplier or write to the audit trail ({DEMO_RATE_LIMIT_CALLS} for a
-demonstration token, which every visitor shares); beyond that the answer is `rate-limited` with `Retry-After`.
+**Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a
+`Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids. A list
+answers at most {MAX_LIST_ITEMS} items, the newest. The routes that reach the supplier, the model or the audit
+trail are counted: one caller makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in
+{DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g} seconds (a demonstration token is shared, so there a caller is one
+visitor), and all callers together at most {MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE} offers and substitute
+searches, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE} orders and approval decisions, and {MAX_MODEL_CALLS_PER_MINUTE}
+request readings and agent runs a minute. Beyond that the answer is `rate-limited` with `Retry-After`. In live
+mode at most {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute reach the supplier; further looks are answered from the
+recorded capture and say `replay`.
 """
+
+EXAMPLES_NOT_BUILT = (
+    "\n**Examples.** The examples of this document are the demonstration scenarios, run when the gateway "
+    "starts. This time an example could not be built for: {names}. The routes work as described; only their "
+    "examples are missing here.\n"
+)
 
 TAG_LOOKUP = "Core 1: lookup"
 TAG_ORDER = "Core 2: offer and order"
@@ -120,6 +135,16 @@ SUCCESS_MEDIA_TYPE = "application/json"
 Examples = dict[str, dict[str, dict[str, Any]]]  # operation id -> example name -> {"summary", "value"}
 
 
+@dataclass(frozen=True)
+class BuiltExamples:
+    """What `tta.api.examples` hands to the document: the request examples, the answer examples, and the
+    names of the scenarios whose examples could not be built."""
+
+    requests: Examples
+    answers: Examples
+    not_built: tuple[str, ...] = ()
+
+
 def problems(*errors: type[TtaError]) -> dict[int | str, dict[str, Any]]:
     """The `responses` of a route for the typed errors it can answer: one entry per status, as problem+json."""
     documented: dict[int | str, dict[str, Any]] = {}
@@ -146,24 +171,32 @@ def _attach(operation: dict[str, Any], requests: Examples, answers: Examples) ->
             media["examples"] = answers[name]
 
 
-def install_openapi(app: FastAPI, build_examples: Callable[[], tuple[Examples, Examples]]) -> None:
+def describe(not_built: Sequence[str]) -> str:
+    """The document's description, with a paragraph naming the examples that could not be built."""
+    if not not_built:
+        return DESCRIPTION
+    return DESCRIPTION + EXAMPLES_NOT_BUILT.format(names="; ".join(not_built))
+
+
+def install_openapi(app: FastAPI, examples: Callable[[], BuiltExamples]) -> None:
     """Replace the app's OpenAPI builder: FastAPI's generated document, plus the problem schema and the
-    examples. Built on the first request for it and kept."""
+    examples. `examples` hands over what was built at start-up, so asking for the document runs no scenario.
+    Put together on the first request for it and kept: what it lacks, its description says."""
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema is not None:
             return app.openapi_schema
+        built = examples()
         document = get_openapi(
-            title=TITLE, version=VERSION, description=DESCRIPTION, routes=app.routes, tags=TAGS,
+            title=TITLE, version=VERSION, description=describe(built.not_built), routes=app.routes, tags=TAGS,
             license_info={"name": "MIT", "identifier": "MIT"},
         )
         document.setdefault("components", {}).setdefault("schemas", {})[PROBLEM_SCHEMA_NAME] = (
             ProblemDetails.model_json_schema()
         )
-        requests, answers = build_examples()
         for methods in document.get("paths", {}).values():
             for operation in methods.values():
-                _attach(operation, requests, answers)
+                _attach(operation, built.requests, built.answers)
         app.openapi_schema = document
         return document
 

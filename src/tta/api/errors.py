@@ -4,8 +4,10 @@ Scores on the 15% "open, documented standards rather than a proprietary format":
 `type` per kind of problem and never has to parse a sentence.
 
 A typed error (`tta.contracts.errors`) carries its own type, title and status. A request that does not match
-its contract is `invalid-request` and lists the fields that are wrong, never the values sent. Anything
-nobody expected is a 500 with a general detail; the fault itself goes to the log only.
+its contract is `invalid-request` and lists the fields that are wrong, never the values sent: that is
+FastAPI's `RequestValidationError`, and a `ValidationError` raised where what a caller sent is turned into a
+contract model (`reading_caller_input`). Anything else nobody expected, a contract model of ours that does
+not validate included, is a 500 with a general detail; the fault itself goes to the log only.
 
 No problem repeats text the caller sent. That is why none has an `instance`: the path of a request holds
 the ids, or anything else, the caller put there.
@@ -15,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from http import HTTPStatus
 from typing import Any
 
@@ -25,6 +28,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
+from tta.api.headers import security_headers
 from tta.contracts.errors import (
     PROBLEM_CONTENT_TYPE,
     InvalidRequest,
@@ -92,7 +96,7 @@ def _what_is_wrong(error: dict[str, Any]) -> str:
     return str(error["type"]) if repeats or not message else message
 
 
-def validation_problem(errors: Sequence[dict[str, Any]]) -> ProblemDetails:
+def invalid_request(errors: Sequence[dict[str, Any]]) -> InvalidRequest:
     """`invalid-request` listing each field and what is wrong with it. No value the caller sent is repeated."""
     listed = [
         {"field": _field(error.get("loc", ()), str(error["type"])), "problem": _what_is_wrong(error)}
@@ -101,8 +105,22 @@ def validation_problem(errors: Sequence[dict[str, Any]]) -> ProblemDetails:
     first = "; ".join(f"{entry['field']}: {entry['problem']}" for entry in listed[:MAX_ERRORS_IN_DETAIL])
     more = len(errors) - min(len(errors), MAX_ERRORS_IN_DETAIL)
     rest = f"; and {more} more" if more else ""
-    detail = f"The request does not match what this route takes. {first}{rest}."
-    return InvalidRequest(detail, errors=listed).to_problem()
+    return InvalidRequest(f"The request does not match what this route takes. {first}{rest}.", errors=listed)
+
+
+def validation_problem(errors: Sequence[dict[str, Any]]) -> ProblemDetails:
+    return invalid_request(errors).to_problem()
+
+
+@contextmanager
+def reading_caller_input() -> Iterator[None]:
+    """Around the place where what a caller sent is turned into a contract model, below a route: a model
+    that does not validate there is the caller's `invalid-request`, for every transport. Outside such a
+    block a `ValidationError` is a fault of ours and is reported as one."""
+    try:
+        yield
+    except ValidationError as error:
+        raise invalid_request(error.errors()) from error
 
 
 def _headers(error: TtaError) -> dict[str, str] | None:
@@ -124,11 +142,6 @@ def install_error_handlers(app: FastAPI) -> None:
     def request_does_not_match(request: Request, error: RequestValidationError) -> JSONResponse:
         return problem_response(validation_problem(error.errors()))
 
-    @app.exception_handler(ValidationError)
-    def model_does_not_validate(request: Request, error: ValidationError) -> JSONResponse:
-        # A contract model built from what a caller sent, somewhere below the route.
-        return problem_response(validation_problem(error.errors()))
-
     @app.exception_handler(BodyTooLarge)
     def body_too_large(request: Request, error: BodyTooLarge) -> JSONResponse:
         return problem_response(body_too_large_problem(str(error.detail)))
@@ -141,4 +154,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     def anything_else(request: Request, error: Exception) -> JSONResponse:
         logger.error("Unexpected error on %s %s", request.method, request.url.path, exc_info=error)
-        return problem_response(status_problem(HTTPStatus.INTERNAL_SERVER_ERROR, INTERNAL_DETAIL))
+        # This answer is sent outside every middleware, so it brings the security headers itself.
+        return problem_response(
+            status_problem(HTTPStatus.INTERNAL_SERVER_ERROR, INTERNAL_DETAIL), security_headers(request.url.path)
+        )

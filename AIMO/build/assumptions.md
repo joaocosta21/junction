@@ -218,3 +218,15 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - A run is at most 8 steps and 10 model requests before retries; a 30-second time-out and 2 retries per request.
 - Without a key, or for the demo sentences, runs are served from `fixtures/agent/`. Tonight those recordings are hand-written: the live check got only 503 answers from Gemini (question T10-1).
 - Errors and log lines of the Gemini module carry the HTTP status only; the SDK's error text is not chained.
+
+## API after review (FIX-8)
+- One look at price and availability comes from one source: both live, or both from the recorded capture when either live call fails or the budget cannot cover two calls. A pair from two sources is refused.
+- In live mode the data clock is the live clock, also while answers come from the capture; a replayed answer keeps the capture's `time_now` and says `replay`.
+- A configuration error (a base URL that is not https, a broken optional module) stops the start; only an outage or a low budget falls back to the capture.
+- Rate limits for the public demo: 60 calls a minute per visitor (identity plus client address), ceilings of 120 offers and substitute searches, 120 orders and decisions and 30 model calls per minute for the whole app, and at most 6 live looks a minute at the supplier.
+- `/healthz`: `ok` or `degraded` with reasons; the audit head is held in memory.
+- A validation error below a route is a server fault (500, generic detail); only the caller's own input gives `invalid-request`.
+- "Request received" is written by the offer step itself, so an order's timeline starts with the buyer's words.
+- Tokens from the environment must be at least 24 characters, unique, and map to distinct identity ids.
+- Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`; every `/v1` response also `Cache-Control: no-store`.
+- The exact paths `/v1` and `/mcp` belong to the API and to the MCP surface, never to the pages.

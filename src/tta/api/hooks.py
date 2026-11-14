@@ -1,22 +1,26 @@
-"""Hooks for what other packages add to the gateway. Each is an optional import: when the module or the
-function is not there, the gateway runs without it and `/healthz` says so.
+"""Hooks for what other packages add to the gateway. Each is an optional import: when the module is not
+there, the gateway runs without it and `/healthz` says so.
 
-The buyer agent (`tta.agent`, task T10) may define either or both of
+The buyer agent (`tta.agent`, task T10) defines either or both of
     build_request_parser(*, settings, clock, product_type_keys) -> RequestParser
     build_agent_runner(*, settings, clock, product_type_keys) -> AgentRunner
-`clock` is the data clock (pinned in replay), for "by Monday"; `product_type_keys` are the catalog's.
+`clock` is the data clock (pinned in replay), for "by Monday"; `product_type_keys` are the catalog's. With
+one of the two the gateway starts and logs which is missing; a package that defines neither stops the start.
 
 The MCP surface (`tta.api.mcp_surface`, task T11) and the pages (`tta.ui.routes`, task T12) each define
     create_surface(context: SurfaceContext) -> ASGI application
 `create_app` mounts the MCP application at `/mcp` and the pages at `/`, and runs the application's own
 lifespan together with the gateway's (the MCP session manager needs it). A surface calls `context.service`
-and nothing else. A module that exists but lacks its function stops the start: a surface that silently went
-missing would only be noticed in front of a judge.
+and nothing else.
+
+A module that exists but lacks what the gateway calls stops the start: a part that silently went missing
+would only be noticed in front of a judge.
 """
 
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import ModuleType
@@ -35,6 +39,9 @@ RUNNER_FACTORY = "build_agent_runner"
 MCP_MODULE = "tta.api.mcp_surface"
 PAGES_MODULE = "tta.ui.routes"
 SURFACE_FACTORY = "create_surface"
+AGENT_FACTORIES = (PARSER_FACTORY, RUNNER_FACTORY)
+
+logger = logging.getLogger(__name__)
 
 
 class HookError(RuntimeError):
@@ -62,9 +69,27 @@ def optional_module(name: str) -> ModuleType | None:
         raise
 
 
+def _factory(module: ModuleType, factory_name: str) -> Callable[..., Any] | None:
+    """The factory of the agent package, or `None` when the package has only the other one (logged, naming
+    this one). Raises `HookError` when the package defines neither: that is a broken install, not "no agent"."""
+    factory = getattr(module, factory_name, None)
+    if callable(factory):
+        return factory
+    if not any(callable(getattr(module, name, None)) for name in AGENT_FACTORIES):
+        raise HookError(
+            f"{AGENT_MODULE} exists but defines neither {PARSER_FACTORY} nor {RUNNER_FACTORY}, so the gateway "
+            "would run without a request parser and without a buyer agent."
+        )
+    logger.warning(
+        "%s does not define %s: the gateway starts without it, and the route that needs it answers "
+        "supplier-unavailable.", AGENT_MODULE, factory_name,
+    )
+    return None
+
+
 def _built[Port](factory_name: str, port: type[Port], given: dict[str, Any]) -> Port | None:
     module = optional_module(AGENT_MODULE)
-    factory = getattr(module, factory_name, None) if module is not None else None
+    factory = _factory(module, factory_name) if module is not None else None
     if factory is None:
         return None
     built = factory(**given)

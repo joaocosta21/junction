@@ -136,6 +136,12 @@ def test_offer_stale_is_409_and_names_a_fresh_offer(
     assert fresh.status_code == 200
     assert fresh.json()["request"] == offer["request"]
     assert changing_client.get("/v1/orders", headers=auth("agent_ward")).json() == []
+    # The fresh offer has a trail of its own, which starts with the request as it was received.
+    trail = changing_client.get(
+        "/v1/audit", params={"offer_id": problem["fresh_offer_id"]}, headers=auth("agent_ward")
+    ).json()
+    assert [event["type"] for event in trail["events"]].count("tta.v1.request.received") == 1
+    assert trail["events"][0]["type"] == "tta.v1.request.received"
     # The fresh offer can be ordered: the flow does not get stuck.
     again = {"offer_id": fresh.json()["offer_id"], "option_id": fresh.json()["options"][0]["option_id"]}
     assert changing_client.post("/v1/orders", json=again, headers=auth("agent_ward", "key-2")).status_code == 201
@@ -279,6 +285,56 @@ def test_a_contract_model_that_does_not_validate_below_the_route_is_an_invalid_r
 
     problem = assert_problem(response, "invalid-request", 422)
     assert problem["errors"][0]["field"] == "lines.0.quantity"
+    assert "caller text" not in response.text
+
+
+def test_a_contract_model_that_does_not_validate_where_no_caller_input_is_read_is_our_fault_and_a_500(
+    changing_client: TestClient, changing: Any, auth: Auth, scenario_2: dict[str, Any], monkeypatch: Any,
+    caplog: Any,
+) -> None:
+    from pydantic import ValidationError
+
+    from tta.contracts.availability import PriceResponse
+
+    def answers_with_a_broken_model(product_ids: Any, *, fresh: bool = False) -> Any:
+        return PriceResponse.model_validate({"currency": MARKER, "lines": "do-not-show-this-to-a-caller"})
+
+    monkeypatch.setattr(changing, "price", answers_with_a_broken_model)
+
+    with caplog.at_level("ERROR", logger="tta.api.errors"):
+        response = changing_client.post("/v1/offers", json=scenario_2, headers=auth("agent_ward"))
+
+    # The request was valid: reporting this as `invalid-request` would send the caller looking for its own mistake.
+    assert response.status_code == 500
+    assert response.headers["content-type"] == PROBLEM_CONTENT_TYPE
+    assert response.json() == {
+        "type": "about:blank", "title": "Internal Server Error", "status": 500,
+        "detail": "The gateway could not complete this request. Nothing in this answer can be relied on.",
+    }
+    assert "do-not-show" not in response.text and "caller text" not in response.text
+    # The fault itself, with its trace, is in the log.
+    assert any(
+        record.exc_info is not None and isinstance(record.exc_info[1], ValidationError) for record in caplog.records
+    )
+
+
+def test_a_model_that_does_not_validate_inside_an_agent_run_is_a_500_too(
+    settings: Any, catalog: Any, auth: Auth
+) -> None:
+    from tta.api import create_app
+    from tta.api.wiring import build_parts
+    from tta.contracts.agent import AgentRun
+
+    class Runner:
+        def run_agent(self, text: str, identity: Any, tools: Any) -> AgentRun:
+            return AgentRun.model_validate({"text": text, "steps": MARKER})
+
+    parts = build_parts(settings, catalog=catalog, agent_runner=Runner())
+    with TestClient(create_app(settings, parts=parts), raise_server_exceptions=False) as client:
+        response = client.post("/v1/agent/run", json={"text": "milk"}, headers=auth("agent_hotel"))
+
+    assert response.status_code == 500
+    assert response.json()["type"] == "about:blank"
     assert "caller text" not in response.text
 
 

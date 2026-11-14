@@ -76,6 +76,8 @@ class AuditTrail:
         self._clock = clock
         self._policy = policy
         self._lock = threading.Lock()  # one writer at a time in this process; the store guards against the others
+        # The head as last read or written (`head()`). Used only while its hash is still the store's last one.
+        self._head: tuple[int, str] | None = None
 
     def record(self, event_type: AuditEventType, actor: Actor, context: AuditContext) -> AuditEvent:
         """Build the event from the objects in the context, chain it to the last one and append it.
@@ -146,9 +148,22 @@ class AuditTrail:
         Verification cannot show that the newest events were cut off (`chain.py`). A party that kept this pair
         from an earlier moment can: the trail must still hold at least that many events, and its event at that
         position must still have that hash.
+
+        The whole trail is read the first time. After that the pair is kept in memory, moved on with each event
+        this trail writes, and read again only when the store's last hash is no longer the one held: another
+        writer appended, a block was taken back, or the end was cut off. The count is therefore the count at
+        the last read plus this trail's own events; `verify_chain()` is what reads every event.
         """
+        last_hash = self._store.last_audit_hash() or GENESIS_HASH
+        held = self._head
+        if held is not None and held[1] == last_hash:
+            return held
         events = self._store.list_audit_events()
-        return len(events), events[-1].data.hash if events else GENESIS_HASH
+        read = (len(events), events[-1].data.hash if events else GENESIS_HASH)
+        # Set without the trail's lock, so that no caller waits for the store while holding it. A pair that
+        # a writer overtook in between is noticed at the next call: its hash no longer matches.
+        self._head = read
+        return read
 
     def _append(self, unchained: AuditEvent) -> AuditEvent:
         """Chain the event to the current head and append it. When the store answers that another writer
@@ -164,8 +179,17 @@ class AuditTrail:
             except AuditChainConflict as error:
                 conflict = error
             else:
+                self._head = self._head_after(head, event)
                 return event
         raise AuditChainConflict(GAVE_UP_DETAIL.format(attempts=MAX_APPEND_ATTEMPTS)) from conflict
+
+    def _head_after(self, chained_to: str, event: AuditEvent) -> tuple[int, str] | None:
+        """The head once `event` is appended: one more than the head held, when that is the head the event was
+        chained to. Otherwise nothing is held, and the next `head()` reads the trail."""
+        held = self._head
+        if held is None or held[1] != chained_to:
+            return None
+        return held[0] + 1, event.data.hash
 
     def _with_stored_profile(self, scope: Scope) -> Scope:
         """The scope with the buyer profile of the stored order, approval or offer it names, when the context

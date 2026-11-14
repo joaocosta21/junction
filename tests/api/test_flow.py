@@ -111,9 +111,65 @@ def test_every_option_of_an_offer_gets_its_own_policy_event(
     view = client.get("/v1/audit", params={"offer_id": offer["offer_id"]}, headers=auth("agent_hotel")).json()
 
     types = [event["type"] for event in view["events"]]
-    assert types[:3] == ["tta.v1.request.parsed", "tta.v1.lookup.performed", "tta.v1.offer.created"]
+    assert types[:4] == [
+        "tta.v1.request.received", "tta.v1.request.parsed", "tta.v1.lookup.performed", "tta.v1.offer.created",
+    ]
     assert types.count("tta.v1.policy.evaluated") == len(offer["options"]) >= 2
     assert view["offer_id"] == offer["offer_id"]
+
+
+def test_the_trail_of_an_order_starts_with_the_request_as_the_buyer_wrote_it(
+    client: TestClient, auth: Auth, scenario_2: dict[str, Any], make_offer: Flow, place_order: Flow
+) -> None:
+    order = place_order(client, "agent_ward", make_offer(client, "agent_ward", scenario_2), "scenario-2")
+
+    view = client.get("/v1/audit", params={"order_id": order["order_id"]}, headers=auth("agent_ward")).json()
+    as_supplier = client.get("/v1/audit", params={"order_id": order["order_id"]}, headers=auth("supplier")).json()
+
+    types = [event["type"] for event in view["events"]]
+    assert types[0] == "tta.v1.request.received"
+    assert types.count("tta.v1.request.received") == 1
+    received = view["events"][0]
+    words = scenario_2["lines"][0]["text"]
+    # The sentence quotes the buyer's own words, cut to a readable length; the fact holds all of them.
+    assert received["sentence"].startswith("The agent sent a request for profile allergy-ward: ")
+    assert words[:60] in received["sentence"]
+    assert received["facts"]["text"] == words
+    assert received["actor"]["id"] == "agent:allergy-ward"
+    by_offer = client.get("/v1/audit", params={"offer_id": order["offer_id"]}, headers=auth("agent_ward")).json()
+    assert by_offer["events"][0]["id"] == received["id"]  # it carries the offer id, so both views find it
+    # Valio Aimo sees that a request was sent, not the buyer's words.
+    assert as_supplier["events"][0]["type"] == "tta.v1.request.received"
+    assert words[:20] not in str(as_supplier["events"][0])
+
+
+def test_a_request_of_two_lines_is_received_once_with_the_words_of_both(
+    client: TestClient, auth: Auth, scenario_1: dict[str, Any], make_offer: Flow
+) -> None:
+    second = {**scenario_1["lines"][0], "text": "and the same again for the staff canteen"}
+    offer = make_offer(client, "agent_hotel", {**scenario_1, "lines": [scenario_1["lines"][0], second]})
+
+    view = client.get("/v1/audit", params={"offer_id": offer["offer_id"]}, headers=auth("agent_hotel")).json()
+
+    received = [event for event in view["events"] if event["type"] == "tta.v1.request.received"]
+    assert len(received) == 1
+    assert received[0]["facts"]["text"] == (
+        "1,000 litres of lactose-free milk by Monday; and the same again for the staff canteen"
+    )
+
+
+def test_a_typed_request_without_words_is_received_as_what_it_asks_for(
+    client: TestClient, auth: Auth, scenario_2: dict[str, Any], make_offer: Flow
+) -> None:
+    wordless = {**scenario_2, "lines": [{**scenario_2["lines"][0], "text": "  "}]}
+    offer = make_offer(client, "agent_ward", wordless)
+
+    view = client.get("/v1/audit", params={"offer_id": offer["offer_id"]}, headers=auth("agent_ward")).json()
+
+    received = view["events"][0]
+    assert received["type"] == "tta.v1.request.received"
+    assert "200" in received["sentence"] and "plant_drink" in received["sentence"]
+    assert "text" not in received["facts"]
 
 
 def test_the_money_and_quantities_of_an_offer_are_json_numbers(

@@ -1,4 +1,4 @@
-"""`create_app(settings)`: the FastAPI application (SPEC section 2, task T09).
+"""`create_app(settings)`: the FastAPI application (SPEC section 2, tasks T09 and FIX-8).
 
 Scores on the 30% "working end-to-end demo" (one process serves the whole flow) and on the 15% "open,
 documented standards" (OpenAPI 3.1 generated from the typed models, problem details for every error).
@@ -12,30 +12,46 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
 from starlette.routing import Match, Mount
 from starlette.types import ASGIApp, Scope
 
 from tta.api import docs, hooks
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
-from tta.api.limits import BodyLimitMiddleware
+from tta.api.headers import SecurityHeadersMiddleware, is_api_path
+from tta.api.limits import BodyLimitMiddleware, ClientKeyMiddleware
 from tta.api.routes import public, router
-from tta.api.wiring import Parts, build_parts
+from tta.api.wiring import Parts, build_parts, close_each
 from tta.config import Settings, get_settings
 
 MCP_PATH = "/mcp"
 PAGES_PATH = "/"
-API_PATHS = "/v1/"
 MCP_SURFACE = "mcp"
 PAGES_SURFACE = "pages"
 
 
-class _PagesMount(Mount):
-    """The pages take every path nothing else has taken, except the API's: a path or a method the API does
-    not have stays the API's to answer, as a problem document and not as a page."""
+class _McpMount(Mount):
+    """The MCP endpoint is the root of the mounted surface. A mount takes `/mcp/` and what is under it; this
+    one also takes the exact path `/mcp`, as that same root: an MCP host is given `https://<host>/mcp`. There
+    is no redirect, because a redirected POST is lost behind a proxy that ends TLS, and the pages never see
+    the path."""
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
-        if scope["type"] == "http" and scope["path"].startswith(API_PATHS):
+        if scope["type"] != "http" or scope["path"] != self.path:
+            return super().matches(scope)
+        root = self.path + "/"
+        match, child = super().matches({**scope, "path": root})
+        # The surface is handed the path with the slash, so that its own router finds its root.
+        return match, {**child, "path": root, "raw_path": root.encode()}
+
+
+class _PagesMount(Mount):
+    """The pages take every path nothing else has taken, except the API's (`/v1` and all under it): a path
+    or a method the API does not have stays the API's to answer, as a problem document and not as a page."""
+
+    def matches(self, scope: Scope) -> tuple[Match, Scope]:
+        if scope["type"] == "http" and is_api_path(scope["path"]):
             return Match.NONE, {}
         return super().matches(scope)
 
@@ -62,9 +78,11 @@ def _lifespan(parts: Parts, surfaces: dict[str, ASGIApp]) -> Callable[[FastAPI],
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """A mounted application's own lifespan does not run by itself; the MCP session manager needs it.
-        When the gateway stops, the database and the live client are closed."""
+        The examples of `/openapi.json` are built here, once, in a worker thread: a request for the document
+        runs no scenario on the event loop. When the gateway stops, the database and the live client are closed."""
         async with AsyncExitStack() as stack:
             stack.callback(parts.close)
+            app.state.examples = await run_in_threadpool(build_examples, parts)
             for surface in surfaces.values():
                 context = getattr(getattr(surface, "router", None), "lifespan_context", None)
                 if context is not None:
@@ -74,27 +92,41 @@ def _lifespan(parts: Parts, surfaces: dict[str, ASGIApp]) -> Callable[[FastAPI],
     return lifespan
 
 
-def create_app(settings: Settings | None = None, *, parts: Parts | None = None) -> FastAPI:
-    """The gateway for these settings (default: the environment's). `parts` replaces the wiring, for a test.
-    Either way the application owns the parts from here on and closes them when it stops.
-
-    Refuses to start outside dev and demo without tokens from the environment.
-    """
-    settings = settings or get_settings()
-    parts = parts or build_parts(settings)
+def _application(parts: Parts) -> FastAPI:
     surfaces = _surfaces(parts)
     app = FastAPI(
         title=docs.TITLE, version=docs.VERSION, openapi_tags=docs.TAGS, lifespan=_lifespan(parts, surfaces)
     )
     app.state.parts = parts
     app.state.surfaces = {name: name in surfaces for name in (MCP_SURFACE, PAGES_SURFACE)}
+    app.state.examples = None  # set when the application starts
+    # The last one added is the outermost: the headers cover what the two inside it answer themselves.
     app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(ClientKeyMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
     install_error_handlers(app)
     app.include_router(router)
     app.include_router(public)
-    docs.install_openapi(app, lambda: build_examples(parts))
+    # Without a running application (a script that exports the document) the examples are built when asked for.
+    docs.install_openapi(app, lambda: app.state.examples or build_examples(parts))
     if MCP_SURFACE in surfaces:
-        app.mount(MCP_PATH, surfaces[MCP_SURFACE])
+        app.router.routes.append(_McpMount(MCP_PATH, app=surfaces[MCP_SURFACE]))
     if PAGES_SURFACE in surfaces:
         app.router.routes.append(_PagesMount(PAGES_PATH, app=surfaces[PAGES_SURFACE]))  # last, on purpose
     return app
+
+
+def create_app(settings: Settings | None = None, *, parts: Parts | None = None) -> FastAPI:
+    """The gateway for these settings (default: the environment's). `parts` replaces the wiring, for a test.
+    Either way the application owns the parts from here on: it closes them when it stops, and also when it
+    cannot be put together (a surface that is there without its hook).
+
+    Refuses to start outside dev and demo without tokens from the environment.
+    """
+    settings = settings or get_settings()
+    parts = parts or build_parts(settings)
+    try:
+        return _application(parts)
+    except BaseException:
+        close_each(parts.opened)  # a close that fails is logged; the error that stopped the start is raised
+        raise

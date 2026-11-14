@@ -169,14 +169,37 @@ def test_a_listed_waiting_order_is_read_through_the_order_book(
     assert listed == (order,)
 
 
+def test_what_the_parser_cannot_turn_into_a_typed_request_is_an_invalid_request_for_every_transport(
+    settings: Settings, catalog: ProductCatalog, agent_hotel: Identity
+) -> None:
+    class Parser:
+        def parse_request(self, text: str, identity: Identity) -> PurchaseRequest:
+            return PurchaseRequest.model_validate({"lines": [{"text": text, "quantity": "a lot", "unit": "L"}]})
+
+    parts = build_parts(settings, catalog=catalog, request_parser=Parser())
+    try:
+        with pytest.raises(InvalidRequest) as refused:  # the typed error, not Pydantic's: MCP and pages get it too
+            parts.service.parse_request(agent_hotel, "milk")
+    finally:
+        parts.close()
+
+    assert refused.value.extensions["errors"][0]["field"] == "lines.0.quantity"
+    assert "a lot" not in refused.value.detail
+
+
 # --- the examples of /openapi.json ----------------------------------------------------------------------
 
 
 def test_the_examples_are_built_in_a_private_store_and_leave_the_real_one_empty(parts: Parts) -> None:
-    requests, answers = build_examples(parts)
+    built = build_examples(parts)
 
-    assert {"create_offer", "place_order", "decide_approval", "search_products", "find_substitutes"} <= set(requests)
-    assert {"get_authority", "get_offer", "get_order", "list_orders", "list_approvals", "get_audit"} <= set(answers)
+    assert {"create_offer", "place_order", "decide_approval", "search_products", "find_substitutes"} <= set(
+        built.requests
+    )
+    assert {"get_authority", "get_offer", "get_order", "list_orders", "list_approvals", "get_audit"} <= set(
+        built.answers
+    )
+    assert built.not_built == ()
     assert parts.store.list_orders() == ()
     assert parts.audit.head()[0] == 0
 
@@ -188,26 +211,86 @@ def test_examples_from_a_capture_that_holds_no_scenario_product_are_fewer_not_wr
     settings = Settings.for_tests(tta_data_dir=tmp_path / "var", tta_replay_capture="2026-11-13-extras")
     parts = build_parts(settings, catalog=catalog)
 
-    requests, answers = build_examples(parts)
+    built = build_examples(parts)
 
-    assert "create_offer" in answers
-    for example in answers["create_offer"].values():
+    assert "create_offer" in built.answers
+    for example in built.answers["create_offer"].values():
         assert example["value"]["source"] == "replay"
+    assert set(built.answers["place_order"]) == {"scenario_1"}  # nothing in this capture fits scenario 2
+    assert any("scenario 2" in name for name in built.not_built)  # and the document says which are missing
     with TestClient(create_app(settings, parts=parts)) as client:
-        assert client.get("/openapi.json").status_code == 200
+        document = client.get("/openapi.json")
+    assert document.status_code == 200
+    assert "could not be built" in document.json()["info"]["description"]
 
 
-def test_examples_stop_at_the_first_scenario_that_cannot_be_run(
+def test_a_scenario_that_cannot_be_run_is_left_out_and_the_others_are_still_built(
     parts: Parts, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    def down(product_ids: Any, *, fresh: bool = False) -> Any:
-        raise SupplierUnavailable("The replay capture cannot be used.")
+    genuine = parts.replay.availability
 
-    monkeypatch.setattr(parts.replay, "availability", down)
+    def down_for_the_plant_drinks(product_ids: Any, *, fresh: bool = False) -> Any:
+        if "464013" in product_ids:  # scenario 2 and scenario 3 look at it
+            raise SupplierUnavailable("The replay capture cannot be used.")
+        return genuine(product_ids, fresh=fresh)
+
+    monkeypatch.setattr(parts.replay, "availability", down_for_the_plant_drinks)
 
     with caplog.at_level(logging.WARNING, logger="tta.api.examples"):
-        requests, answers = build_examples(parts)
+        built = build_examples(parts)
 
-    assert "get_authority" in answers and "search_products" in answers
-    assert "create_offer" not in answers
+    assert "get_authority" in built.answers and "search_products" in built.answers
+    assert set(built.answers["create_offer"]) == {"scenario_1"}  # scenario 1 does not depend on scenario 2
+    assert "decide_approval" in built.answers
+    assert any("scenario 2" in name.lower() for name in built.not_built)
     assert "supplier-unavailable" in caplog.text
+
+
+def test_a_fault_nobody_expected_in_a_scenario_does_not_stop_the_others_and_its_trace_is_logged(
+    parts: Parts, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(product_ids: Any, *, fresh: bool = False) -> Any:
+        raise RuntimeError("a fault with the text do-not-show-this-to-a-reader")
+
+    monkeypatch.setattr(parts.replay, "price", broken)
+
+    with caplog.at_level(logging.WARNING, logger="tta.api.examples"):
+        built = build_examples(parts)
+
+    assert "get_authority" in built.answers
+    assert "create_offer" not in built.answers
+    assert len(built.not_built) >= 2
+    assert all("do-not-show" not in name for name in built.not_built)
+    assert any(record.exc_info for record in caplog.records)
+
+
+def test_when_nothing_can_be_set_up_no_example_is_built_and_nothing_is_raised(
+    parts: Parts, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def cannot_wire(**given: Any) -> Any:
+        raise RuntimeError("the services could not be wired")
+
+    monkeypatch.setattr("tta.api.examples.wire", cannot_wire)
+
+    with caplog.at_level(logging.WARNING, logger="tta.api.examples"):
+        built = build_examples(parts)
+
+    assert (built.requests, built.answers) == ({}, {})
+    assert built.not_built
+    assert "could not be wired" in caplog.text
+
+
+def test_when_the_private_store_cannot_be_opened_no_example_is_built_and_nothing_is_raised(
+    parts: Parts, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def cannot_open() -> Any:
+        raise OSError("no memory for another database")
+
+    monkeypatch.setattr("tta.api.examples.SqliteStore", cannot_open)
+
+    with caplog.at_level(logging.WARNING, logger="tta.api.examples"):
+        built = build_examples(parts)
+
+    assert (built.requests, built.answers) == ({}, {})
+    assert built.not_built
+    assert "no memory" in caplog.text

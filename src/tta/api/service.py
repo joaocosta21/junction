@@ -14,9 +14,11 @@ Who may call what:
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 
-from tta.api.limits import RateLimiter
+from tta.api.errors import reading_caller_input
+from tta.api.limits import CallKind, CallLimits
 from tta.contracts.agent import AgentRun
 from tta.contracts.audit import SYSTEM_ACTOR, AuditContext, AuditEventType, AuditView
 from tta.contracts.common import ApprovalStatus, AuditReader, Identity, OrderStatus
@@ -65,7 +67,13 @@ NO_AGENT_RUNNER = (
     "Send the typed request to POST /v1/offers and the chosen option to POST /v1/orders instead."
 )
 
+TEXT_OF_LINES = "; "  # between the words of two request lines, in "request received"
+
 logger = logging.getLogger(__name__)
+
+# Inside an agent run: whether the run has made an offer yet, whose "request received" is then written
+# already. `None` outside a run.
+_offer_made_in_run: ContextVar[bool | None] = ContextVar("tta_offer_made_in_run", default=None)
 
 
 @dataclass(frozen=True)
@@ -78,7 +86,7 @@ class GatewayDeps:
     audit: AuditSink
     offers: OfferBuilder
     orders: OrderService
-    limiter: RateLimiter
+    limiter: CallLimits
     request_parser: RequestParser | None = None
     agent_runner: AgentRunner | None = None
 
@@ -132,7 +140,7 @@ class Gateway:
 
     def find_substitutes(self, identity: Identity, product_id: str, query: SubstituteQuery) -> SubstituteResult:
         _require_agent(identity)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.LOOKUP)
         if self._deps.catalog.get_product(product_id) is None:
             raise UnknownProduct(NO_SUCH_PRODUCT)
         return self._deps.offers.find_substitutes(product_id, identity, query)
@@ -141,9 +149,9 @@ class Gateway:
 
     def create_offer(self, identity: Identity, request: PurchaseRequest) -> Offer:
         """Build the offer, store it and write its audit events, each with the offer id: the trail of an
-        order is found through its offer."""
+        order is found through its offer. The first event is "request received", in the buyer's own words."""
         _require_agent(identity)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.LOOKUP)
         named = sum(len(line.product_ids) for line in request.lines)
         if named > MAX_PRODUCT_IDS:
             raise InvalidRequest(TOO_MANY_PRODUCT_IDS.format(count=named))
@@ -154,10 +162,13 @@ class Gateway:
         with self._deps.store.atomic():  # the offer and its events together, or neither
             self._deps.store.save_offer(offer)
             self._record_offer(identity, offer)
+        if _offer_made_in_run.get() is not None:
+            _offer_made_in_run.set(True)
         return offer
 
     def _record_offer(self, identity: Identity, offer: Offer) -> None:
         record, scope = self._deps.audit.record, {"offer_id": offer.offer_id, "profile_id": offer.profile_id}
+        record(AuditEventType.REQUEST_RECEIVED, actor_of(identity), self._received(offer, scope))
         record(AuditEventType.REQUEST_PARSED, actor_of(identity), AuditContext(request=offer.request, **scope))
         looked_up = {
             "products_looked_up": offer.candidates_considered, "source": offer.source.value,
@@ -167,6 +178,15 @@ class Gateway:
         record(AuditEventType.OFFER_CREATED, SYSTEM_ACTOR, AuditContext(offer=offer))
         for option in offer.options:
             record(AuditEventType.POLICY_EVALUATED, SYSTEM_ACTOR, AuditContext(option=option, **scope))
+
+    @staticmethod
+    def _received(offer: Offer, scope: dict[str, str]) -> AuditContext:
+        """One "request received" per offer (question T09-1): the buyer's own words, which each request line
+        keeps in its `text`. A typed request sent without words is recorded as what it asks for."""
+        words = TEXT_OF_LINES.join(line.text.strip() for line in offer.request.lines if line.text.strip())
+        if words:
+            return AuditContext(facts={"text": words}, **scope)
+        return AuditContext(request=offer.request, **scope)
 
     def get_offer(self, identity: Identity, offer_id: str) -> Offer:
         profile_id = _require_buyer_side(identity)
@@ -179,7 +199,7 @@ class Gateway:
     def place_order(self, identity: Identity, offer_id: str, option_id: str, idempotency_key: str) -> Order:
         """Raises `OfferStale` or `OfferExpired` with `fresh_offer_id`: a new offer for the same request."""
         _require_agent(identity)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.ORDER)
         try:
             return self._deps.orders.place_order(offer_id, option_id, identity, idempotency_key)
         except (OfferStale, OfferExpired) as error:
@@ -227,7 +247,7 @@ class Gateway:
     def decide_approval(self, identity: Identity, approval_id: str, decision: DecisionRequest) -> Order:
         if identity.is_supplier:
             raise NotAuthorised(NOT_FOR_THE_SUPPLIER)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.ORDER)
         return self._deps.orders.decide(approval_id, identity, decision)  # an agent is refused there, with an event
 
     # --- audit trail --------------------------------------------------------------------------------------
@@ -259,21 +279,37 @@ class Gateway:
     # --- buyer agent --------------------------------------------------------------------------------------
 
     def parse_request(self, identity: Identity, text: str) -> PurchaseRequest:
+        """Writes no event when the text is read: "request received" is written with the offer that
+        follows (`create_offer`). A text that cannot be read has no offer, so it is recorded here."""
         _require_agent(identity)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.MODEL)
         if self._deps.request_parser is None:
             raise SupplierUnavailable(NO_REQUEST_PARSER)
-        self._record_received(identity, text)
-        return self._deps.request_parser.parse_request(text, identity)
+        try:
+            with reading_caller_input():  # the parser turns the caller's words into the typed request
+                return self._deps.request_parser.parse_request(text, identity)
+        except Exception:
+            self._record_received(identity, text)
+            raise
 
     def run_agent(self, identity: Identity, text: str) -> AgentRun:
-        """The runner gets this object as its tools: whatever the model asks for passes the same checks."""
+        """The runner gets this object as its tools: whatever the model asks for passes the same checks.
+        A run that makes an offer has its "request received" from `create_offer`; one that makes none is
+        recorded here, whether it ended with a report or with an error."""
         _require_agent(identity)
-        self._deps.limiter.check(identity.id)
+        self._deps.limiter.check(identity, CallKind.MODEL)
         if self._deps.agent_runner is None:
             raise SupplierUnavailable(NO_AGENT_RUNNER)
-        self._record_received(identity, text)
-        return self._deps.agent_runner.run_agent(text, identity, self)
+        before, run = _offer_made_in_run.set(False), None
+        try:
+            run = self._deps.agent_runner.run_agent(text, identity, self)
+            return run
+        finally:
+            # The run's own word is taken too: a runner may call its tools where this context does not reach.
+            followed = _offer_made_in_run.get() or (run is not None and run.offer_id is not None)
+            _offer_made_in_run.reset(before)
+            if not followed:
+                self._record_received(identity, text)
 
     def _record_received(self, identity: Identity, text: str) -> None:
         context = AuditContext(profile_id=identity.profile_id, facts={"text": text})
