@@ -247,6 +247,22 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "A call with a library's default User-Agent got 403 while the same key with a named one got 200 — is that expected, or did we get something wrong? If expected, is a named User-Agent the rule an external agent should follow?"
 - **If no answer, we build:** the client always sends a named User-Agent and `Accept: application/json`; a 403 is reported once as `supplier-unavailable` with that hint and never retried.
 
+**T03-1 · `471881` is named "gluten free" and declares cereals containing gluten** (from the allergen package; whole catalog)
+- **Context:** the substitution check: a substitute must not declare an allergen the original does not declare. `473609` (Oddlygood Barista oat drink 1 l, gluten free) lists three substitutes.
+- **We did:** compared the `allergen` group of `473609` with that of each listed substitute.
+- **We got:** `473609` and `471690` declare only oats (`GO` CONTAINS). `471881` — the 0.5 l pack of the same drink, named "gluten free", claim `FREE_FROM_GLUTEN` — declares `AW` CONTAINS as well.
+- **Example to show:** `473609` → `GO`; `471690` → `GO`; `471881` → **`AW`**, `GO`.
+- **Ask:** "The 0.5 l pack of the same gluten-free oat drink declares cereals containing gluten and the 1 l packs do not. Is that expected, or did we get something wrong?"
+- **If no answer, we build:** the allergen declaration counts, never the name or the claim. `471881` fails the substitution rule and cannot be ordered as a substitute for `473609`. This is in demo scenario 3.
+
+**T03-2 · A family stated "free from" while one of its members is declared** (whole catalog)
+- **Context:** a buyer excludes a family code such as `AW` (cereals containing gluten) or `AN` (tree nuts); we also read the member codes (wheat, oats, almonds).
+- **We did:** counted products whose `nonAllergen` group holds the family while the `allergen` group declares a member.
+- **We got:** 178 products: 132 for `AW` (76 with oats, 35 with wheat CONTAINS), 45 for `AN`, 1 for `AM` with lactose.
+- **Example to show:** `460124` Fria loaf "glutenfree": `AW` FREE_FROM and `UW` (wheat) CONTAINS · `461333` Toblerone: `AN` FREE_FROM and `SA` (almonds) CONTAINS.
+- **Ask:** "We read 'free from gluten cereals' with 'contains wheat' as gluten-free wheat starch, and 'free from tree nuts' with 'contains almonds' as a data error. Is that expected, or did we get something wrong?"
+- **If no answer, we build:** two statements, the least safe counts: with the family excluded, a declared member rejects the product (oats go to a dietitian).
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
@@ -263,6 +279,13 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **We got:** the same answer for both dates (`469363`: 384 units, €2.48, cut-off Sunday 17:00, delivery 16 Nov).
 - **Ask:** "Should the buyer's needed-by date be passed down to the Valio call, for a real API that honours it?"
 - **Built overnight:** the clock's current date. The needed-by date is compared with `availableDate` in our own code, so the demo does not depend on it. Passing the date down is listed as a next step (it needs one argument on two port methods).
+
+**T03-3 · Gluten-free wheat starch under a "no gluten" exclusion** (from the allergen package; whole catalog)
+- **Context:** declared oats go to a dietitian when `AW` is excluded, because gluten-free oats exist. The catalog shows the same pattern for wheat.
+- **We got:** 35 products state `AW` FREE_FROM and wheat CONTAINS; the rule rejects them. 243 products go to a dietitian through the oat rule.
+- **Example to show:** `460124` Fria Fiber-rich loaf, "glutenfree" → rejected for a ward that excludes `AW`.
+- **Ask (for the biomedical side of the team):** "Should gluten-free wheat starch go to a dietitian like oats, instead of being rejected?"
+- **Built overnight:** rejected, the safer reading. Only oats have the exception.
 
 ---
 

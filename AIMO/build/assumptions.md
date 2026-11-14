@@ -32,3 +32,16 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Replay answers an id outside the capture as the live API answers an unknown id (confirmed live with `459999`).
 - Live mode needs a writable data directory: every answer is recorded, and the call fails if it cannot be.
 - Agents must identify themselves: the client sends `User-Agent: tta-gateway/0.1` (question T01-1).
+
+## Allergens (T03)
+- `X99` is a general statement, never a statement about one allergen: under `STRICT` the product goes to a dietitian, under `DECLARED_ONLY` it passes as unverified. `X99` cannot be excluded and is never an "added allergen" (195 products carry it).
+- Families: `AW` → `UW GB NR GO GS GK`; `AN` → `SA SH SW SC ST SM SP SR`; `AM` → `ML`; `AF` → `ABD ADQ` (tuna `ABD` under fish is our reading).
+- Family excluded: a member `CONTAINS` rejects, a member `MAY_CONTAIN` goes to a human; a member stated `FREE_FROM` says nothing about the family.
+- Oats: with `AW` excluded, declared `GO` goes to a dietitian under both strictness values, unless another gluten cereal is declared `CONTAINS` (then rejected). 243 catalog products go to a human this way.
+- Member excluded with no statement of its own and a declared family: reported as `MAY_CONTAIN`, to a human (keeps lactose-free milk from being rejected when only lactose is excluded).
+- A family stated `FREE_FROM` is not read as a statement about a member (178 products state a family free-from and still declare a member).
+- Conflicting statements: least safe wins, in the order `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED`, `FREE_FROM`. Gluten-free wheat starch (35 products) is therefore rejected for a "no gluten" buyer (question T03-3).
+- Substitution rule compares codes one by one, without families, and looks at the code, not the level. 37 of 249 listed substitutes fail it (whole catalog).
+- An original with no allergen statement and a substitute that declares one fails the rule.
+- An excluded code outside the code table raises `invalid-request`; so does an exclusion with no strictness.
+- GS1 allergen names come from GS1 code list T4078 (read 14 Nov); 8 match the names our docs quote, the other 37 deserve a spot check.

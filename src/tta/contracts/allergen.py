@@ -21,7 +21,7 @@ class AllergenFinding(Contract):
 
     excluded_code: str
     relation: AllergenRelation
-    matched_code: str | None = None  # the code the statement was made about, when it is a family member
+    matched_code: str | None = None  # the code the statement was made about, when it is not the excluded code
     outcome: AllergenOutcome
     sentence: str
 
