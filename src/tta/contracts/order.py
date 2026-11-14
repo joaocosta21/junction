@@ -56,7 +56,8 @@ class RelianceStatement(Contract):
     available_amount: Decimal | None = None  # None when the quantity is not confirmed
     available_date: date | None = None
     closing_time: datetime | None = None
-    time_now: datetime  # the server time of the check
+    time_now: datetime  # the server time at which Valio stated these figures (the offer's data time)
+    rechecked_at: datetime | None = None  # the re-check before the order found them still sufficient
     source: DataSource
 
 

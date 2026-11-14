@@ -7,6 +7,7 @@ part can be built and tested on its own with a fake of its neighbours.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
@@ -124,6 +125,14 @@ class OfferRevalidator(Protocol):
 @runtime_checkable
 class Store(Protocol):
     """Repository. `save_*` inserts or replaces by id. Audit events can only be appended."""
+
+    def atomic(self) -> AbstractContextManager[None]:
+        """Everything saved or appended inside the `with` block is committed together, or not at all.
+
+        An order's state, its approval, its idempotency key and its audit event are written in one block,
+        so a failure between them leaves nothing half-written.
+        """
+        ...
 
     def save_offer(self, offer: Offer) -> None: ...
 

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
 from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Quantity, Unit
 
@@ -20,7 +21,22 @@ MAX_ALLERGEN_CODES = 30
 MAX_TERM_LENGTH = 60
 MAX_ID_LENGTH = 20
 
-Term = Annotated[str, StringConstraints(min_length=1, max_length=MAX_TERM_LENGTH, strip_whitespace=True)]
+_FORBIDDEN_IN_A_TERM = frozenset('"\u201c\u201d\u201e\u00ab\u00bb<>')
+
+
+def _plain_term(value: str) -> str:
+    """A term is a word or a code, never a sentence: no control or format character, no quotation mark."""
+    for character in value:
+        if unicodedata.category(character).startswith("C") or character in _FORBIDDEN_IN_A_TERM:
+            raise ValueError("a term may not contain control characters, quotation marks or angle brackets")
+    return value
+
+
+Term = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=MAX_TERM_LENGTH, strip_whitespace=True),
+    AfterValidator(_plain_term),
+]
 ProductId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_LENGTH, pattern=r"^[A-Za-z0-9]+$")]
 
 
