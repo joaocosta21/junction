@@ -61,6 +61,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B40 | "Cream for whipping" is read as whipping cream with the formula marked as mattering | The use names the product a kitchen means | L1-3 |
 | B41 | "A milk substitute" is read as a plant drink, and the reading says so | It is scenario 2's own sentence | L1-2 |
 | B42 | New fixed rule F-12: a last-resort substitute (loses a dietary claim, flavoured against plain, another product type) always goes to the purchasing manager, even with ordering alone switched on | Without it such a substitute could be ordered with no person: 11 cases in a sample over the recording | P3 |
+| B43 | "Before Friday" is read as needed by Thursday; "by Friday" as Friday. The reading says which | A delivery on Friday does not meet "before Friday" | L1-3 |
+| B44 | "1,250 kg" is read as 1,250 (the brief itself writes "1,000 litres") and the reading says so; "1,5 l" is read as 1.5; "1.250 kg" is asked about | A Finnish buyer writes a decimal comma; a silent 1,000-fold error is the worst outcome | L1-3 |
 
 ## C. Questions for the team (domain)
 

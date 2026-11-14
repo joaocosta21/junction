@@ -28,8 +28,26 @@ Three reviewers read `overnight-build..HEAD` at high effort with the question "w
 
 Found sound by this reviewer: the suggestion guard, the formula measure, the stand-in and safe-first code, F-10, F-11 and F-12's missing-fact paths, the demo-clock and signing-key checks at start, the MCP origin check, the evidence finder's failure paths, the witness's cut or rewritten trail.
 
-## Python (`python-reviewer`)
-Not in yet.
+## Python (`python-reviewer`, in at Sat 14 Nov about 20:50)
+
+Its overall reading: nothing in the code read breaks the audit hash chain or the rule that no order is placed alone with the buyer's setting off.
+
+| # | Sev | Where | What | Basis | Sent to | State |
+|---|---|---|---|---|---|---|
+| P1 | HIGH | `agent/days.py` | A deadline that does not resolve is dropped: "by 31.2.", "by 32.11.", "by 2026-02-30", "by Mon", "by noon" are read with no date and no question (extends S4) | confirmed | L1-3 | open |
+| P2 | HIGH | `offers/options.py:338,375`, `planning.py:86` | An option with a substitute whose stock is not confirmed is titled and summarised as a full fill: bakery, `469363`, 1,000 L: "the 1,000 L asked for, for €1,574.48" while 616 L are not confirmed; only the rule sentence says so | confirmed | FX-K | open |
+| P3 | HIGH | `suggestions/guard.py:163` | Under "declared only" a product with no allergen statement passes the suggestion guard, although the offer labels it "allergen not ruled out". Shipped profiles are all strict; reachable through a request line | confirmed | FX-K | open |
+| P4 | MED | `ui/shop_api.py:219-317` | The shop's routes are `async` and call the synchronous service directly: one slow call blocks every visitor | read | L4-2d | open |
+| P5 | MED | `orders/service.py:77-97` | The order book's lock is held across the web-evidence lookup | read | FX-O | open |
+| P6 | MED | `agent/quantity.py:58` | "1,250 kg" is read as 1,250 without a word; a Finnish buyer may mean 1.25. Decided: keep the thousands reading and say it in the reading; a comma before one or two digits is a decimal | read | L1-3 | open |
+| P7 | MED | `agent/days.py` | "before Friday" is read as "by Friday". Decided: read as by Thursday, and say so | read | L1-3 | open |
+| P8 | LOW | `api/wiring.py:133` | The evidence finder's HTTP client is not closed at shutdown | read | L4-2d | open |
+| P9 | LOW | `policy/human_approval.py:111` | When only F-10 remains, every role the old approval named must still sign, against the docstring | read | FX-O | open |
+| P10 | LOW | `suggestions/alternatives.py:126` | The cheaper and larger-pack kinds rely entirely on the guard (fine once P3 is fixed) | read | FX-K | open |
+| P11 | LOW | `suggestions/trend.py:39,73` | A median of 0 raises and loses all suggestions of that offer | read | FX-K | open |
+| P12 | LOW | `standing/history.py` | A renewal whose order cannot be found still counts as history | read | FX-O | open |
+| P13 | LOW | several | `sandbox.KITCHEN_SETTINGS` lacks the two new settings; `shop_api._body` parses before the guard; Valio's reader is rendered "A human at the buyer"; `_claim_note` can overstate; more than 1,000 ids in one lookup; three field words missing in `audit/phrases.py` | read | L4-2d, FX-K, FX-O | open |
+| P14 | LOW | `audit/supplier_decisions.py` | Valio's view shows the product id for F-03 fired by an allergen outcome, which hints that the buyer excludes an allergen (the same information is masked for P-04) | read | wave 4 (audit) | open |
 
 ## Security (`security-reviewer`)
 Not in yet.
