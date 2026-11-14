@@ -46,6 +46,22 @@ CATEGORY_TIERS = ((5, 0), (4, 1), (3, 2))
 # A substitute Valio lists from a category that shares fewer than three digits (4 of the 249 listed pairs).
 DISTANCE_OUTSIDE = 3
 ALLERGEN_REASONS = (ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN, ExclusionReason.ALLERGEN_DECLARED)
+# The claims a buyer relies on for a diet or an intolerance. The list is ours: picked from the 21 claim
+# codes of the catalog (AIMO/docs/PRODUCT-DATA.md section 3.4). Only these count as a claim lost: they
+# order the candidates and rule F-08 reads them. The other 13 (preservatives, colouring agents, additives,
+# sugars, sweeteners, fibre, protein, salt, fat, GMO) are named in `gives_up` and change neither.
+DIETARY_CLAIMS = frozenset(
+    {
+        "FREE_FROM_LACTOSE",
+        "LOW_LACTOSE",
+        "FREE_FROM_GLUTEN",
+        "FREE_FROM_WHEAT",
+        "FREE_FROM_EGGS",
+        "FREE_FROM_SOY",
+        "VEGAN",
+        "VEGETARIAN",
+    }
+)
 _UNKNOWN_LAST = (1, Decimal(0))
 
 RankKey = Callable[["Judged"], tuple[object, ...]]
@@ -63,7 +79,8 @@ class Judged:
     reason_sentence: str
     units: Decimal | None  # sales units for the quantity asked, when one was asked and the pack size is known
     claims: tuple[ClaimCheck, ...]
-    claims_lost: tuple[str, ...]  # nutritional claims of the original that this product does not carry
+    claims_lost: tuple[str, ...]  # dietary claims of the original that this product does not carry
+    claims_not_carried: tuple[str, ...]  # every claim of the original it does not carry, dietary or not
 
     @property
     def passes(self) -> bool:
@@ -185,16 +202,22 @@ def _judge(
         units=units,
         claims=claims_of(candidate, need, units, lookup.now),
         claims_lost=claims_lost(original, product),
+        claims_not_carried=claims_not_carried(original, product),
     )
 
 
+def claims_not_carried(original: Product, other: Product) -> tuple[str, ...]:
+    """Every nutritional claim of the original that `other` does not carry, in the original's order."""
+    return tuple(dict.fromkeys(claim for claim in original.nutritional_claims if claim not in other.nutritional_claims))
+
+
 def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
-    """The original's nutritional claims that `other` does not carry, in the original's order.
+    """The original's dietary claims (`DIETARY_CLAIMS`) that `other` does not carry, in the original's order.
 
     A claim is not an allergen statement, so the allergen rule does not see one that is lost: a
     lactose-free milk and a regular milk both declare milk (AIMO/docs/SCHEMA-AND-CODES.md section 4).
     """
-    return tuple(dict.fromkeys(claim for claim in original.nutritional_claims if claim not in other.nutritional_claims))
+    return tuple(claim for claim in claims_not_carried(original, other) if claim in DIETARY_CLAIMS)
 
 
 def _shown(judged: Sequence[Judged], rank_key: RankKey) -> tuple[list[Judged], tuple[str, ...]]:
@@ -217,10 +240,11 @@ def _shown(judged: Sequence[Judged], rank_key: RankKey) -> tuple[list[Judged], t
 
 
 def _rank_key(original: Candidate, need: Need) -> RankKey:
-    """Passes the allergen rules, keeps every claim of the original, category distance, listed by Valio,
-    pack size closest to the original, verification status, price difference (SPEC section 5, "Ranking").
+    """Passes the allergen rules, keeps every dietary claim of the original, category distance, listed by
+    Valio, pack size closest to the original, verification status, price difference (SPEC section 5, "Ranking").
 
-    Losing a claim only orders the candidates that pass the allergen rules; it fails none of them.
+    Losing a dietary claim only orders the candidates that pass the allergen rules; it fails none of them.
+    A claim that is not dietary does not order them at all.
     """
 
     def key(each: Judged) -> tuple[object, ...]:

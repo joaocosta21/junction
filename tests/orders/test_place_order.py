@@ -70,8 +70,21 @@ def test_the_order_record_keeps_the_statements_it_relied_on_and_says_the_mock_ha
     assert first.availability_state is lines[0].availability.state
     assert first.available_amount == lines[0].availability.usable_amount
     assert (first.available_date, first.closing_time) == (samples.monday, samples.order_by)
-    assert first.time_now == book.clock.now() and first.source is DataSource.REPLAY
-    assert order.source is DataSource.REPLAY
+    assert first.time_now == offer.time_now and first.rechecked_at == book.clock.now()
+    assert first.source is DataSource.REPLAY and order.source is DataSource.REPLAY
+
+
+def test_a_statement_says_when_valio_stated_the_figures_and_when_the_re_check_found_them_still_sufficient(
+    book, samples, agent_hotel: Identity
+) -> None:
+    offer = book.offer(samples.within_authority())
+    book.clock.advance(timedelta(minutes=20))  # the agent orders 20 minutes after the offer was built
+
+    order = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, KEY)
+
+    (statement,) = order.reliance
+    assert statement.time_now == offer.time_now == samples.now
+    assert statement.rechecked_at == book.clock.now() == samples.now + timedelta(minutes=20)
 
 
 def test_an_unconfirmed_line_is_relied_on_without_an_amount(book, samples, agent_hotel: Identity) -> None:
@@ -205,11 +218,11 @@ def test_the_same_key_twice_returns_the_first_order_and_creates_nothing(book, sa
     assert len(book.revalidator.calls) == 1 and book.event_types() == ["approval.requested"]
 
 
-def test_another_key_places_another_order(book, samples, agent_hotel: Identity) -> None:
-    offer = book.offer(samples.within_authority())
+def test_another_key_on_another_offer_places_another_order(book, samples, agent_hotel: Identity) -> None:
+    offers = (book.offer(samples.within_authority()), book.offer(samples.within_authority()))
 
-    first = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-1")
-    second = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, "key-2")
+    first = book.service.place_order(offers[0].offer_id, "opt_1", agent_hotel, "key-1")
+    second = book.service.place_order(offers[1].offer_id, "opt_1", agent_hotel, "key-2")
 
     assert first.order_id != second.order_id and len(book.store.list_orders()) == 2
 
@@ -271,13 +284,18 @@ def test_only_an_agent_may_place_an_order(caller: str, book, samples, request: p
     assert book.store.list_orders() == () and book.revalidator.calls == []
 
 
-def test_an_agent_cannot_order_from_an_offer_made_for_another_buyer(book, samples, agent_ward: Identity) -> None:
+def test_an_offer_made_for_another_buyer_is_answered_like_an_offer_nobody_issued(
+    book, samples, agent_ward: Identity
+) -> None:
     offer = book.offer(samples.within_authority(), profile_id="hotel-kitchen")
 
-    with pytest.raises(NotAuthorised):
+    with pytest.raises(NotFound) as of_another_buyer:
         book.service.place_order(offer.offer_id, "opt_1", agent_ward, KEY)
+    with pytest.raises(NotFound) as unknown:
+        book.service.place_order("off_000000000bad", "opt_1", agent_ward, KEY)
 
-    assert book.store.list_orders() == () and book.revalidator.calls == []
+    assert of_another_buyer.value.to_problem() == unknown.value.to_problem()
+    assert book.store.list_orders() == () and book.revalidator.calls == [] and book.events() == ()
 
 
 def test_an_offer_or_option_nobody_issued_is_not_found(book, samples, agent_hotel: Identity) -> None:
@@ -302,3 +320,24 @@ def test_when_the_fresh_check_cannot_reach_the_supplier_nothing_is_ordered_and_t
 
     assert book.store.list_orders() == () and book.event_types() == ["order.not_placed"]
     assert book.policy.contexts == []
+    assert book.events()[0].data.facts["error_type"] == "SupplierUnavailable"
+
+
+@pytest.mark.parametrize("failing", ["revalidator", "policy"], ids=["the fresh look fails", "the policy fails"])
+def test_any_failure_of_the_check_is_recorded_by_its_type_only_and_reaches_the_caller(
+    failing: str, book, samples, agent_hotel: Identity
+) -> None:
+    offer = book.offer(samples.within_authority())
+    failure = RuntimeError("a text that must stay out of the trail")
+    getattr(book, failing).error = failure
+
+    with pytest.raises(RuntimeError) as raised:
+        book.service.place_order(offer.offer_id, "opt_1", agent_hotel, KEY)
+
+    assert raised.value is failure
+    assert book.store.list_orders() == () and book.store.order_id_for_key(KEY, agent_hotel.id) is None
+    (event,) = book.events()
+    assert event.type == "tta.v1.order.not_placed" and event.data.facts["error_type"] == "RuntimeError"
+    assert "must stay out" not in event.model_dump_json()
+    assert (event.data.offer_id, event.data.actor.id) == (offer.offer_id, agent_hotel.id)
+    assert event.data.rule_ids == () and "decision" not in event.data.facts

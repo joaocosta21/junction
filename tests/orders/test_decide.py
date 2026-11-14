@@ -54,7 +54,8 @@ def test_an_approval_by_the_role_asked_for_orders_after_a_fresh_check(
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
     assert order.order_id == pending.order_id and order.option_id == "opt_1"
     assert order.created_at == pending.created_at and order.updated_at == book.clock.now()
-    assert order.reliance[0].time_now == book.clock.now()
+    assert order.reliance[0].time_now == samples.now  # when Valio stated the figures: the offer's data time
+    assert order.reliance[0].rechecked_at == book.clock.now()
     assert order.status_sentence == (
         "Ordered for €2,650.00 net with approval by Purchasing manager (demo) (purchasing manager): "
         "rule P-01 asked for a human and was accepted."
@@ -310,12 +311,11 @@ def test_the_supplier_on_an_approval_nobody_issued_is_refused_before_any_lookup(
 @pytest.mark.parametrize(
     ("caller", "reason"),
     [
-        ("approver_dietitian", "belongs to another buyer"),
         ("approver_intern", "not listed"),
         ("approver_finance", "holds none of them"),
         ("supplier_reader", "Only an approver"),
     ],
-    ids=["approver of another buyer", "not listed in the profile", "role not asked for", "supplier reader"],
+    ids=["not listed in the profile", "role not asked for", "supplier reader"],
 )
 def test_a_caller_who_may_not_decide_is_refused_and_the_attempt_is_recorded(
     caller: str, reason: str, book, samples, agent_hotel: Identity, request: pytest.FixtureRequest
@@ -346,13 +346,6 @@ def test_an_approver_who_already_gave_their_role_cannot_decide_again(
         book.service.decide(pending.approval_id, approver_purchasing, samples.reject())
 
     assert book.store.get_order(pending.order_id).status is OrderStatus.PENDING_APPROVAL
-
-
-def test_an_approval_nobody_issued_is_not_found(book, samples, approver_purchasing: Identity) -> None:
-    with pytest.raises(NotFound):
-        book.service.decide("apr_000000000bad", approver_purchasing, samples.approve())
-
-    assert book.events() == ()
 
 
 def test_an_approval_already_decided_cannot_be_decided_again(

@@ -10,7 +10,7 @@ import json
 import sqlite3
 import threading
 from collections.abc import Iterator
-from contextlib import closing
+from contextlib import AbstractContextManager, closing, nullcontext
 from pathlib import Path
 
 import pytest
@@ -270,7 +270,14 @@ def test_a_break_at_an_event_of_the_view_names_it_by_its_place_in_the_view(
 
 class OvertakenStore:
     """A store whose reader is overtaken: after each of its first `times` reads of the head, a rival trail on
-    the same database file appends an event, so the head just read is already old."""
+    the same database file appends an event, so the head just read is already old.
+
+    Its `atomic()` isolates nothing, unlike SQLite's, which keeps a rival out for the whole block: this
+    stand-in is a store that leaves the protection of the chain to the trail's own retry.
+    """
+
+    def atomic(self) -> AbstractContextManager[None]:
+        return nullcontext()
 
     def __init__(self, store: SqliteStore, rival: AuditTrail, samples, times: int) -> None:
         self._store = store

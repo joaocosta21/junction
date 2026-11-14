@@ -2,7 +2,8 @@
 
 An agent places orders and reads its own buyer's records. An approver decides for its own buyer, and only
 for a role it holds and is listed under in the buyer's profile. The supplier does neither: it has the
-audit view. An agent on an approval route is rule F-06.
+audit view. An agent on an approval route is rule F-06. A record of another buyer is answered exactly like
+a record that does not exist, so nobody learns which ids another buyer holds.
 """
 
 from __future__ import annotations
@@ -41,21 +42,13 @@ def why_not_an_approver(identity: Identity) -> str | None:
     return None
 
 
-def why_not_for_this_buyer(approver: Identity, profile: BuyerProfile) -> str | None:
-    """Why this approver may decide nothing for this buyer; `None` when it may."""
-    if approver.profile_id != profile.profile_id:
-        return wording.APPROVER_OF_ANOTHER_BUYER
-    if not roles_that_count(approver, profile):
-        return wording.APPROVER_NOT_LISTED.format(profile_id=profile.profile_id)
-    return None
+def is_of_another_buyer(identity: Identity, profile_id: str) -> bool:
+    """Whether a record of this profile belongs to another buyer than the caller's. The supplier has no buyer:
+    it is refused by kind (`require_buyer_side`, `why_not_an_approver`), never by this."""
+    return identity.profile_id is not None and identity.profile_id != profile_id
 
 
 def require_buyer_side(identity: Identity) -> None:
     """Orders and approvals are read by the buyer's agent and approvers. Checked before any lookup."""
     if identity.is_supplier:
         raise NotAuthorised(wording.SUPPLIER_READS_THE_AUDIT_VIEW)
-
-
-def require_same_buyer(identity: Identity, profile_id: str) -> None:
-    if identity.profile_id != profile_id:
-        raise NotAuthorised(wording.OF_ANOTHER_BUYER)

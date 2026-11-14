@@ -118,7 +118,8 @@ def test_a_portion_request_keeps_only_portion_packs(
     )
 
     assert [(line.product_id, line.quantity, line.covers) for line in best(offer).lines] == [("463203", 5, 10)]
-    assert reasons(offer)[A] is ExclusionReason.PORTION_PACK
+    assert reasons(offer)[A] is ExclusionReason.NOT_A_PORTION_PACK
+    assert "portion" in next(e.sentence for e in offer.excluded if e.product_id == A)
     pack = next(check for check in best(offer).constraint_checks if check.kind is ConstraintKind.PACK)
     assert (pack.subject, pack.result) == ("PORTION", CheckResult.MET)
 
@@ -268,7 +269,7 @@ def test_confirmed_only_leaves_the_unconfirmed_product_out_and_says_so(
     assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED]
     assert len(offer.notes) == 1
     assert UNCONFIRMED in offer.notes[0] and "confirmed data only" in offer.notes[0].lower()
-    assert UNCONFIRMED not in reasons(offer)
+    assert reasons(offer)[UNCONFIRMED] is ExclusionReason.QUANTITY_NOT_CONFIRMED  # listed, not only in the note
 
 
 def test_the_module_function_takes_the_profile_and_the_dependencies(

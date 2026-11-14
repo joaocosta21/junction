@@ -9,7 +9,7 @@ from tta.availability.wording import format_amount
 from tta.contracts.common import AvailabilityState, ExclusionReason
 from tta.contracts.product import PackSize
 from tta.offers.candidates import price_problem
-from tta.offers.wording import UNIT_WORDS, eur
+from tta.offers.wording import UNIT_WORDS, eur, plain_name
 
 if TYPE_CHECKING:
     from tta.offers.substitutes import Judged, Ranking
@@ -27,7 +27,7 @@ def why(judged: Judged) -> str:
     if judged.reason is ExclusionReason.ALLERGEN_DECLARED:
         return f"{judged.reason_sentence} It cannot be ordered for this buyer."
     lacks = ""
-    if judged.claims_lost:
+    if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict
         lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
     if judged.reason is not None:
         return f"It adds no allergen, but it cannot be ordered now. {judged.reason_sentence}{lacks}"
@@ -38,10 +38,11 @@ def gives_up(judged: Judged, ranking: Ranking) -> str:
     """One sentence on what changes for the buyer who takes this product in place of the original."""
     original, product = ranking.original, judged.candidate.product
     parts: list[str] = []
-    if judged.claims_lost:
-        parts.append(f"it does not carry the original's nutritional {_claims(judged.claims_lost)}")
+    if judged.claims_not_carried:  # every claim, dietary or not: all of them are given up
+        parts.append(f"it does not carry the original's nutritional {_claims(judged.claims_not_carried)}")
     if original.brand and product.brand and original.brand != product.brand:
-        parts.append(f"the brand is {product.brand}, not {original.brand}")
+        # A brand is text of the product file like a name, and enters the sentence the same way.
+        parts.append(f"the brand is {plain_name(product.brand)}, not {plain_name(original.brand)}")
     if not judged.listed:
         parts.append("Valio does not list it as a substitute")
     if judged.distance > 0:
@@ -52,7 +53,7 @@ def gives_up(judged: Judged, ranking: Ranking) -> str:
         parts.append("Valio does not confirm the quantity in stock")
     if not parts:
         return NOTHING_GIVEN_UP
-    return f"Compared with {original.display_name}: {'; '.join(parts)}."
+    return f"Compared with {plain_name(original.display_name)}: {'; '.join(parts)}."
 
 
 def _claims(codes: Sequence[str]) -> str:

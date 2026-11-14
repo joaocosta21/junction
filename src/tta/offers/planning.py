@@ -12,21 +12,26 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
-from tta.contracts.common import AvailabilityState, OptionKind
+from tta.contracts.common import AvailabilityState, ExclusionReason, OptionKind
 from tta.contracts.offer import Exclusion, OfferLine, SubstituteInfo
 from tta.contracts.product import Product
 from tta.contracts.request import RequestLine
-from tta.offers.candidates import Candidate, Need, claims_of, unconfirmed_gating, units_needed
+from tta.offers.candidates import Candidate, Need, units_needed
 from tta.offers.combining import Fill, Supply, fill, floor_to_step
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
 from tta.offers.options import Draft
 from tta.offers.substitute_wording import gives_up
 from tta.offers.substitutes import Judged, Ranking, rank_substitutes
-from tta.offers.wording import counted, line_label, listed
+from tta.offers.wording import counted, line_label, listed, plain_name
 
 ZERO = Decimal(0)
 CONFIRMED_ONLY = "confirmed data only was asked for"
+# What the note says of the products that dropped out for a reason that exists only under confirmed-only.
+LEFT_OUT_UNDER_CONFIRMED_ONLY = {
+    ExclusionReason.QUANTITY_NOT_CONFIRMED: "whose quantity Valio does not confirm",
+    ExclusionReason.DELIVERY_DATE_NOT_CONFIRMED: "whose delivery date Valio's data does not confirm",
+}
 
 
 @dataclass(frozen=True)
@@ -54,7 +59,7 @@ class _Pools:
 
 
 def plan_options(outcomes: Sequence[LineOutcome], now: datetime, deps: OfferDeps) -> Plan:
-    pools = [_pools(outcome, now) for outcome in outcomes]
+    pools = [_pools(outcome) for outcome in outcomes]
     fills = _confirmed_fills(outcomes, pools)
     confirmed = [
         _confirmed_lines(outcome, pool, picked, now)
@@ -84,30 +89,30 @@ def _confirmed_only(outcomes: Sequence[LineOutcome], drafts: Sequence[Draft]) ->
     return kept, (f"{left_out} left out because a claim an order depends on is not confirmed, and {CONFIRMED_ONLY}.",)
 
 
-def _pools(outcome: LineOutcome, now: datetime) -> _Pools:
-    """The confirmed and the unconfirmed candidates of a line. Under confirmed-only, only fully confirmed ones."""
-    need = outcome.need
+def _pools(outcome: LineOutcome) -> _Pools:
+    """The confirmed and the unconfirmed candidates of a line.
+
+    Under confirmed-only every fitting candidate is confirmed for order: the others dropped out with a
+    reason (`candidates.exclusion_for`), so the unconfirmed pool is empty and the notes say how many went.
+    """
     confirmed = tuple(each for each in outcome.fitting if each.state is AvailabilityState.CONFIRMED)
     unconfirmed = tuple(each for each in outcome.fitting if each.state is AvailabilityState.QUANTITY_NOT_CONFIRMED)
-    if not need.require_confirmed:
-        return _Pools(confirmed, unconfirmed, ())
-    kept = tuple(
-        each for each in confirmed if not unconfirmed_gating(claims_of(each, need, None, now), dated=need.dated)
-    )
-    dropped = [each.product.id for each in confirmed if each not in kept]
+    return _Pools(confirmed, unconfirmed, _confirmed_only_notes(outcome))
+
+
+def _confirmed_only_notes(outcome: LineOutcome) -> tuple[str, ...]:
+    """One note per reason that exists only under confirmed-only; each product is also in `excluded`."""
     notes = []
-    if unconfirmed:
-        ids = listed([each.product.id for each in unconfirmed])
+    for reason, what in LEFT_OUT_UNDER_CONFIRMED_ONLY.items():
+        ids = [exclusion.product_id for exclusion in outcome.excluded if exclusion.reason is reason]
+        if not ids:
+            continue
+        verb = "was" if len(ids) == 1 else "were"
         notes.append(
-            f"{line_label(need.index)}: {counted(len(unconfirmed), 'product')} whose quantity Valio does not "
-            f"confirm were left out, because {CONFIRMED_ONLY}: {ids}."
+            f"{line_label(outcome.need.index)}: {counted(len(ids), 'product')} {what} {verb} left out, "
+            f"because {CONFIRMED_ONLY}: {listed(ids)}."
         )
-    if dropped:
-        notes.append(
-            f"{line_label(need.index)}: {counted(len(dropped), 'product')} with a claim Valio's data does not "
-            f"confirm were left out, because {CONFIRMED_ONLY}: {listed(dropped)}."
-        )
-    return _Pools(kept, (), tuple(notes))
+    return tuple(notes)
 
 
 def _supply(candidate: Candidate, already_used: Decimal = ZERO) -> Supply:
@@ -162,21 +167,27 @@ def _price_per_requested_unit(candidate: Candidate) -> Decimal:
 def _substitute_lines(
     outcomes: Sequence[LineOutcome], fills: Sequence[Fill], deps: OfferDeps
 ) -> tuple[list[OfferLine | None], tuple[str, ...]]:
+    """One stand-in line per request line that needs one, in order. Stock is counted once: what the
+    confirmed fills of the other lines take, and what the stand-ins of earlier lines took."""
     lines: list[OfferLine | None] = []
     notes: list[str] = []
+    stood_in: Mapping[str, Decimal] = {}
     for index, (outcome, picked) in enumerate(zip(outcomes, fills, strict=True)):
         if not outcome.asked.product_ids or picked.missing <= 0:
             lines.append(None)  # only when the request named products by id and they cannot be supplied in full
             continue
-        used_elsewhere = _used_by([each for other, each in enumerate(fills) if other != index])
+        used_elsewhere = _used_by([each for other, each in enumerate(fills) if other != index], stood_in)
         line, note = _substitute_line(outcome, picked, used_elsewhere, deps)
+        if line is not None:
+            stood_in = {**stood_in, line.product_id: stood_in.get(line.product_id, ZERO) + line.quantity}
         lines.append(line)
         notes.extend(note)
     return lines, tuple(notes)
 
 
-def _used_by(fills: Sequence[Fill]) -> Mapping[str, Decimal]:
-    used: Mapping[str, Decimal] = {}
+def _used_by(fills: Sequence[Fill], stood_in: Mapping[str, Decimal]) -> Mapping[str, Decimal]:
+    """Sales units per product that are already spoken for: `stood_in` plus the picks of `fills`."""
+    used = stood_in
     for picked in fills:
         used = _with_picks(used, picked)
     return used
@@ -197,9 +208,10 @@ def _substitute_line(
         line = _line_from(judged, gap, ranking, used_elsewhere)
         if line is not None:
             return line, ()
+    named = f"{plain_name(original.display_name)} ({original.id})"
     note = (
-        f"{line_label(outcome.need.index)}: no substitute for {original.display_name} ({original.id}) passes the "
-        f"allergen rules, fits the request and can be ordered; {counted(len(ranking.ranked), 'candidate')} ranked."
+        f"{line_label(outcome.need.index)}: no substitute for {named} passes the allergen rules, fits the "
+        f"request and can be ordered; {counted(len(ranking.ranked), 'candidate')} ranked."
     )
     return None, (note,)
 
@@ -218,7 +230,11 @@ def _original(outcome: LineOutcome, picked: Fill, deps: OfferDeps) -> Product:
 def _line_from(
     judged: Judged, need: Need, ranking: Ranking, used_elsewhere: Mapping[str, Decimal]
 ) -> OfferLine | None:
-    """An offer line for the substitute, or `None` when it cannot be ordered for this line."""
+    """An offer line for the substitute, or `None` when it cannot be ordered for this line.
+
+    Under confirmed-only a candidate with a claim that is not confirmed is not orderable: it was judged
+    with the same need (`candidates.exclusion_for`), and `_confirmed_only` checks the finished lines again.
+    """
     candidate = judged.candidate
     if not judged.orderable or need.quantity is None or candidate.per_unit is None:
         return None
@@ -226,13 +242,9 @@ def _line_from(
     if candidate.state is AvailabilityState.CONFIRMED:
         free = (candidate.assessment.usable_amount or ZERO) - used_elsewhere.get(candidate.product.id, ZERO)
         units = min(units, floor_to_step(free, candidate.lot_step))
-    elif need.require_confirmed:
-        return None
     if units <= 0:
         return None
     now = ranking.lookup.now
-    if need.require_confirmed and unconfirmed_gating(claims_of(candidate, need, units, now), dated=need.dated):
-        return None
     info = SubstituteInfo(
         original_id=ranking.original.id,
         original_name=ranking.original.display_name,

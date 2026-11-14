@@ -105,6 +105,47 @@ def test_a_request_line_with_no_product_is_reported_in_the_option_and_in_the_not
     assert "P-03" in option.decision.rule_ids
 
 
+def test_a_request_line_with_nothing_offered_leaves_the_date_and_confirmed_only_not_met(
+    serve: Any, price: Any, stock: Any, agent_hotel: Identity
+) -> None:
+    # The milk line is confirmed and in time. Nothing is offered for the beef line: neither check is met.
+    request = PurchaseRequest(
+        needed_by=MONDAY,
+        require_confirmed=True,
+        lines=(
+            RequestLine(text="milk", product_type="milk", required_claims=("FREE_FROM_LACTOSE",),
+                        quantity=Decimal(100), unit=Unit.L),
+            RequestLine(text="beef", product_type="beef_chuck", quantity=Decimal(30), unit=Unit.KG),
+        ),
+    )
+    offer = serve([price(A, "2.48")], [stock(A, 500)]).build_offer(request, agent_hotel)
+
+    option = of_kind(offer, OptionKind.BEST_CONFIRMED)
+    whole = {check.kind: check for check in option.constraint_checks if check.request_line_index is None}
+    assert {line.request_line_index for line in option.lines} == {0}
+    for kind in (ConstraintKind.NEEDED_BY, ConstraintKind.CONFIRMED_ONLY):
+        assert whole[kind].result is CheckResult.NOT_MET, kind
+        assert "request line 2" in whole[kind].sentence, kind
+
+
+def test_the_checks_name_every_request_line_that_has_nothing_offered(
+    catalog: ProductCatalog, fake_gateway: Any, deps_for: Any, price: Any, stock: Any, now: datetime
+) -> None:
+    lookup = look_up(deps_for(fake_gateway([price(A, "2.48")], [stock(A, 500)])), [A])
+    needs = [need(index=index, require_confirmed=True) for index in range(3)]
+    candidate = evaluate(catalog.get_product(A), needs[0], lookup, catalog)
+    line = line_for(candidate, needs[0], Decimal(10), Decimal(10), now)
+    asked = RequestLine(text="x", product_ids=(A,), quantity=Decimal(10), unit=Unit.L)
+    request = PurchaseRequest(needed_by=MONDAY, require_confirmed=True, lines=(asked, asked, asked))
+
+    checks = constraint_checks(request, needs, [line], coverage_of(request.lines, [line]), catalog)
+
+    whole = {check.kind: check for check in checks if check.request_line_index is None}
+    for kind in (ConstraintKind.NEEDED_BY, ConstraintKind.CONFIRMED_ONLY):
+        assert whole[kind].result is CheckResult.NOT_MET, kind
+        assert "request lines 2 and 3" in whole[kind].sentence, kind
+
+
 def test_two_lines_covered_in_full_say_so_in_the_summary(
     serve: Any, price: Any, stock: Any, agent_hotel: Identity
 ) -> None:
@@ -148,7 +189,7 @@ def test_a_delivery_valio_gives_no_cut_off_for_is_unverified_for_a_dated_request
 
     option = of_kind(offer, OptionKind.BEST_CONFIRMED)
     assert results(option)[(None, ConstraintKind.NEEDED_BY, "2026-11-16")] is CheckResult.UNVERIFIED
-    assert option.valid_until == option.lines[0].price_valid_to  # no cut-off: only the price validity bounds it
+    assert option.valid_until is None  # no cut-off: the option cannot say until when it can be ordered
 
 
 def test_under_confirmed_only_a_product_with_an_unconfirmed_delivery_date_is_left_out_with_a_note(

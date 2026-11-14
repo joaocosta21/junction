@@ -396,6 +396,24 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Why:** counting every claim made a rice drink the best stand-in for a gluten-free barista oat drink, ahead of another barista oat drink that only lacks "free from preservatives".
 - **Ask:** "Is that the right list? Should `NO_ADDED_SUGARS` or `LOW_SODIUM_SALT` count for a hospital?" The list is one constant in `src/tta/offers/substitutes.py`.
 
+**FIX6-1 · A product that fits and is not needed: a listed reason, or a note?**
+- **Built overnight:** every product that drops out is listed with a reason code and a sentence. A product that passes every check but is in no option (a cheaper one covers the quantity) is named in one note per request line, not in the exclusions list.
+- **Tonight:** scenario 1 — 30 candidates = 4 in the two options + 19 excluded + 7 fitting and not needed. Scenario 2 — 51 = 1 + 41 + 9.
+- **Ask:** "Should 'fits, not needed' be a reason code of its own so the page can show it in the same table?" One function changes (`_unused_notes` in `src/tta/offers/builder.py`).
+
+**FIX6-2 · Where the price stands in the option order**
+- **Built overnight:** options are ordered by: holds an unconfirmed quantity (always after the others), unmet checks, unverified checks, kind (best confirmed, unconfirmed alternative, substitute), net total. An offer has at most one option of each kind, so the price decides nothing today.
+- **Ask:** "Should the cheaper of two options that fit alike come first whatever its kind?"
+
+**FIX7-1 · Who completes an approval when the rules no longer ask for anybody?**
+- **Context:** an approval re-runs the rules at the moment of approving. Sometimes they then need nobody (the day's spend fell back because another order was rejected).
+- **Built overnight:** any approver listed for that buyer can then complete the order; it is recorded as placed with that person's approval.
+- **Ask:** "Agreed, or should it still need the role first asked for?"
+
+**FIX7-2 · One order per offer**
+- **Built overnight:** while an order of an offer is waiting or ordered, a second order on the same offer is refused and the answer names the existing order. After a rejection or an expiry the offer can be ordered again. Before, the same option could be ordered twice under two keys.
+- **Ask:** "Agreed?" A repeat purchase asks for a new offer.
+
 ---
 
 ## Claims we no longer make

@@ -26,17 +26,38 @@ def test_the_agent_and_the_approvers_of_a_buyer_read_its_orders_and_approvals(
     assert [approval.approval_id for approval in book.service.list_approvals(identity)] == [pending.approval_id]
 
 
-@pytest.mark.parametrize("reader", ["agent_ward", "approver_dietitian", "supplier_reader"])
-def test_another_buyer_and_the_supplier_read_no_order_and_no_approval(
+@pytest.mark.parametrize("reader", ["agent_ward", "approver_dietitian"])
+def test_an_order_or_approval_of_another_buyer_is_answered_like_one_nobody_issued(
     reader: str, book, samples, agent_hotel: Identity, request: pytest.FixtureRequest
 ) -> None:
     identity = request.getfixturevalue(reader)
     pending = _pending(book, samples, agent_hotel)
 
-    with pytest.raises(NotAuthorised):
+    with pytest.raises(NotFound) as order_of_another_buyer:
         book.service.get_order(pending.order_id, identity)
-    with pytest.raises(NotAuthorised):
+    with pytest.raises(NotFound) as unknown_order:
+        book.service.get_order("ord_000000000bad", identity)
+    with pytest.raises(NotFound) as approval_of_another_buyer:
         book.service.get_approval(pending.approval_id, identity)
+    with pytest.raises(NotFound) as unknown_approval:
+        book.service.get_approval("apr_000000000bad", identity)
+
+    assert order_of_another_buyer.value.to_problem() == unknown_order.value.to_problem()
+    assert approval_of_another_buyer.value.to_problem() == unknown_approval.value.to_problem()
+    assert book.event_types() == ["approval.requested"]
+
+
+def test_the_supplier_reads_no_order_and_no_approval_whether_it_exists_or_not(
+    book, samples, agent_hotel: Identity, supplier_reader: Identity
+) -> None:
+    pending = _pending(book, samples, agent_hotel)
+
+    for order_id in (pending.order_id, "ord_000000000bad"):
+        with pytest.raises(NotAuthorised):
+            book.service.get_order(order_id, supplier_reader)
+    for approval_id in (pending.approval_id, "apr_000000000bad"):
+        with pytest.raises(NotAuthorised):
+            book.service.get_approval(approval_id, supplier_reader)
 
 
 def test_a_buyer_lists_only_its_own_approvals(

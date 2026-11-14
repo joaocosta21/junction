@@ -113,6 +113,11 @@ ORDER_ID_FOR_KEY = "SELECT order_id FROM idempotency_keys WHERE scope = ? AND ke
 
 # Takes the write lock before the head is read, so no other connection can append between the check and the insert.
 BEGIN_WRITE = "BEGIN IMMEDIATE"
+# A block opened inside another block of the same thread. SQLite matches the innermost savepoint of that name,
+# so one name serves every depth.
+BEGIN_INNER = "SAVEPOINT tta_atomic"
+END_INNER = "RELEASE tta_atomic"
+UNDO_INNER = "ROLLBACK TO tta_atomic"
 AUDIT_EVENT_EXISTS = "SELECT 1 FROM audit_events WHERE event_id = ?"
 APPEND_AUDIT_EVENT = """
 INSERT INTO audit_events

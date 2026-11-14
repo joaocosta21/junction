@@ -13,9 +13,17 @@ from tta.orders.records import is_past_order_by
 COMMITTED_STATUSES = (OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL)
 
 
+def _committed_at(order: Order) -> datetime:
+    """When the order's amount was committed: an ORDERED order when it became ORDERED, a waiting one when it
+    was created. An ORDERED order is never changed again in this book, so its `updated_at` is that moment."""
+    return order.updated_at if order.status is OrderStatus.ORDERED else order.created_at
+
+
 def _is_committed_today(order: Order, now: datetime) -> bool:
-    """Entered in the book on the clock's current date, and not a pending order whose time has already passed."""
-    same_day = order.created_at.astimezone(now.tzinfo).date() == now.date()
+    """Committed on the clock's current date, in the clock's offset, and not a waiting order whose "order by"
+    time has already passed. (A waiting order with no "order by" time has 24 hours from its creation, so it
+    cannot run out on the day it counts.)"""
+    same_day = _committed_at(order).astimezone(now.tzinfo).date() == now.date()
     return same_day and not is_past_order_by(order, now)
 
 
@@ -24,6 +32,8 @@ def day_committed_net_eur(
 ) -> Decimal:
     """Net total of the profile's ORDERED and PENDING_APPROVAL orders on the clock's current date.
 
+    An ORDERED order counts on the date it became ORDERED: created on one day and approved on the next, it is
+    spend of the day it was approved. A waiting order counts on the date it was created.
     A pending order counts, or the limit per day could be passed by orders that all wait for a human.
     `excluding_order_id` leaves out the order being decided, which would otherwise be counted twice.
     """

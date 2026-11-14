@@ -10,24 +10,31 @@ what needs human sign-off, and how decisions are logged", and on Core 2 and Core
                                   └─ BLOCK    ─► typed error, an audit event, no order
 
 `ORDERED` means recorded in this order book: the mock has no order endpoint. The service decides nothing
-itself: the verdict is the policy engine's, and every change of status writes its audit event in the same call.
+itself: the verdict is the policy engine's. Every change of status is written with its audit event in one unit
+of work (`outcomes.py`): both are stored, or neither.
 """
 
 from __future__ import annotations
 
+import re
 import threading
 from decimal import Decimal
 
-from tta.contracts.audit import SYSTEM_ACTOR, AuditContext, AuditEventType
 from tta.contracts.common import ApprovalStatus, ApproverRole, DecisionKind, Identity, OrderStatus, Verdict
-from tta.contracts.errors import InvalidRequest, NotAuthorised, NotFound, OfferExpired
+from tta.contracts.errors import InvalidRequest, NotAuthorised, NotFound, OfferExpired, TtaError
 from tta.contracts.offer import Offer, OfferOption
 from tta.contracts.order import Approval, DecisionRequest, Order
+from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import AuditSink, Clock, OfferRevalidator, PolicyEngine, Store
 from tta.orders import access, records, wording
 from tta.orders.checking import Attempt, OrderTimeChecker
+from tta.orders.outcomes import OutcomeWriter
 from tta.orders.records import OrderTimeCheck
-from tta.orders.spend import day_committed_net_eur
+from tta.orders.spend import COMMITTED_STATUSES, day_committed_net_eur
+
+# An Idempotency-Key is stored and compared as sent, so its form is bounded: 1 to 100 characters of letters,
+# digits, ".", "_", ":" and "-". A UUID fits.
+IDEMPOTENCY_KEY_FORM = re.compile(r"[A-Za-z0-9._:-]{1,100}")
 
 
 class OrderBookService:
@@ -41,11 +48,12 @@ class OrderBookService:
     ) -> None:
         self._store = store
         self._policy = policy
-        self._audit = audit
         self._clock = clock
         self._checker = OrderTimeChecker(store, policy, revalidator, audit, clock)
-        # The store saves a whole object by id with no version check. One writer at a time, and every record is
-        # read again inside the lock, so two callers cannot erase each other's change or both pass a limit.
+        self._write = OutcomeWriter(store, audit)
+        # One writer at a time in this process, and every record is read again inside the lock, so two callers
+        # cannot erase each other's change or both pass a limit. The lock is held across the supplier call and
+        # protects one process only; the store's `atomic()` keeps what is written consistent beyond that.
         self._lock = threading.Lock()
 
     # --- placing an order -----------------------------------------------------------------------------
@@ -54,20 +62,25 @@ class OrderBookService:
         """Raises `OfferStale`, `OfferExpired`, `PolicyBlocked`, `NotAuthorised`, `NotFound`, `InvalidRequest`."""
         if not identity.is_agent:
             raise NotAuthorised(wording.ONLY_AN_AGENT_ORDERS)
-        if not idempotency_key.strip():
-            raise InvalidRequest(wording.KEY_REQUIRED)
+        if IDEMPOTENCY_KEY_FORM.fullmatch(idempotency_key) is None:
+            raise InvalidRequest(wording.KEY_NOT_VALID if idempotency_key.strip() else wording.KEY_REQUIRED)
         with self._lock:
             first = self._first_order(idempotency_key, identity, offer_id, option_id)
             if first is not None:
                 return first
             offer, option = self._offered(offer_id, option_id, identity)
+            self._require_no_order_yet(offer)
             profile = self._policy.get_profile(offer.profile_id)
-            check = self._checker.check(Attempt(access.actor_of(identity), profile, offer.offer_id, option))
-            # The id first bound to the key wins, so a retry after a crash completes the same order.
-            order_id = self._store.remember_idempotency_key(idempotency_key, identity.id, records.new_order_id())
+            agent = access.actor_of(identity)
+            check = self._checker.check(Attempt(agent, profile, offer.offer_id, option))
+            order_id, now = records.new_order_id(), self._clock.now()
             if check.decision.verdict is Verdict.AUTO:
-                return self._place_alone(order_id, offer, check, identity, idempotency_key)
-            return self._send_to_a_human(order_id, offer, check, identity, idempotency_key)
+                order = records.placed_by_agent(order_id, offer, check, identity, idempotency_key, now)
+                self._write.placed_alone(order, check, agent)
+                return order
+            order, approval = records.awaiting_approval(order_id, offer, check, identity, idempotency_key, now)
+            self._write.sent_to_a_human(order, approval, check, agent)
+            return order
 
     def _first_order(self, key: str, identity: Identity, offer_id: str, option_id: str) -> Order | None:
         """The order this agent's key already placed. A key reused for another offer or option is refused."""
@@ -80,81 +93,68 @@ class OrderBookService:
         return self._current(order)
 
     def _offered(self, offer_id: str, option_id: str, identity: Identity) -> tuple[Offer, OfferOption]:
+        """The caller's own buyer's offer and its option. Another buyer's offer is answered like one nobody issued."""
         offer = self._store.get_offer(offer_id)
-        if offer is None:
+        if offer is None or access.is_of_another_buyer(identity, offer.profile_id):
             raise NotFound(wording.NO_SUCH_OFFER)
-        if offer.profile_id != identity.profile_id:
-            raise NotAuthorised(wording.OFFER_OF_ANOTHER_BUYER)
         option = offer.option(option_id)
         if option is None:
             raise NotFound(wording.NO_SUCH_OPTION.format(offer_id=offer.offer_id))
         return offer, option
 
-    def _place_alone(self, order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, key: str) -> Order:
-        order = records.placed_by_agent(order_id, offer, check, agent, key, self._clock.now())
-        self._store.save_order(order)
-        self._audit.record(
-            AuditEventType.ORDER_PLACED_BY_AGENT, access.actor_of(agent),
-            AuditContext(order=order, decision=order.decision, revalidation=check.revalidation),
-        )
-        return order
-
-    def _send_to_a_human(
-        self, order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, key: str
-    ) -> Order:
-        order, approval = records.awaiting_approval(order_id, offer, check, agent, key, self._clock.now())
-        self._store.save_order(order)  # the order first: an approval never points at an order that is not there
-        self._store.save_approval(approval)
-        self._audit.record(
-            AuditEventType.APPROVAL_REQUESTED, access.actor_of(agent),
-            AuditContext(order=order, approval=approval, decision=order.decision, revalidation=check.revalidation),
-        )
-        return order
+    def _require_no_order_yet(self, offer: Offer) -> None:
+        """An offer answers one request: while an order of it waits or is ORDERED, no second order is placed on
+        it, whatever the option or the key. After a rejection or an expiry the offer can be ordered again."""
+        committed = self._store.list_orders(profile_id=offer.profile_id, statuses=COMMITTED_STATUSES)
+        for order in committed:
+            if order.offer_id != offer.offer_id:
+                continue
+            standing = self._current(order)  # a waiting order past its time expires here and frees the offer
+            if standing.status in COMMITTED_STATUSES:
+                raise InvalidRequest(
+                    wording.offer_already_ordered(standing), offer_id=offer.offer_id, order_id=standing.order_id
+                )
 
     # --- deciding an approval -------------------------------------------------------------------------
 
     def decide(self, approval_id: str, identity: Identity, decision: DecisionRequest) -> Order:
-        """Raises `NotAuthorised` (with an audit event), `NotFound`, `InvalidRequest`, `OfferExpired`,
-        `OfferStale`, `PolicyBlocked`."""
+        """Raises `NotAuthorised` (with an audit event), `NotFound` (with one when no approval of the caller's
+        own buyer has this id), `InvalidRequest`, `OfferExpired`, `OfferStale`, `PolicyBlocked`."""
         with self._lock:
             approval = self._store.get_approval(approval_id)
+            if approval is not None and access.is_of_another_buyer(identity, approval.profile_id):
+                approval = None  # another buyer's approval is treated like one nobody issued, from here on
             reason = access.why_not_an_approver(identity)
             if reason is not None:
-                raise self._refused(identity, approval, reason)
+                raise self._refused(identity, approval, NotAuthorised(reason))
             if approval is None:
-                raise NotFound(wording.NO_SUCH_APPROVAL)
+                raise self._refused(identity, None, NotFound(wording.NO_SUCH_APPROVAL))
             profile = self._policy.get_profile(approval.profile_id)
-            reason = access.why_not_for_this_buyer(identity, profile)
-            if reason is not None:
-                raise self._refused(identity, approval, reason)
-            order = self._still_waiting(approval)
             roles = access.roles_that_count(identity, profile)
-            if not set(roles) & set(approval.roles_missing):
-                raise self._refused(identity, approval, wording.role_not_missing(approval, roles))
+            if not roles:
+                not_listed = wording.APPROVER_NOT_LISTED.format(profile_id=profile.profile_id)
+                raise self._refused(identity, approval, NotAuthorised(not_listed))
+            order = self._still_waiting(approval)
             if decision.decision is DecisionKind.REJECT:
                 return self._reject(order, approval, identity, roles, decision)
-            option = self._chosen(order, decision.option_id)
-            attempt = Attempt(access.actor_of(identity), profile, order.offer_id, option, order)
-            return self._approve(attempt, approval, identity, roles, decision)
+            return self._approve(order, approval, profile, identity, roles, decision)
 
-    def _refused(self, identity: Identity, approval: Approval | None, reason: str) -> NotAuthorised:
-        """Record the attempt, then hand back the error. The id a caller sent for an approval nobody issued is
-        not written down: the trail holds no text a refused caller chose."""
-        facts = {} if identity.is_agent else {"reason": reason}
-        context = (
-            AuditContext(approval=approval, facts=facts) if approval is not None
-            else AuditContext(profile_id=identity.profile_id, facts=facts)
-        )
-        self._audit.record(AuditEventType.AUTHORISATION_REFUSED, access.actor_of(identity), context)
-        return NotAuthorised(reason)
+    def _refused(self, identity: Identity, approval: Approval | None, error: TtaError) -> TtaError:
+        """Record the attempt, then hand back the error. With no approval of the caller's own buyer, the attempt
+        is filed under the caller's own buyer only, and the id it sent is not written down: the trail holds no
+        text a refused caller chose, and no buyer reads another buyer's attempts."""
+        facts = {} if identity.is_agent else {"reason": error.detail}
+        self._write.refused(access.actor_of(identity), approval, identity.profile_id, facts)
+        return error
 
     def _still_waiting(self, approval: Approval) -> Order:
-        """The order of this approval, still open for a decision; otherwise the typed error."""
+        """The order of this approval, still open for a decision; otherwise the typed error. An order past its
+        time is marked EXPIRED here, with its event, before the error is raised."""
         order = self._current(self._order_of(approval))
         if order.status is OrderStatus.EXPIRED:
-            deadline = order.option.valid_until
+            deadline = wording.deadline_of(order, approval)
             raise OfferExpired(
-                wording.order_by_passed(order), order_id=order.order_id, offer_id=order.offer_id,
+                wording.order_by_passed(order, deadline), order_id=order.order_id, offer_id=order.offer_id,
                 option_id=order.option_id, valid_until=deadline.isoformat() if deadline else None,
             )
         if order.status is not OrderStatus.PENDING_APPROVAL:
@@ -171,56 +171,61 @@ class OrderBookService:
         self, order: Order, approval: Approval, approver: Identity, roles: tuple[ApproverRole, ...],
         request: DecisionRequest,
     ) -> Order:
+        """A rejection asks the supplier nothing, so it is checked against the roles the approval still waits for."""
+        if not set(roles) & set(approval.roles_missing):
+            refusal = NotAuthorised(wording.role_not_missing(approval.roles_missing, roles))
+            raise self._refused(approver, approval, refusal)
         if request.option_id is not None:
             raise InvalidRequest(wording.REJECTION_CHOOSES_NO_OPTION)
         now = self._clock.now()
         entry = records.decision_entry(approver, roles, request, None, now)
         rejected, closed = records.rejected(order, approval, entry, now)
-        self._store.save_order(rejected)
-        self._store.save_approval(closed)
-        self._audit.record(
-            AuditEventType.APPROVAL_DECIDED, access.actor_of(approver),
-            AuditContext(order=order, approval=closed, approval_decision=entry, decision=order.decision),
-        )
-        self._audit.record(
-            AuditEventType.ORDER_REJECTED, SYSTEM_ACTOR,
-            AuditContext(order=rejected, approval=closed, approval_decision=entry, decision=rejected.decision),
-        )
+        self._write.rejected(order, rejected, closed, entry, access.actor_of(approver))
         return rejected
 
     def _approve(
-        self, attempt: Attempt, approval: Approval, approver: Identity, roles: tuple[ApproverRole, ...],
-        request: DecisionRequest,
+        self, order: Order, approval: Approval, profile: BuyerProfile, approver: Identity,
+        roles: tuple[ApproverRole, ...], request: DecisionRequest,
     ) -> Order:
-        """One human approves the proposed option or another option of the same offer. Either way the option is
-        checked again at order time: BLOCK still blocks, and the roles are those the policy asks for now."""
-        order = attempt.order
-        check = self._checker.check(attempt)
+        """One human approves the proposed option or another option of the same offer. The option is checked
+        again at order time first: BLOCK still blocks, and the roles are those the policy asks for now. Only
+        then is the approver held against the roles that decision still needs."""
+        offer = self._offer_of(order)
+        option = self._chosen(order, offer, request.option_id)
+        attempt = Attempt(access.actor_of(approver), profile, order.offer_id, option, order)
+        check = self._checked(attempt)
+        needed = records.roles_still_needed(approval, check)
+        if needed and not set(roles) & set(needed):
+            raise self._refused(approver, approval, NotAuthorised(wording.role_not_missing(needed, roles)))
         now = self._clock.now()
         other_option = check.option.option_id != approval.option_id
         chosen_id = check.option.option_id if other_option else None
         entry = records.decision_entry(approver, roles, request, chosen_id, now)
-        changed, signed = records.approved(order, approval, check, entry, now)
-        self._store.save_order(changed)
-        self._store.save_approval(signed)
-        # The order as the human saw it, the approval as it is now: the sentence says what was chosen instead
-        # of what, and which roles are still missing.
-        self._audit.record(AuditEventType.APPROVAL_DECIDED, attempt.actor, AuditContext(
-            order=order, approval=signed, approval_decision=entry, decision=check.decision,
-            option=check.option if other_option else None,
-        ))
-        if changed.status is OrderStatus.ORDERED:
-            self._audit.record(AuditEventType.ORDER_CONFIRMED, SYSTEM_ACTOR, AuditContext(
-                order=changed, approval=signed, decision=check.decision, revalidation=check.revalidation,
-            ))
+        changed, signed = records.approved(order, approval, check, entry, now, offer.time_now)
+        self._write.approved(order, changed, signed, entry, check, attempt.actor)
         return changed
 
-    def _chosen(self, order: Order, option_id: str | None) -> OfferOption:
+    def _checked(self, attempt: Attempt) -> OrderTimeCheck:
+        """The order-time check of a waiting order. When it finds the proposed option expired and the order's own
+        time has passed by then (the supplier call takes time), the order is marked EXPIRED in this same call."""
+        try:
+            return self._checker.check(attempt)
+        except OfferExpired:
+            if attempt.order is not None and attempt.option.option_id == attempt.order.option_id:
+                self._current(attempt.order)
+            raise
+
+    def _offer_of(self, order: Order) -> Offer:
+        offer = self._store.get_offer(order.offer_id)
+        if offer is None:
+            raise NotFound(wording.OFFER_NOT_IN_STORE.format(order_id=order.order_id))
+        return offer
+
+    def _chosen(self, order: Order, offer: Offer, option_id: str | None) -> OfferOption:
         """The option proposed, or another option of the same offer when the approver names one."""
         if option_id is None or option_id == order.option_id:
             return order.option
-        offer = self._store.get_offer(order.offer_id)
-        option = offer.option(option_id) if offer is not None else None
+        option = offer.option(option_id)
         if option is None:
             raise NotFound(wording.NO_SUCH_OPTION.format(offer_id=order.offer_id))
         return option
@@ -228,27 +233,24 @@ class OrderBookService:
     # --- reading --------------------------------------------------------------------------------------
 
     def get_order(self, order_id: str, identity: Identity) -> Order:
+        """Another buyer's order is answered like one nobody issued: `not-found` for both."""
         access.require_buyer_side(identity)
         with self._lock:
             order = self._store.get_order(order_id)
-            if order is None:
+            if order is None or access.is_of_another_buyer(identity, order.profile_id):
                 raise NotFound(wording.NO_SUCH_ORDER)
-            access.require_same_buyer(identity, order.profile_id)
             return self._current(order)
 
     def get_approval(self, approval_id: str, identity: Identity) -> Approval:
+        """Another buyer's approval is answered like one nobody issued: `not-found` for both."""
         access.require_buyer_side(identity)
         with self._lock:
-            approval = self._approval(approval_id)
-            access.require_same_buyer(identity, approval.profile_id)
-            self._current(self._order_of(approval))  # past its time, the order expires here and the approval with it
-            return self._approval(approval_id)
-
-    def _approval(self, approval_id: str) -> Approval:
-        approval = self._store.get_approval(approval_id)
-        if approval is None:
-            raise NotFound(wording.NO_SUCH_APPROVAL)
-        return approval
+            approval = self._store.get_approval(approval_id)
+            if approval is None or access.is_of_another_buyer(identity, approval.profile_id):
+                raise NotFound(wording.NO_SUCH_APPROVAL)
+            current = self._current(self._order_of(approval))
+            # Past its time, the order expired just now and the approval with it: read the approval again.
+            return self._store.get_approval(approval_id) if current.status is OrderStatus.EXPIRED else approval
 
     def list_approvals(self, identity: Identity, status: ApprovalStatus | None = None) -> tuple[Approval, ...]:
         """The approvals of the caller's buyer, oldest first. Pending ones past their time expire here first."""
@@ -268,19 +270,14 @@ class OrderBookService:
     # --- expiry ---------------------------------------------------------------------------------------
 
     def _current(self, order: Order) -> Order:
-        """The order as it stands now. A pending order past its "order by" time becomes EXPIRED here, with its
-        approval and one audit event. Called with the lock held."""
-        now = self._clock.now()
-        if not records.is_past_order_by(order, now):
+        """The order as it stands now. A waiting order past its time becomes EXPIRED here, with its approval and
+        one audit event, in one unit of work. Called with the lock held."""
+        if order.status is not OrderStatus.PENDING_APPROVAL:
             return order
+        now = self._clock.now()
         approval = self._store.get_approval(order.approval_id) if order.approval_id is not None else None
+        if not records.is_overdue(order, approval, now):
+            return order
         expired, closed = records.expired(order, approval, now)
-        self._store.save_order(expired)
-        if closed is not None:
-            self._store.save_approval(closed)
-        self._audit.record(
-            AuditEventType.ORDER_EXPIRED, SYSTEM_ACTOR,
-            AuditContext(order=expired, approval=closed, decision=expired.decision),
-        )
+        self._write.expired(expired, closed)
         return expired
-

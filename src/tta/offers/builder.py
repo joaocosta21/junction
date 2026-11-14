@@ -17,7 +17,7 @@ from tta.offers.candidates import Found, Need, evaluate, exclusion_for, find_pro
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
-from tta.offers.wording import counted, line_label, reason_words
+from tta.offers.wording import counted, line_label, listed, reason_words
 
 OFFER_ID_PREFIX = "off_"
 OFFER_ID_HEX_DIGITS = 12
@@ -50,7 +50,9 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         candidates_considered=sum(outcome.considered for outcome in outcomes),
         source=lookup.source,
         time_now=lookup.now,
-        notes=(*_search_notes(found), *plan.notes, *_empty_notes(outcomes, options)),
+        notes=(
+            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options), *_empty_notes(outcomes, options)
+        ),
     )
 
 
@@ -78,6 +80,24 @@ def _judge_line(need: Need, asked: RequestLine, found: Found, lookup: Lookup, ca
 
 def _search_notes(found: Sequence[Found]) -> tuple[str, ...]:
     return tuple(f"{line_label(index)}: {each.note}" for index, each in enumerate(found) if each.note)
+
+
+def _unused_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption]) -> tuple[str, ...]:
+    """The candidates that fit and are in no option, so every candidate is accounted for: it is in an
+    option, in `excluded` with a reason, or named here. A product that fits has not dropped out, and
+    `ExclusionReason` has no code for "not needed"."""
+    offered = {line.product_id for option in options for line in option.lines}
+    notes = []
+    for outcome in outcomes:
+        unused = [each.product.id for each in outcome.fitting if each.product.id not in offered]
+        if not unused:
+            continue
+        fit = "fits the request and is" if len(unused) == 1 else "fit the request and are"
+        notes.append(
+            f"{line_label(outcome.need.index)}: {counted(len(unused), 'product')} {fit} in no option, because "
+            f"the options take the cheapest products that cover the quantity: {listed(unused)}."
+        )
+    return tuple(notes)
 
 
 def _empty_notes(outcomes: Sequence[LineOutcome], options: Sequence[OfferOption]) -> tuple[str, ...]:

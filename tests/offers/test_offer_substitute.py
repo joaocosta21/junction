@@ -24,8 +24,9 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers import OfferDeps, OfferService, find_substitutes
 
 A, B, C = "469363", "462775", "463380"  # lactose-free milks of category 10400, 1-litre cartons
-# 473424 Alpro Rice drink 1 L keeps every nutritional claim of the oat drink 473609.
-OAT_ORIGINAL, OAT_ADDS_GLUTEN, OAT_PASSES = "473609", "464320", "473424"
+# 475224 Fazer Aito Professional Barista Oat drink keeps the dietary claims of the oat drink 473609
+# (gluten-free, vegan); it lacks FREE_FROM_PRESERVATIVES, which does not count as a claim lost.
+OAT_ORIGINAL, OAT_ADDS_GLUTEN, OAT_PASSES = "473609", "464320", "475224"
 
 
 def of_kind(offer: Offer, kind: OptionKind) -> OfferOption | None:
@@ -172,9 +173,12 @@ def test_the_ward_may_not_take_a_substitute_without_a_human(
     option = of_kind(offer, OptionKind.SUBSTITUTE)
     assert option is not None
     assert option.lines[0].product_id == "464056"
-    assert option.lines[0].substitute.claims_lost == ("FREE_FROM_PRESERVATIVES",)
+    # 464056 lacks FREE_FROM_PRESERVATIVES: not a dietary claim, so it is named and not counted as lost.
+    assert option.lines[0].substitute.claims_lost == ()
+    assert "FREE_FROM_PRESERVATIVES" in option.lines[0].substitute.gives_up
     assert option.decision.verdict is Verdict.APPROVAL
     assert "P-05" in option.decision.rule_ids
+    assert "F-08" not in option.decision.rule_ids
 
 
 # --- ranking of substitutes with hand-built availability ---------------------------------------------------
@@ -289,3 +293,51 @@ def test_a_substitute_does_not_take_stock_another_request_line_already_uses(
     assert (stand_in.product_id, stand_in.quantity, stand_in.covers) == (C, 30, 30)  # a partial stand-in
     used = sum(line.quantity for line in option.lines if line.product_id == B)
     assert used == 100
+
+
+def test_two_request_lines_do_not_take_the_same_substitute_stock_twice(
+    serve: Any, price: Any, stock: Any, agent_hotel: Identity
+) -> None:
+    # Both lines name A, which cannot be delivered. B has 100 litres: enough to stand in for one line only.
+    request = PurchaseRequest(
+        lines=(
+            RequestLine(text="first", product_ids=(A,), quantity=Decimal(100), unit=Unit.L),
+            RequestLine(text="second", product_ids=(A,), quantity=Decimal(100), unit=Unit.L),
+        )
+    )
+    service = serve([price(A, "2.48"), price(B, "2.57")], [stock(A, None), stock(B, 100)])
+
+    offer = service.build_offer(request, agent_hotel)
+
+    option = of_kind(offer, OptionKind.SUBSTITUTE)
+    assert option is not None
+    assert [(line.request_line_index, line.product_id, line.quantity) for line in option.lines] == [(0, B, 100)]
+    assert [(entry.covered, entry.missing) for entry in option.coverage] == [(100, 0), (0, 100)]
+    assert option.decision.verdict is Verdict.APPROVAL  # the second line is not covered
+    assert any(note.startswith("Request line 2: no substitute") for note in offer.notes)
+    assert service.revalidate(option).ok is True  # the re-check sums the lines of one product
+
+
+def test_a_second_stand_in_takes_what_the_first_left_and_the_next_product_after_that(
+    serve: Any, price: Any, stock: Any, agent_hotel: Identity
+) -> None:
+    request = PurchaseRequest(
+        lines=(
+            RequestLine(text="first", product_ids=(A,), quantity=Decimal(100), unit=Unit.L),
+            RequestLine(text="second", product_ids=(A,), quantity=Decimal(100), unit=Unit.L),
+            RequestLine(text="third", product_ids=(A,), quantity=Decimal(100), unit=Unit.L),
+        )
+    )
+    service = serve(
+        [price(A, "2.48"), price(B, "2.57"), price(C, "2.65")], [stock(A, None), stock(B, 150), stock(C, 30)]
+    )
+
+    offer = service.build_offer(request, agent_hotel)
+
+    option = of_kind(offer, OptionKind.SUBSTITUTE)
+    assert option is not None
+    # B: 100 for the first line, the 50 left for the second, none for the third, which takes C.
+    assert [(line.request_line_index, line.product_id, line.quantity) for line in option.lines] == [
+        (0, B, 100), (1, B, 50), (2, C, 30),
+    ]
+    assert service.revalidate(option).ok is True

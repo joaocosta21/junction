@@ -7,31 +7,42 @@ Plain English, short, with the number and the reason. Built from templates, neve
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 
 from tta.audit.phrases import ended, joined, moment, money, person, roles_text
-from tta.contracts.common import ApproverRole, DecisionKind, Verdict
+from tta.contracts.common import ApproverRole, DecisionKind, OrderStatus, Verdict
 from tta.contracts.order import Approval, ApprovalDecision, Order
 from tta.contracts.policy import PolicyDecision
 
 ONLY_AN_AGENT_ORDERS = "Only a buyer's agent may place an order."
 KEY_REQUIRED = "An order needs an Idempotency-Key, so that a retry cannot place a second order."
+KEY_NOT_VALID = (
+    'An Idempotency-Key is 1 to 100 characters: letters, digits, ".", "_", ":" and "-". A UUID fits.'
+)
 KEY_USED_FOR_ANOTHER_ORDER = (
     "This Idempotency-Key was already used for another order ({order_id}). Send a new key for a new order."
 )
-OFFER_OF_ANOTHER_BUYER = "This offer was made for another buyer."
+KEY_BOUND_MEANWHILE = (
+    "Another request with this Idempotency-Key was being processed at the same moment. Nothing was ordered by "
+    "this one. Send the request again to get the order of that key."
+)
+OFFER_ALREADY_ORDERED = (
+    "Offer {offer_id} already has an order: {order_id}, which is {state}. An offer answers one request; "
+    "ask for a fresh offer to order again."
+)
+ORDER_STATES = {OrderStatus.ORDERED: "ordered", OrderStatus.PENDING_APPROVAL: "waiting for approval"}
 NO_SUCH_OFFER = "No offer has this id."
 NO_SUCH_OPTION = "Offer {offer_id} has no option with this id."
 NO_SUCH_ORDER = "No order has this id."
 NO_SUCH_APPROVAL = "No approval has this id."
 ORDER_NOT_IN_BOOK = "The order of approval {approval_id} is not in the order book."
+OFFER_NOT_IN_STORE = "The offer of order {order_id} is no longer stored."
 SUPPLIER_READS_THE_AUDIT_VIEW = (
     "The supplier reads no order and no approval here; the audit trail has a view for the supplier."
 )
-OF_ANOTHER_BUYER = "This belongs to another buyer."
 AGENT_CANNOT_DECIDE = "An agent cannot approve or reject an order (F-06). A human with the role asked for decides."
 ONLY_AN_APPROVER_DECIDES = "Only an approver of the buyer may decide an approval."
-APPROVER_OF_ANOTHER_BUYER = "This approver belongs to another buyer."
 APPROVER_NOT_LISTED = "This approver is not listed for any of its roles in profile {profile_id}."
 ALREADY_DECIDED = "Approval {approval_id} is closed: order {order_id} is already {status}. It cannot be decided again."
 REJECTION_CHOOSES_NO_OPTION = "A rejection cannot choose another option. Approve with the option, or reject without it."
@@ -78,16 +89,26 @@ def rejected(entry: ApprovalDecision) -> str:
     return f"Rejected by {person(entry.approver_name, entry.roles)}: nothing was ordered."
 
 
+def deadline_of(order: Order, approval: Approval | None) -> datetime | None:
+    """Until when a waiting order can be decided: the time on its approval, else the option's "order by" time."""
+    return (approval.valid_until if approval is not None else None) or order.option.valid_until
+
+
 def expired(order: Order, approval: Approval | None) -> str:
     missing = roles_text(approval.roles_missing) if approval is not None and approval.roles_missing else "a human"
-    deadline = order.option.valid_until
+    deadline = deadline_of(order, approval)
     when = f" on {moment(deadline)}" if deadline is not None else ""
     return f"Expired{when} without approval by {missing}: nothing was ordered."
 
 
-def order_by_passed(order: Order) -> str:
-    deadline = order.option.valid_until
+def order_by_passed(order: Order, deadline: datetime | None) -> str:
     return ORDER_BY_PASSED.format(order_id=order.order_id, deadline=moment(deadline) if deadline else "its time")
+
+
+def offer_already_ordered(order: Order) -> str:
+    return OFFER_ALREADY_ORDERED.format(
+        offer_id=order.offer_id, order_id=order.order_id, state=ORDER_STATES[order.status]
+    )
 
 
 def already_decided(approval: Approval, order: Order) -> str:
@@ -101,8 +122,9 @@ def no_longer_as_offered(rule_sentence: str) -> str:
     return f"{ended(rule_sentence)} {FRESH_OFFER_NEEDED}"
 
 
-def role_not_missing(approval: Approval, roles: Sequence[ApproverRole]) -> str:
+def role_not_missing(missing: Sequence[ApproverRole], roles: Sequence[ApproverRole]) -> str:
+    """`missing` are the roles still needed: for an approval, those the order-time decision asks for now."""
     return (
-        f"The approval still needs {roles_text(approval.roles_missing)}; this approver counts for "
+        f"The approval still needs {roles_text(missing)}; this approver counts for "
         f"{roles_text(roles)} and holds none of them."
     )

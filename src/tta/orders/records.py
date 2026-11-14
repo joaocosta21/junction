@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from tta.contracts.availability import RevalidationResult
 from tta.contracts.common import (
     ApprovalStatus,
     ApproverRole,
+    DecisionKind,
     Identity,
     OrderStatus,
     PlacedBy,
@@ -30,6 +31,9 @@ ID_RANDOM_BYTES = 6  # 12 hex characters
 # Kept on the order so a retry with the same Idempotency-Key can be told from a reuse of the key for
 # something else, also after an approver chose another option.
 REQUESTED_OPTION_KEY = "requested_option_id"
+# An option with no "order by" time of its own: its approval must be decided within this time, so that no
+# order waits for ever. Ours, not Valio's.
+HOURS_TO_DECIDE_WITHOUT_ORDER_BY = 24
 
 
 @dataclass(frozen=True)
@@ -50,14 +54,45 @@ def new_approval_id() -> str:
 
 
 def is_past_order_by(order: Order, now: datetime) -> bool:
-    """A pending order whose "order by" time has passed. At that very instant it can still be decided."""
+    """A pending order whose "order by" time has passed. A time equal to the clock has passed: at that very
+    instant the order can no longer be decided, as in the policy (F-04), availability and the offer re-check."""
     deadline = order.option.valid_until
-    return order.status is OrderStatus.PENDING_APPROVAL and deadline is not None and deadline < now
+    return order.status is OrderStatus.PENDING_APPROVAL and deadline is not None and deadline <= now
 
 
-def reliance_statements(check: OrderTimeCheck) -> tuple[RelianceStatement, ...]:
-    """What Valio's data said about each line when the order was checked: the fresh look confirmed the offer's
-    statements, so they are kept as the offer gave them, with the time and source of the check."""
+def decide_by(option: OfferOption, approval_created_at: datetime) -> datetime:
+    """Until when an approval of this option can be decided: the option's "order by" time, or 24 hours after the
+    approval was created when the option has none."""
+    return option.valid_until or approval_created_at + timedelta(hours=HOURS_TO_DECIDE_WITHOUT_ORDER_BY)
+
+
+def is_overdue(order: Order, approval: Approval | None, now: datetime) -> bool:
+    """A waiting order past its time: the option's "order by" time, or the approval's own when the option has none.
+
+    The comparison itself is `is_past_order_by`'s, so there is one boundary for both.
+    """
+    if order.option.valid_until is not None or approval is None:
+        return is_past_order_by(order, now)
+    dated = order.option.model_copy(update={"valid_until": approval.valid_until})
+    return is_past_order_by(order.model_copy(update={"option": dated}), now)
+
+
+def roles_still_needed(approval: Approval, check: OrderTimeCheck) -> tuple[ApproverRole, ...]:
+    """The roles the order-time decision asks for and nobody has given yet. An approval given for another
+    option than the one checked does not count."""
+    same_option = check.option.option_id == approval.option_id
+    given = {
+        role
+        for entry in approval.decisions
+        if same_option and entry.decision is DecisionKind.APPROVE
+        for role in entry.roles
+    }
+    return tuple(role for role in check.decision.required_roles if role not in given)
+
+
+def reliance_statements(check: OrderTimeCheck, stated_at: datetime) -> tuple[RelianceStatement, ...]:
+    """What Valio's data said about each line, as the offer gave it. `stated_at` is the offer's data time, when
+    Valio stated the figures; `rechecked_at` is the fresh look before the order that found them still sufficient."""
     return tuple(
         RelianceStatement(
             product_id=line.product_id,
@@ -67,7 +102,8 @@ def reliance_statements(check: OrderTimeCheck) -> tuple[RelianceStatement, ...]:
             available_amount=line.availability.usable_amount,  # None unless confirmed: a placeholder is no amount
             available_date=line.availability.available_date,
             closing_time=line.availability.closing_time,
-            time_now=check.revalidation.checked_at,
+            time_now=stated_at,
+            rechecked_at=check.revalidation.checked_at,
             source=check.revalidation.source,
         )
         for line in check.option.lines
@@ -86,7 +122,7 @@ def placed_by_agent(
     return Order(
         order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
         agent_id=agent.id, status=OrderStatus.ORDERED, placed_by=PlacedBy.AGENT, option=check.option,
-        decision=check.decision, reliance=reliance_statements(check), idempotency_key=idempotency_key,
+        decision=check.decision, reliance=reliance_statements(check, offer.time_now), idempotency_key=idempotency_key,
         created_at=now, updated_at=now,
         status_sentence=wording.placed_alone(check.option.totals.net, offer.profile_id),
         source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
@@ -101,7 +137,7 @@ def awaiting_approval(
         approval_id=new_approval_id(), order_id=order_id, offer_id=offer.offer_id,
         option_id=check.option.option_id, profile_id=offer.profile_id, status=ApprovalStatus.PENDING,
         required_roles=check.decision.required_roles, reasons=approval_reasons(check.decision), created_at=now,
-        valid_until=check.option.valid_until,
+        valid_until=decide_by(check.option, now),
     )
     # The same record as an order placed alone, in the state of one that waits.
     order = placed_by_agent(order_id, offer, check, agent, idempotency_key, now).model_copy(update={
@@ -125,11 +161,13 @@ def decision_entry(
 
 def approved(
     order: Order, approval: Approval, check: OrderTimeCheck, entry: ApprovalDecision, now: datetime,
+    stated_at: datetime,
 ) -> tuple[Order, Approval]:
     """The order and approval after one human approved `check.option`: ORDERED once no role is missing.
 
     The roles are those the policy asks for now. Approvals given for another option do not carry over:
-    choosing another option starts the approval again with this human's decision.
+    choosing another option starts the approval again with this human's decision. `stated_at` is the data
+    time of the offer, for the statements the order relies on.
     """
     other_option = check.option.option_id != approval.option_id
     signed = approval.model_copy(update={
@@ -137,7 +175,7 @@ def approved(
         "required_roles": check.decision.required_roles,
         "reasons": approval_reasons(check.decision),
         "decisions": (entry,) if other_option else (*approval.decisions, entry),
-        "valid_until": check.option.valid_until,
+        "valid_until": decide_by(check.option, approval.created_at),
     })
     complete = not signed.roles_missing
     if complete:
@@ -148,7 +186,7 @@ def approved(
     )
     changed = order.model_copy(update={
         "option_id": check.option.option_id, "option": check.option, "decision": check.decision,
-        "reliance": reliance_statements(check), "source": check.revalidation.source,
+        "reliance": reliance_statements(check, stated_at), "source": check.revalidation.source,
         "status": OrderStatus.ORDERED if complete else OrderStatus.PENDING_APPROVAL,
         "placed_by": PlacedBy.HUMAN_APPROVAL if complete else None, "updated_at": now, "status_sentence": sentence,
     })

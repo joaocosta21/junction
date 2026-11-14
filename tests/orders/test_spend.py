@@ -54,9 +54,48 @@ def test_the_day_is_the_clocks_day_whatever_offset_an_order_was_stamped_with(
     order = _place(book, agent_hotel, samples.within_authority(), "a")
     from datetime import UTC  # Saturday 02:52 in Helsinki is Saturday 00:52 UTC: the same instant, the same day
 
-    book.store.save_order(order.model_copy(update={"created_at": order.created_at.astimezone(UTC)}))
+    restamped = {"created_at": order.created_at.astimezone(UTC), "updated_at": order.updated_at.astimezone(UTC)}
+    book.store.save_order(order.model_copy(update=restamped))
 
     assert book.service.day_committed_net_eur("hotel-kitchen") == Decimal("265.00")
+
+
+def test_an_order_approved_on_a_later_day_is_spend_of_the_day_it_became_ordered(
+    book, samples, agent_hotel: Identity, approver_purchasing: Identity
+) -> None:
+    pending = _place(book, agent_hotel, samples.above_order_limit(), "a")  # Saturday 02:52, waits for a human
+    assert book.service.day_committed_net_eur("hotel-kitchen") == Decimal("2650.00")
+    book.clock.advance(timedelta(hours=22))  # Sunday 00:52
+
+    assert book.service.day_committed_net_eur("hotel-kitchen") == Decimal(0)  # it waits since Saturday
+
+    ordered = book.service.decide(pending.approval_id, approver_purchasing, samples.approve())
+
+    assert ordered.status is OrderStatus.ORDERED and ordered.created_at == samples.now
+    assert book.service.day_committed_net_eur("hotel-kitchen") == Decimal("2650.00")  # ordered on Sunday
+
+
+def test_the_next_order_of_that_day_meets_the_limit_per_day_with_the_order_approved_that_day(
+    book, samples, agent_hotel: Identity, approver_purchasing: Identity
+) -> None:
+    pending = _place(book, agent_hotel, samples.above_order_limit(), "a")  # created on Saturday
+    book.clock.advance(timedelta(hours=22))
+    book.service.decide(pending.approval_id, approver_purchasing, samples.approve())  # ORDERED on Sunday
+
+    second = _place(book, agent_hotel, samples.option("opt_1", (samples.line("463380", "250", "2.80"),)), "b")
+
+    assert book.policy.contexts[-1].day_committed_net_eur == Decimal("2650.00")
+    assert second.decision.rule_ids == ("P-02",)  # €700.00 more is above €3,000 on Sunday
+
+
+def test_an_order_that_became_ordered_yesterday_is_not_spend_of_today(
+    book, samples, agent_hotel: Identity, approver_purchasing: Identity
+) -> None:
+    pending = _place(book, agent_hotel, samples.above_order_limit(), "a")
+    book.service.decide(pending.approval_id, approver_purchasing, samples.approve())  # ORDERED on Saturday
+    book.clock.advance(timedelta(hours=22))
+
+    assert book.service.day_committed_net_eur("hotel-kitchen") == Decimal(0)
 
 
 def test_a_pending_order_past_its_order_by_time_no_longer_counts_even_before_it_is_read(

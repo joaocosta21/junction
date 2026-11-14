@@ -19,7 +19,7 @@ from tta.contracts.offer import ConstraintCheck, Coverage, OfferLine
 from tta.contracts.ports import Catalog
 from tta.contracts.request import MAX_PRODUCT_IDS, ProductQuery, PurchaseRequest, RequestLine
 from tta.offers.candidates import Need
-from tta.offers.wording import measured
+from tta.offers.wording import measured, plain_name
 
 NOTHING_OFFERED = "No product is offered for this request line."
 CONFIRMED_ONLY_SUBJECT = "require_confirmed"
@@ -36,7 +36,7 @@ def constraint_checks(
     for need, asked, covered in zip(needs, request.lines, coverage, strict=True):
         own = tuple(line for line in lines if line.request_line_index == need.index)
         checks.extend(_line_checks(need, asked, own, covered, catalog))
-    checks.extend(_needed_by(request, lines))
+    checks.extend(_needed_by(request, needs, lines))
     checks.extend(_confirmed_only(needs, lines))
     return tuple(checks)
 
@@ -122,7 +122,7 @@ def _product_id(
 ) -> ConstraintCheck:
     kind = ConstraintKind.PRODUCT_ID
     if product_id in replaced:
-        stand_in = f"{replaced[product_id].name} ({replaced[product_id].product_id})"
+        stand_in = f"{plain_name(replaced[product_id].name)} ({replaced[product_id].product_id})"
         part = "part of " if product_id in offered else ""
         sentence = f"{stand_in} is offered in place of {part}product {product_id}."
         return _check(need.index, kind, product_id, CheckResult.NOT_MET, sentence)
@@ -214,13 +214,18 @@ def _allergen(need: Need, code: str, lines: Sequence[OfferLine]) -> ConstraintCh
     return _check(need.index, kind, code, CheckResult.UNVERIFIED, sentence)
 
 
-def _needed_by(request: PurchaseRequest, lines: Sequence[OfferLine]) -> list[ConstraintCheck]:
-    """Only for a dated request. MET only when every line's delivery-date claim is confirmed."""
+def _needed_by(request: PurchaseRequest, needs: Sequence[Need], lines: Sequence[OfferLine]) -> list[ConstraintCheck]:
+    """Only for a dated request. MET only when every request line has a product offered and every line's
+    delivery-date claim is confirmed."""
     if request.needed_by is None:
         return []
     day = format_day(request.needed_by)
+    empty = _empty_lines(needs, lines)
     statuses = [_status(line, ClaimName.DELIVERY_DATE) for line in lines]
-    if any(status is ClaimStatus.RULED_OUT for status in statuses):
+    if empty:
+        sentence = f"Nothing is offered for {_lines_label(empty)}, so the request is not delivered in full by {day}."
+        result = CheckResult.NOT_MET
+    elif any(status is ClaimStatus.RULED_OUT for status in statuses):
         result, sentence = CheckResult.NOT_MET, f"A product offered cannot be delivered by {day}."
     elif all(status is ClaimStatus.CONFIRMED for status in statuses):
         result, sentence = CheckResult.MET, f"Every product offered is delivered by {day} if ordered by its cut-off."
@@ -234,11 +239,30 @@ def _confirmed_only(needs: Sequence[Need], lines: Sequence[OfferLine]) -> list[C
         return []
     dated = any(need.dated for need in needs)
     kind = ConstraintKind.CONFIRMED_ONLY
+    empty = _empty_lines(needs, lines)
+    if empty:
+        sentence = f"Nothing is offered for {_lines_label(empty)}, so the request is not covered by confirmed data."
+        return [_check(None, kind, CONFIRMED_ONLY_SUBJECT, CheckResult.NOT_MET, sentence)]
     if all(line.confirmed_for_order(dated=dated) for line in lines):
         sentence = "Every claim an order depends on is confirmed by Valio's data for every product offered."
         return [_check(None, kind, CONFIRMED_ONLY_SUBJECT, CheckResult.MET, sentence)]
     sentence = "A claim an order depends on is not confirmed for a product offered."
     return [_check(None, kind, CONFIRMED_ONLY_SUBJECT, CheckResult.NOT_MET, sentence)]
+
+
+def _empty_lines(needs: Sequence[Need], lines: Sequence[OfferLine]) -> tuple[int, ...]:
+    """The request lines no product is offered for. A check over "every product offered" says nothing
+    about them, so it cannot be met while one exists."""
+    offered = {line.request_line_index for line in lines}
+    return tuple(need.index for need in needs if need.index not in offered)
+
+
+def _lines_label(indexes: Sequence[int]) -> str:
+    """`request line 2`, `request lines 2 and 3`, `request lines 2, 3 and 5`."""
+    numbers = [str(index + 1) for index in indexes]
+    if len(numbers) == 1:
+        return f"request line {numbers[0]}"
+    return f"request lines {', '.join(numbers[:-1])} and {numbers[-1]}"
 
 
 def _status(line: OfferLine, claim: ClaimName) -> ClaimStatus | None:

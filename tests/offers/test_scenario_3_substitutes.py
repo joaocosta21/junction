@@ -116,21 +116,23 @@ def test_among_those_that_pass_one_that_keeps_every_claim_comes_before_one_that_
     assert True in loses and False in loses
 
 
-def test_tonight_the_best_orderable_substitute_keeps_every_claim_of_the_original(
+def test_tonight_the_best_orderable_substitute_is_the_barista_oat_drink_that_keeps_every_dietary_claim(
     result: SubstituteResult, by_id: dict[str, SubstituteCandidate]
 ) -> None:
     best = next(candidate for candidate in result.candidates if candidate.orderable)
 
-    # 473424 Alpro Rice drink 1 L: gluten-free, no preservatives, vegan like the original; confirmed, +0.99.
-    assert best.product_id == "473424"
+    # 475224 Fazer Aito Professional Barista Oat drink: gluten-free and vegan like the original; confirmed,
+    # +0.37. It lacks FREE_FROM_PRESERVATIVES, which is not a dietary claim: named, and no reason to rank lower.
+    assert best.product_id == "475224"
     assert best.claims_lost == ()
-    assert str(best.price_difference) == "0.99"
-    # 475224 Fazer Aito Professional Barista Oat drink is cheaper (+0.37) but does not carry one claim.
-    fazer = by_id["475224"]
-    assert fazer.claims_lost == ("FREE_FROM_PRESERVATIVES",)
-    assert fazer.passes is True and fazer.orderable is True
-    assert fazer.rank > best.rank
-    assert "FREE_FROM_PRESERVATIVES" in fazer.sentence
+    assert str(best.price_difference) == "0.37"
+    assert "FREE_FROM_PRESERVATIVES" in best.gives_up
+    assert "FREE_FROM_PRESERVATIVES" not in best.sentence
+    # 473424 Alpro Rice drink 1 L keeps all three claims and costs more (+0.99): it no longer comes first.
+    rice = by_id["473424"]
+    assert rice.claims_lost == ()
+    assert rice.passes is True and rice.orderable is True
+    assert rice.rank > best.rank
     assert by_id[PASSES].claims_lost == ()
 
 

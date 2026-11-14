@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,7 @@ from tta.offers import OfferDeps, OfferService, revalidate
 A, B = "469363", "462775"
 LATER = datetime.fromisoformat("2026-11-14T09:00:00+02:00")
 AFTER_CUTOFF = datetime.fromisoformat("2026-11-15T17:00:01+02:00")
+END_OF_YEAR = datetime.fromisoformat("2026-12-31T00:00:00+02:00")
 
 Recheck = Callable[..., Any]
 
@@ -157,6 +158,102 @@ def test_a_price_validity_that_changed_or_ended_is_reported(recheck: Recheck, pr
     assert changed.expired is False
     assert [(change.product_id, change.field) for change in ended.changes] == [(A, "price_validity")]
     assert ended.expired is True
+
+
+def test_a_later_delivery_date_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:
+    wednesday = date(2026, 11, 18)
+    result, _ = recheck(
+        [price(A, "2.48"), price(B, "2.57")], [stock(A, 384, available_date=wednesday), stock(B, 600)]
+    )
+
+    assert result.ok is False
+    assert result.expired is False
+    assert [(change.product_id, change.field, change.before, change.after) for change in result.changes] == [
+        (A, "delivery_date", "Monday 16 Nov", "Wednesday 18 Nov")
+    ]
+    assert "Wednesday 18 Nov" in result.changes[0].sentence
+
+
+def test_an_earlier_delivery_date_is_not_a_change(recheck: Recheck, price: Any, stock: Any) -> None:
+    sunday = date(2026, 11, 15)
+    result, _ = recheck([price(A, "2.48"), price(B, "2.57")], [stock(A, 384, available_date=sunday), stock(B, 600)])
+
+    assert result.ok is True
+    assert result.changes == ()
+
+
+def test_a_delivery_date_valio_no_longer_states_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:
+    result, _ = recheck([price(A, "2.48"), price(B, "2.57")], [stock(A, 384, available_date=None), stock(B, 600)])
+
+    assert result.ok is False
+    assert [(change.product_id, change.field, change.before, change.after) for change in result.changes] == [
+        (A, "delivery_date", "Monday 16 Nov", "not stated")
+    ]
+
+
+def test_a_new_sales_unit_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:
+    result, _ = recheck([price(A, "2.48"), price(B, "2.57")], [stock(A, 384, sales_unit="KG"), stock(B, 600)])
+
+    assert result.ok is False
+    assert result.expired is False
+    assert [(change.product_id, change.field, change.before, change.after) for change in result.changes] == [
+        (A, "sales_unit", "ST", "KG")
+    ]
+    assert "ST" in result.changes[0].sentence and "KG" in result.changes[0].sentence
+
+
+def test_stock_in_another_sales_unit_is_not_compared_with_the_quantity(
+    recheck: Recheck, price: Any, stock: Any
+) -> None:
+    # 100 KG is not "fewer than 384 ST": the unit is what changed, and that is what is reported.
+    result, _ = recheck([price(A, "2.48"), price(B, "2.57")], [stock(A, 100, sales_unit="KG"), stock(B, 600)])
+
+    assert [(change.product_id, change.field) for change in result.changes] == [(A, "sales_unit")]
+
+
+def test_a_new_tax_rate_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:
+    result, _ = recheck([price(A, "2.48", tax_rate="25.5"), price(B, "2.57")], [stock(A, 384), stock(B, 600)])
+
+    assert result.ok is False
+    assert result.expired is False
+    assert [(change.product_id, change.field, change.before, change.after) for change in result.changes] == [
+        (A, "tax_rate", "13.5%", "25.5%")
+    ]
+    assert "13.5%" in result.changes[0].sentence and "25.5%" in result.changes[0].sentence
+
+
+def test_a_tax_rate_valio_no_longer_states_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:
+    result, _ = recheck([price(A, "2.48", tax_rate=None), price(B, "2.57")], [stock(A, 384), stock(B, 600)])
+
+    assert [(change.product_id, change.field, change.before, change.after) for change in result.changes] == [
+        (A, "tax_rate", "13.5%", "not stated")
+    ]
+
+
+def test_a_price_validity_that_moved_later_with_the_same_price_is_not_a_change(
+    fake_gateway: Any, deps_for: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
+) -> None:
+    # A renewed price must not block an order; one that now ends sooner than the offer stated is a change.
+    built = fake_gateway([price(A, "2.48", valid_to=END_OF_YEAR)], [stock(A, 600)])
+    offer = OfferService(deps_for(built)).build_offer(make_request(100), agent_hotel)
+    best = next(option for option in offer.options if option.kind is OptionKind.BEST_CONFIRMED)
+    renewed_until = datetime.fromisoformat("2027-06-30T00:00:00+02:00")
+    ends_sooner = datetime.fromisoformat("2026-11-30T00:00:00+02:00")
+
+    renewed = revalidate(
+        best, deps_for(fake_gateway([price(A, "2.48", valid_to=renewed_until)], [stock(A, 600)], LATER))
+    )
+    open_ended = revalidate(best, deps_for(fake_gateway([price(A, "2.48")], [stock(A, 600)], LATER)))
+    sooner = revalidate(best, deps_for(fake_gateway([price(A, "2.48", valid_to=ends_sooner)], [stock(A, 600)], LATER)))
+    dearer = revalidate(
+        best, deps_for(fake_gateway([price(A, "2.60", valid_to=renewed_until)], [stock(A, 600)], LATER))
+    )
+
+    assert (renewed.ok, renewed.changes) == (True, ())
+    assert (open_ended.ok, open_ended.changes) == (True, ())
+    assert [(change.product_id, change.field) for change in sooner.changes] == [(A, "price_validity")]
+    assert sooner.ok is False
+    assert [(change.product_id, change.field) for change in dearer.changes] == [(A, "price")]
 
 
 def test_a_price_that_is_gone_is_reported(recheck: Recheck, price: Any, stock: Any) -> None:

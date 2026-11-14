@@ -2,7 +2,8 @@
 
 A candidate either fits or drops out with one reason code and one sentence. The checks run in a fixed
 order: first what does not match the request (allergens, pack), then what Valio cannot supply now
-(availability state, delivery date, price), so the reason a buyer reads is the most lasting one.
+(availability state, delivery date, price), so the reason a buyer reads is the most lasting one. Last
+come the checks that apply only when confirmed data only was asked for.
 """
 
 from __future__ import annotations
@@ -52,6 +53,15 @@ _STATE_REASONS = {
     AvailabilityState.NOT_DELIVERABLE: ExclusionReason.NOT_DELIVERABLE,
     AvailabilityState.OUT_OF_STOCK: ExclusionReason.OUT_OF_STOCK,
     AvailabilityState.CUTOFF_PASSED: ExclusionReason.CUTOFF_PASSED,
+}
+CONFIRMED_ONLY_ASKED = "Confirmed data only was asked for."
+# Under confirmed-only, the reason for a claim an order depends on that Valio's data does not confirm
+# (SPEC section 5, "Exclusion reason codes").
+_UNCONFIRMED_REASONS = {
+    ClaimName.PRICE: ExclusionReason.PRICE_UNAVAILABLE,
+    ClaimName.QUANTITY: ExclusionReason.QUANTITY_NOT_CONFIRMED,
+    ClaimName.ALLERGENS: ExclusionReason.ALLERGEN_NOT_STATED,
+    ClaimName.DELIVERY_DATE: ExclusionReason.DELIVERY_DATE_NOT_CONFIRMED,
 }
 
 Dropped = tuple[ExclusionReason, str]
@@ -153,10 +163,14 @@ def find_products(line: RequestLine, catalog: Catalog) -> Found:
 
 
 def named_product(catalog: Catalog, product_id: str) -> Product:
-    """A product asked for by id. A deleted product is treated as unknown."""
+    """A product asked for by id. A deleted product is treated as unknown.
+
+    The error does not repeat the id: it is the caller's own text, and a problem body is no place to
+    echo it back.
+    """
     product = catalog.get_product(product_id)
     if product is None or product.deleted:
-        raise UnknownProduct("A product id of the request is not in the catalog.", product_id=product_id)
+        raise UnknownProduct("A product id of the request is not in the catalog.")
     return product
 
 
@@ -265,7 +279,7 @@ def _pack_preference(candidate: Candidate, need: Need, _now: datetime) -> Droppe
         return ExclusionReason.PORTION_PACK, f"{_portion_fact(candidate.pack)} The request is for bulk packs."
     if need.pack is PackPreference.PORTION and not candidate.is_portion_pack:
         sentence = "This is not a pack of single-serve portions, and the request is for portion packs."
-        return ExclusionReason.PORTION_PACK, sentence
+        return ExclusionReason.NOT_A_PORTION_PACK, sentence
     return None
 
 
@@ -312,7 +326,24 @@ def _allergen_not_stated(candidate: Candidate, need: Need, _now: datetime) -> Dr
     if check.all_explicit and check.outcome is AllergenOutcome.PASS:
         return None
     unsettled = [finding.sentence for finding in check.findings if finding.relation is not AllergenRelation.FREE_FROM]
-    return ExclusionReason.ALLERGEN_NOT_STATED, " ".join(["Confirmed data only was asked for.", *unsettled])
+    return ExclusionReason.ALLERGEN_NOT_STATED, " ".join([CONFIRMED_ONLY_ASKED, *unsettled])
+
+
+def _not_confirmed(candidate: Candidate, need: Need, now: datetime) -> Dropped | None:
+    """Only under confirmed-only: the first claim an order depends on that Valio's data does not confirm.
+
+    The checks before this one catch a price that cannot be used and an allergen that is not settled, so
+    what is left is a quantity or, for a dated request, a delivery date that is not confirmed. A product
+    that passes is confirmed for order; none is left out later without a reason.
+    """
+    if not need.require_confirmed:
+        return None
+    claims = claims_of(candidate, need, None, now)
+    unconfirmed = unconfirmed_gating(claims, dated=need.dated)
+    if not unconfirmed:
+        return None
+    sentences = {check.claim: check.sentence for check in claims}
+    return _UNCONFIRMED_REASONS[unconfirmed[0]], f"{CONFIRMED_ONLY_ASKED} {sentences.get(unconfirmed[0], '')}".strip()
 
 
 _CHECKS: tuple[Callable[[Candidate, Need, datetime], Dropped | None], ...] = (
@@ -323,4 +354,5 @@ _CHECKS: tuple[Callable[[Candidate, Need, datetime], Dropped | None], ...] = (
     _late,
     _price,
     _allergen_not_stated,
+    _not_confirmed,
 )

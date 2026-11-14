@@ -77,9 +77,18 @@ def lowest_fill_ratio(coverage: Sequence[Coverage]) -> Decimal:
 
 
 def valid_until_of(lines: Sequence[OfferLine]) -> datetime | None:
-    """The earliest price validity and order cut-off of the lines: after it the option cannot be ordered."""
-    moments = [line.price_valid_to for line in lines] + [line.availability.closing_time for line in lines]
-    return min((moment for moment in moments if moment is not None), default=None)
+    """The earliest order cut-off and price validity of the lines: after it the option cannot be ordered.
+
+    `None` when a line has no cut-off: until when the option can be ordered is then not known, and the
+    policy reads a missing fact (F-03) instead of a date that was never stated. An open-ended price
+    carries validTo 9999-12-31 (AIMO/docs/API.md section 8.9); with a cut-off on every line that sentinel
+    is never the earliest moment, so it never becomes a `valid_until`.
+    """
+    cutoffs = [line.availability.closing_time for line in lines if line.availability.closing_time is not None]
+    if len(cutoffs) < len(lines):
+        return None
+    validities = [line.price_valid_to for line in lines if line.price_valid_to is not None]
+    return min((*cutoffs, *validities), default=None)
 
 
 def _tax(candidate: Candidate, units: Decimal, net: Decimal) -> Decimal:

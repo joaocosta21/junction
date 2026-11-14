@@ -3,12 +3,13 @@
 The policy engine, the store and the audit trail are the real ones; only the fresh look at price and
 availability is faked, so no test calls the mock API. Every line carries all five claims and every option a
 `valid_until`, as the offer builder writes them: without them the policy sends the option to a human.
+The store is wrapped so that a test can make one of its writes fail.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -34,11 +35,11 @@ from tta.contracts.common import (
     Identity,
     IdentityKind,
     OptionKind,
+    OrderStatus,
     PackSizeSource,
     Unit,
     round_money,
 )
-from tta.contracts.errors import TtaError
 from tta.contracts.offer import (
     ConstraintCheck,
     Coverage,
@@ -48,7 +49,7 @@ from tta.contracts.offer import (
     SubstituteInfo,
     Totals,
 )
-from tta.contracts.order import DecisionRequest
+from tta.contracts.order import DecisionRequest, Order
 from tta.contracts.policy import BuyerProfile, PolicyContext, PolicyDecision
 from tta.contracts.product import PackSize
 from tta.contracts.request import PurchaseRequest, RequestLine
@@ -92,13 +93,16 @@ class FakeRevalidator:
         self._clock = clock
         self.calls: list[OfferOption] = []
         self.result: RevalidationResult | None = None  # None: nothing changed and nothing expired
-        self.error: TtaError | None = None
+        self.error: Exception | None = None
         self.delay_seconds: float = 0
+        self.during_call: Callable[[], None] | None = None  # for example: time passes while the supplier answers
 
     def revalidate(self, option: OfferOption) -> RevalidationResult:
         self.calls.append(option)
         if self.delay_seconds:
             time.sleep(self.delay_seconds)
+        if self.during_call is not None:
+            self.during_call()
         if self.error is not None:
             raise self.error
         if self.result is not None:
@@ -107,18 +111,60 @@ class FakeRevalidator:
 
 
 class RecordingPolicy:
-    """The real policy engine, remembering the context of every evaluation."""
+    """The real policy engine, remembering the context of every evaluation. A test can make an evaluation fail."""
 
     def __init__(self, engine: RulePolicyEngine) -> None:
         self._engine = engine
         self.contexts: list[PolicyContext] = []
+        self.error: Exception | None = None
 
     def evaluate(self, option: OfferOption, profile: BuyerProfile, context: PolicyContext) -> PolicyDecision:
         self.contexts.append(context)
+        if self.error is not None:
+            raise self.error
         return self._engine.evaluate(option, profile, context)
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._engine, name)
+
+
+class WriteFault(Exception):
+    """The failure a test injects into one write of the store."""
+
+
+class FaultyStore:
+    """The real store, counting the writes of the order book. A test can make the n-th write from now on fail."""
+
+    WRITES = ("remember_idempotency_key", "save_order", "save_approval", "append_audit_event")
+
+    def __init__(self, store: SqliteStore) -> None:
+        self._store = store
+        self._until_fault = 0  # 0: no fault is waiting
+        self.writes: list[str] = []
+
+    def fail_write(self, number: int) -> None:
+        """The `number`-th write from now on raises `WriteFault` instead of writing; the writes after it work."""
+        self.writes.clear()
+        self._until_fault = number
+
+    def _attempt(self, name: str) -> None:
+        self.writes.append(name)
+        if not self._until_fault:
+            return
+        self._until_fault -= 1
+        if not self._until_fault:
+            raise WriteFault(f"{name} failed")
+
+    def __getattr__(self, name: str) -> object:
+        target = getattr(self._store, name)
+        if name not in self.WRITES:
+            return target
+
+        def write(*args: object) -> object:
+            self._attempt(name)
+            return target(*args)
+
+        return write
 
 
 class Samples:
@@ -259,7 +305,7 @@ class Book:
     """The order book of one test with everything around it."""
 
     service: OrderBookService
-    store: SqliteStore
+    store: FaultyStore
     clock: MovableClock
     revalidator: FakeRevalidator
     policy: RecordingPolicy
@@ -280,6 +326,13 @@ class Book:
         self.store.save_offer(offer)
         return offer
 
+    def waiting(self, agent: Identity, *options: OfferOption, profile_id: str = HOTEL) -> Order:
+        """An order that waits for a human, placed on the first option of a new offer."""
+        offer = self.offer(*options, profile_id=profile_id)
+        order = self.service.place_order(offer.offer_id, offer.options[0].option_id, agent, f"key-{offer.offer_id}")
+        assert order.status is OrderStatus.PENDING_APPROVAL
+        return order
+
     def events(self, order_id: str | None = None) -> tuple[AuditEvent, ...]:
         return self.store.list_audit_events(order_id=order_id)
 
@@ -299,14 +352,21 @@ def engine() -> RulePolicyEngine:
 
 @pytest.fixture
 def book(engine: RulePolicyEngine) -> Iterator[Book]:
-    store = SqliteStore()
+    database = SqliteStore()
+    store = FaultyStore(database)
     clock = MovableClock(NOW)
     revalidator = FakeRevalidator(clock)
     policy = RecordingPolicy(engine)
     audit = AuditTrail(store, clock, policy=engine)
     service = OrderBookService(store=store, policy=policy, revalidator=revalidator, audit=audit, clock=clock)
     yield Book(service=service, store=store, clock=clock, revalidator=revalidator, policy=policy, audit=audit)
-    store.close()
+    database.close()
+
+
+@pytest.fixture(scope="session")
+def write_fault() -> type[Exception]:
+    """The error `FaultyStore.fail_write` raises: test modules cannot import it from this file."""
+    return WriteFault
 
 
 @pytest.fixture(scope="session")

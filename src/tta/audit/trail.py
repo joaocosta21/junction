@@ -107,7 +107,9 @@ class AuditTrail:
             id=str(uuid4()), type=f"{EVENT_TYPE_PREFIX}{event_type.value}", time=now,
             subject=_subject(event_type, scope), data=data,
         )
-        with self._lock:
+        # The store first, the trail's lock second: the order every writer uses, so a thread inside
+        # `store.atomic()` and a thread recording an event can never wait for each other.
+        with self._store.atomic(), self._lock:
             return self._append(unchained)
 
     def view(

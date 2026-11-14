@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from tta.contracts.common import AvailabilityState, CheckResult, OptionKind
 from tta.contracts.offer import ConstraintCheck, Coverage, OfferLine, OfferOption, SubstituteInfo, Totals
@@ -14,10 +15,10 @@ from tta.offers.candidates import Need
 from tta.offers.checks import constraint_checks
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import coverage_of, lowest_fill_ratio, totals_of, valid_until_of
-from tta.offers.wording import counted, eur, measured, percent
+from tta.offers.wording import counted, eur, measured, percent, plain_name
 
 MAX_OPTIONS = 3
-# The last tie-break of the ranking. A product asked for comes before a stand-in for it.
+# A product asked for comes before a stand-in for it. Only the net total comes after this in the ranking.
 KIND_ORDER = {OptionKind.BEST_CONFIRMED: 0, OptionKind.ALTERNATIVE_UNCONFIRMED: 1, OptionKind.SUBSTITUTE: 2}
 TITLES = {
     OptionKind.BEST_CONFIRMED: "Best confirmed option",
@@ -70,16 +71,17 @@ def _assemble(draft: Draft, request: PurchaseRequest, needs: Sequence[Need], dep
     return _Assembled(draft=draft, totals=totals_of(draft.lines), coverage=coverage, checks=checks)
 
 
-def _rank_key(assembled: _Assembled) -> tuple[bool, int, int, int]:
-    """Constraint fit, then verification status, then the kind (SPEC section 5, step 3).
+def _rank_key(assembled: _Assembled) -> tuple[bool, int, int, int, Decimal]:
+    """Constraint fit, then verification status, then the kind, then the net total (SPEC section 5, step 3).
 
-    A quantity that is not confirmed is never the suggestion (SPEC section 4), so an option that holds
-    one comes after every option that does not, whatever else it fits.
+    An option that holds an unconfirmed quantity is never first: a quantity that is not confirmed is
+    never the suggestion (SPEC section 4), so such an option comes after every option that holds none,
+    whatever else it fits and however little it costs. The price is the last key and cannot change that.
     """
     unconfirmed = any(line.availability.state is not AvailabilityState.CONFIRMED for line in assembled.draft.lines)
     not_met = sum(check.result is CheckResult.NOT_MET for check in assembled.checks)
     unverified = sum(check.result is CheckResult.UNVERIFIED for check in assembled.checks)
-    return unconfirmed, not_met, unverified, KIND_ORDER[assembled.draft.kind]
+    return unconfirmed, not_met, unverified, KIND_ORDER[assembled.draft.kind], assembled.totals.net
 
 
 def _option(rank: int, assembled: _Assembled) -> OfferOption:
@@ -136,10 +138,10 @@ def _covered_phrase(coverage: Sequence[Coverage]) -> str:
 
 
 def _names(lines: Iterable[OfferLine]) -> str:
-    return ", ".join(dict.fromkeys(f"{line.name} ({line.product_id})" for line in lines))
+    return ", ".join(dict.fromkeys(f"{plain_name(line.name)} ({line.product_id})" for line in lines))
 
 
 def _original_name(substitute: SubstituteInfo) -> str:
     if not substitute.original_name:
         return substitute.original_id
-    return f"{substitute.original_name} ({substitute.original_id})"
+    return f"{plain_name(substitute.original_name)} ({substitute.original_id})"

@@ -1,8 +1,9 @@
 """The `Store` port on SQLite from the standard library: no ORM, one JSON document per row.
 
 Scores on the 20% "how decisions are logged and auditable": orders, approvals and the audit trail
-survive a restart, the audit table can only be appended to, and an event is stored only when it follows
-the last one, whichever process or connection writes it.
+survive a restart, the audit table can only be appended to, an event is stored only when it follows
+the last one, whichever process or connection writes it, and `atomic()` keeps an order, its approval, its
+idempotency key and its audit event together: all of them are stored, or none.
 """
 
 from __future__ import annotations
@@ -27,6 +28,14 @@ from tta.store.errors import AuditChainConflict
 
 IN_MEMORY = ":memory:"
 STORE_UNAVAILABLE_DETAIL = "The gateway's own database could not be read or written. Nothing was changed."
+STORE_BUSY_DETAIL = (
+    "The gateway's own database is busy with another write. Nothing was changed; the same request can be sent again."
+)
+# How long a thread waits for the connection while another thread uses it or has a block open: as long as
+# sqlite3 waits by default for another connection's write lock. The wait is bounded because a caller may hold a
+# lock of its own while it waits here (the audit trail does), and the thread inside the block may need that lock:
+# without a bound the two would wait for each other for ever.
+LOCK_WAIT_SECONDS = 5.0
 CHAIN_MOVED_DETAIL = (
     "The audit event does not follow the last event of the trail: another writer added an event first. "
     "Nothing was recorded."
@@ -44,10 +53,14 @@ class SqliteStore:
     One connection, guarded by a lock, so the FastAPI thread pool can share it. Audit events have
     an append and two reads; there is no method that changes or removes one, and the database refuses
     an `UPDATE`, a `DELETE` or a replacing `INSERT` on them (`schema.py`).
+
+    `atomic()` is one transaction over whatever is written inside it. While a thread has a block open, every
+    other thread waits for the connection, up to `LOCK_WAIT_SECONDS`.
     """
 
     def __init__(self, path: Path | str = IN_MEMORY) -> None:
         self._lock = threading.RLock()
+        self._depth = 0  # `atomic()` blocks open in the thread that holds the lock
         try:
             self._connection = sqlite3.connect(str(path), check_same_thread=False)
         except sqlite3.Error as error:
@@ -61,21 +74,78 @@ class SqliteStore:
             raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
 
     def close(self) -> None:
-        with self._lock:
+        with self._held():
             self._connection.close()
 
     @contextmanager
-    def _session(self, begin: str | None = None) -> Iterator[sqlite3.Connection]:
-        """One unit of work: committed at the end, rolled back on any error.
+    def atomic(self) -> Iterator[None]:
+        """Everything saved or appended inside the `with` block is committed together, or not at all.
 
-        `begin` opens the transaction at once with that statement; without it SQLite opens one at the first write.
+        The outermost block is one transaction that holds the database's write lock from its first statement
+        (`BEGIN IMMEDIATE`), so the audit head read inside it cannot move before the append. A block inside a
+        block of the same thread is a savepoint: when it fails, only its own writes are taken back. Whatever ends
+        a block reaches the caller unchanged; a database failure is `SupplierUnavailable`.
         """
-        with self._lock:
+        with self._held():
+            outermost = self._depth == 0
+            self._begin(outermost)
+            self._depth += 1
             try:
-                with self._connection:
-                    if begin is not None:
-                        self._connection.execute(begin)
+                yield
+                self._keep(outermost)
+            except BaseException:
+                self._undo(outermost)
+                raise
+            finally:
+                self._depth -= 1
+
+    @contextmanager
+    def _held(self) -> Iterator[None]:
+        """The connection for this thread alone; the thread that already holds it enters at once."""
+        if not self._lock.acquire(timeout=LOCK_WAIT_SECONDS):
+            raise SupplierUnavailable(STORE_BUSY_DETAIL)
+        try:
+            yield
+        finally:
+            self._lock.release()
+
+    def _begin(self, outermost: bool) -> None:
+        try:
+            self._connection.execute(schema.BEGIN_WRITE if outermost else schema.BEGIN_INNER)
+        except sqlite3.Error as error:
+            raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
+
+    def _keep(self, outermost: bool) -> None:
+        try:
+            if outermost:
+                self._connection.commit()
+            else:
+                self._connection.execute(schema.END_INNER)
+        except sqlite3.Error as error:
+            raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
+
+    def _undo(self, outermost: bool) -> None:
+        """Take back what a block wrote. When that fails too, it is raised with the first failure as its context."""
+        try:
+            if outermost:
+                self._connection.rollback()
+            else:
+                self._connection.execute(schema.UNDO_INNER)
+                self._connection.execute(schema.END_INNER)
+        except sqlite3.Error as error:
+            raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
+
+    @contextmanager
+    def _session(self) -> Iterator[sqlite3.Connection]:
+        """The connection for one method's statements. Inside an open `atomic()` block they are part of that block;
+        otherwise they are committed when the method ends, and rolled back on any error."""
+        with self._held():
+            try:
+                if self._depth:
                     yield self._connection
+                else:
+                    with self._connection:
+                        yield self._connection
             except sqlite3.Error as error:
                 raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
 
@@ -147,14 +217,15 @@ class SqliteStore:
         return None if row is None else row[0]
 
     def append_audit_event(self, event: AuditEvent) -> None:
-        """Add one event at the end, in one transaction that holds the write lock from the first read.
+        """Add one event at the end, in one transaction that holds the write lock from the first read: its own,
+        or the `atomic()` block it is called in.
 
         An id that is already stored is refused (`ValueError`): nothing is replaced. An event whose
         `previous_hash` is not the hash of the last stored event (the genesis hash in an empty trail) is
         refused with `AuditChainConflict`: another writer appended first, and storing it would fork the chain.
         """
         data = event.data
-        with self._session(schema.BEGIN_WRITE) as connection:
+        with self.atomic(), self._session() as connection:
             if connection.execute(schema.AUDIT_EVENT_EXISTS, (event.id,)).fetchone() is not None:
                 raise ValueError(f"Audit event {event.id} is already stored; the audit trail is append-only.")
             last = connection.execute(schema.LAST_AUDIT_HASH).fetchone()

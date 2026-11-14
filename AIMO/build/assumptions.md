@@ -163,3 +163,25 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - On a dated option, a line whose delivery-date claim is unknown also fires F-07.
 - A pending order is expired at the instant of its "order by" time, not after it.
 - The supplier sees rules F-07 and F-08 with their meaning, as it sees F-01 and F-05: they are about its own data.
+
+## Offers after review (FIX-6)
+- The re-check before an order also compares the delivery date (a later one is a change, an earlier one is not), the sales unit and the tax rate. A price validity that moved later with the same price is not a change.
+- Every product that drops out is listed with a reason; under confirmed-only the reasons include `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED`; a line that asks for portion packs excludes others with `NOT_A_PORTION_PACK`. A product that fits and is in no option is named in a note (question FIX6-1).
+- Stock taken by a stand-in for one request line is not offered to the next.
+- An option's `valid_until` is empty when any of its lines has no cut-off; the open-ended price date never becomes a `valid_until`.
+- The needed-by and confirmed-only checks are "not met" when a request line has nothing offered.
+- Product names are cleaned before they enter any sentence of an offer; the name fields themselves keep the product file's text, so pages and model prompts must treat them as data.
+- Only dietary claims count as lost by a substitute (eight codes, our list; question T07-7).
+
+## Orders and store after review (FIX-7)
+- An order's state, its approval, its idempotency key and its audit event are written in one database transaction, or not at all. The supplier call is never inside a transaction.
+- One live order per offer (question FIX7-2).
+- An approval runs the order-time check first, then asks whether the approver holds a role the new decision still needs (question FIX7-1).
+- The day's spend counts an ordered order on the day it became ordered and a waiting one on the day it was created.
+- Any failure of the order-time check is recorded as "order not placed" with the error's type, never its text.
+- What an order relied on carries two times: when Valio stated the figures (the offer's data time) and when the re-check found them still sufficient.
+- An approval with no "order by" time expires 24 hours after it was created.
+- Another buyer's order, approval or offer id answers `not-found`, the same as an unknown id. A refused attempt on another buyer's approval is recorded in the caller's own trail.
+- An idempotency key is 1 to 100 characters of letters, digits, `.`, `_`, `:` and `-`.
+- A thread waits at most 5 seconds for the store, then the caller gets `supplier-unavailable` and can send the same request again.
+- The order book's one lock is held across the supplier call and protects one process only (next step).

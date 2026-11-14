@@ -7,16 +7,20 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from tta.contracts.availability import QUANTITY_NOT_CONFIRMED_THRESHOLD
+from tta.contracts.availability import QUANTITY_NOT_CONFIRMED_THRESHOLD, RevalidationResult
 from tta.contracts.common import (
     CheckResult,
     ConstraintKind,
+    DataSource,
     ExclusionReason,
     OptionKind,
     Unit,
+    Verdict,
 )
 from tta.contracts.offer import Offer
+from tta.contracts.policy import PolicyContext
 from tta.contracts.request import PurchaseRequest, RequestLine
+from tta.offers.options import Draft, _Assembled, _rank_key
 
 # Three lactose-free milks of category 10400, each a 1-litre carton sold by the piece (ST).
 A, B, C = "469363", "462775", "463380"
@@ -109,6 +113,20 @@ def test_the_unconfirmed_alternative_is_ranked_after_a_partial_confirmed_option(
     ]
 
 
+def test_between_options_that_fit_alike_the_lower_net_total_ranks_first(
+    build: Build, price: Any, stock: Any, best: Any
+) -> None:
+    option = best(build([price(A, "2.48")], [stock(A, 1500)]))
+    cheaper = _Assembled(
+        draft=Draft(option.kind, option.lines), totals=option.totals, coverage=option.coverage,
+        checks=option.constraint_checks,
+    )
+    dearer_totals = option.totals.model_copy(update={"net": option.totals.net + 1})
+    dearer = _Assembled(draft=cheaper.draft, totals=dearer_totals, coverage=cheaper.coverage, checks=cheaper.checks)
+
+    assert sorted([dearer, cheaper], key=_rank_key) == [cheaper, dearer]
+
+
 # --- validity ----------------------------------------------------------------------------------------------
 
 def test_valid_until_is_the_cut_off_when_it_comes_before_the_price_validity(
@@ -136,6 +154,45 @@ def test_valid_until_is_the_price_validity_when_it_comes_first(build: Build, pri
         [stock(A, 600), stock(B, 600, closing_time=early_cutoff)],
     )
     assert best(earlier).valid_until == early_cutoff
+
+
+def test_valid_until_is_none_when_a_line_has_no_cut_off(build: Build, price: Any, stock: Any, best: Any) -> None:
+    # B has a cut-off and A has none: the option cannot say until when it can be ordered.
+    end_of_year = datetime.fromisoformat("2026-12-31T00:00:00+02:00")
+    offer = build(
+        [price(A, "2.65", valid_to=end_of_year), price(B, "2.48")], [stock(A, 800, closing_time=None), stock(B, 384)]
+    )
+
+    option = best(offer)
+    assert [line.product_id for line in option.lines] == [B, A]
+    assert option.valid_until is None
+
+
+def test_an_open_ended_price_never_becomes_the_valid_until(
+    build: Build, price: Any, stock: Any, open_cutoff: datetime, best: Any
+) -> None:
+    # A price with no end date carries validTo 9999-12-31; that is not a time an order can wait until.
+    without_cutoff = build([price(A, "2.48")], [stock(A, 1500, closing_time=None)])
+    with_cutoff = build([price(A, "2.48")], [stock(A, 1500)])
+
+    assert best(without_cutoff).lines[0].price_valid_to.year == 9999
+    assert best(without_cutoff).valid_until is None
+    assert best(with_cutoff).valid_until == open_cutoff
+
+
+def test_at_order_time_an_option_without_a_valid_until_goes_to_a_human(
+    build: Build, policy: Any, price: Any, stock: Any, make_request: Any, best: Any, now: datetime
+) -> None:
+    request = make_request(24, Unit.UNIT, product_ids=(A,), needed_by=None)
+    option = best(build([price(A, "2.48")], [stock(A, 50, closing_time=None)], request))
+    unchanged = RevalidationResult(ok=True, checked_at=now, source=DataSource.REPLAY)
+    context = PolicyContext(now=now, day_committed_net_eur=Decimal(0), at_order_time=True, revalidation=unchanged)
+
+    decision = policy.evaluate(option, policy.get_profile("hotel-kitchen"), context)
+
+    assert option.valid_until is None
+    assert decision.verdict is Verdict.APPROVAL  # a missing fact, never "valid until the year 9999"
+    assert "F-03" in decision.rule_ids
 
 
 # --- nothing fits ------------------------------------------------------------------------------------------

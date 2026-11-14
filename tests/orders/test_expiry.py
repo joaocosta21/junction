@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from tta.contracts.common import ApprovalStatus, Identity, OrderStatus
 from tta.contracts.order import Order
+from tta.orders.records import is_past_order_by
 
 AFTER_ORDER_BY = timedelta(days=3)
 
@@ -43,16 +44,20 @@ def test_reading_an_expired_order_again_records_nothing_more(book, samples, agen
     assert second == first and book.event_types().count("order.expired") == 1
 
 
-def test_an_order_is_still_pending_at_the_very_minute_it_must_be_decided_by(
+def test_an_order_is_pending_until_its_order_by_time_and_expired_at_that_very_instant(
     book, samples, agent_hotel: Identity
 ) -> None:
+    """A time equal to the clock has passed, as for the policy (F-04), availability and the offer re-check."""
     pending = _pending(book, samples, agent_hotel)
-    book.clock.advance(samples.order_by - samples.now)
+    book.clock.advance(samples.order_by - samples.now - timedelta(seconds=1))
 
     assert book.service.get_order(pending.order_id, agent_hotel).status is OrderStatus.PENDING_APPROVAL
 
     book.clock.advance(timedelta(seconds=1))
 
+    assert book.clock.now() == pending.option.valid_until == samples.order_by
+    assert not is_past_order_by(pending, samples.order_by - timedelta(microseconds=1))
+    assert is_past_order_by(pending, samples.order_by)
     assert book.service.get_order(pending.order_id, agent_hotel).status is OrderStatus.EXPIRED
 
 
