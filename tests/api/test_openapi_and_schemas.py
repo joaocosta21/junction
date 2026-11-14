@@ -41,6 +41,7 @@ ROUTES = {
     ("post", "/v1/approvals/{approval_id}/decision"): "decide_approval",
     ("get", "/v1/audit"): "get_audit",
     ("post", "/v1/requests/parse"): "parse_request",
+    ("post", "/v1/requests/read-image"): "read_image",  # task T18: a multipart form, tested in test_read_image.py
     ("post", "/v1/agent/run"): "run_agent",
     ("get", "/v1/schemas"): "get_schemas",
     ("get", "/healthz"): "get_health",
@@ -143,7 +144,11 @@ def test_every_request_body_has_an_example_that_its_contract_accepts(document: d
         assert examples, name
         for example in examples:
             model.model_validate(example)
-    assert {name for name, operation in operations.items() if "requestBody" in operation} == set(REQUEST_MODELS)
+    with_json = {
+        name for name, operation in operations.items()
+        if "application/json" in operation.get("requestBody", {}).get("content", {})
+    }
+    assert with_json == set(REQUEST_MODELS)
 
 
 def test_every_answer_has_an_example_taken_from_the_scenarios(document: dict[str, Any]) -> None:

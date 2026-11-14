@@ -12,17 +12,20 @@ key. Decided by the orchestrator on 14 Nov 2026:
   the sentence below. A request read from a recording says so in its `Reading` (task FIX-9): "Gemini did not
   answer; read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 06:14 UTC.";
 - a recording is served only for the buyer profile it was recorded for;
+- a photo (task T18) falls back only when its transcription and the reading of its lines are both recorded: it
+  is then served wholly from the recordings, and its sentence opens "Read from a photo: Gemini did not answer;";
 - after a failure for unreachability the Gemini model refuses at once for a while (`tta.agent.outage`), so in
   that window a recorded sentence is answered from its recording straight away.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import Sequence
 
 from tta.agent.gemini import ModelUnreachable
-from tta.agent.labels import fallback_sentence, made_on
+from tta.agent.labels import fallback_sentence, made_on, photo_sentence
 from tta.agent.model import AnswerSource
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import HAND_BUILT_MODEL_ID, LIVE_SOURCE, RECORDED_MODEL_ID, RecordedModel, Recording
@@ -89,6 +92,23 @@ class FallbackParser:
             logger.warning("%s %s", reading.sentence, unreachable.detail)
         self._last_answered_by = _answered_by(reading)  # one assignment: safe from several threads
         return reading
+
+    def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
+        """Gemini's transcription and reading of a photo, or both from the recordings when Gemini cannot be
+        reached and the photo has them for this profile."""
+        try:
+            lines, reading = self._live.read_image(image, media_type, identity)
+        except ModelUnreachable as unreachable:
+            digest = hashlib.sha256(image).hexdigest()
+            if not self._recordings.holds_photo(digest, identity.profile_id):
+                raise
+            lines, reading = self._recorded.read_image(image, media_type, identity)
+            read = AnswerSource(reading.source, reading.model, reading.recorded_at)
+            sentence = photo_sentence(self._recordings.transcription_source(digest), read, fallback=True)
+            reading = reading.model_copy(update={"sentence": sentence})
+            logger.warning("%s %s", sentence, unreachable.detail)
+        self._last_answered_by = _answered_by(reading)
+        return lines, reading
 
     def _from_recording(self, text: str, identity: Identity) -> Reading:
         reading = self._recorded.read(text, identity)

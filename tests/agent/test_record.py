@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -11,7 +12,7 @@ from typing import Any
 import pytest
 
 from tta.agent import record
-from tta.agent.model import AgentModel, ExtractCall, TurnCall
+from tta.agent.model import AgentModel, ExtractCall, TranscribeCall, TurnCall
 from tta.agent.parser import ModelRequestParser
 from tta.agent.record import (
     PLAN,
@@ -123,26 +124,37 @@ def test_turns_are_kept_per_sentence(scripted: Any) -> None:
 
 
 def test_the_plan_of_the_live_check_is_recorded_into_fixtures_the_recorded_model_serves(
-    scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, parts: Parts, tmp_path: Path
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, transcription: Callable[..., str], demo_clock: Clock,
+    parts: Parts, tmp_path: Path, demo_photo: bytes, demo_photo_lines: tuple[str, ...], agent_hotel: Identity,
 ) -> None:
-    answers = [
-        proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000),
-        proposal(product_type="plant_drink", quantity=200, exclude_allergens=["AM", "AW"], require_confirmed=True),
-        proposal(quantity=None, unit=None),
-    ]
-    live = RecordingModel(scripted(extracts=answers, turns=[list(turn) for turn in HAPPY_PATH]))
+    milk = proposal(required_claims=["FREE_FROM_LACTOSE"], quantity=1000)
+    plant_drink = proposal(product_type="plant_drink", quantity=200, exclude_allergens=["AM", "AW"],
+                           require_confirmed=True)
+    answers = [milk, plant_drink, proposal(quantity=None, unit=None), milk, plant_drink, milk]
+    live = RecordingModel(scripted(extracts=answers, turns=[list(turn) for turn in HAPPY_PATH],
+                                   transcriptions=[transcription(*demo_photo_lines)]))
     parser = make_parser(live, demo_clock)
     recorder = Recorder(
         live=live, parser=parser, runner=ModelAgentRunner(model=live, parser=parser), gateway=parts.service,
         directory=tmp_path / "agent", secrets=("no-such-secret",), today=TODAY,
     )
+    _with_the_demo_photo(tmp_path / "agent", demo_photo)
 
     written = [path.name for task in PLAN for path in recorder.record(task)]
 
     assert written == ["parse-scenario-1.json", "parse-scenario-2.json", "run-scenario-2.json",
-                       "parse-no-quantity.json"]
+                       "parse-no-quantity.json", "parse-finnish-1.json", "parse-finnish-2.json",
+                       "transcribe-photo.json", "parse-photo.json"]
     assert [(task.kind, task.profile_id) for task in PLAN] == [
         ("parse", "hotel-kitchen"), ("run", "allergy-ward"), ("parse", "hotel-kitchen"),
+        ("parse", "hotel-kitchen"), ("parse", "allergy-ward"), ("photo", "hotel-kitchen"),
+    ]
+    no_quantity = json.loads((tmp_path / "agent" / "parse-no-quantity.json").read_text(encoding="utf-8"))
+    assert no_quantity["proposal"]["lines"][0]["quantity"] is None  # the refusal is recorded as the model gave it
+    assert no_quantity["today"] == "2026-11-14" and no_quantity["source"] == "live"
+    assert [recording.profile_id for recording in load_recordings(tmp_path / "agent")] == [
+        "hotel-kitchen", "allergy-ward", "hotel-kitchen", "hotel-kitchen", "hotel-kitchen", "allergy-ward",
+        "allergy-ward", "hotel-kitchen",  # in file-name order
     ]
     replayed = RecordedModel(tmp_path / "agent")
     scenario_2 = PLAN[1].text
@@ -152,12 +164,52 @@ def test_the_plan_of_the_live_check_is_recorded_into_fixtures_the_recorded_model
         TurnCall(system="s", request_text=scenario_2, history=(), tools=(), turn=1, profile_id=WARD)
     )
     assert [call.name for call in first_turn.calls] == ["get_authority"]
-    no_quantity = json.loads((tmp_path / "agent" / "parse-no-quantity.json").read_text(encoding="utf-8"))
-    assert no_quantity["proposal"]["lines"][0]["quantity"] is None  # the refusal is recorded as the model gave it
-    assert no_quantity["today"] == "2026-11-14" and no_quantity["source"] == "live"
-    assert [recording.profile_id for recording in load_recordings(tmp_path / "agent")] == [
-        "hotel-kitchen", "hotel-kitchen", "allergy-ward", "allergy-ward",  # in file-name order
-    ]
+    lines, reading = make_parser(replayed, demo_clock).read_image(demo_photo, "image/png", agent_hotel)
+    assert tuple(lines) == demo_photo_lines and reading.request.lines[0].quantity == 1000
+
+
+def _with_the_demo_photo(directory: Path, photo: bytes) -> None:
+    (directory / "photos").mkdir(parents=True)
+    (directory / "photos" / "order-list.png").write_bytes(photo)
+
+
+def test_the_plan_reads_the_two_finnish_sentences_and_the_demo_photo() -> None:
+    by_name = {task.name: task for task in PLAN}
+
+    assert by_name["finnish-1"].text == "1000 litraa laktoositonta maitoa maanantaiksi"
+    assert by_name["finnish-2"].text == (
+        "200 litraa maidotonta ja gluteenitonta kasvijuomaa maanantaiksi, vain vahvistetut tiedot"
+    )
+    assert (by_name["photo"].kind, by_name["photo"].text) == ("photo", "photos/order-list.png")
+
+
+def test_a_photo_whose_transcription_did_not_validate_twice_is_not_recorded(
+    scripted: Any, make_parser: MakeParser, demo_clock: Clock, parts: Parts, tmp_path: Path, demo_photo: bytes
+) -> None:
+    live = RecordingModel(scripted(transcriptions=['{"lines": [1]}', '{"lines": [2]}']))
+    _with_the_demo_photo(tmp_path / "agent", demo_photo)
+    photo = next(task for task in PLAN if task.kind == "photo")
+
+    written = _recorder(live, make_parser, demo_clock, parts, tmp_path / "agent").record(photo)
+
+    assert written == ()
+
+
+def test_a_photo_whose_list_names_no_quantity_is_recorded_with_its_reading(
+    scripted: Any, make_parser: MakeParser, proposal: Proposal, transcription: Callable[..., str], demo_clock: Clock,
+    parts: Parts, tmp_path: Path, demo_photo: bytes,
+) -> None:
+    live = RecordingModel(scripted(transcriptions=[transcription("Maitoa maanantaiksi")],
+                                   extracts=[proposal(quantity=None, unit=None)]))
+    _with_the_demo_photo(tmp_path / "agent", demo_photo)
+    photo = next(task for task in PLAN if task.kind == "photo")
+
+    written = _recorder(live, make_parser, demo_clock, parts, tmp_path / "agent").record(photo)
+
+    assert [path.name for path in written] == ["transcribe-photo.json", "parse-photo.json"]
+    saved = json.loads((tmp_path / "agent" / "transcribe-photo.json").read_text(encoding="utf-8"))
+    assert saved["image_sha256"] == hashlib.sha256(demo_photo).hexdigest()
+    assert (saved["kind"], saved["text"], saved["profile_id"]) == ("transcribe", "Maitoa maanantaiksi", "hotel-kitchen")
 
 
 # --- only what validated is written (FIX-9) ---------------------------------------------------------------
@@ -218,3 +270,12 @@ def test_the_live_check_can_give_the_model_longer_than_the_gateway_does(
     assert given == {"timeout_seconds": 90.0}
     assert record.main(["--only", "scenario-1"]) == record.EXIT_OK
     assert given == {"timeout_seconds": record.REQUEST_TIMEOUT_SECONDS}
+
+
+def test_a_transcription_that_is_not_a_list_of_lines_cannot_be_made_a_recording(scripted: Any) -> None:
+    live = RecordingModel(scripted(transcriptions=['{"lines": [1]}']))
+    call = TranscribeCall(system="s", request="r", image=b"\x89PNG\r\n\x1a\n", media_type="image/png", schema={})
+    live.transcribe(call)
+
+    with pytest.raises(KeyError):
+        live.photo_recording(call.digest, profile_id=WARD, today=TODAY, recorded_at=AT)

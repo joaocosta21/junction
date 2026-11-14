@@ -8,9 +8,13 @@ Who reads the request, once per form submission (task FIX-10, finding 7):
 1. the buyer agent, when one is running: it reads the text, asks for the offer and places the order itself,
    and the page shows its steps. When it cannot, the parser is not asked to read the same text again;
 2. else the request parser, then the page asks for the offer and orders the top option;
-3. for one of the three examples only, the example's own typed request, when neither could do it. The page
+3. for one of the examples only, the example's own typed request, when neither could do it. The page
    says which of the three happened, and says "no model was asked" only when none was. An example needs no
    model, so the ceiling on model calls does not stop it; the limits on offers and orders apply to it.
+
+A photo of an order list (task T18) is read by the request parser in two steps, the lines it reads and then the
+reading of those lines; the page then asks for the offer and orders the top option, as in 2. The buyer agent is
+not asked, so the lines are read once.
 
 The order the page places carries one idempotency key per form submission, derived from the form's run key
 (finding 4): a form sent again can never place a second order, even when the page has forgotten the run.
@@ -59,6 +63,7 @@ class ReadBy(StrEnum):
     AGENT = "agent"
     PARSER = "parser"
     EXAMPLE = "example"
+    PHOTO = "photo"  # transcribed, then read by the request parser (task T18)
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,7 @@ class RunRecord:
     order_id: str | None = None
     not_ordered: Problem | None = None  # the offer exists, and the gateway refused the order
     substitutes: Substitutes | None = None  # None: the request names no product by id
+    transcription: tuple[str, ...] = ()  # the lines read in a photo, word for word (task T18)
 
 
 def new_key() -> str:
@@ -163,11 +169,30 @@ def run_request(
         request, read_by, reading, more = example.request, ReadBy.EXAMPLE, None, (READ_FROM_EXAMPLE,)
     else:
         request, read_by, reading, more = _typed_request(service, identity, text, example)
-    offer = service.create_offer(identity, request)
+    record = RunRecord(text=text, agent_id=identity.id, read_by=read_by, notes=(*notes, *more), reading=reading)
+    return _offer_and_order(service, identity, request, record, order_key)
+
+
+def run_photo(
+    service: Gateway, identity: Identity, image: bytes, media_type: str, order_key: str | None = None
+) -> RunRecord:
+    """Photo -> the lines read in it -> the typed request read from them -> offer -> order of the top option,
+    as `identity` (task T18). Raises the gateway's typed error when the photo cannot be read or no offer could
+    be built; an order the gateway refuses is kept in the record, next to the offer."""
+    lines, reading = service.read_image(identity, image, media_type)
     record = RunRecord(
-        text=text, agent_id=identity.id, read_by=read_by, notes=(*notes, *more), reading=reading,
-        offer_id=offer.offer_id,
+        text=reading.request.lines[0].text, agent_id=identity.id, read_by=ReadBy.PHOTO, reading=reading,
+        transcription=tuple(lines),
     )
+    return _offer_and_order(service, identity, reading.request, record, order_key)
+
+
+def _offer_and_order(
+    service: Gateway, identity: Identity, request: PurchaseRequest, record: RunRecord, order_key: str | None
+) -> RunRecord:
+    """The offer for the request, and the order of its top option when it has one."""
+    offer = service.create_offer(identity, request)
+    record = replace(record, offer_id=offer.offer_id)
     if not offer.options:
         return record
     try:

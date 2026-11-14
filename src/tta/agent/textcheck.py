@@ -5,11 +5,12 @@ decides nothing": the parser takes a number, a unit, a day, an exclusion or a pr
 when the text gives it too. The tables below are short and ours; a phrase they do not know never makes a reading
 pass, it can only make the parser refuse one or leave a field to the model:
 - numbers: "1,000", "1 000", "1000", "1.5", "1,5", and number words such as "a thousand" or "twenty-five";
-- unit words in English and Finnish, for litres, kilograms and sales units;
-- exclusions: "no X", "without X", "free from X", "X-free", "allergic to X", "X allergy", "ilman X", "X-ton".
-  "Lactose-free" is a nutritional claim, never an allergen exclusion (AIMO/docs/SCHEMA-AND-CODES.md section 2.4),
-  so lactose is not in the table;
-- confirmed data: the word "confirmed", "verified" or "vahvistettu";
+- unit words in English, Finnish and Swedish, for litres, kilograms and sales units;
+- exclusions: "no X", "without X", "free from X", "X-free", "allergic to X", "X allergy"; in Finnish "ei X",
+  "ilman X", "X-ton", "X-vapaa"; in Swedish "utan X", "ingen X", "fri från X", "X-fri" (task T18).
+  "Lactose-free" ("laktoositon", "laktosfri") is a nutritional claim, never an allergen exclusion
+  (AIMO/docs/SCHEMA-AND-CODES.md section 2.4), so lactose is not in the table;
+- confirmed data: the word "confirmed", "verified", "vahvistettu", "varmistettu" or "bekräftad";
 - product numbers: whole tokens of the text, never a piece of a number such as the "1" of "1,000".
 """
 
@@ -36,7 +37,7 @@ _NUMBER_LIKE = re.compile(r"\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?|\d+[.,]\d{1,2}")  
 
 _UNIT_WORDS: Mapping[Unit, frozenset[str]] = {
     Unit.L: frozenset({"l", "lt", "ltr", "ltrs", "litre", "litres", "liter", "liters", "litra", "litraa",
-                       "litran", "litroja"}),
+                       "litran", "litroja", "litrat", "litern"}),
     Unit.KG: frozenset({"kg", "kgs", "kilo", "kilos", "kilogram", "kilograms", "kilogramme", "kilogrammes",
                         "kiloa", "kilon", "kiloja", "kilogrammaa"}),
     Unit.UNIT: frozenset({
@@ -45,7 +46,9 @@ _UNIT_WORDS: Mapping[Unit, frozenset[str]] = {
         "tin", "tins", "jar", "jars", "bag", "bags", "tray", "trays", "crate", "crates", "bucket", "buckets",
         "tub", "tubs", "sack", "sacks", "portion", "portions", "kpl", "pkt", "kappale", "kappaletta",
         "pakkaus", "pakkausta", "pakkauksia", "laatikko", "laatikkoa", "pullo", "pulloa", "purkki", "purkkia",
-        "pussi", "pussia", "rasia", "rasiaa", "tölkki", "tölkkiä",
+        "pussi", "pussia", "rasia", "rasiaa", "tölkki", "tölkkiä", "kartonki", "kartonkia", "säkki", "säkkiä",
+        "ämpäri", "ämpäriä", "annos", "annosta", "styck", "stycken", "förpackning", "förpackningar", "flaska",
+        "flaskor", "burk", "burkar", "påse", "påsar", "låda", "lådor", "kartong", "kartonger",
     }),
 }
 
@@ -61,53 +64,76 @@ _SCALES = {"hundred": HUNDRED, "thousand": THOUSAND, "dozen": DOZEN}
 _ONE_OF_A_SCALE = frozenset({"a", "an"})  # "a thousand"
 _NUMBER_JOINER = "and"  # "two hundred and fifty"
 
-# The allergen a word or phrase names (GS1 codes of `tta.allergens`). Phrases are matched longest first.
+# The allergen a word or phrase names (GS1 codes of `tta.allergens`), in English, Finnish and Swedish. Phrases are
+# matched longest first.
 _ALLERGEN_WORDS: Mapping[tuple[str, ...], str] = {
-    **{(word,): "AM" for word in ("milk", "dairy", "maito", "maitoa")},
+    **{(word,): "AM" for word in ("milk", "dairy", "maito", "maitoa", "maitotuotteita", "maitotuotteet", "mjölk",
+                                  "mjölkprodukter")},
     **{(word,): "AW" for word in ("gluten", "gluteeni", "gluteenia")},
-    **{(word,): "UW" for word in ("wheat", "vehnä", "vehnää")},
-    **{(word,): "AE" for word in ("egg", "eggs", "muna", "munaa", "kananmuna", "kananmunaa")},
-    **{(word,): "AN" for word in ("nut", "nuts", "pähkinä", "pähkinää", "pähkinöitä")},
+    **{(word,): "UW" for word in ("wheat", "vehnä", "vehnää", "vete")},
+    **{(word,): "AE" for word in ("egg", "eggs", "muna", "munaa", "kananmuna", "kananmunaa", "ägg")},
+    **{(word,): "AN" for word in ("nut", "nuts", "pähkinä", "pähkinää", "pähkinöitä", "nöt", "nötter")},
     ("tree", "nut"): "AN", ("tree", "nuts"): "AN",
-    **{(word,): "AP" for word in ("peanut", "peanuts", "maapähkinä", "maapähkinää", "maapähkinöitä")},
-    **{(word,): "AY" for word in ("soy", "soya", "soybean", "soybeans", "soija", "soijaa")},
-    **{(word,): "AS" for word in ("sesame", "seesami", "seesamia")},
-    **{(word,): "AF" for word in ("fish", "kala", "kalaa")},
-    **{(word,): "AC" for word in ("crustacean", "crustaceans")},
-    **{(word,): "UN" for word in ("shellfish",)},
-    **{(word,): "UM" for word in ("mollusc", "molluscs", "mollusk", "mollusks")},
-    **{(word,): "BC" for word in ("celery",)},
-    **{(word,): "BM" for word in ("mustard",)},
-    **{(word,): "NL" for word in ("lupin", "lupine")},
-    **{(word,): "AU" for word in ("sulphite", "sulphites", "sulfite", "sulfites")},
-    **{(word,): "SA" for word in ("almond", "almonds")},
-    **{(word,): "SH" for word in ("hazelnut", "hazelnuts")},
-    **{(word,): "SW" for word in ("walnut", "walnuts")},
-    **{(word,): "SC" for word in ("cashew", "cashews")},
+    **{(word,): "AP" for word in ("peanut", "peanuts", "maapähkinä", "maapähkinää", "maapähkinöitä", "jordnöt",
+                                  "jordnötter")},
+    **{(word,): "AY" for word in ("soy", "soya", "soybean", "soybeans", "soija", "soijaa", "soja")},
+    **{(word,): "AS" for word in ("sesame", "seesami", "seesamia", "sesam")},
+    **{(word,): "AF" for word in ("fish", "kala", "kalaa", "fisk")},
+    **{(word,): "AC" for word in ("crustacean", "crustaceans", "äyriäinen", "äyriäisiä")},
+    **{(word,): "UN" for word in ("shellfish", "skaldjur")},
+    **{(word,): "UM" for word in ("mollusc", "molluscs", "mollusk", "mollusks", "nilviäinen", "nilviäisiä",
+                                  "blötdjur")},
+    **{(word,): "BC" for word in ("celery", "selleri", "selleriä")},
+    **{(word,): "BM" for word in ("mustard", "sinappi", "sinappia", "senap")},
+    **{(word,): "NL" for word in ("lupin", "lupine", "lupiini", "lupiinia")},
+    **{(word,): "AU" for word in ("sulphite", "sulphites", "sulfite", "sulfites", "sulfiitti", "sulfiitteja",
+                                  "sulfit")},
+    **{(word,): "SA" for word in ("almond", "almonds", "manteli", "mantelia", "manteleita", "mandel", "mandlar")},
+    **{(word,): "SH" for word in ("hazelnut", "hazelnuts", "hasselpähkinä", "hasselpähkinöitä", "hasselnöt",
+                                  "hasselnötter")},
+    **{(word,): "SW" for word in ("walnut", "walnuts", "saksanpähkinä", "saksanpähkinöitä", "valnöt", "valnötter")},
+    **{(word,): "SC" for word in ("cashew", "cashews", "cashewpähkinä", "cashewpähkinöitä", "cashewnötter")},
     **{(word,): "ST" for word in ("pistachio", "pistachios")},
-    **{(word,): "GB" for word in ("barley",)},
-    **{(word,): "NR" for word in ("rye",)},
+    **{(word,): "GB" for word in ("barley", "ohra", "ohraa")},
+    **{(word,): "NR" for word in ("rye", "ruis", "ruista", "råg")},
 }
 _LONGEST_PHRASE = max(len(phrase) for phrase in _ALLERGEN_WORDS)
 _BEFORE = (("no",), ("without",), ("free", "from"), ("free", "of"), ("allergic", "to"), ("allergy", "to"),
-           ("excluding",), ("exclude",), ("avoid",), ("ilman",), ("ei",))
-_AFTER = (("free",), ("allergy",), ("allergies",), ("vapaa",))
-_NOT_AFTER_FREE = frozenset({"from", "of"})  # "milk free from additives" is about the additives
+           ("excluding",), ("exclude",), ("avoid",), ("ilman",), ("ei",), ("utan",), ("ingen",), ("inga",),
+           ("fri", "från"))
+_AFTER = (("free",), ("allergy",), ("allergies",), ("vapaa",), ("fri",), ("fritt",), ("fria",))
+_FREE = frozenset({"free", "fri"})
+_NOT_AFTER_FREE = frozenset({"from", "of", "från"})  # "milk free from additives" is about the additives
 _FILLERS = frozenset({"traces", "trace", "of", "any", "added", "the", "a"})
-_LIST_JOINERS = frozenset({"and", "or", "nor", "ja", "tai", "eikä"})
-# Finnish "-ton/-tön" adjectives: "maidoton" (milk-free), "gluteenittomia" (gluten-free ones).
-_FINNISH_FREE_OF = (
-    (re.compile(r"^(maapähkinä)(ton|tön|tto|ttö)"), "AP"),
-    (re.compile(r"^(maido)(ton|tto)"), "AM"),
-    (re.compile(r"^(gluteeni)(ton|tto)"), "AW"),
-    (re.compile(r"^(vehnä)(tön|ttö)"), "UW"),
-    (re.compile(r"^(pähkinä)(tön|ttö)"), "AN"),
-    (re.compile(r"^(kananmuna|muna)(ton|tto)"), "AE"),
-    (re.compile(r"^(soija)(ton|tto)"), "AY"),
-    (re.compile(r"^(seesami)(ton|tto)"), "AS"),
-    (re.compile(r"^(kala)(ton|tto)"), "AF"),
+_LIST_JOINERS = frozenset({"and", "or", "nor", "ja", "tai", "eikä", "och", "eller"})
+# One-word exclusions: Finnish "-ton/-tön" adjectives ("maidoton", milk-free; "gluteenittomia", gluten-free ones)
+# and "-vapaa" ("gluteenivapaa"); Swedish "-fri" ("mjölkfri", "nötfri"). Each pattern is anchored at the start of
+# the word, so "maapähkinätön" is peanut-free and not nut-free.
+_FREE_OF_WORDS = (
+    (re.compile(r"^(maapähkinä)(ton|tön|tto|ttö|vapa)"), "AP"),
+    (re.compile(r"^(maido)(ton|tto)|^maitovapa"), "AM"),
+    (re.compile(r"^(gluteeni)(ton|tto|vapa)"), "AW"),
+    (re.compile(r"^(vehnä)(tön|ttö|vapa)"), "UW"),
+    (re.compile(r"^(pähkinä)(tön|ttö|vapa)"), "AN"),
+    (re.compile(r"^(kananmuna|muna)(ton|tto|vapa)"), "AE"),
+    (re.compile(r"^(soija)(ton|tto|vapa)"), "AY"),
+    (re.compile(r"^(seesami)(ton|tto|vapa)"), "AS"),
+    (re.compile(r"^(kala)(ton|tto|vapa)"), "AF"),
+    (re.compile(r"^(manteli)(ton|tto)"), "SA"),
+    (re.compile(r"^(selleri)(tön|ttö)"), "BC"),
+    (re.compile(r"^(sinapi)(ton|tto)"), "BM"),
+    (re.compile(r"^(äyriäise)(tön|ttö)"), "AC"),
+    (re.compile(r"^mjölkfri"), "AM"),
+    (re.compile(r"^glutenfri"), "AW"),
+    (re.compile(r"^jordnöts?fri"), "AP"),
+    (re.compile(r"^nött?fri"), "AN"),
+    (re.compile(r"^äggfri"), "AE"),
+    (re.compile(r"^sojafri"), "AY"),
+    (re.compile(r"^sesamfri"), "AS"),
+    (re.compile(r"^fiskfri"), "AF"),
+    (re.compile(r"^vetefri"), "UW"),
 )
-_CONFIRMED = re.compile(r"\b(confirmed|verified)\b|\bvahvistet", re.IGNORECASE)
+_CONFIRMED = re.compile(r"\b(confirmed|verified)\b|\bvahvistet|\bvarmistet|\bbekräftad", re.IGNORECASE)
 
 
 # --- numbers ----------------------------------------------------------------------------------------------
@@ -204,7 +230,7 @@ def _named_before_free(words: Sequence[str], after: int) -> bool:
     follows = words[after:after + 2]
     if not follows or (follows[0],) not in _AFTER:
         return False
-    return not (follows[0] == "free" and follows[1:] and follows[1] in _NOT_AFTER_FREE)
+    return not (follows[0] in _FREE and follows[1:] and follows[1] in _NOT_AFTER_FREE)
 
 
 def _excluded(words: Sequence[str]) -> frozenset[str]:
@@ -216,7 +242,7 @@ def _excluded(words: Sequence[str]) -> frozenset[str]:
         named = _phrase_at(words, index)
         if named is not None and _named_before_free(words, index + named[1]):
             codes.add(named[0])
-        codes.update(code for pattern, code in _FINNISH_FREE_OF if pattern.match(word))
+        codes.update(code for pattern, code in _FREE_OF_WORDS if pattern.match(word))
     return frozenset(codes)
 
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A stand-in for a photo of a kitchen's handwritten order list (task T18). Replace it with a real photo:
+     see AIMO/build/handback/T18.md. Rendered to order-list.png with `qlmanage -t -s 1200`. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <rect width="1200" height="1200" fill="#d9cfc0"/>
+  <g transform="rotate(-2.5 600 600)">
+    <rect x="90" y="200" width="1020" height="800" fill="#fbf8ee" stroke="#c8c0ad" stroke-width="2"/>
+    <g stroke="#a9c4dd" stroke-width="2">
+      <line x1="90" y1="360" x2="1110" y2="360"/>
+      <line x1="90" y1="460" x2="1110" y2="460"/>
+      <line x1="90" y1="560" x2="1110" y2="560"/>
+      <line x1="90" y1="660" x2="1110" y2="660"/>
+      <line x1="90" y1="760" x2="1110" y2="760"/>
+      <line x1="90" y1="860" x2="1110" y2="860"/>
+      <line x1="90" y1="960" x2="1110" y2="960"/>
+    </g>
+    <line x1="180" y1="200" x2="180" y2="1000" stroke="#e3a1a1" stroke-width="2"/>
+    <g font-family="Bradley Hand, Noteworthy, Marker Felt, cursive" fill="#1f2a5a">
+      <text x="215" y="340" font-size="68" font-weight="bold">Tilaus</text>
+      <text x="205" y="445" font-size="58" transform="rotate(-1 205 445)">Maito laktoositon 1000 l — ma</text>
+    </g>
+  </g>
+</svg>

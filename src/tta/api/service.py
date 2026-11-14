@@ -69,6 +69,11 @@ NO_REQUEST_PARSER = (
     "This gateway has no request parser running, so it cannot read free text. "
     "Send the typed request to POST /v1/offers instead."
 )
+NO_PHOTO_READER = (
+    "This gateway's request parser cannot read a photo. Type the request and send it to POST /v1/requests/parse, "
+    "or send the typed request to POST /v1/offers instead."
+)
+A_PHOTO = "A photo of an order list ({media_type}, {size:,} bytes) that could not be read into a typed request."
 NO_AGENT_RUNNER = (
     "This gateway has no buyer agent running, so it cannot act on free text. "
     "Send the typed request to POST /v1/offers and the chosen option to POST /v1/orders instead."
@@ -324,6 +329,26 @@ class Gateway:
 
     def parse_request(self, identity: Identity, text: str) -> PurchaseRequest:
         return self.read_request(identity, text).request
+
+    def read_image(self, identity: Identity, image: bytes, media_type: str) -> tuple[tuple[str, ...], Reading]:
+        """The lines read in a photo of an order list, and the typed request read from them, with who did each
+        (task T18). Counted as a model call. The parser checks the image before any model is asked. A photo
+        that cannot be read has no offer, so it is recorded here, by its declared type and size: never its
+        bytes. Answers `supplier-unavailable` when the parser cannot read a photo."""
+        _require_agent(identity)
+        self._deps.limiter.check(identity, CallKind.MODEL)
+        read_image = getattr(self._deps.request_parser, "read_image", None)
+        if not callable(read_image):
+            raise SupplierUnavailable(NO_PHOTO_READER)
+        try:
+            with reading_caller_input():
+                lines, reading = read_image(image, media_type, identity)
+        except Exception:
+            self._record_received(identity, A_PHOTO.format(media_type=media_type or "no type", size=len(image)))
+            raise
+        if not isinstance(reading, Reading):
+            raise TypeError(f"{type(self._deps.request_parser).__name__}.read_image must return a Reading.")
+        return tuple(lines), reading
 
     def run_agent(self, identity: Identity, text: str) -> AgentRun:
         """The runner gets this object as its tools: whatever the model asks for passes the same checks.

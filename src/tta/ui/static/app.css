@@ -179,3 +179,10 @@ td.number, th.number { text-align: right; }
 @media print {
   .top nav, .request-form, .acting, button { display: none; }
 }
+
+/* A photo of an order list (task T18): the upload control next to the text box, and the lines read in the photo. */
+.photo-upload { border-top: 2px dashed var(--line); margin-top: 0.6rem; padding-top: 0.2rem; }
+.photo-upload input[type="file"] { display: block; font: inherit; margin: 0.3rem 0; max-width: 100%; }
+.transcription { border-left: 6px solid var(--line); background: var(--soft); padding: 0.4rem 0.9rem; margin: 0.6rem 0; }
+.transcription h3 { margin: 0.2rem 0; }
+.transcription ol { margin: 0.3rem 0; padding-left: 1.4rem; }

@@ -11,6 +11,12 @@ v1 reference of `generateContent`; "API versions"; "API troubleshooting") and fr
   thinking and system instructions; it is pinned here so an environment variable cannot change it.
 - Structured output: `response_mime_type` `application/json` with `response_json_schema`, the JSON Schema
   sent as written.
+- A photo (task T18; "Image understanding (generateContent)"): the image as inline data
+  (`types.Part.from_bytes`), then the words that ask for the transcription, as the page advises ("place the text
+  prompt after the image part"); the answer held to a JSON Schema as above. A request with inline image data is
+  at most 20 MB in all; a photo is at most 5 MB here (`tta.agent.images`). The media resolution is left at its
+  default, which the "Media resolution (generateContent)" page gives as 1,120 tokens an image for Gemini 3, the
+  same as `MEDIA_RESOLUTION_HIGH`.
 - Function calling: the declarations in one `Tool`, automatic function calling off, so one request is one
   model call and every function is made by the runner. The whole history is sent on every turn, with the
   model's own `Content` unchanged: its thought signatures must come back where they were received
@@ -38,7 +44,7 @@ from google import genai
 from google.genai import errors, types
 
 from tta.agent.contents import function_tool, model_step, to_contents
-from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TranscribeCall, TurnCall
 from tta.agent.outage import Outage
 from tta.config import Settings
 from tta.contracts.agent import ReadingSource
@@ -190,7 +196,7 @@ def _calls_of(content: types.Content, turn: int) -> tuple[FunctionCall, ...]:
 
 
 class GeminiModel:
-    """Implements `AgentModel` over `generateContent`."""
+    """Implements `AgentModel` and `ImageModel` over `generateContent`."""
 
     def __init__(
         self,
@@ -228,6 +234,18 @@ class GeminiModel:
         if text is None:
             raise SupplierUnavailable(NO_TEXT)
         return text
+
+    def transcribe(self, call: TranscribeCall) -> str:
+        """The JSON text of the lines the photo holds. The image goes as inline data; nothing of it is logged."""
+        config = _config(call.system, response_mime_type=JSON_MIME_TYPE, response_json_schema=call.schema)
+        contents = [types.Part.from_bytes(data=call.image, mime_type=call.media_type), call.request]
+        text = _text_of(self._answer(contents=contents, config=config))
+        if text is None:
+            raise SupplierUnavailable(NO_TEXT)
+        return text
+
+    def transcription_source(self, digest: str) -> AnswerSource:
+        return AnswerSource(ReadingSource.MODEL, self._model_id)
 
     def next_turn(self, call: TurnCall) -> ModelTurn:
         config = _config(call.system, tools=[function_tool(call.tools)])

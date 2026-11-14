@@ -1,10 +1,13 @@
 """The live check of task T10: ask the real model once and save its answers as the recorded fixtures.
 
 Run it with `.venv/bin/python -m tta.agent.record`. It needs `GEMINI_API_KEY` (read through `tta.config`,
-never printed). It reads the two scenario sentences and the sentence with no quantity, and runs scenario 2
-once, against a gateway in replay with a database of its own in a temporary folder: nothing reaches the
-real order book or the live supplier API. Every request to the model is counted and the run stops at
-`--max-calls`. A recording that holds a secret is not written.
+never printed). It reads the two scenario sentences, the sentence with no quantity and the two Finnish sentences,
+runs scenario 2 once, and transcribes and reads the demo photo (`--only photo`, task T18), against a gateway in
+replay with a database of its own in a temporary folder: nothing reaches the real order book or the live
+supplier API. A photo is recorded as two files: `transcribe-photo.json` (the lines read, named by the photo's
+SHA-256) and `parse-photo.json` (the reading of those lines). Replacing the photo means recording it again.
+Every request to the model is counted and the run stops at `--max-calls`. A recording that holds a secret is
+not written.
 
 Only answers that validated are written (task FIX-9): an `invalid-request` for a fact the text does not give
 is a valid answer and is written; one for an answer that did not validate twice is not. A run that ended
@@ -14,6 +17,7 @@ because the model stopped answering is never written. Each recording names the b
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import tempfile
@@ -26,9 +30,18 @@ from typing import Any, Literal
 from tta.agent import profile_strictness
 from tta.agent.days import helsinki_date
 from tta.agent.gemini import REQUEST_TIMEOUT_SECONDS, ContentTransport, GeminiModel, chosen_model, sdk_transport
-from tta.agent.model import AgentModel, AnswerSource, ExtractCall, ModelTurn, TurnCall
+from tta.agent.images import checked_image
+from tta.agent.model import AgentModel, AnswerSource, ExtractCall, ModelTurn, TranscribeCall, TurnCall
 from tta.agent.parser import ModelRequestParser
-from tta.agent.recorded import AGENT_FIXTURES_FOLDER, LIVE_SOURCE, RecordedCall, RecordedTurn, Recording, text_key
+from tta.agent.recorded import (
+    AGENT_FIXTURES_FOLDER,
+    LINE_BREAK,
+    LIVE_SOURCE,
+    RecordedCall,
+    RecordedTurn,
+    Recording,
+    text_key,
+)
 from tta.agent.runner import ModelAgentRunner
 from tta.config import Settings, get_settings
 from tta.contracts.common import Identity, IdentityKind
@@ -39,6 +52,8 @@ MAX_LIVE_CALLS = 20  # the most requests one live check may send to the model (t
 LIVE_CHECK_RETRIES = 1  # two attempts at most for a call that fails (AIMO/build/AGENT-RULES.md, rule 10)
 EXIT_OK, EXIT_FAILED, EXIT_NO_KEY = 0, 1, 2
 Kind = Literal["parse", "run"]
+TaskKind = Literal["parse", "run", "photo"]
+PHOTO_KINDS = ("transcribe", "parse")  # the two recordings of a photo, in the order they are made
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +68,11 @@ class SecretInRecording(RuntimeError):
 
 @dataclass(frozen=True)
 class Task:
-    """One sentence of the live check. A run is recorded together with its reading of the sentence."""
+    """One sentence of the live check. A run is recorded together with its reading of the sentence; a photo is
+    named by its path under `fixtures/agent/` and recorded with the reading of the lines read in it."""
 
     name: str
-    kind: Kind
+    kind: TaskKind
     profile_id: str
     text: str
 
@@ -66,6 +82,10 @@ PLAN: tuple[Task, ...] = (
     Task("scenario-2", "run", "allergy-ward",
          "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"),
     Task("no-quantity", "parse", "hotel-kitchen", "Some milk for Monday"),
+    Task("finnish-1", "parse", "hotel-kitchen", "1000 litraa laktoositonta maitoa maanantaiksi"),
+    Task("finnish-2", "parse", "allergy-ward",
+         "200 litraa maidotonta ja gluteenitonta kasvijuomaa maanantaiksi, vain vahvistetut tiedot"),
+    Task("photo", "photo", "hotel-kitchen", "photos/order-list.png"),
 )
 
 
@@ -94,6 +114,7 @@ class RecordingModel:
     def __init__(self, inner: AgentModel) -> None:
         self._inner = inner
         self._answers: dict[str, str] = {}
+        self._transcriptions: dict[str, str] = {}  # by the SHA-256 of the photo
         self._turns: dict[str, list[ModelTurn]] = {}
         self._stopped: set[str] = set()  # sentences whose run the model stopped answering
 
@@ -115,6 +136,14 @@ class RecordingModel:
         answer = self._inner.extract(call)
         self._answers[text_key(call.text)] = answer  # after a second answer, the one that was used
         return answer
+
+    def transcribe(self, call: TranscribeCall) -> str:
+        answer = self._inner.transcribe(call)  # type: ignore[attr-defined]  # a model that cannot is refused
+        self._transcriptions[call.digest] = answer
+        return answer
+
+    def transcription_source(self, digest: str) -> AnswerSource:
+        return self._inner.transcription_source(digest)  # type: ignore[attr-defined]
 
     def next_turn(self, call: TurnCall) -> ModelTurn:
         key = text_key(call.request_text)
@@ -146,6 +175,20 @@ class RecordingModel:
             for turn in self._turns[text_key(text)]
         )
         return Recording(**common, turns=turns)
+
+
+    def photo_recording(
+        self, digest: str, *, profile_id: str, today: date, recorded_at: datetime
+    ) -> Recording:
+        """The lines the model read in the photo with this SHA-256. Raises `KeyError` when it was never shown it."""
+        lines = _as_object(self._transcriptions[digest]).get("lines")
+        if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+            raise KeyError(digest)  # an answer that did not validate is never written
+        return Recording(
+            kind="transcribe", text=LINE_BREAK.join(line.strip() for line in lines if line.strip()),
+            profile_id=profile_id, model=self.model_id, source=LIVE_SOURCE, recorded_at=recorded_at, today=today,
+            image_sha256=digest,
+        )
 
 
 def _as_object(answer: str) -> dict[str, Any]:
@@ -182,6 +225,8 @@ class Recorder:
 
     def record(self, task: Task) -> tuple[Path, ...]:
         """Writes what validated; returns the files written, none when the answer did not validate."""
+        if task.kind == "photo":
+            return self._record_photo(task)
         kinds = self._carry_out(task)
         now = datetime.now(UTC)
         return tuple(
@@ -193,12 +238,30 @@ class Recorder:
             for kind in kinds
         )
 
+    def _record_photo(self, task: Task) -> tuple[Path, ...]:
+        """The transcription of the photo and the reading of its lines, when both are answers to keep."""
+        image = (self.directory / task.text).read_bytes()
+        digest = hashlib.sha256(image).hexdigest()
+        try:
+            read_image = self.parser.read_image  # type: ignore[attr-defined]  # `ModelRequestParser.read_image`
+            lines, _ = read_image(image, checked_image(image).media_type, _identity(task))
+        except InvalidRequest as refused:
+            if refused.extensions.get("faults") or "transcription" in refused.extensions.get("missing", ()):
+                logger.warning("%s: not recorded, the photo gave no lines to keep: %s", task.name, refused.detail)
+                return ()
+            logger.info("%s: invalid-request: %s", task.name, refused.detail)  # a missing fact: a valid answer
+        now = datetime.now(UTC)
+        transcription = self.live.photo_recording(digest, profile_id=task.profile_id, today=self.today, recorded_at=now)
+        reading = self.live.recording("parse", transcription.text, profile_id=task.profile_id, today=self.today,
+                                      recorded_at=now)
+        return tuple(
+            write_recording(self.directory, f"{kind}-{task.name}", recording, secrets=self.secrets)
+            for kind, recording in zip(PHOTO_KINDS, (transcription, reading), strict=True)
+        )
+
     def _carry_out(self, task: Task) -> tuple[Kind, ...]:
         """The kinds of recording that may be written for this task once it was carried out."""
-        identity = Identity(
-            kind=IdentityKind.AGENT, id=f"agent:{task.profile_id}", display_name=f"{task.profile_id} agent",
-            profile_id=task.profile_id,
-        )
+        identity = _identity(task)
         try:
             if task.kind == "parse":
                 logger.info("%s: %s", task.name, self.parser.parse_request(task.text, identity).model_dump_json())
@@ -215,6 +278,13 @@ class Recorder:
             logger.warning("%s: the run is not recorded, the model stopped answering", task.name)
             return ("parse",)
         return ("parse", "run")
+
+
+def _identity(task: Task) -> Identity:
+    return Identity(
+        kind=IdentityKind.AGENT, id=f"agent:{task.profile_id}", display_name=f"{task.profile_id} agent",
+        profile_id=task.profile_id,
+    )
 
 
 def _arguments(argv: Sequence[str] | None) -> argparse.Namespace:

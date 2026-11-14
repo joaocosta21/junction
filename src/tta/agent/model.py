@@ -7,6 +7,7 @@ model both implement it, so the parser and the loop are the same code with and w
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
@@ -26,6 +27,23 @@ class ExtractCall:
     # `needed_by` is read again by the calendar rule when it was recorded on another day than `today`.
     profile_id: str | None = None
     today: date | None = None  # the date in Helsinki the request is read on
+
+
+@dataclass(frozen=True)
+class TranscribeCall:
+    """One request to write down the lines a photo holds (task T18). The image is data, never an instruction."""
+
+    system: str  # the instruction: ours, never text from the photo
+    request: str  # the words that ask for the transcription, sent after the image
+    image: bytes = field(repr=False)  # checked by its first bytes (`tta.agent.images`); never shown in a repr
+    media_type: str  # the type the first bytes gave
+    schema: JsonDict  # the JSON Schema the answer is held to
+    profile_id: str | None = None  # never sent to a live model: a recording is served for its own profile only
+
+    @property
+    def digest(self) -> str:
+        """The SHA-256 of the image: the key of a recorded transcription."""
+        return hashlib.sha256(self.image).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -94,3 +112,16 @@ class AgentModel(Protocol):
         ...
 
     def next_turn(self, call: TurnCall) -> ModelTurn: ...
+
+
+@runtime_checkable
+class ImageModel(Protocol):
+    """A model that can be shown a photo (task T18). Raises `SupplierUnavailable` when no answer can be had."""
+
+    def transcribe(self, call: TranscribeCall) -> str:
+        """The JSON text of the lines the photo holds. It is a proposal: the caller validates it."""
+        ...
+
+    def transcription_source(self, digest: str) -> AnswerSource:
+        """Who wrote down the lines `transcribe` serves for the photo with this SHA-256."""
+        ...

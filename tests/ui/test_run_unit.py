@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from tta.contracts.agent import AgentRun
-from tta.contracts.common import Identity, IdentityKind
+from tta.contracts.common import AllergenStrictness, Identity, IdentityKind, Unit
 from tta.contracts.errors import (
     InvalidRequest,
     NotFound,
@@ -248,16 +248,19 @@ def test_what_the_agent_refuses_for_free_text_is_the_callers_error() -> None:
             run_request(StubService(run_agent=error), AGENT, "free text", None)
 
 
-def test_the_examples_are_the_three_scenarios_each_with_a_typed_request() -> None:
-    assert [example.key for example in EXAMPLES] == ["scenario-1", "scenario-2", "scenario-3"]
+def test_the_examples_are_the_three_scenarios_and_the_dietitian_case_each_with_a_typed_request() -> None:
+    assert [example.key for example in EXAMPLES] == ["scenario-1", "scenario-2", "scenario-3", "scenario-4"]
     assert [example.agent_id for example in EXAMPLES] == [
-        "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen",
+        "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen", "agent:hotel-kitchen",
     ]
     for example in EXAMPLES:
         assert example.request.lines[0].text == example.text
         assert example.request.needed_by is not None
     assert EXAMPLES[1].request.require_confirmed and EXAMPLES[1].request.lines[0].exclude_allergens == ("AM", "AW")
     assert EXAMPLES[2].request.lines[0].product_ids == ("473609",)
+    fourth = EXAMPLES[3].request.lines[0]
+    assert (fourth.product_ids, fourth.quantity, fourth.unit) == (("469512",), 100, Unit.L)
+    assert (fourth.exclude_allergens, fourth.allergen_strictness) == (("AM",), AllergenStrictness.STRICT)
 
 
 def test_an_example_is_found_by_its_text_whatever_the_spacing_and_case() -> None:

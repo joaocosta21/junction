@@ -8,6 +8,9 @@ recorded call that no longer fits what the gateway answers is refused like any o
 A fixture file is input like any other: it is validated when it is loaded, and one that does not validate
 stops the start rather than being skipped.
 
+A recording of a photo (`transcribe`, task T18) holds the lines the model read in it, and names the photo by the
+SHA-256 of its bytes; the reading of those lines is a `parse` recording like any other.
+
 A recording names the buyer profile it was recorded for and is served only for that profile (task FIX-9). Its
 `needed_by` was resolved on the day it was recorded: on another day it is read again by the parser's calendar
 rule (`tta.agent.days`), so "by Monday" recorded on Saturday 14 Nov still means 16 Nov on Sunday 15 Nov and
@@ -17,6 +20,7 @@ means 23 Nov on Monday 16 Nov.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
@@ -25,7 +29,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from tta.agent.days import named_dates
-from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TranscribeCall, TurnCall
 from tta.config import Settings
 from tta.contracts.agent import ReadingSource
 from tta.contracts.common import JsonDict
@@ -50,7 +54,13 @@ OTHER_PROFILE = (
     "This sentence was recorded for another buyer profile, and a recording is served only for the profile it "
     "was recorded for. Send the typed request to POST /v1/offers instead."
 )
+PHOTO_NOT_RECORDED = (
+    "No GEMINI_API_KEY is set, so the gateway can read only the {count} recorded demonstration photo(s), and this "
+    "is not one of them. Type the request, or send the typed request to POST /v1/offers instead."
+)
 NEEDED_BY = "needed_by"
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+LINE_BREAK = "\n"  # between the lines of a photo, in a `transcribe` recording's text
 
 
 class RecordingError(ValueError):
@@ -74,8 +84,8 @@ class RecordedTurn(_Recorded):
 class Recording(_Recorded):
     """What a model answered for one sentence."""
 
-    kind: Literal["parse", "run"]
-    text: str  # the buyer's sentence
+    kind: Literal["parse", "run", "transcribe"]
+    text: str  # the buyer's sentence; for a photo, the lines read in it, one per line
     profile_id: str  # the buyer profile it was recorded for: it is served for that profile only
     model: str  # the model that answered
     source: Literal["live", "hand-built"]  # "live": saved from a call to the model
@@ -84,6 +94,7 @@ class Recording(_Recorded):
     note: str | None = None
     proposal: JsonDict | None = None  # kind "parse": the structured answer
     turns: tuple[RecordedTurn, ...] | None = None  # kind "run": the calls of each turn
+    image_sha256: str | None = None  # kind "transcribe": the SHA-256 of the photo's bytes
 
     @model_validator(mode="after")
     def _holds_what_its_kind_needs(self) -> Recording:
@@ -91,7 +102,19 @@ class Recording(_Recorded):
             raise ValueError("a parse recording holds a proposal and no turns")
         if self.kind == "run" and (self.turns is None or self.proposal is not None):
             raise ValueError("a run recording holds turns and no proposal")
+        if self.kind == "transcribe":
+            if self.image_sha256 is None or not SHA256.match(self.image_sha256):
+                raise ValueError("a transcribe recording names its photo by a SHA-256")
+            if self.proposal is not None or self.turns is not None:
+                raise ValueError("a transcribe recording holds the lines read and nothing else")
+        elif self.image_sha256 is not None:
+            raise ValueError("only a transcribe recording names a photo")
         return self
+
+    @property
+    def lines(self) -> tuple[str, ...]:
+        """The lines read in the photo, for a `transcribe` recording."""
+        return tuple(self.text.split(LINE_BREAK))
 
 
 def text_key(text: str) -> str:
@@ -120,11 +143,28 @@ def _on(proposal: JsonDict, recording: Recording, today: date | None) -> JsonDic
     return {**proposal, NEEDED_BY: dates[0].isoformat()} if len(dates) == 1 else proposal
 
 
+def _source_of(recording: Recording) -> AnswerSource:
+    if recording.source != LIVE_SOURCE:
+        return AnswerSource(ReadingSource.HAND_BUILT, HAND_BUILT_MODEL_ID, recording.recorded_at)
+    return AnswerSource(ReadingSource.RECORDING, recording.model, recording.recorded_at)
+
+
 def load_recordings(directory: Path) -> tuple[Recording, ...]:
     """Every recording of the folder, in file-name order. A missing folder holds none."""
     if not directory.is_dir():
         return ()
     return tuple(_read(path) for path in sorted(directory.glob("*.json")))
+
+
+def _by_photo(recordings: Iterable[Recording], directory: Path) -> dict[str, Recording]:
+    found: dict[str, Recording] = {}
+    for recording in recordings:
+        if recording.kind != "transcribe" or recording.image_sha256 is None:
+            continue
+        if recording.image_sha256 in found:
+            raise RecordingError(f"Two transcribe recordings (.json files) of {directory.name}/ hold the same photo.")
+        found[recording.image_sha256] = recording
+    return found
 
 
 def _by_sentence(recordings: Iterable[Recording], kind: str, directory: Path) -> dict[str, Recording]:
@@ -140,12 +180,13 @@ def _by_sentence(recordings: Iterable[Recording], kind: str, directory: Path) ->
 
 
 class RecordedModel:
-    """Implements `AgentModel` from recordings. It never calls anything."""
+    """Implements `AgentModel` and `ImageModel` from recordings. It never calls anything."""
 
     def __init__(self, directory: Path) -> None:
         recordings = load_recordings(directory)
         self._parses = _by_sentence(recordings, "parse", directory)
         self._runs = _by_sentence(recordings, "run", directory)
+        self._photos = _by_photo(recordings, directory)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> RecordedModel:
@@ -169,6 +210,11 @@ class RecordedModel:
         found = self._parses if kind == "parse" else self._runs
         return _served_for(found.get(text_key(request_text)), profile_id) is not None
 
+    def holds_photo(self, digest: str, profile_id: str | None) -> bool:
+        """True when the photo with this SHA-256 has a transcription for this profile, and its lines a reading."""
+        recording = _served_for(self._photos.get(digest), profile_id)
+        return recording is not None and self.holds("parse", recording.text, profile_id)
+
     def label_for(self, request_text: str) -> str:
         """"recorded" when every recording of this sentence was saved from a model; else "hand-built"."""
         by_hand = any(recording.source != LIVE_SOURCE for recording in self.recordings_of(request_text))
@@ -176,10 +222,20 @@ class RecordedModel:
 
     def answer_source(self, request_text: str) -> AnswerSource:
         """The recording `extract` serves for this sentence. Raises `KeyError` when there is none."""
-        recording = self._parses[text_key(request_text)]
-        if recording.source != LIVE_SOURCE:
-            return AnswerSource(ReadingSource.HAND_BUILT, HAND_BUILT_MODEL_ID, recording.recorded_at)
-        return AnswerSource(ReadingSource.RECORDING, recording.model, recording.recorded_at)
+        return _source_of(self._parses[text_key(request_text)])
+
+    def transcription_source(self, digest: str) -> AnswerSource:
+        """The recording `transcribe` serves for the photo with this SHA-256. Raises `KeyError` when there is none."""
+        return _source_of(self._photos[digest])
+
+    def transcribe(self, call: TranscribeCall) -> str:
+        """The lines recorded for this photo, found by the SHA-256 of its bytes, as the model gave them."""
+        recording = self._photos.get(call.digest)
+        if recording is None:
+            raise SupplierUnavailable(PHOTO_NOT_RECORDED.format(count=len(self._photos)))
+        if _served_for(recording, call.profile_id) is None:
+            raise SupplierUnavailable(OTHER_PROFILE)
+        return json.dumps({"lines": list(recording.lines)}, ensure_ascii=False)
 
     def extract(self, call: ExtractCall) -> str:
         recording = self._parses.get(text_key(call.text))

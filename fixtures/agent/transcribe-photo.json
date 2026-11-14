@@ -1,0 +1,10 @@
+{
+  "kind": "transcribe",
+  "text": "Tilaus\nMaito laktoositon 1000 l — ma",
+  "profile_id": "hotel-kitchen",
+  "model": "hand-built",
+  "source": "hand-built",
+  "today": "2026-11-14",
+  "note": "Written by hand, not by a model (task T18): the lines of photos/order-list.png, a stand-in made from photos/order-list.svg. Gemini answered 503 and 504 to every request of the live check on 14 Nov 2026. `python -m tta.agent.record --only photo` replaces this file and parse-photo.json with the model's answers; a new photo needs a new recording, since the photo is named by its SHA-256.",
+  "image_sha256": "49cae2bc7748991aafe66223a00e7cc133c250bab089ebc610242499e4426e9a"
+}

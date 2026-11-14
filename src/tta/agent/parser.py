@@ -13,6 +13,7 @@ any other, named by its field: "the reading did not match the text". It is never
 names no number, or no unit word, has its quantity or its unit reported as missing.
 
 `read` says who read the text: the model just now, a recording of it, or a person (`tta.contracts.agent.Reading`).
+`read_image` reads a photo of an order list: transcribed first, then read by `read` (`tta.agent.photo`, task T18).
 """
 
 from __future__ import annotations
@@ -23,13 +24,14 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tta.agent.days import helsinki_date
+from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
 from tta.agent.labels import reading_sentence
 from tta.agent.model import AgentModel, ExtractCall
+from tta.agent.photo import read_photo
 from tta.agent.prompts import parser_instruction
 from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, checked_keys, proposal_schema
 from tta.agent.textcheck import TextFacts
@@ -39,8 +41,6 @@ from tta.contracts.common import AllergenStrictness, Identity, PackPreference, U
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import Clock
 from tta.contracts.request import MAX_TEXT_LENGTH, PurchaseRequest
-
-MAX_ANSWERS = 2  # the first answer, and one more when it does not validate
 
 EMPTY_TEXT = "The text is empty: say what is needed and how much."
 TEXT_TOO_LONG = "The text is longer than {limit:,} characters, the most that is read."
@@ -60,10 +60,6 @@ NOT_READ = (
     "The request could not be read into a typed request: after {answers} answers of the model, {faults}. "
     "Send the typed request to POST /v1/offers instead."
 )
-NOT_JSON = "not a JSON object"
-UNKNOWN_FIELD = "a field the typed request does not have"
-NOT_IN_ANSWER = "missing from the answer"
-NOT_VALID = "not a valid value ({code})"
 NOT_A_KEY = "not a key of the product-type table"
 NOT_A_CLAIM = "not a nutritional claim code of the catalog"
 NOT_AN_ALLERGEN = "not an allergen code a buyer can exclude"
@@ -106,44 +102,11 @@ class RequestProposal(_Proposal):
 
 
 @dataclass(frozen=True)
-class Fault:
-    """Something wrong with the model's answer. It names a field and a fixed reason, never the model's words."""
-
-    path: str
-    reason: str
-
-    def __str__(self) -> str:
-        return f"{self.path}: {self.reason}"
-
-
-@dataclass(frozen=True)
 class Missing:
     """Something the buyer's text does not say and the typed request needs."""
 
     path: str
     sentence: str
-
-
-def _path(location: Sequence[Any]) -> str:
-    """`("lines", 0, "quantity")` as `lines[0].quantity`."""
-    path = ""
-    for part in location:
-        path += f"[{part}]" if isinstance(part, int) else f".{part}" if path else str(part)
-    return path or "answer"
-
-
-def _validation_faults(error: ValidationError) -> tuple[Fault, ...]:
-    """One fault per error, named by where it sits and by pydantic's error code: never by the input."""
-    faults = []
-    for item in error.errors(include_input=False, include_url=False):
-        location, code = item["loc"], item["type"]
-        if code == "extra_forbidden":
-            faults.append(Fault(_path(location[:-1]), UNKNOWN_FIELD))  # a made-up key is not repeated
-        elif code == "missing":
-            faults.append(Fault(_path(location), NOT_IN_ANSWER))
-        else:
-            faults.append(Fault(_path(location), NOT_VALID.format(code=code)))
-    return tuple(faults)
 
 
 def _proposal(answer: str) -> RequestProposal | tuple[Fault, ...]:
@@ -156,7 +119,7 @@ def _proposal(answer: str) -> RequestProposal | tuple[Fault, ...]:
     try:
         return RequestProposal.model_validate(data)
     except ValidationError as error:
-        return _validation_faults(error)
+        return validation_faults(error)
 
 
 def _mismatch(path: str, why: str) -> Fault:
@@ -251,7 +214,7 @@ def _typed(proposal: RequestProposal, text: str) -> PurchaseRequest | tuple[Faul
             {"needed_by": proposal.needed_by, "require_confirmed": proposal.require_confirmed, "lines": lines}
         )
     except ValidationError as error:
-        return _validation_faults(error)
+        return validation_faults(error)
 
 
 class ModelRequestParser:
@@ -295,6 +258,11 @@ class ModelRequestParser:
             request=request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
             sentence=reading_sentence(answer),
         )
+
+    def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
+        """The lines read in a photo of an order list, and the reading of those lines (`tta.agent.photo`).
+        `media_type` is what the sender declared; it is not trusted: the image's first bytes decide."""
+        return read_photo(model=self._model, image=image, identity=identity, read=self.read)
 
     def _ask(self, words: str, today: date, identity: Identity) -> PurchaseRequest:
         call = ExtractCall(

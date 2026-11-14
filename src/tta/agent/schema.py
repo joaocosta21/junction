@@ -35,6 +35,20 @@ _PLAIN_KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 _NULL: JsonDict = {"type": "null"}
 
 
+# The answer to a photo (task T18): the lines read, word for word, and nothing else. The parser reads them next.
+TRANSCRIPTION_SCHEMA: JsonDict = {
+    "type": "object",
+    "properties": {
+        "lines": {
+            "type": "array", "items": {"type": "string"},
+            "description": "The written lines of the photo, top to bottom, each word for word as written.",
+        },
+    },
+    "required": ["lines"],
+    "additionalProperties": False,
+}
+
+
 def checked_keys(product_type_keys: Sequence[str]) -> tuple[str, ...]:
     """The keys of the product-type table, refused unless each is a plain, distinct key: they are placed in
     the model's instruction, where nothing but our own words may stand."""

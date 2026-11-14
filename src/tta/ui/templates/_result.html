@@ -32,6 +32,13 @@
   <h2>The request, as the gateway read it</h2>
   <p>Asked by <strong>{{ result.asker.display_name }}</strong> for buyer profile <code>{{ offer.profile_id }}</code>
   <span class="tag">illustrative profile</span></p>
+  {% if result.record and result.record.transcription %}
+  <div id="transcription" class="transcription">
+    <h3>Read in the photo</h3>
+    <p class="small">The lines as written, before anything was interpreted. The request below was read from them.</p>
+    <ol>{% for line in result.record.transcription %}<li><q>{{ line }}</q></li>{% endfor %}</ol>
+  </div>
+  {% endif %}
   <ul class="request-lines">
     {% for line in offer.request.lines %}
     <li>
@@ -54,7 +61,9 @@
     {% if record %}
     {% for note in record.notes %}<li>{{ note }}</li>{% endfor %}
     {% if record.agent_run %}<li>The text was read and run by the buyer agent; its steps are at the end of this page. {{ record.agent_run|run_label(live_model) }}</li>{% endif %}
-    {% if record.reading %}<li>The text was read by the request parser; the page then asked for the offer and ordered the top option.</li>
+    {% if record.reading and record.transcription %}<li>The photo was transcribed, then its lines were read by the request parser; the page then asked for the offer and ordered the top option.</li>
+    <li>{{ record.reading.sentence }}</li>
+    {% elif record.reading %}<li>The text was read by the request parser; the page then asked for the offer and ordered the top option.</li>
     <li>{{ record.reading.sentence }}</li>{% endif %}
     {% else %}
     <li>How this was read is no longer known: the page keeps how each request was read in memory, and this one is gone (after a restart of the gateway). The offer, its order and the audit trail are read from your order book.</li>

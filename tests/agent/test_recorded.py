@@ -209,15 +209,19 @@ def test_a_recorded_answer_with_no_date_or_on_a_text_with_two_days_is_served_as_
 
 
 def test_the_recordings_of_the_repository_name_the_profile_they_were_recorded_for(
-    fixtures_agent_dir: Path, texts: dict[str, str]
+    fixtures_agent_dir: Path, texts: dict[str, str], demo_photo_lines: tuple[str, ...]
 ) -> None:
     profiles = {(recording.kind, text_key(recording.text)): recording.profile_id
                 for recording in load_recordings(fixtures_agent_dir)}
 
     one, two, none = (text_key(texts[name]) for name in ("scenario_1", "scenario_2", "no_quantity"))
+    finnish_1, finnish_2 = (text_key(texts[name]) for name in ("finnish_1", "finnish_2"))
+    photo = text_key("\n".join(demo_photo_lines))
     assert profiles == {
         ("parse", one): "hotel-kitchen", ("run", one): "hotel-kitchen", ("parse", none): "hotel-kitchen",
         ("parse", two): "allergy-ward", ("run", two): "allergy-ward",
+        ("parse", finnish_1): "hotel-kitchen", ("parse", finnish_2): "allergy-ward",
+        ("transcribe", photo): "hotel-kitchen", ("parse", photo): "hotel-kitchen",
     }
 
 

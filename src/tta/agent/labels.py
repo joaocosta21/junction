@@ -48,3 +48,40 @@ def reading_sentence(answer: AnswerSource) -> str:
 def fallback_sentence(answer: AnswerSource) -> str:
     """The sentence of a reading served from a recording because Gemini did not answer."""
     return GEMINI_DID_NOT_ANSWER.format(what=_what(answer))
+
+
+# --- a photo: who transcribed it, then who read the lines (task T18) ---------------------------------------
+
+READ_FROM_A_PHOTO = "Read from a photo: {did_not_answer}{transcribed}, then {read}{ending}"
+TRANSCRIBED_BY_MODEL = "transcribed by {model}"
+TRANSCRIBED_FROM = "transcribed from {what}"
+TRANSCRIBED_BY_HAND = "transcribed by hand, not by a model"
+READ_BY = "read by {model}"
+READ_FROM_WHAT = "read from {what}"
+DID_NOT_ANSWER = "Gemini did not answer; "
+
+
+def _transcribed(answer: AnswerSource) -> str:
+    if answer.source is ReadingSource.MODEL:
+        return TRANSCRIBED_BY_MODEL.format(model=answer.model)
+    if answer.source is ReadingSource.HAND_BUILT:
+        return TRANSCRIBED_BY_HAND
+    return TRANSCRIBED_FROM.format(what=_what(answer))
+
+
+def _read(answer: AnswerSource) -> str:
+    if answer.source is ReadingSource.MODEL:
+        return READ_BY.format(model=answer.model)
+    return READ_FROM_WHAT.format(what=_what(answer))
+
+
+def photo_sentence(transcribed: AnswerSource, read: AnswerSource, *, fallback: bool = False) -> str:
+    """"Read from a photo: transcribed by gemini-3.6-flash, then read by gemini-3.6-flash.", or with recordings
+    "… transcribed from a recording of … made on …, then read from a recording of …; no model was asked.", or,
+    when Gemini did not answer, "Read from a photo: Gemini did not answer; transcribed from a recording …"."""
+    asked = ReadingSource.MODEL in (transcribed.source, read.source)
+    ending = "." if asked or fallback else NO_MODEL_ASKED
+    return READ_FROM_A_PHOTO.format(
+        did_not_answer=DID_NOT_ANSWER if fallback else "", transcribed=_transcribed(transcribed), read=_read(read),
+        ending=ending,
+    )

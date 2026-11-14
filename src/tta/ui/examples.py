@@ -1,11 +1,13 @@
-"""The three demo requests of the first page, each with its typed request (PLAN section 3, SPEC section 13).
+"""The four demo requests of the first page, each with its typed request (PLAN section 3, SPEC section 13).
 
 Scores on the 30% "working end-to-end demo": one click runs request -> lookup -> offer -> order or approval.
 An example carries the typed request its sentence stands for, so the demo never depends on a model being
-reachable: with no parser and no buyer agent, the page still runs the three scenarios.
+reachable: with no parser and no buyer agent, the page still runs the three scenarios and the fourth example.
+The fourth (task T18, asked by the orchestrator) shows the dietitian's approval: an oat drink whose milk Valio's
+file says nothing about, under a strict no-milk rule.
 
 The typed requests name Monday 16 November 2026: the Monday after the replay capture (Saturday 14 November)
-and the Monday of the event. A sentence that is not one of these three is read by the parser, never by us.
+and the Monday of the event. A sentence that is not one of these four is read by the parser, never by us.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from tta.contracts.common import Unit
+from tta.contracts.common import AllergenStrictness, Unit
 from tta.contracts.request import PurchaseRequest, RequestLine
 
 MONDAY = date(2026, 11, 16)
@@ -25,10 +27,16 @@ MILK, GLUTEN = "AM", "AW"
 # Oddlygood Barista oat drink 1 l, gluten free: its quantity is not confirmed in the capture, and two of the
 # three substitutes Valio lists for it add gluten (AIMO/FINDINGS.md, scenario 3).
 OAT_DRINK = "473609"
+# Elovena barista oat drink 1 l: confirmed in tonight's capture (100 L for €208.00), and Valio's file states nothing
+# about milk, so under a strict no-milk rule rule P-04 sends it to the dietitian (run in replay on 14 Nov 2026).
+ELOVENA_OAT_DRINK = "469512"
 
 SCENARIO_1_TEXT = "1,000 litres of lactose-free milk by Monday"
 SCENARIO_2_TEXT = "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
 SCENARIO_3_TEXT = f"100 litres of Oddlygood Barista oat drink, product {OAT_DRINK}, by Monday"
+DIETITIAN_TEXT = (
+    f"100 litres of Elovena barista oat drink, product {ELOVENA_OAT_DRINK}, by Monday; no milk, strict rule"
+)
 
 
 @dataclass(frozen=True)
@@ -83,6 +91,20 @@ EXAMPLES: tuple[Example, ...] = (
             needed_by=MONDAY,
             lines=(RequestLine(
                 text=SCENARIO_3_TEXT, product_ids=(OAT_DRINK,), quantity=Decimal(100), unit=Unit.L,
+            ),),
+        ),
+    ),
+    Example(
+        key="scenario-4",
+        label="Dietitian: oat drink with no milk statement",
+        shows="Confirmed and within the limits, but Valio's data says nothing about milk: the dietitian decides.",
+        text=DIETITIAN_TEXT,
+        agent_id=HOTEL_AGENT,
+        request=PurchaseRequest(
+            needed_by=MONDAY,
+            lines=(RequestLine(
+                text=DIETITIAN_TEXT, product_ids=(ELOVENA_OAT_DRINK,), quantity=Decimal(100), unit=Unit.L,
+                exclude_allergens=(MILK,), allergen_strictness=AllergenStrictness.STRICT,
             ),),
         ),
     ),

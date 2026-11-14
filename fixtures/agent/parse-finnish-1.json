@@ -1,0 +1,28 @@
+{
+  "kind": "parse",
+  "text": "1000 litraa laktoositonta maitoa maanantaiksi",
+  "profile_id": "hotel-kitchen",
+  "model": "hand-built",
+  "source": "hand-built",
+  "today": "2026-11-14",
+  "note": "Written by hand, not by a model (task T18): Gemini answered 503 and 504 to every request of the live check on 14 Nov 2026. `python -m tta.agent.record --only finnish-1` replaces this file with the model's answer.",
+  "proposal": {
+    "needed_by": "2026-11-16",
+    "require_confirmed": false,
+    "lines": [
+      {
+        "product_type": "milk",
+        "product_ids": [],
+        "name_terms": [],
+        "required_claims": [
+          "FREE_FROM_LACTOSE"
+        ],
+        "quantity": 1000,
+        "unit": "L",
+        "exclude_allergens": [],
+        "allergen_strictness": null,
+        "pack": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "kind": "parse",
+  "text": "200 litraa maidotonta ja gluteenitonta kasvijuomaa maanantaiksi, vain vahvistetut tiedot",
+  "profile_id": "allergy-ward",
+  "model": "hand-built",
+  "source": "hand-built",
+  "today": "2026-11-14",
+  "note": "Written by hand, not by a model (task T18): Gemini answered 503 and 504 to every request of the live check on 14 Nov 2026. `python -m tta.agent.record --only finnish-2` replaces this file with the model's answer.",
+  "proposal": {
+    "needed_by": "2026-11-16",
+    "require_confirmed": true,
+    "lines": [
+      {
+        "product_type": "plant_drink",
+        "product_ids": [],
+        "name_terms": [],
+        "required_claims": [],
+        "quantity": 200,
+        "unit": "L",
+        "exclude_allergens": [
+          "AM",
+          "AW"
+        ],
+        "allergen_strictness": null,
+        "pack": null
+      }
+    ]
+  }
+}

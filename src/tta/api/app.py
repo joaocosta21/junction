@@ -21,8 +21,9 @@ from tta.api.docs_pages import install_docs_pages
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
-from tta.api.limits import BodyLimitMiddleware, ClientKeyMiddleware
+from tta.api.limits import ClientKeyMiddleware
 from tta.api.routes import public, router
+from tta.api.uploads import UploadBodyLimit
 from tta.api.wiring import Parts, build_parts, close_each
 from tta.config import Settings, get_settings
 
@@ -104,7 +105,7 @@ def _application(parts: Parts) -> FastAPI:
     app.state.surfaces = {name: name in surfaces for name in (MCP_SURFACE, PAGES_SURFACE)}
     app.state.examples = None  # set when the application starts
     # The last one added is the outermost: the headers cover what the two inside it answer themselves.
-    app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(UploadBodyLimit)  # the body limit, with room for one photo on the routes that take one
     app.add_middleware(ClientKeyMiddleware, trusted_proxy_hops=parts.settings.tta_trusted_proxy_hops)
     app.add_middleware(SecurityHeadersMiddleware)
     install_error_handlers(app)

@@ -10,11 +10,13 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, Path, Query, Request, Response
 from pydantic import BaseModel, BeforeValidator, ConfigDict
+from starlette.concurrency import run_in_threadpool
 
 from tta.api import docs
 from tta.api.agent_calls import header_value
 from tta.api.identity import Caller
 from tta.api.service import Gateway
+from tta.api.uploads import READ_IMAGE_PATH, REQUEST_BODY, ImageReading, body_too_large_answer, read_upload
 from tta.contracts.agent import AgentRun, ParseRequestBody
 from tta.contracts.audit import AuditView
 from tta.contracts.common import ApprovalStatus, AuditReader, DataSource
@@ -271,6 +273,29 @@ def parse_request(request: Request, response: Response, caller: Caller, pasted: 
     response.headers[READ_BY_HEADER] = header_value(reading.model)
     response.headers[READING_SOURCE_HEADER] = reading.source.value
     return reading.request
+
+
+@router.post(
+    READ_IMAGE_PATH.removeprefix(router.prefix), operation_id="read_image", tags=[docs.TAG_AGENT],
+    openapi_extra=REQUEST_BODY,
+    responses={
+        200: {"description": "What was read in the photo, and the typed request", "headers": READING_HEADERS},
+        **docs.problems(*CALLER, InvalidRequest, RateLimited, SupplierUnavailable), **body_too_large_answer(),
+    },
+    summary="A photo of an order list becomes a typed request",
+)
+async def read_image(request: Request, response: Response, caller: Caller) -> ImageReading:
+    """One photo of a handwritten or printed list (JPEG, PNG, WebP or HEIC, at most 5 MB; this route's body may
+    be 5 MB and 64 KB), as `multipart/form-data` in the field `image`. Two steps: the model writes down the lines
+    it reads, word for word, then the same parser and text check as `POST /v1/requests/parse` read those lines.
+    The answer holds both, so the person sees what was read. An instruction written in the photo is a line like
+    any other. The upload is checked by its first bytes before any model is asked, and is never stored. Counted
+    as a model call."""
+    upload = await read_upload(request)
+    lines, reading = await run_in_threadpool(_service(request).read_image, caller, upload.image, upload.media_type)
+    response.headers[READ_BY_HEADER] = header_value(reading.model)
+    response.headers[READING_SOURCE_HEADER] = reading.source.value
+    return ImageReading(transcription=lines, request=reading.request, reading=reading)
 
 
 @router.post(

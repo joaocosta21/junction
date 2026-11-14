@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TurnCall
+from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TranscribeCall, TurnCall
 from tta.agent.outage import PROCESS_OUTAGE
 from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import RecordedModel
@@ -30,6 +30,10 @@ from tta.contracts.ports import Clock
 SCENARIO_1_TEXT = "1,000 litres of lactose-free milk by Monday"
 SCENARIO_2_TEXT = "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"
 NO_QUANTITY_TEXT = "Some milk for Monday"
+FINNISH_1_TEXT = "1000 litraa laktoositonta maitoa maanantaiksi"
+FINNISH_2_TEXT = "200 litraa maidotonta ja gluteenitonta kasvijuomaa maanantaiksi, vain vahvistetut tiedot"
+DEMO_PHOTO = "photos/order-list.png"  # under fixtures/agent/: scenario 1's order as a kitchen writes it (task T18)
+DEMO_PHOTO_LINES = ("Tilaus", "Maito laktoositon 1000 l — ma")
 FIXTURES_AGENT_DIR = REPO_ROOT / "fixtures" / "agent"
 # Surfaces other tasks add to the gateway. They may be half-written while these tests run.
 OTHER_SURFACES = ("tta.api.mcp_surface", "tta.ui.routes")
@@ -50,6 +54,8 @@ class ScriptedModel:
     recorded: bool = False
     extract_calls: list[ExtractCall] = field(default_factory=list)
     turn_calls: list[TurnCall] = field(default_factory=list)
+    transcriptions: list[str | Exception] = field(default_factory=list)  # the answers to `transcribe`, in order
+    transcribe_calls: list[TranscribeCall] = field(default_factory=list)
 
     def label_for(self, request_text: str) -> str:
         return self.model_id
@@ -60,6 +66,21 @@ class ScriptedModel:
     def extract(self, call: ExtractCall) -> str:
         self.extract_calls.append(call)
         return self.extracts.pop(0)
+
+    def transcribe(self, call: TranscribeCall) -> str:
+        self.transcribe_calls.append(call)
+        answer = self.transcriptions.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def transcription_source(self, digest: str) -> AnswerSource:
+        return AnswerSource(ReadingSource.MODEL, self.model_id)
+
+    @property
+    def calls(self) -> int:
+        """Every request this model was sent, of any kind."""
+        return len(self.extract_calls) + len(self.turn_calls) + len(self.transcribe_calls)
 
     def next_turn(self, call: TurnCall) -> ModelTurn:
         self.turn_calls.append(call)
@@ -199,4 +220,28 @@ def shown_as() -> Callable[[str], str]:
 
 @pytest.fixture(scope="session")
 def texts() -> dict[str, str]:
-    return {"scenario_1": SCENARIO_1_TEXT, "scenario_2": SCENARIO_2_TEXT, "no_quantity": NO_QUANTITY_TEXT}
+    return {
+        "scenario_1": SCENARIO_1_TEXT, "scenario_2": SCENARIO_2_TEXT, "no_quantity": NO_QUANTITY_TEXT,
+        "finnish_1": FINNISH_1_TEXT, "finnish_2": FINNISH_2_TEXT,
+    }
+
+
+@pytest.fixture(scope="session")
+def demo_photo() -> bytes:
+    """The stand-in photo of the demo: a PNG of "Maito laktoositon 1000 l — ma" (task T18)."""
+    return (FIXTURES_AGENT_DIR / DEMO_PHOTO).read_bytes()
+
+
+@pytest.fixture(scope="session")
+def demo_photo_lines() -> tuple[str, ...]:
+    return DEMO_PHOTO_LINES
+
+
+@pytest.fixture(scope="session")
+def transcription() -> Callable[..., str]:
+    """The JSON text a model returns for a photo: the lines it read."""
+
+    def build(*lines: str) -> str:
+        return json.dumps({"lines": list(lines)}, ensure_ascii=False)
+
+    return build

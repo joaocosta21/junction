@@ -7,8 +7,10 @@ must be the date this rule gives, and a recorded `needed_by` is re-resolved with
   time, AIMO/docs/API.md section 6.1), whatever the offset of the clock's reading.
 - A weekday is the first such day after today: "by Monday" on Monday is the Monday after. "Next Monday" is the
   same day as "Monday" (the instruction the model is given says the same).
-- "today", "tomorrow", "the day after tomorrow"; an explicit date: 2026-11-20, 20.11. or 20.11.2026,
-  20/11/2026, 20 November or November 20th. A date without a year is the next such date from today.
+- Finnish and Swedish weekday names in any form, and the Finnish short forms ma, ti, ke, pe and su (task T18).
+- "today", "tomorrow", "the day after tomorrow", and their Finnish and Swedish words; an explicit date:
+  2026-11-20, 20.11. or 20.11.2026, 20/11/2026, 20 November or November 20th. A date without a year is the
+  next such date from today.
 - A decimal (1.5) or a fraction (1/2) is never read as a date: a dotted date needs its closing dot or a year,
   a date with a slash needs a year.
 """
@@ -30,16 +32,23 @@ SUNDAY = 6
 DAYS_IN_A_WEEK = 7
 
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
-# Finnish weekday names, matched at the start of a word: "maanantaina" (on Monday), "maanantaiksi" (by Monday).
+# Finnish and Swedish weekday names, matched at the start of a word: "maanantaina" (on Monday), "maanantaiksi"
+# (by Monday), "maanantaihin" (by Monday), "måndagen" (task T18).
 _WEEKDAYS_FI = ("maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai", "sunnuntai")
+_WEEKDAYS_SV = ("måndag", "tisdag", "onsdag", "torsdag", "fredag", "lördag", "söndag")
+# The Finnish short forms a kitchen writes on a list ("Maito 1000 l — ma"), as whole words. "to" (Thursday) and
+# "la" (Saturday) are left out: they are also English and French words ("allergic to", "à la carte").
+_WEEKDAYS_FI_SHORT = {"ma": 0, "ti": 1, "ke": 2, "pe": 4, "su": 6}
 _MONTHS_EN = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
               "november", "december")
 _MONTHS_FI = ("tammikuu", "helmikuu", "maaliskuu", "huhtikuu", "toukokuu", "kesäkuu", "heinäkuu", "elokuu",
               "syyskuu", "lokakuu", "marraskuu", "joulukuu")
+_MONTHS_SV = ("januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober",
+              "november", "december")
 _RELATIVE = (  # longest first: "the day after tomorrow" is not "tomorrow"
-    (re.compile(r"\bday after tomorrow\b|\bylihuomen"), 2),
-    (re.compile(r"\btomorrow\b|\bhuomen|\bhuomis"), 1),
-    (re.compile(r"\btoday\b|\btänään\b"), 0),
+    (re.compile(r"\bday after tomorrow\b|\bylihuomen|\bi\s?övermorgon\b"), 2),
+    (re.compile(r"\btomorrow\b|\bhuomen|\bhuomis|\bi\s?morgon\b"), 1),
+    (re.compile(r"\btoday\b|\btänään\b|\bi\s?dag\b"), 0),
 )
 _ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
 _DOTTED = re.compile(r"(?<![\d.,])(\d{1,2})\.(\d{1,2})\.(\d{4})?(?![\d,]|\.\d)")
@@ -81,10 +90,13 @@ def helsinki_date(instant: datetime) -> date:
 
 
 def _month(word: str) -> int | None:
-    """1 to 12 for an English month name or its first three letters, or a Finnish month name in any form."""
+    """1 to 12 for an English month name or its first three letters, a Finnish month name in any form, or a
+    Swedish month name."""
     for number, name in enumerate(_MONTHS_EN, start=1):
         if word == name or (len(word) == len("nov") and name.startswith(word)):
             return number
+    if word in _MONTHS_SV:
+        return _MONTHS_SV.index(word) + 1
     return next((number for number, name in enumerate(_MONTHS_FI, start=1) if word.startswith(name)), None)
 
 
@@ -112,12 +124,23 @@ def _explicit_dates(folded: str, today: date) -> list[date | None]:
     return found
 
 
+def _weekday(word: str) -> int | None:
+    """0 for Monday to 6 for Sunday: an English name, a Finnish or Swedish name in any form, a Finnish short form."""
+    if word in _WEEKDAYS_EN:
+        return _WEEKDAYS_EN.index(word)
+    if word in _WEEKDAYS_FI_SHORT:
+        return _WEEKDAYS_FI_SHORT[word]
+    for names in (_WEEKDAYS_FI, _WEEKDAYS_SV):
+        weekday = next((number for number, name in enumerate(names) if word.startswith(name)), None)
+        if weekday is not None:
+            return weekday
+    return None
+
+
 def _weekday_dates(folded: str, today: date) -> list[date]:
     found = []
     for word in _WORD.findall(folded):
-        weekday = next((number for number, name in enumerate(_WEEKDAYS_EN) if word == name), None)
-        if weekday is None:
-            weekday = next((number for number, name in enumerate(_WEEKDAYS_FI) if word.startswith(name)), None)
+        weekday = _weekday(word)
         if weekday is not None:
             ahead = (weekday - today.weekday() - 1) % DAYS_IN_A_WEEK + 1  # 1 to 7: always after today
             found.append(today + timedelta(days=ahead))

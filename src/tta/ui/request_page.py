@@ -3,18 +3,23 @@
 Scores on the 30% "working end-to-end demo" (the visible half of the flow) and the 20% "solving the problem":
 the first screen shows what is confirmed, what is not, and what was excluded and why (SPEC section 12).
 Everything is read from and written to the browser session's own order book (task FIX-10, finding 1).
+Next to the text box, a photo of an order list can be sent instead (task T18): the lines read in it are shown
+above the request as the gateway read it.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Annotated
 
 from fastapi import FastAPI, Form
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from tta.api.service import Gateway
+from tta.api.uploads import MAX_IMAGE_BYTES, PHOTO_PAGE_PATH, read_upload
 from tta.contracts.common import ExclusionReason, Identity, OrderStatus
 from tta.contracts.errors import NotFound, TtaError
 from tta.contracts.offer import Exclusion, Offer, OfferOption
@@ -31,6 +36,7 @@ from tta.ui.run import (
     broken_run,
     look_up_substitutes,
     order_key,
+    run_photo,
     run_request,
 )
 from tta.ui.site import CONFLICT, NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
@@ -49,6 +55,9 @@ TEXT_TOO_LONG = ("The request is too long", f"A request is at most {MAX_TEXT_LEN
 NO_SUCH_EXAMPLE = ("No such example", "Pick one of the examples on the first page.")
 ALREADY_RUNNING = ("This request is already running", "The form was sent twice. Open the first page again in a moment.")
 USE_AN_EXAMPLE = "The examples below carry their typed request, so one of the examples runs without a model."
+PHOTO_TYPES = "image/jpeg,image/png,image/webp,image/heic,image/heif"  # the types Gemini reads (tta.agent.images)
+MAX_PHOTO_MEGABYTES = MAX_IMAGE_BYTES // (1024 * 1024)
+Start = Callable[[Gateway, str], RunRecord]  # runs one form on a book's service, ordering with the given key
 
 
 @dataclass(frozen=True)
@@ -139,6 +148,7 @@ def _page(
         text=text or "", run_key=security.new_token(), result=result, record=record, problem=problem,
         use_an_example=USE_AN_EXAMPLE, exclusions_shown=EXCLUSIONS_SHOWN_FIRST,
         candidates_shown=OTHER_CANDIDATES_SHOWN_FIRST, max_text_length=MAX_TEXT_LENGTH,
+        photo_path=PHOTO_PAGE_PATH, photo_types=PHOTO_TYPES, max_photo_megabytes=MAX_PHOTO_MEGABYTES,
     )
 
 
@@ -181,10 +191,8 @@ def _with_substitutes(service: Gateway, asker: Identity, record: RunRecord) -> R
     return replace(record, substitutes=look_up_substitutes(service, asker, record.offer_id))
 
 
-def _run_once(
-    site: Site, request: Request, key: str, asker: Identity, text: str, example: Example | None
-) -> Response:
-    """Run the request unless this form already did; a form sent again shows its first result (finding 4).
+def _run_once(site: Site, request: Request, key: str, asker: Identity, text: str, start: Start) -> Response:
+    """Run the form unless it already ran; a form sent again shows its first result (finding 4).
 
     A refusal of the gateway is shown on the first page, with the text still in the box, and frees the form
     for another try: the gateway answers a run that placed an order with the run, never with a refusal, so
@@ -199,7 +207,7 @@ def _run_once(
             raise page_error(CONFLICT, *ALREADY_RUNNING)
         return _after(site, request, earlier, asker)
     try:
-        record = run_request(book.service, asker, text, example, order_key=order_key(key))
+        record = start(book.service, order_key(key))
     except TtaError as error:
         runs.release(key)
         return _page(site, request, problem=Problem.of(error), text=text, asker=asker, status=error.status_code)
@@ -209,6 +217,11 @@ def _run_once(
     record = _with_substitutes(book.service, asker, record)
     runs.finish(key, record)
     return _after(site, request, record, asker)
+
+
+def _form_key(run_key: str) -> str:
+    """The form's own run key, or a new one when it sent none that the page issued."""
+    return run_key if RECORD_ID.fullmatch(run_key) else security.new_token()
 
 
 def _look_up(site: Site, request: Request, offer_id: str) -> Response:
@@ -237,8 +250,28 @@ def add_routes(app: FastAPI, site: Site) -> None:
     ) -> Response:
         site.check_form(request, csrf)
         asker, pasted, found = _what_was_asked(site, who, text, example)
-        key = run_key if RECORD_ID.fullmatch(run_key) else security.new_token()
-        response = _run_once(site, request, key, asker, pasted, found)
+
+        def start(service: Gateway, key: str) -> RunRecord:
+            return run_request(service, asker, pasted, found, order_key=key)
+
+        response = _run_once(site, request, _form_key(run_key), asker, pasted, start)
+        security.set_session_cookie(response, request, security.AGENT_COOKIE, asker.id)
+        return response
+
+    @app.post(PHOTO_PAGE_PATH, response_class=HTMLResponse)
+    async def run_a_photo(request: Request) -> Response:
+        """The upload control's button: the same form, sent as multipart/form-data with one photo, read in memory."""
+        upload = await read_upload(request)
+        site.check_form(request, upload.fields.get("csrf", ""))
+        asker = site.agent(upload.fields.get("who"))
+        if asker is None:
+            raise page_error(UNPROCESSABLE, *NOT_A_DEMO_AGENT)
+
+        def start(service: Gateway, key: str) -> RunRecord:
+            return run_photo(service, asker, upload.image, upload.media_type, order_key=key)
+
+        key = _form_key(upload.fields.get("run_key", ""))
+        response = await run_in_threadpool(_run_once, site, request, key, asker, "", start)
         security.set_session_cookie(response, request, security.AGENT_COOKIE, asker.id)
         return response
 
