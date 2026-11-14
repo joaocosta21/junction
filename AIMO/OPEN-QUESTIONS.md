@@ -17,7 +17,7 @@
 ```sh
 cd /Users/joaocosta/Pessoal/junction && GEMINI_API_KEY= TTA_ENV=demo TTA_MODE=replay TTA_DB_PATH=/tmp/tta-booth.sqlite3 .venv/bin/python -m uvicorn --factory tta.api:create_app
 ```
-Replay mode answers from tonight's capture with the clock pinned to Sat 02:52, so the outcomes below are certain. Each browser keeps its own order book. Run scenario 3 last: its €174 order counts in the hotel's day and adds finance to scenario 1. **Start again** empties the book. REST calls need `-H "Authorization: Bearer demo-agent-hotel-kitchen"`.
+Replay mode answers from tonight's capture with the clock pinned to Sat 02:52, so the outcomes below are certain. Each browser keeps its own order book. Run each scenario once: a second scenario 1 in the same book adds finance (the hotel's day passes €3,000); scenarios 1, 2, 3 in any order once each stay within it. **Start again** empties the book. REST calls need `-H "Authorization: Bearer demo-agent-hotel-kitchen"`.
 
 **Data shell.** Open a second terminal. Every "Shell:" line below is typed at its `>>>` prompt.
 ```sh

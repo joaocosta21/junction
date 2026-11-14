@@ -92,6 +92,7 @@ WORDS: dict[type[Enum], dict[str, str]] = {
         "CUTOFF_PASSED": "Cut-off passed", "LATE_FOR_NEEDED_BY": "Too late for the needed-by date",
         "ALLERGEN_DECLARED": "Declares an excluded allergen", "ALLERGEN_NOT_STATED": "Allergen not stated",
         "PORTION_PACK": "Portion pack", "NOT_A_PORTION_PACK": "Not a portion pack",
+        "NOT_IN_RECORDING": "Not in the recorded copy",
         "PACK_SIZE_UNKNOWN": "Pack size unknown", "PRICE_UNAVAILABLE": "No price",
         "SUBSTITUTE_ADDS_ALLERGEN": "Substitute adds an allergen", "QUANTITY_NOT_CONFIRMED": "Quantity not confirmed",
         "DELIVERY_DATE_NOT_CONFIRMED": "Delivery date not confirmed",
