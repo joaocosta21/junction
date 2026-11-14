@@ -119,6 +119,18 @@ def test_a_repeated_call_inside_60_seconds_makes_no_request(make_client, fake_ap
     assert second == first
 
 
+def test_a_fresh_call_skips_the_cache_and_asks_again(make_client, fake_api, fake_time) -> None:
+    client = make_client(fake_api)
+    client.availability([MILK])
+    client.price([MILK])
+    fake_time.advance(5)
+
+    client.availability([MILK], fresh=True)
+    client.price([MILK], fresh=True)
+
+    assert len(fake_api.requests) == 4
+
+
 def test_after_60_seconds_the_same_call_asks_again(make_client, fake_api, fake_time) -> None:
     client = make_client(fake_api)
     client.availability([MILK])

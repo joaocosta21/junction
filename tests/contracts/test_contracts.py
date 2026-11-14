@@ -131,3 +131,22 @@ def test_an_error_becomes_a_problem_details_body() -> None:
 
     assert body["type"] == PROBLEM_TYPE_BASE + "offer-stale"
     assert body["status"] == 409 and body["fresh_offer_id"] == "off_2" and body["instance"] == "/v1/orders"
+
+
+@pytest.mark.parametrize("quantity", ["1e30", "1e100000", "1000000.001", "0.0001", "NaN", "Infinity"])
+def test_a_request_quantity_is_bounded(quantity: str) -> None:
+    with pytest.raises(ValidationError):
+        RequestLine(text="x", quantity=quantity, unit="L")
+
+
+def test_a_request_line_limits_its_lists_and_ids() -> None:
+    RequestLine(text="x", quantity="1000000", unit="L", name_terms=("milk",) * 10)
+    with pytest.raises(ValidationError):
+        RequestLine(text="x", quantity=1, unit="L", name_terms=("milk",) * 11)
+    with pytest.raises(ValidationError):
+        RequestLine(text="x", quantity=1, unit="L", exclude_allergens=("AM",) * 31)
+    with pytest.raises(ValidationError):
+        RequestLine(text="x", quantity=1, unit="UNIT", product_ids=("../etc/passwd",))
+    with pytest.raises(ValidationError):
+        RequestLine(text="x", quantity=1, unit="L", name_terms=("m" * 61,))
+

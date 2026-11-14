@@ -238,7 +238,12 @@ def test_unknown_product_type_is_an_invalid_request_that_lists_the_keys(catalog:
     assert "plant_drink" in raised.value.detail
 
 
-@pytest.mark.parametrize("query", [ProductQuery(), ProductQuery(name_terms=("  ",), required_claims=("",))])
-def test_a_search_without_any_filter_is_an_invalid_request(catalog: ProductCatalog, query: ProductQuery) -> None:
+def test_a_search_without_any_filter_is_an_invalid_request(catalog: ProductCatalog) -> None:
     with pytest.raises(InvalidRequest):
-        catalog.search(query)
+        catalog.search(ProductQuery())
+
+
+def test_a_blank_term_or_claim_is_refused_by_the_query_itself() -> None:
+    # The contract strips and bounds every term, so a blank one never reaches the search.
+    with pytest.raises(ValueError, match="at least 1 character"):
+        ProductQuery(name_terms=("  ",), required_claims=("",))

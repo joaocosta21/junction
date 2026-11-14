@@ -72,7 +72,7 @@ class ReplayGateway:
     def clock(self) -> PinnedClock:
         return PinnedClock(self._time_now)
 
-    def price(self, product_ids: Sequence[str]) -> PriceResponse:
+    def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:  # noqa: ARG002
         lines = tuple(
             self._prices[product_id] if product_id in self._prices else unknown_price_line(product_id)
             for product_id in distinct_ids(product_ids)
@@ -85,7 +85,7 @@ class ReplayGateway:
             retrieved_at=self._time_now,
         )
 
-    def availability(self, product_ids: Sequence[str]) -> AvailabilityResponse:
+    def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse:  # noqa: ARG002
         lines = tuple(
             self._availability[product_id]
             if product_id in self._availability

@@ -28,7 +28,7 @@ from tta.contracts.common import (
 )
 from tta.contracts.policy import PolicyDecision
 from tta.contracts.product import PackSize
-from tta.contracts.request import PurchaseRequest
+from tta.contracts.request import MAX_QUANTITY, PurchaseRequest
 
 
 class SubstituteInfo(Contract):
@@ -168,7 +168,7 @@ class Offer(Contract):
 class SubstituteQuery(Contract):
     """Body of POST /v1/products/{id}/substitutes."""
 
-    quantity: Quantity | None = Field(default=None, gt=0)
+    quantity: Quantity | None = Field(default=None, gt=0, le=MAX_QUANTITY)
     unit: Unit = Unit.UNIT
     needed_by: date | None = None
 

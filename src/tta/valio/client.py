@@ -93,12 +93,13 @@ class ValioClient:
     def close(self) -> None:
         self._http.close()
 
-    def price(self, product_ids: Sequence[str]) -> PriceResponse:
+    def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:
         ids = distinct_ids(product_ids)
         if not ids:
             return PriceResponse(currency=CURRENCY_EUR, source=DataSource.LIVE, retrieved_at=self._clock.now())
         with self._lock:
-            cached = self._cached(PRICE_ENDPOINT, ids)
+            # `fresh` skips the cache: the re-check before an order must see the supplier's current answer.
+            cached = None if fresh else self._cached(PRICE_ENDPOINT, ids)
             if isinstance(cached, PriceResponse):
                 return cached
             parts = [self._price_chunk(chunk) for chunk in _chunks(ids)]
@@ -106,12 +107,13 @@ class ValioClient:
             self._remember(PRICE_ENDPOINT, ids, response)
             return response
 
-    def availability(self, product_ids: Sequence[str]) -> AvailabilityResponse:
+    def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse:
         ids = distinct_ids(product_ids)
         if not ids:
             return AvailabilityResponse(time_now=self._clock.now(), source=DataSource.LIVE)
         with self._lock:
-            cached = self._cached(AVAILABILITY_ENDPOINT, ids)
+            # `fresh` skips the cache: the re-check before an order must see the supplier's current answer.
+            cached = None if fresh else self._cached(AVAILABILITY_ENDPOINT, ids)
             if isinstance(cached, AvailabilityResponse):
                 return cached
             parts = [self._availability_chunk(chunk) for chunk in _chunks(ids)]

@@ -46,14 +46,18 @@ class Clock(Protocol):
 
 @runtime_checkable
 class ValioGateway(Protocol):
-    """Price and availability from the Valio mock API, live or replayed. Raises `SupplierUnavailable`."""
+    """Price and availability from the Valio mock API, live or replayed. Raises `SupplierUnavailable`.
+
+    `fresh=True` asks the supplier again even when a cached answer exists. The re-check before an
+    order is placed must pass it: a cached answer cannot show that a price or a stock figure changed.
+    """
 
     @property
     def source(self) -> DataSource: ...
 
-    def price(self, product_ids: Sequence[str]) -> PriceResponse: ...
+    def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse: ...
 
-    def availability(self, product_ids: Sequence[str]) -> AvailabilityResponse: ...
+    def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse: ...
 
 
 @runtime_checkable

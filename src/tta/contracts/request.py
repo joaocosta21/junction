@@ -3,29 +3,44 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
+from decimal import Decimal
+from typing import Annotated, Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Quantity, Unit
 
 MAX_PRODUCT_IDS = 1000
 MAX_REQUEST_LINES = 20
 MAX_TEXT_LENGTH = 2000
+MAX_QUANTITY = Decimal(1_000_000)  # far above any real order; keeps arithmetic and JSON bounded
+MAX_QUANTITY_DECIMALS = 3
+MAX_TERMS = 10
+MAX_ALLERGEN_CODES = 30
+MAX_TERM_LENGTH = 60
+MAX_ID_LENGTH = 20
+
+Term = Annotated[str, StringConstraints(min_length=1, max_length=MAX_TERM_LENGTH, strip_whitespace=True)]
+ProductId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_LENGTH, pattern=r"^[A-Za-z0-9]+$")]
 
 
 class RequestLine(Contract):
     """One product the buyer asks for."""
 
     text: str = Field(max_length=MAX_TEXT_LENGTH, description="The buyer's own words, kept for the audit trail")
-    product_type: str | None = Field(default=None, description="A key of the product-type table")
-    product_ids: tuple[str, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
-    name_terms: tuple[str, ...] = Field(default=(), description="Words that must appear in the product name")
-    required_claims: tuple[str, ...] = Field(default=(), description="nutritionalClaim codes that must be present")
-    quantity: Quantity = Field(gt=0)
+    product_type: Term | None = Field(default=None, description="A key of the product-type table")
+    product_ids: tuple[ProductId, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
+    name_terms: tuple[Term, ...] = Field(
+        default=(), max_length=MAX_TERMS, description="Words that must appear in the product name"
+    )
+    required_claims: tuple[Term, ...] = Field(
+        default=(), max_length=MAX_TERMS, description="nutritionalClaim codes that must be present"
+    )
+    quantity: Quantity = Field(gt=0, le=MAX_QUANTITY, decimal_places=MAX_QUANTITY_DECIMALS)
     unit: Unit
-    exclude_allergens: tuple[str, ...] = Field(
-        default=(), description="GS1 codes, added to the profile's exclusions; never removes one"
+    exclude_allergens: tuple[Term, ...] = Field(
+        default=(), max_length=MAX_ALLERGEN_CODES,
+        description="GS1 codes, added to the profile's exclusions; never removes one",
     )
     allergen_strictness: AllergenStrictness | None = Field(
         default=None,
@@ -56,9 +71,9 @@ class PurchaseRequest(Contract):
 class ProductQuery(Contract):
     """A catalog search (POST /v1/products/search). Every filter given must hold."""
 
-    product_type: str | None = None
-    product_ids: tuple[str, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
-    name_terms: tuple[str, ...] = ()
-    required_claims: tuple[str, ...] = ()
-    category_prefix: str | None = None
+    product_type: Term | None = None
+    product_ids: tuple[ProductId, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
+    name_terms: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)
+    required_claims: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)
+    category_prefix: Term | None = None
     limit: int = Field(default=200, ge=1, le=MAX_PRODUCT_IDS)
