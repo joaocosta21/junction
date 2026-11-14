@@ -8,6 +8,8 @@
 #   * Every rule is evaluated deterministically. No model decides a verdict, a price or a quantity.
 #   * Fixed rules (fixed: true) hold for every buyer. Their `when` may not read a `profile.*` fact, so no
 #     profile setting can switch one off or weaken it, and a profile file that names one is rejected at load.
+#     The verdict and the approver role of each fixed rule are also written in code (tta.policy.validation):
+#     a copy of this file that changes one of them, or drops a fixed rule, is rejected at load.
 #   * Profile rules compare an option with the settings of one buyer profile (profiles/*.yaml).
 #     The limit values live there and are illustrative. Nothing in this file is a Valio Aimo limit.
 #   * A condition whose fact is missing is unknown, not false. A rule left unknown fires F-03.
@@ -79,7 +81,10 @@ facts:
   option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
   option.fill_ratio:              {type: ratio,    source: option, label: "the share of the quantity covered", note: "the lowest fill ratio over the request's lines"}
   option.valid_until:             {type: datetime, source: option, label: "the time the option is valid until"}
-  option.expired:                 {type: bool,     source: engine, label: "the option's expiry", note: "valid_until earlier than the clock; missing when the option carries no valid_until"}
+  option.expired:                 {type: bool,     source: engine, label: "the option's expiry", note: "valid_until at or before the clock, as a cut-off equal to the clock has passed; missing when the option carries no valid_until"}
+  option.needed_by_check:         {type: enum,     source: option, label: "the needed-by check", values: [NOT_ASKED, MET, UNVERIFIED, NOT_MET], note: "the least favourable result of the option's constraint checks of kind NEEDED_BY; NOT_ASKED when it carries none, because the request gave no date"}
+  option.needed_by:               {type: string,   source: option, label: "the needed-by date", note: "the subject of the needed-by check with the least favourable result"}
+  option.needed_by_finding:       {type: string,   source: engine, label: "what the needed-by check found", note: "in words; missing when the date is met or the request gave none"}
   option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is a ceiling", note: "totals.is_ceiling"}
   option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
   # --- the order context ---
@@ -95,7 +100,10 @@ facts:
   line.name:                      {type: string, source: option, label: "the product name"}
   line.quantity:                  {type: number, source: option, label: "the quantity in sales units"}
   line.availability_state:        {type: enum,   source: option, label: "the availability state", values: [BLOCKED, NOT_DELIVERABLE, OUT_OF_STOCK, CUTOFF_PASSED, QUANTITY_NOT_CONFIRMED, CONFIRMED]}
-  line.quantity_confirmed:        {type: bool,   source: engine, label: "whether the quantity is confirmed", note: "state CONFIRMED and no quantity claim that says otherwise"}
+  line.quantity_confirmed:        {type: bool,   source: engine, label: "the quantity confirmation", note: "state CONFIRMED and a quantity claim that says CONFIRMED; false for any other state; missing when a line in state CONFIRMED carries no quantity claim"}
+  line.price_claim:               {type: enum,   source: option, label: "the price claim", values: [CONFIRMED, UNKNOWN, RULED_OUT], note: "whether Valio Aimo's data confirms the price (SPEC section 4); the least favourable statement when the line carries several; missing when it carries none"}
+  line.delivery_date_claim:       {type: enum,   source: option, label: "the delivery-date claim", values: [CONFIRMED, UNKNOWN, RULED_OUT], note: "whether Valio Aimo's data confirms the delivery date (SPEC section 4); UNKNOWN when the request gave no date; missing when the line carries none"}
+  line.unconfirmed_reason:        {type: string, source: engine, label: "what Valio Aimo's data does not confirm for the line", note: "the price, the delivery date, or both"}
   line.allergen_outcomes:         {type: list,   source: option, label: "the allergen check", missing_role: dietitian, note: "every outcome the check reports (PASS, REJECT, TO_HUMAN), its own and each finding's; missing when the profile excludes an allergen the check does not cover, or the check ran under a weaker rule than the profile's"}
   line.allergens_declared:        {type: list,   source: option, label: "the excluded allergens the product declares"}
   line.allergens_to_human:        {type: list,   source: option, label: "the excluded allergens the product does not rule out"}
@@ -189,6 +197,39 @@ rules:
     authority:
       - text: "A substitute that declares an allergen the original product does not can never be ordered, for any buyer."
     justification: "Of Valio Aimo's 249 listed substitutes, 37 declare an allergen the original does not (AIMO/PLAN.md section 3). A buyer who chose the original chose its allergens."
+
+  # F-07 is one rule judged in two places, so it is listed twice under one id: once for every line and
+  # once for the option as a whole. The two entries must agree on title, verdict and approver role.
+  # A request with no needed-by date has no date to meet: its options carry no needed-by check
+  # (NOT_ASKED) and the delivery-date claim of their lines is UNKNOWN. Neither sends an order to a human.
+  - id: F-07
+    fixed: true
+    title: A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met
+    scope: line
+    when:
+      any:
+        - {fact: line.price_claim, op: ne, value: CONFIRMED}
+        - {fact: line.delivery_date_claim, op: eq, value: RULED_OUT}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "for {line.name} ({line.product_id}) {line.unconfirmed_reason}"
+    authority:
+      - text: "A product whose price Valio Aimo does not confirm, or whose delivery date is ruled out, always goes to the purchasing manager."
+    justification: "The order rests on fixed prices: a price that Valio Aimo did not return, or whose validTo has passed, is not one the agent can commit a buyer to. A delivery date is ruled out when the order cut-off has passed or the delivery comes later than asked (SPEC section 4); a person decides whether that still serves the kitchen."
+
+  - id: F-07
+    fixed: true
+    title: A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met
+    scope: order
+    when:
+      all:
+        - {fact: option.needed_by_check, op: not_in, value: [MET, NOT_ASKED]}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "the needed-by date {option.needed_by} {option.needed_by_finding} for this option"
+    authority:
+      - text: "When the request gives a needed-by date, an option that does not verifiably meet it always goes to the purchasing manager."
+    justification: "A buyer who names a date asked for delivery by that date. The offer checks it for the option as a whole; unless that check says MET, the agent does not decide alone that a later or unconfirmed delivery will do."
 
   # --- Profile rules: the settings of one buyer ---
   - id: P-00
@@ -353,5 +394,5 @@ authority:
     - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
       text: "Profile {profile.profile_id}: the agent may not place any order alone; every order goes to a human."
     - text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
-    - text: "Always to a human: a product whose quantity is not confirmed, and any fact a rule needs that is missing."
+    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

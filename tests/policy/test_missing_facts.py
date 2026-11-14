@@ -185,7 +185,9 @@ def test_every_missing_fact_is_listed_once_per_line_next_to_the_rules_that_fired
 
 
 @pytest.mark.parametrize(
-    "case", ["day spend", "variable weight", "allergen check", "fresh check", "valid until"]
+    "case",
+    ["day spend", "variable weight", "allergen check", "fresh check", "valid until",
+     "quantity_claim", "price_claim", "delivery_date_claim"],
 )
 def test_no_missing_fact_ever_yields_auto(
     case: str, engine: RulePolicyEngine, ward: BuyerProfile, make_line: Callable[..., OfferLine],
@@ -195,6 +197,8 @@ def test_no_missing_fact_ever_yields_auto(
     check = make_allergen_check({"AM": AllergenRelation.FREE_FROM, "AW": AllergenRelation.FREE_FROM})
     line = {"allergen_check": None if case == "allergen check" else check,
             "variable_weight": None if case == "variable weight" else False}
+    if case.endswith("_claim"):
+        line[case] = None  # the line does not carry that claim
     option = make_option((make_line(**line),), valid_until=None) if case == "valid until" else make_option(
         (make_line(**line),)
     )

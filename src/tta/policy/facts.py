@@ -26,6 +26,15 @@ from tta.contracts.common import (
 )
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, PolicyContext
+from tta.policy.claims import (
+    CLAIM_WORDS,
+    NEEDED_BY_NOT_ASKED,
+    NEEDED_BY_WORDS,
+    claim_status,
+    needed_by_dates,
+    needed_by_result,
+    unconfirmed_reasons,
+)
 from tta.policy.text import format_datetime, join_words, unique
 
 
@@ -109,13 +118,32 @@ def _valid_until(scope: OrderScope) -> Reading:
 
 
 def _expired(scope: OrderScope) -> Reading:
+    """Expired from the moment of its valid-until, as a cut-off equal to the clock has passed (SPEC section 4)."""
     valid_until = scope.option.valid_until
     if valid_until is None:
         return Missing("the option carries no valid-until time")
     now = scope.context.now
     if (valid_until.tzinfo is None) != (now.tzinfo is None):
         return Missing("the option's valid-until time and the clock cannot be compared: one has no offset")
-    return valid_until < now
+    return valid_until <= now
+
+
+def _needed_by_check(scope: OrderScope) -> Reading:
+    """The result of the needed-by check as the offer gives it. No check: the request gave no date."""
+    result = needed_by_result(scope.option)
+    return NEEDED_BY_NOT_ASKED if result is None else result.value
+
+
+def _needed_by(scope: OrderScope) -> Reading:
+    dates = needed_by_dates(scope.option)
+    return join_words(dates) if dates else Missing("the request gave no needed-by date")
+
+
+def _needed_by_finding(scope: OrderScope) -> Reading:
+    """In words, what the needed-by check found when it is not met."""
+    result = needed_by_result(scope.option)
+    words = NEEDED_BY_WORDS.get(result) if result is not None else None
+    return words if words is not None else Missing("the needed-by date is met, or the request gave none")
 
 
 def _day_committed(scope: OrderScope) -> Reading:
@@ -181,6 +209,9 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "option.fill_ratio": lambda scope: scope.option.fill_ratio,
     "option.valid_until": _valid_until,
     "option.expired": _expired,
+    "option.needed_by_check": _needed_by_check,
+    "option.needed_by": _needed_by,
+    "option.needed_by_finding": _needed_by_finding,
     "option.total_is_ceiling": lambda scope: scope.option.totals.is_ceiling,
     "option.total_excludes_deposits": lambda scope: scope.option.totals.excludes_deposits,
     "context.at_order_time": lambda scope: scope.context.at_order_time,
@@ -195,12 +226,33 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
 
 # --- one line of the option --------------------------------------------------------------------------------
 
+def _no_claim(claim: ClaimName) -> Missing:
+    """A claim the line does not carry is a missing fact (SPEC section 4): it is never read as confirmed."""
+    return Missing(f"the offer line carries no {CLAIM_WORDS[claim]} claim")
+
+
 def _quantity_confirmed(_: OrderScope, line: OfferLine) -> Reading:
-    """State CONFIRMED, and no quantity claim on the line that says otherwise (SPEC section 4)."""
+    """State CONFIRMED and a quantity claim that says CONFIRMED (SPEC section 4)."""
     if line.availability.state is not AvailabilityState.CONFIRMED:
-        return False
-    quantity_claims = (check for check in line.claims if check.claim is ClaimName.QUANTITY)
-    return all(check.status is ClaimStatus.CONFIRMED for check in quantity_claims)
+        return False  # the state settles it, with or without a claim
+    status = claim_status(line, ClaimName.QUANTITY)
+    return _no_claim(ClaimName.QUANTITY) if status is None else status is ClaimStatus.CONFIRMED
+
+
+def _claim(claim: ClaimName) -> Callable[[OrderScope, OfferLine], Reading]:
+    """A reader for the verification status of one claim of a line, as the offer carries it."""
+
+    def read(_: OrderScope, line: OfferLine) -> Reading:
+        status = claim_status(line, claim)
+        return _no_claim(claim) if status is None else status.value
+
+    return read
+
+
+def _unconfirmed_reason(_: OrderScope, line: OfferLine) -> Reading:
+    """Why the line cannot be ordered without a human under rule F-07, as one clause."""
+    reasons = unconfirmed_reasons(line)
+    return join_words(reasons) if reasons else Missing("nothing says why")
 
 
 def _allergen_gap(scope: OrderScope, line: OfferLine) -> str | None:
@@ -292,6 +344,9 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.quantity": lambda _, line: line.quantity,
     "line.availability_state": lambda _, line: line.availability.state.value,
     "line.quantity_confirmed": _quantity_confirmed,
+    "line.price_claim": _claim(ClaimName.PRICE),
+    "line.delivery_date_claim": _claim(ClaimName.DELIVERY_DATE),
+    "line.unconfirmed_reason": _unconfirmed_reason,
     "line.allergen_outcomes": _allergen_outcomes,
     "line.allergens_declared": lambda _, line: _findings(line, AllergenOutcome.REJECT),
     "line.allergens_to_human": lambda _, line: _findings(line, AllergenOutcome.TO_HUMAN),

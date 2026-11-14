@@ -118,3 +118,12 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Allergen codes in the product file are stripped and upper-cased; a code outside the code table rejects the file (the real file has 45 codes, none unknown).
 - A deleted product behaves like an unknown id (the catalog has none today).
 - `milk` leaves out sour milks, the coffee drink and the soy yoghurt of category 10400 by name (78 of 91; 30 lactose-free). Milks sold for coffee stay in (question FIX3-1). `sour_milk` is its own type; the table has 30 types.
+
+## Policy after review (FIX-1)
+- New fixed rule F-07: a line whose price claim is not confirmed, or whose delivery-date claim is ruled out, and an option whose needed-by check is not met, go to the purchasing manager.
+- A line with no price, quantity or delivery-date claim is a missing fact (F-03). The policy does not read the allergens claim (it reads the allergen rule's outcome) or the origin claim.
+- On a dated option the policy relies on the offer's needed-by check; that check says "met" only when every line's delivery-date claim is confirmed.
+- The verdict, approver role and scope of every fixed rule are pinned in code: a rules file that changes one is rejected at load. The conditions of a fixed rule are not pinned (the policy hash shows any change).
+- An option is expired when its `valid_until` is at or before now.
+- A ratio is printed rounded down to one decimal, so a partial fill never reads as 100%.
+- A profile whose excluded allergens hold an unknown code, or `X99`, is rejected at load.

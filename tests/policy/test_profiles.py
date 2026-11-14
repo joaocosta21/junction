@@ -14,6 +14,8 @@ from tta.contracts.common import (
     AllergenStrictness,
     ApproverRole,
     AvailabilityState,
+    CheckResult,
+    ClaimStatus,
     DepositRule,
     SubstitutionScope,
     VariableWeightRule,
@@ -23,7 +25,7 @@ from tta.contracts.errors import NotAuthorised
 from tta.contracts.policy import BuyerProfile
 from tta.policy import PROFILES_DIR, RULES_PATH, PolicyLoadError, RulePolicyEngine, load_profile, load_profiles
 
-FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06"})
+FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07"})
 
 
 def test_the_two_shipped_profiles_load(engine: RulePolicyEngine) -> None:
@@ -79,8 +81,9 @@ def test_an_unknown_profile_is_not_authorised(engine: RulePolicyEngine) -> None:
         {"overrides": [{"rule": "f-03", "verdict": "AUTO"}]},
         {"fixed_rules": {"F-04": False, "F-05": False}},
         {"F-06": False},
+        {"switched_off": ["f-07"]},
     ],
-    ids=["top-level key", "nested key", "list item", "lower-case value", "two rules", "access rule"],
+    ids=["top-level key", "nested key", "list item", "lower-case value", "two rules", "access rule", "F-07"],
 )
 def test_a_profile_that_touches_a_fixed_rule_is_rejected_at_load(
     attempt: dict[str, Any], profile_data: Callable[[str], dict[str, Any]], write_yaml: Callable[[str, Any], Path],
@@ -108,6 +111,58 @@ def test_a_profile_that_lists_exclusions_without_a_strictness_is_rejected_at_loa
 
     with pytest.raises(PolicyLoadError, match="allergen_strictness"):
         load_profile(write_yaml("allergy-ward.yaml", data), FIXED_IDS)
+
+
+def test_the_engine_refuses_to_start_with_a_profile_that_names_f07(
+    profile_data: Callable[[str], dict[str, Any]], write_yaml: Callable[[str, Any], Path], tmp_path: Path,
+) -> None:
+    """The ids no profile may name come from the rules file itself, so the new fixed rule is covered."""
+    write_yaml("profiles/hotel-kitchen.yaml", {**profile_data("hotel-kitchen"), "price_checks": {"F-07": "off"}})
+
+    with pytest.raises(PolicyLoadError, match="names fixed rule F-07"):
+        RulePolicyEngine.from_files(RULES_PATH, tmp_path / "profiles")
+
+
+@pytest.mark.parametrize(
+    ("codes", "message"),
+    [
+        (["milk", "am"], "excluded_allergens: unknown allergen code 'milk', 'am':"),
+        (["AM", "ZZ"], "excluded_allergens: unknown allergen code 'ZZ':"),
+        (["AM "], "excluded_allergens: unknown allergen code 'AM ':"),  # quoted, so that the blank shows
+        (["X99"], "excluded_allergens: X99 is the general statement"),
+        (["AM", "X99"], "not an allergen that can be excluded"),
+    ],
+    ids=["words and lower case", "one unknown code", "a blank after the code", "X99", "X99 next to a real code"],
+)
+def test_a_profile_that_excludes_something_that_is_not_an_allergen_code_is_rejected_at_load(
+    codes: list[str], message: str, profile_data: Callable[[str], dict[str, Any]],
+    write_yaml: Callable[[str, Any], Path],
+) -> None:
+    data = {**profile_data("hotel-kitchen"), "excluded_allergens": codes, "allergen_strictness": "STRICT"}
+
+    with pytest.raises(PolicyLoadError) as raised:
+        load_profile(write_yaml("hotel-kitchen.yaml", data), FIXED_IDS)
+
+    assert message in str(raised.value)
+
+
+def test_every_problem_with_the_exclusion_codes_of_a_profile_is_reported_at_once(
+    profile_data: Callable[[str], dict[str, Any]], write_yaml: Callable[[str, Any], Path],
+) -> None:
+    data = {**profile_data("hotel-kitchen"), "excluded_allergens": ["milk", "X99"], "allergen_strictness": "STRICT"}
+
+    with pytest.raises(PolicyLoadError) as raised:
+        load_profile(write_yaml("hotel-kitchen.yaml", data), FIXED_IDS)
+
+    assert len(raised.value.problems) == 2
+
+
+def test_a_profile_that_excludes_known_allergen_codes_loads(
+    profile_data: Callable[[str], dict[str, Any]], write_yaml: Callable[[str, Any], Path],
+) -> None:
+    data = {**profile_data("hotel-kitchen"), "excluded_allergens": ["AP", "GO"], "allergen_strictness": "DECLARED_ONLY"}
+
+    assert load_profile(write_yaml("hotel-kitchen.yaml", data), FIXED_IDS).excluded_allergens == ("AP", "GO")
 
 
 @pytest.mark.parametrize(
@@ -192,7 +247,17 @@ def test_the_most_permissive_profile_orders_alone_only_what_no_fixed_rule_catche
     assert engine.evaluate(option, permissive, make_context(day_committed="900000")).verdict is Verdict.AUTO
 
 
-@pytest.mark.parametrize("case", ["F-01", "F-02", "F-03", "F-04", "F-05"])
+@pytest.mark.parametrize("needed_by", [CheckResult.NOT_MET, CheckResult.UNVERIFIED])
+def test_the_most_permissive_profile_cannot_order_alone_past_a_needed_by_date(
+    needed_by: CheckResult, engine: RulePolicyEngine, permissive: BuyerProfile, make_option: Callable,
+    make_context: Callable,
+) -> None:
+    decision = engine.evaluate(make_option(needed_by=needed_by), permissive, make_context())
+
+    assert decision.rule_ids == ("F-07",) and decision.verdict is Verdict.APPROVAL and decision.fired[0].fixed
+
+
+@pytest.mark.parametrize("case", ["F-01", "F-02", "F-03", "F-04", "F-05", "F-07"])
 def test_the_most_permissive_profile_cannot_switch_off_a_fixed_rule(
     case: str, engine: RulePolicyEngine, permissive: BuyerProfile, make_line: Callable, make_option: Callable,
     make_context: Callable, make_allergen_check: Callable, make_substitute: Callable, make_revalidation: Callable,
@@ -207,6 +272,8 @@ def test_the_most_permissive_profile_cannot_switch_off_a_fixed_rule(
         line["variable_weight"] = None
     elif case == "F-04":
         context = {"at_order_time": True, "revalidation": make_revalidation(ok=False, changed_price=True)}
+    elif case == "F-07":
+        line["price_claim"] = ClaimStatus.UNKNOWN
     else:
         line["substitute"] = make_substitute(added=(("AW", AllergenRelation.CONTAINS),))
 

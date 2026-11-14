@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from tta.contracts.common import round_money
 
@@ -29,8 +29,12 @@ def format_limit(value: Decimal) -> str:
 
 
 def format_ratio(value: Decimal) -> str:
-    """0.749 -> "74.9%", 0.9 -> "90%", 1 -> "100%"."""
-    percent = (value * PERCENT).quantize(PERCENT_STEP, rounding=ROUND_HALF_UP)
+    """0.749 -> "74.9%", 0.9 -> "90%", 1 -> "100%". Rounded down, never up: 0.9996 -> "99.9%".
+
+    A share that falls short of a minimum must not print as that minimum, and a ratio below 1 must not
+    print as 100%.
+    """
+    percent = (value * PERCENT).quantize(PERCENT_STEP, rounding=ROUND_DOWN)
     return f"{format_number(percent)}%"
 
 

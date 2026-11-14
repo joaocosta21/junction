@@ -14,42 +14,35 @@ from typing import Any
 import pytest
 import yaml
 
-from tta.contracts.allergen import AllergenCheck, AllergenFinding, AllergenStatement, SubstituteAllergenCheck
+from tta.allergens import check_exclusions
+from tta.contracts.allergen import AllergenCheck, AllergenStatement, SubstituteAllergenCheck
 from tta.contracts.availability import AvailabilityAssessment, ClaimCheck, RevalidationChange, RevalidationResult
 from tta.contracts.common import (
     AllergenOutcome,
     AllergenRelation,
     AllergenStrictness,
     AvailabilityState,
+    CheckResult,
     ClaimName,
     ClaimStatus,
+    ConstraintKind,
     DataSource,
     OptionKind,
     PackSizeSource,
     Unit,
     round_money,
 )
-from tta.contracts.offer import OfferLine, OfferOption, SubstituteInfo, Totals
+from tta.contracts.offer import ConstraintCheck, OfferLine, OfferOption, SubstituteInfo, Totals
 from tta.contracts.policy import BuyerProfile, PolicyContext
 from tta.contracts.product import PackSize
 from tta.policy import PROFILES_DIR, RULES_PATH, RulePolicyEngine
 
 # Server time of the demo capture: Saturday 14 Nov 2026, 02:52 (AIMO/build/AGENT-RULES.md).
 NOW = datetime(2026, 11, 14, 2, 52, tzinfo=timezone(timedelta(hours=2)))
+# The Monday after the capture: the date of the canonical request (AIMO/CHALLENGE.md).
+NEEDED_BY = "2026-11-16"
 TAX_RATE = Decimal("14")
 _UNSET: Any = object()
-_SEVERITY = {AllergenOutcome.PASS: 0, AllergenOutcome.TO_HUMAN: 1, AllergenOutcome.REJECT: 2}
-
-
-def _outcome_for(relation: AllergenRelation, strictness: AllergenStrictness) -> AllergenOutcome:
-    """The buyer exclusion table of SPEC section 6."""
-    if relation is AllergenRelation.FREE_FROM:
-        return AllergenOutcome.PASS
-    if relation is AllergenRelation.CONTAINS:
-        return AllergenOutcome.REJECT
-    if relation is AllergenRelation.MAY_CONTAIN or strictness is AllergenStrictness.STRICT:
-        return AllergenOutcome.TO_HUMAN
-    return AllergenOutcome.PASS
 
 
 @pytest.fixture(scope="session")
@@ -102,23 +95,19 @@ def make_allergen_check() -> Callable[..., AllergenCheck]:
         strictness: AllergenStrictness = AllergenStrictness.STRICT,
         outcome: AllergenOutcome | None = None,
     ) -> AllergenCheck:
-        findings = tuple(
-            AllergenFinding(
-                excluded_code=code,
-                relation=relation,
-                outcome=_outcome_for(relation, strictness),
-                sentence=f"The product states {relation.value} for {code}.",
-            )
+        """The check the allergen package gives a product that states `relations`, each code being excluded.
+
+        The table of SPEC section 6 is not copied here: `tta.allergens.check_exclusions` applies it, so these
+        tests fail when it changes. `outcome` overrides the overall outcome, to build a check that
+        contradicts its own findings.
+        """
+        statements = tuple(
+            AllergenStatement(code=code, relation=relation)
             for code, relation in relations.items()
+            if relation is not AllergenRelation.NOT_STATED  # no statement is no entry (tta.contracts.allergen)
         )
-        worst = max((finding.outcome for finding in findings), key=_SEVERITY.__getitem__, default=AllergenOutcome.PASS)
-        explicit = {AllergenRelation.FREE_FROM, AllergenRelation.CONTAINS}
-        return AllergenCheck(
-            outcome=outcome or worst,
-            strictness=strictness,
-            findings=findings,
-            all_explicit=all(finding.relation in explicit for finding in findings),
-        )
+        check = check_exclusions(statements, tuple(relations), strictness)
+        return check if outcome is None else check.model_copy(update={"outcome": outcome})
 
     return build
 
@@ -153,18 +142,32 @@ def make_line() -> Callable[..., OfferLine]:
         quantity: str = "100",
         unit_net_price: str = "2.65",
         state: AvailabilityState = AvailabilityState.CONFIRMED,
+        price_claim: ClaimStatus | None = ClaimStatus.CONFIRMED,
         quantity_claim: ClaimStatus | None = ClaimStatus.CONFIRMED,
+        delivery_date_claim: ClaimStatus | None = ClaimStatus.CONFIRMED,
+        allergens_claim: ClaimStatus | None = ClaimStatus.CONFIRMED,
+        origin_claim: ClaimStatus | None = ClaimStatus.CONFIRMED,
         allergen_check: AllergenCheck | None = None,
         variable_weight: bool | None = False,
         has_deposits: bool = False,
         substitute: SubstituteInfo | None = None,
     ) -> OfferLine:
+        """A line with all five claims of SPEC section 4, each CONFIRMED. `None` for a claim leaves it out."""
         units = Decimal(quantity)
         net = round_money(units * Decimal(unit_net_price))
         tax = round_money(net * TAX_RATE / 100)
         confirmed = state is AvailabilityState.CONFIRMED
-        claims = () if quantity_claim is None else (
-            ClaimCheck(claim=ClaimName.QUANTITY, status=quantity_claim, sentence="Quantity claim."),
+        statuses = {
+            ClaimName.PRICE: price_claim,
+            ClaimName.QUANTITY: quantity_claim,
+            ClaimName.DELIVERY_DATE: delivery_date_claim,
+            ClaimName.ALLERGENS: allergens_claim,
+            ClaimName.ORIGIN: origin_claim,
+        }
+        claims = tuple(
+            ClaimCheck(claim=claim, status=status, sentence=f"The {claim.value} claim is {status.value}.")
+            for claim, status in statuses.items()
+            if status is not None
         )
         return OfferLine(
             product_id=product_id,
@@ -210,7 +213,9 @@ def make_option(make_line: Callable[..., OfferLine]) -> Callable[..., OfferOptio
         valid_until: datetime | None = _UNSET,
         is_ceiling: bool = False,
         excludes_deposits: bool = False,
+        needed_by: CheckResult | None = CheckResult.MET,
     ) -> OfferOption:
+        """An option of a request dated `NEEDED_BY`, which it meets. `needed_by=None`: the request gave no date."""
         total = Decimal(net)
         tax = round_money(total * TAX_RATE / 100)
         return OfferOption(
@@ -225,6 +230,12 @@ def make_option(make_line: Callable[..., OfferLine]) -> Callable[..., OfferOptio
             ),
             fill_ratio=Decimal(fill_ratio),
             valid_until=NOW + timedelta(days=1) if valid_until is _UNSET else valid_until,
+            constraint_checks=() if needed_by is None else (
+                ConstraintCheck(
+                    kind=ConstraintKind.NEEDED_BY, subject=NEEDED_BY, result=needed_by,
+                    sentence=f"The needed-by check for {NEEDED_BY} is {needed_by.value}.",
+                ),
+            ),
         )
 
     return build

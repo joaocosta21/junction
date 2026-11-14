@@ -10,7 +10,7 @@ import pytest
 from tta.contracts.common import ApproverRole, Verdict
 from tta.policy import RULES_PATH, PolicyLoadError, load_rulebook, parse_rulebook
 from tta.policy.facts import KNOWN_FACTS
-from tta.policy.rulebook import facts_read_by
+from tta.policy.rulebook import Scope, facts_read_by
 
 SPEC_RULES = {
     "F-01": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
@@ -18,6 +18,7 @@ SPEC_RULES = {
     "F-03": (True, Verdict.APPROVAL, None),  # the role comes from the fact that is missing
     "F-04": (True, Verdict.BLOCK, None),
     "F-05": (True, Verdict.BLOCK, None),
+    "F-07": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-00": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-01": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-02": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
@@ -29,17 +30,40 @@ SPEC_RULES = {
 }
 
 
-def _rule(data: dict[str, Any], rule_id: str) -> dict[str, Any]:
-    return next(rule for rule in data["rules"] if rule["id"] == rule_id)
+# What SPEC section 7 fixes for every buyer, written out here on purpose: the test must not read the pin
+# it checks. F-03 names no role of its own: the role comes from the fact that is missing.
+FIXED_VERDICTS = {
+    "F-01": Verdict.APPROVAL, "F-02": Verdict.BLOCK, "F-03": Verdict.APPROVAL, "F-04": Verdict.BLOCK,
+    "F-05": Verdict.BLOCK, "F-07": Verdict.APPROVAL,
+}
+OTHER_VERDICT = {Verdict.APPROVAL: Verdict.BLOCK, Verdict.BLOCK: Verdict.APPROVAL}
+
+
+def _rule(data: dict[str, Any], rule_id: str, scope: str | None = None) -> dict[str, Any]:
+    """The entry of a rule; `scope` picks one entry of a rule that is listed once per scope (F-07)."""
+    return next(
+        rule for rule in data["rules"] if rule["id"] == rule_id and (scope is None or rule.get("scope") == scope)
+    )
 
 
 def test_the_shipped_rules_are_exactly_those_of_the_spec() -> None:
     rulebook = load_rulebook(RULES_PATH)
 
     assert {rule.id: (rule.fixed, rule.verdict, rule.approver_role) for rule in rulebook.rules} == SPEC_RULES
-    assert [rule.id for rule in rulebook.rules] == sorted(SPEC_RULES)
+    assert list(dict.fromkeys(rule.id for rule in rulebook.rules)) == sorted(SPEC_RULES)
     assert [rule.id for rule in rulebook.access_rules] == ["F-06"]
-    assert rulebook.fixed_rule_ids == frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06"})
+    assert rulebook.fixed_rule_ids == frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07"})
+
+
+def test_f07_is_one_rule_judged_on_each_line_and_on_the_option() -> None:
+    entries = [rule for rule in load_rulebook(RULES_PATH).rules if rule.id == "F-07"]
+
+    assert [rule.scope for rule in entries] == [Scope.LINE, Scope.ORDER]
+    assert len({(rule.title, rule.fixed, rule.verdict, rule.approver_role) for rule in entries}) == 1
+    assert entries[0].title == (
+        "A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not "
+        "verifiably met"
+    )
 
 
 def test_verdicts_run_from_least_to_most_severe_and_a_missing_fact_never_passes() -> None:
@@ -166,6 +190,20 @@ def _break(data: dict[str, Any], case: str) -> None:
         data["access_rules"][0]["id"] = "F-01"
     elif case == "a group with all and any":
         _rule(data, "P-06")["when"]["any"] = [{"fact": "line.has_deposits", "op": "is_true"}]
+    elif case == "fixed rule F-07 removed":
+        data["rules"] = [rule for rule in data["rules"] if rule["id"] != "F-07"]
+    elif case == "line part of F-07 removed":
+        data["rules"].remove(_rule(data, "F-07", "line"))
+    elif case == "option part of F-07 removed":
+        data["rules"].remove(_rule(data, "F-07", "order"))
+    elif case == "one part of F-07 no longer fixed":
+        _rule(data, "F-07", "order")["fixed"] = False
+    elif case == "parts of one rule disagree":
+        _rule(data, "F-07", "order")["title"] = "Another rule under the same id"
+    elif case == "rule listed twice for one scope":
+        data["rules"].append(dict(_rule(data, "F-07", "line")))
+    elif case == "fixed rule moved to another scope":
+        _rule(data, "F-04")["scope"] = "line"
     else:  # pragma: no cover
         raise AssertionError(case)
 
@@ -215,6 +253,13 @@ def _break(data: dict[str, Any], case: str) -> None:
         ("something else than AUTO when no rule fires", "verdict_when_no_rule_fires must be AUTO"),
         ("access rule reuses an id", "F-01: duplicate id"),
         ("a group with all and any", "exactly one of `all` or `any`"),
+        ("fixed rule F-07 removed", "fixed rule F-07 is missing"),
+        ("line part of F-07 removed", "fixed rule F-07 is missing its part judged per line"),
+        ("option part of F-07 removed", "fixed rule F-07 is missing its part judged per order"),
+        ("one part of F-07 no longer fixed", "F-07 must be marked fixed"),
+        ("parts of one rule disagree", "F-07: the entries of one rule must agree"),
+        ("rule listed twice for one scope", "F-07: duplicate id"),
+        ("fixed rule moved to another scope", "fixed rule F-04 is missing its part judged per order"),
     ],
 )
 def test_the_loader_catches_a_broken_rules_file(
@@ -252,3 +297,83 @@ def test_a_rules_file_that_is_not_a_mapping_is_rejected(tmp_path) -> None:
 def test_a_rules_file_that_does_not_exist_is_rejected(tmp_path) -> None:
     with pytest.raises(PolicyLoadError, match="cannot be read"):
         load_rulebook(tmp_path / "nowhere.yaml")
+
+
+# --- the verdict and the approver role of a fixed rule are pinned in code ------------------------------------
+
+def test_the_shipped_fixed_rules_carry_the_verdicts_of_the_spec() -> None:
+    rulebook = load_rulebook(RULES_PATH)
+
+    assert {rule.id: rule.verdict for rule in rulebook.rules if rule.fixed} == FIXED_VERDICTS
+
+
+@pytest.mark.parametrize("rule_id", sorted(FIXED_VERDICTS))
+def test_a_rules_file_that_changes_the_verdict_of_a_fixed_rule_is_rejected(
+    rule_id: str, rules_data: Callable[[], dict[str, Any]]
+) -> None:
+    """Also when the changed rule is well formed in every other way, and in whichever direction it changes."""
+    data = rules_data()
+    changed = OTHER_VERDICT[FIXED_VERDICTS[rule_id]]
+    for rule in data["rules"]:
+        if rule["id"] != rule_id:
+            continue
+        rule["verdict"] = changed.value
+        rule.pop("approver_role", None)
+        if changed is Verdict.APPROVAL and rule_id != "F-03":
+            rule["approver_role"] = "purchasing_manager"
+    if rule_id == "F-03":
+        data["defaults"]["on_missing_fact"] = changed.value  # keep the file consistent in itself
+
+    with pytest.raises(PolicyLoadError) as raised:
+        parse_rulebook(data)
+
+    assert (
+        f"{rule_id}: the verdict of a fixed rule is set in code: {FIXED_VERDICTS[rule_id].value}, "
+        f"not {changed.value}"
+    ) in raised.value.problems
+
+
+@pytest.mark.parametrize(
+    ("rule_id", "role", "fixed_role"),
+    [
+        ("F-01", "finance", "purchasing_manager"),
+        ("F-01", "dietitian", "purchasing_manager"),
+        ("F-07", "finance", "purchasing_manager"),
+        ("F-02", "dietitian", "none"),
+        ("F-01", None, "purchasing_manager"),
+    ],
+)
+def test_a_rules_file_that_changes_the_approver_role_of_a_fixed_rule_is_rejected(
+    rule_id: str, role: str | None, fixed_role: str, rules_data: Callable[[], dict[str, Any]]
+) -> None:
+    message = f"{rule_id}: the approver role of a fixed rule is set in code: {fixed_role}, not {role or 'none'}"
+    data = rules_data()
+    for rule in data["rules"]:
+        if rule["id"] == rule_id and role is None:
+            del rule["approver_role"]
+        elif rule["id"] == rule_id:
+            rule["approver_role"] = role
+
+    with pytest.raises(PolicyLoadError) as raised:
+        parse_rulebook(data)
+
+    assert message in raised.value.problems
+
+
+def test_a_change_to_one_part_of_f07_is_enough_to_reject_the_file(rules_data: Callable[[], dict[str, Any]]) -> None:
+    data = rules_data()
+    option_part = _rule(data, "F-07", "order")
+    option_part["verdict"] = "BLOCK"
+    del option_part["approver_role"]
+
+    with pytest.raises(PolicyLoadError, match="F-07: the verdict of a fixed rule is set in code: APPROVAL, not BLOCK"):
+        parse_rulebook(data)
+
+
+def test_a_profile_rule_keeps_the_verdict_and_role_its_file_gives_it(rules_data: Callable[[], dict[str, Any]]) -> None:
+    data = rules_data()
+    _rule(data, "P-01")["approver_role"] = "finance"
+
+    rulebook = parse_rulebook(data)
+
+    assert next(rule for rule in rulebook.rules if rule.id == "P-01").approver_role is ApproverRole.FINANCE

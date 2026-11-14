@@ -23,7 +23,7 @@ from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
 from tta.policy.profiles import load_profiles
 from tta.policy.rulebook import AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
 from tta.policy.sentences import format_fact, render, to_json
-from tta.policy.text import as_sentence, join_words
+from tta.policy.text import as_sentence, join_words, unique
 
 Lookup = Callable[[str], Reading]
 
@@ -95,13 +95,10 @@ class RulePolicyEngine:
 
     def describe_authority(self, profile: BuyerProfile) -> Authority:
         read = partial(read_profile_fact, profile=profile, substitution_scopes=self._rulebook.substitution_scopes)
-        rules = tuple(
-            RuleSummary(
-                rule_id=rule.id, title=rule.title, fixed=rule.fixed, verdict=rule.verdict,
-                approver_role=rule.approver_role, sentence=self._text(_first_that_holds(rule.authority, read), read),
-            )
-            for rule in self._rulebook.rules
-        )
+        entries: dict[str, list[RuleSpec]] = {}
+        for rule in self._rulebook.rules:
+            entries.setdefault(rule.id, []).append(rule)
+        rules = tuple(self._summary(found, read) for found in entries.values())
         section = self._rulebook.authority
         summary = [self._text(text, read) for text in section.summary if _holds(text, read)]
         summary.extend(rule.text for rule in self._rulebook.access_rules)
@@ -195,6 +192,15 @@ class RulePolicyEngine:
 
     def _text(self, text: AuthorityText, read: Lookup) -> str:
         return render(text.text, lambda name: self._format(name, read))
+
+    def _summary(self, entries: list[RuleSpec], read: Lookup) -> RuleSummary:
+        """One summary per rule id. A rule listed once per scope (F-07) reads as one rule: its texts are joined."""
+        rule = entries[0]  # the loader checks that the entries of one rule agree on everything copied here
+        texts = unique([self._text(_first_that_holds(entry.authority, read), read) for entry in entries])
+        return RuleSummary(
+            rule_id=rule.id, title=rule.title, fixed=rule.fixed, verdict=rule.verdict,
+            approver_role=rule.approver_role, sentence=" ".join(texts),
+        )
 
 
 def _targets(rule: RuleSpec, option: OfferOption) -> list[tuple[int | None, OfferLine | None]]:

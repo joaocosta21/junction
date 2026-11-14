@@ -17,9 +17,10 @@ def test_authority_lists_every_rule_with_this_profiles_values(engine: RulePolicy
     assert authority.profile == hotel
     assert authority.policy_hash == engine.policy_hash(hotel)
     assert [rule.rule_id for rule in authority.rules] == [
-        "F-01", "F-02", "F-03", "F-04", "F-05", "P-00", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07",
+        "F-01", "F-02", "F-03", "F-04", "F-05", "F-07",
+        "P-00", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07",
     ]
-    assert [rule.fixed for rule in authority.rules] == [True] * 5 + [False] * 8
+    assert [rule.fixed for rule in authority.rules] == [True] * 6 + [False] * 8
     assert _sentence(authority, "P-01") == "An order above €750 before tax goes to the purchasing manager."
     assert _sentence(authority, "P-02") == (
         "When the day's orders, this one included, pass €3,000 before tax, the order goes to finance."
@@ -48,6 +49,7 @@ def test_authority_summary_says_what_the_agent_may_do_alone(engine: RulePolicyEn
         "least 90% of the requested quantity covered."
     )
     assert any("quantity is not confirmed" in line for line in summary)
+    assert any("price is not confirmed" in line and "needed-by date" in line for line in summary)
     assert any("even with approval" in line for line in summary)
     assert summary[-1] == "An agent can never approve an order, its own included: approval routes refuse agent tokens."
 
@@ -88,3 +90,18 @@ def test_authority_serialises_to_json(engine: RulePolicyEngine, ward: BuyerProfi
     authority = engine.describe_authority(ward)
 
     assert Authority.model_validate_json(authority.model_dump_json()) == authority
+
+
+def test_authority_lists_f07_once_with_what_it_says_about_a_line_and_about_the_option(
+    engine: RulePolicyEngine, hotel: BuyerProfile
+) -> None:
+    f07 = [rule for rule in engine.describe_authority(hotel).rules if rule.rule_id == "F-07"]
+
+    assert len(f07) == 1
+    assert f07[0].fixed and f07[0].verdict is Verdict.APPROVAL
+    assert f07[0].approver_role is ApproverRole.PURCHASING_MANAGER
+    assert f07[0].sentence == (
+        "A product whose price Valio Aimo does not confirm, or whose delivery date is ruled out, always goes to "
+        "the purchasing manager. When the request gives a needed-by date, an option that does not verifiably "
+        "meet it always goes to the purchasing manager."
+    )

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from decimal import Decimal
 
+import pytest
+
 from tta.contracts.allergen import AllergenCheck, AllergenFinding
 from tta.contracts.common import AllergenOutcome, AllergenRelation, AllergenStrictness, Verdict
 from tta.contracts.offer import OfferLine, OfferOption
@@ -139,3 +141,28 @@ def test_facts_are_written_to_a_decision_as_plain_json_values() -> None:
     assert format_fact(Missing("not given"), FactType.MONEY) == "not known"
     assert format_fact(True, FactType.BOOL) == "yes" and format_fact(False, FactType.BOOL) == "no"
     assert format_fact((), FactType.LIST) == "not listed"
+
+
+@pytest.mark.parametrize(
+    ("ratio", "text"),
+    [
+        ("0.9996", "99.9%"), ("0.99999", "99.9%"), ("0.9995", "99.9%"), ("0.999", "99.9%"), ("0.99", "99%"),
+        ("0.8999", "89.9%"), ("0.7495", "74.9%"), ("0.749", "74.9%"), ("0.9", "90%"), ("0.5", "50%"),
+        ("1", "100%"), ("1.0000", "100%"), ("0", "0%"),
+    ],
+)
+def test_a_ratio_is_rounded_down_so_that_one_below_1_never_prints_as_100_percent(ratio: str, text: str) -> None:
+    assert format_ratio(Decimal(ratio)) == text
+
+
+def test_p03_never_says_that_100_percent_is_below_the_100_percent_minimum(
+    engine: RulePolicyEngine, ward: BuyerProfile, make_line: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext], make_allergen_check: Callable,
+) -> None:
+    check = make_allergen_check({"AM": AllergenRelation.FREE_FROM, "AW": AllergenRelation.FREE_FROM})
+    option = make_option((make_line(allergen_check=check),), fill_ratio="0.9996")
+
+    decision = engine.evaluate(option, ward, make_context())
+
+    assert decision.rule_ids == ("P-03",)
+    assert decision.fired[0].sentence == "Only 99.9% of the requested quantity is covered, below the 100% minimum."

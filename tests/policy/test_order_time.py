@@ -171,3 +171,22 @@ def test_the_clock_of_the_context_decides_not_the_wall_clock(
 
     assert before.verdict is Verdict.AUTO and before.evaluated_at == now
     assert after.verdict is Verdict.BLOCK and after.evaluated_at == later
+
+
+@pytest.mark.parametrize(
+    ("seconds_left", "verdict"), [(0, Verdict.BLOCK), (1, Verdict.AUTO), (-1, Verdict.BLOCK)],
+    ids=["at valid-until", "one second before", "one second after"],
+)
+def test_an_option_is_expired_from_the_moment_of_its_valid_until_as_a_cut_off_is(
+    seconds_left: int, verdict: Verdict, engine: RulePolicyEngine, hotel: BuyerProfile,
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
+    make_revalidation: Callable, now: datetime,
+) -> None:
+    """Availability treats a cut-off equal to the clock as passed (SPEC section 4); the option follows it."""
+    option = make_option(valid_until=now + timedelta(seconds=seconds_left))
+    context = make_context(at_order_time=True, revalidation=make_revalidation())
+
+    decision = engine.evaluate(option, hotel, context)
+
+    assert decision.verdict is verdict
+    assert decision.rule_ids == (("F-04",) if verdict is Verdict.BLOCK else ())

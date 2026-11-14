@@ -6,12 +6,14 @@ contract does not know, is rejected: no profile can switch off or weaken a fixed
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
+from tta.allergens import gs1_name, is_known_code
+from tta.allergens.codes import GENERAL_STATEMENT_CODE
 from tta.contracts.policy import BuyerProfile
 from tta.policy.errors import PolicyLoadError, validation_problems
 from tta.policy.loading import read_mapping
@@ -42,6 +44,9 @@ def load_profile(path: Path, fixed_rule_ids: Collection[str]) -> BuyerProfile:
         raise PolicyLoadError(source, validation_problems(error)) from error
     if profile.profile_id != path.stem:
         raise PolicyLoadError(source, [f"profile_id '{profile.profile_id}' does not match the file name"])
+    problems = _exclusion_problems(profile.excluded_allergens)
+    if problems:
+        raise PolicyLoadError(source, problems)
     return profile
 
 
@@ -52,6 +57,27 @@ def load_profiles(directory: Path, fixed_rule_ids: Collection[str]) -> dict[str,
         raise PolicyLoadError(f"profile folder {directory.name}", ["no buyer profile was found"])
     profiles = (load_profile(path, fixed_rule_ids) for path in paths)
     return {profile.profile_id: profile for profile in profiles}
+
+
+def _exclusion_problems(codes: Sequence[str]) -> list[str]:
+    """What is wrong with the excluded allergen codes: each must be an allergen of the code table.
+
+    A code that matches nothing excludes nothing, so a misspelt one ("milk", "am") would leave the buyer
+    without the exclusion it asked for. Codes are not corrected here: the file is rejected.
+    """
+    problems: list[str] = []
+    unknown = [f"'{code}'" for code in codes if not is_known_code(code)]
+    if unknown:
+        problems.append(
+            f"excluded_allergens: unknown allergen code {', '.join(unknown)}: use the GS1 codes of the "
+            "catalog in upper case, such as AM for milk"
+        )
+    if GENERAL_STATEMENT_CODE in codes:
+        problems.append(
+            f"excluded_allergens: {GENERAL_STATEMENT_CODE} is the general statement "
+            f"'{gs1_name(GENERAL_STATEMENT_CODE)}', not an allergen that can be excluded"
+        )
+    return problems
 
 
 def _fixed_rules_named(data: Any, fixed_rule_ids: Collection[str]) -> list[str]:

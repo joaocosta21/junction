@@ -1,13 +1,16 @@
 """What a rules file must hold beyond its shape. Every problem is collected, none stops at the first.
 
 After Gabriela's `AIMO/policy/policy_check.py`: rules read declared facts only, an approval names a
-role, ids are unique. Added here: the fixed rules must be present and fixed, a fixed rule may not read
-a profile setting, a missing fact may not pass, and every declared fact must be readable by the engine.
+role, ids are unique. Added here: the fixed rules must be present and fixed, with the verdict and the
+approver role that are written in this module and not in the file; a fixed rule may not read a profile
+setting, a missing fact may not pass, and every declared fact must be readable by the engine.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from tta.contracts.common import ApproverRole, SubstitutionScope, Verdict
 from tta.policy.facts import LINE_FACT_PREFIX, PROFILE_FACT_PREFIX, SUBSTITUTE_LISTED, SUBSTITUTE_SAME_CATEGORY
@@ -32,8 +35,28 @@ from tta.policy.rulebook import (
     placeholders,
 )
 
+
+@dataclass(frozen=True)
+class FixedRule:
+    """What SPEC section 7 fixes about one rule. The rules file must say the same, or it is rejected."""
+
+    verdict: Verdict
+    approver_role: ApproverRole | None  # None: nobody signs off a BLOCK; F-03 takes its role from the missing fact
+    scopes: tuple[Scope, ...]  # the rule has one entry per scope; empty for the missing-fact rule, which has none
+
+
 # SPEC section 7: the rules no profile can switch off and the engine evaluates. F-06 is an access rule.
-REQUIRED_FIXED_RULES = ("F-01", "F-02", "F-03", "F-04", "F-05")
+# Their verdicts and roles are pinned here so that editing the rules file cannot weaken one of them: a
+# file that turns a BLOCK into an APPROVAL, or names another approver, does not load.
+FIXED_RULES: Mapping[str, FixedRule] = MappingProxyType({
+    "F-01": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
+    "F-02": FixedRule(Verdict.BLOCK, None, (Scope.LINE,)),
+    "F-03": FixedRule(Verdict.APPROVAL, None, ()),
+    "F-04": FixedRule(Verdict.BLOCK, None, (Scope.ORDER,)),
+    "F-05": FixedRule(Verdict.BLOCK, None, (Scope.LINE,)),
+    "F-07": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE, Scope.ORDER)),
+})
+NO_ROLE = "none"  # how a rule without an approver role reads in a load error
 MISSING_FACT_PLACEHOLDERS = frozenset({"missing.what", "missing.reason", "missing.needed_by"})
 DECISION_PLACEHOLDERS = frozenset({"reasons", "roles"})
 SUBSTITUTE_SCOPE_VALUES = frozenset({SUBSTITUTE_LISTED, SUBSTITUTE_SAME_CATEGORY})
@@ -80,15 +103,56 @@ def _check_facts(rulebook: Rulebook, known_facts: Collection[str]) -> list[str]:
 
 
 def _check_rule_set(rulebook: Rulebook) -> list[str]:
+    entries: dict[str, list[RuleSpec]] = {}
+    for rule in rulebook.rules:
+        entries.setdefault(rule.id, []).append(rule)
+    problems = [f"{rule_id}: duplicate id" for rule_id in _duplicate_ids(rulebook, entries)]
+    for rule_id, found in entries.items():
+        if len({(rule.fixed, rule.title, rule.verdict, rule.approver_role) for rule in found}) > 1:
+            problems.append(f"{rule_id}: the entries of one rule must agree on fixed, title, verdict and approver_role")
+    for rule_id, pinned in FIXED_RULES.items():
+        problems.extend(_check_fixed_rule(rule_id, pinned, entries.get(rule_id, ())))
+    return problems + _check_missing_fact_trigger(rulebook)
+
+
+def _duplicate_ids(rulebook: Rulebook, entries: Mapping[str, Sequence[RuleSpec]]) -> list[str]:
+    """A rule judged at two scopes is listed once per scope under one id (F-07); never twice for one scope."""
+    duplicates = {rule_id for rule_id, found in entries.items() if len({rule.scope for rule in found}) < len(found)}
+    access_ids = [rule.id for rule in rulebook.access_rules]
+    duplicates |= {rule_id for rule_id in access_ids if rule_id in entries or access_ids.count(rule_id) > 1}
+    return sorted(duplicates)
+
+
+def _check_fixed_rule(rule_id: str, pinned: FixedRule, entries: Sequence[RuleSpec]) -> list[str]:
+    """A fixed rule must be there, in every scope it is judged at, with the verdict and the role pinned in code."""
+    if not entries:
+        return [f"fixed rule {rule_id} is missing: no file may drop a fixed rule"]
     problems: list[str] = []
-    ids = [rule.id for rule in rulebook.rules] + [rule.id for rule in rulebook.access_rules]
-    problems.extend(f"{rule_id}: duplicate id" for rule_id in sorted({i for i in ids if ids.count(i) > 1}))
-    by_id = {rule.id: rule for rule in rulebook.rules}
-    for rule_id in REQUIRED_FIXED_RULES:
-        if rule_id not in by_id:
-            problems.append(f"fixed rule {rule_id} is missing: no file may drop a fixed rule")
-        elif not by_id[rule_id].fixed:
-            problems.append(f"{rule_id} must be marked fixed")
+    if not all(rule.fixed for rule in entries):
+        problems.append(f"{rule_id} must be marked fixed")
+    for verdict in dict.fromkeys(rule.verdict for rule in entries if rule.verdict is not pinned.verdict):
+        problems.append(
+            f"{rule_id}: the verdict of a fixed rule is set in code: {pinned.verdict.value}, not {verdict.value}"
+        )
+    for role in dict.fromkeys(rule.approver_role for rule in entries if rule.approver_role is not pinned.approver_role):
+        problems.append(
+            f"{rule_id}: the approver role of a fixed rule is set in code: {_role_name(pinned.approver_role)}, "
+            f"not {_role_name(role)}"
+        )
+    listed = {rule.scope for rule in entries}
+    problems.extend(
+        f"fixed rule {rule_id} is missing its part judged per {scope.value}: no file may drop a fixed rule"
+        for scope in pinned.scopes if scope not in listed
+    )
+    return problems
+
+
+def _role_name(role: ApproverRole | None) -> str:
+    return NO_ROLE if role is None else role.value
+
+
+def _check_missing_fact_trigger(rulebook: Rulebook) -> list[str]:
+    problems: list[str] = []
     on_missing = [rule for rule in rulebook.rules if rule.trigger is Trigger.MISSING_FACT]
     if len(on_missing) != 1:
         problems.append("exactly one rule must have `trigger: missing_fact`")

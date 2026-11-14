@@ -8,6 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tta.contracts.policy import BuyerProfile
 from tta.policy import PROFILES_DIR, RULES_PATH, RulePolicyEngine
 
@@ -72,3 +74,17 @@ def test_every_decision_carries_the_hash_of_the_policy_in_force(
 
     assert first.policy_hash == engine.policy_hash(hotel)
     assert second.policy_hash == engine.policy_hash(stricter) != first.policy_hash
+
+
+@pytest.mark.parametrize("scope", ["line", "order"])
+def test_the_hash_covers_both_parts_of_f07(
+    scope: str, engine: RulePolicyEngine, hotel: BuyerProfile, rules_data: Callable[[], dict[str, Any]],
+    write_yaml: Callable[[str, Any], Path],
+) -> None:
+    data = rules_data()
+    part = next(rule for rule in data["rules"] if rule["id"] == "F-07" and rule["scope"] == scope)
+    part["justification"] += " Reworded."
+
+    reworded = RulePolicyEngine.from_files(write_yaml("reworded.yaml", data), PROFILES_DIR)
+
+    assert reworded.policy_hash(hotel) != engine.policy_hash(hotel)
