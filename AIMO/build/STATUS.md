@@ -28,9 +28,9 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
 | FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | done | 313 tests; `milk` 91 → 78, lactose-free 35 → 30 |
 | FIX-4 | Valio client: budget lock, clock bound, HTTPS only, bounded input | T01 | done | 221 tests; all six findings fixed |
-| FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | running | |
-| FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | running | |
-| FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | running | |
+| FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | done | 378 policy tests; the orders boundary change is committed with FIX-7 |
+| FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | done | 185 offers tests; 7 of 8 findings fixed, one as a note (question FIX6-1) |
+| FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -53,6 +53,8 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 04:14 T07 done and committed. Wave 2 complete: 1,346 tests pass; the three scenarios and the backup run through the offer service in replay (products in question T07-6). Found by T07: regular milk could stand in for lactose-free milk and be ordered by the agent alone → new fixed rule F-08 in SPEC §7, FIX-5 started, T07's builder asked to fill `claims_lost`.
 - 04:14 wave 3 started: T09. T16 round 2 started on offers and orders (three reviewers, read-only), base commit e593693.
 - 04:20 T16 round 2 back (offers, orders): no critical finding. High: the re-check missed a moved delivery date, sales unit and tax rate; under confirmed-only, dropped products were not listed; two request lines could take one substitute's stock twice; a failed write between order and approval left an order nobody could decide. Fix tasks FIX-6 (offers) and FIX-7 (orders and store, new port method `Store.atomic()`) started. T07's follow-up (`claims_lost`) committed. Decision: only dietary claims count for rule F-08 (question T07-7).
+- 04:31 FIX-5 done and committed (policy part). The supplier view now names F-07 and F-08.
+- 04:48 FIX-6 and FIX-7 done and committed, with the lock-order change in the audit trail that FIX-7 asked for. Whole suite: 1,693 tests pass (T09's tests included, still being written). Scenario 3's best orderable substitute is `475224` again.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
