@@ -148,7 +148,7 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 | `allergens` | every excluded allergen has an explicit statement | any excluded allergen has `MAY_CONTAIN`, `UNDECLARED` or no statement | an excluded allergen is declared `CONTAINS` |
 | `origin` | the product file states it | absent | — |
 
-**Which claims gate an order without a human** (decided 14 Nov, from the availability hand-back): `price`, `quantity` and `allergens` always; `delivery_date` only when the request gives `needed_by`; `origin` never (it is shown, the buyer did not ask for it). A request with no date is not sent to a human for that reason alone. `require_confirmed` filters on the same set. `OfferLine.confirmed_for_order(dated=...)` implements it. A missing gating claim counts as not confirmed.
+**Which claims gate an order without a human** (decided 14 Nov, after the availability hand-back and review round 1): `price` and `quantity` always (rules F-07 and F-01); `delivery_date` when the request gives `needed_by` (F-07, through the needed-by constraint check); `allergens` through the outcome of the allergen rule (F-02, P-04) — under `DECLARED_ONLY` a product with no statement passes and is shown as unverified, because that buyer chose so; `origin` never (it is shown, the buyer did not ask for it). A request with no date is not sent to a human for that reason alone. `require_confirmed` (on the request or on the profile) is stricter: it keeps only lines for which `OfferLine.confirmed_for_order(dated=...)` holds, which asks for the `allergens` claim itself to be confirmed. A claim that is missing from a line is a missing fact (F-03).
 
 ---
 
@@ -188,7 +188,7 @@ Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_
 - Conflicting statements on one product: the least safe one counts.
 - A "no gluten" exclusion (`AW`) and a product that declares oats (`GO`): to a human, whatever else it states.
 
-**Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen that the original does not declare. This holds for every buyer, with or without exclusions.
+**Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen that the original does not declare, and must not raise an allergen from `MAY_CONTAIN` to `CONTAINS`. This holds for every buyer, with or without exclusions.
 
 ---
 
@@ -205,6 +205,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | F-04 | At order time the option has expired, a cut-off has passed, or price or availability changed | `BLOCK`, with a fresh offer |
 | F-05 | A substitute adds an allergen the original does not declare | `BLOCK` |
 | F-06 | The caller is an agent on an approval route | refused (`not-authorised`) |
+| F-07 | A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met | `APPROVAL` (purchasing manager) |
 
 ### Buyer profile — set per buyer, one YAML file each
 | Setting | Meaning | Rule when crossed |

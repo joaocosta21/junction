@@ -1,0 +1,22 @@
+# FIX-3 — Allergens and catalog: least safe wins in every direction, and "milk" means milk
+
+**Scores on:** 20% (controls: what reaches a dietitian) · 20% (how precisely the agent matches what the buyer asked for). From review round 1 (Python reviewer findings 2, 3; security finding 2; silent-failure finding 9) and question T02-4.
+**Owns:** `src/tta/allergens/`, `src/tta/catalog/`, `tests/allergens/`, `tests/catalog/`. **Builders' hand-backs:** `AIMO/build/handback/T03.md`, `T02.md`. **Read:** SPEC §3, §6 (the substitution rule now also forbids raising "may contain" to "contains").
+**Importers to re-run:** `tests/availability`, `tests/policy`.
+
+## Findings to fix
+1. **MEDIUM — a member's own `UNDECLARED` hides a declared family.** `src/tta/allergens/statements.py` (`resolve`): the family fallback runs only when there is no direct or member candidate. With `[AN CONTAINS, SA UNDECLARED]` and `SA` excluded under `DECLARED_ONLY` the result is `PASS`; the same for `[AM CONTAINS, ML UNDECLARED]` with `ML` excluded. A direct `UNDECLARED` (or no statement) on a member must not outrank a declared family: least safe wins, so both go to a human as `MAY_CONTAIN`. A direct `FREE_FROM` on the member keeps winning (lactose-free milk with `ML` excluded stays as the hand-back describes).
+2. **MEDIUM — a substitute may raise "may contain" to "contains".** `src/tta/allergens/substitution.py` compares codes as sets. Decided: a substitute that declares `CONTAINS` for a code the original declares only as `MAY_CONTAIN` fails the rule, and the sentence says so. Re-count the listed pairs that fail over the whole catalog (37 of 249 before) and report the new figure; scenario 3 (`473609` against `471690`, `471881`, `464320`) must hold.
+3. **MEDIUM — allergen codes from the product file are not checked.** `src/tta/catalog/loader.py`: a statement code such as `"am"` or `"AM "` loads and then matches nothing, which passes under `DECLARED_ONLY`. Normalise (strip, upper case) and reject the file, naming the product, when a statement code is not in the allergen code table (`tta.allergens.is_known_code`; the real file has no unknown code). Do the same check where `check_exclusions` receives statements, so a hand-built statement cannot slip through either.
+4. **LOW — deleted products.** `search` drops a product whose `deleted` flag is true; `get_product`, `listed_substitutes` and `same_category` still return it. Make them consistent: a deleted product is not returned by any of them (the catalog has none today; test with a hand-built file).
+5. **Precision — the `milk` type holds three products that are not milk.** `product_types.yaml` / `search.py`: category 10400 also holds a sour milk (`469457`), a coffee drink (`469266`) and a soy yoghurt (`472516`), and the lactose-free set holds sour milks (`477050`, `476957`, `472492`). A buyer who asks for milk should not be offered sour milk or a coffee drink. Add an `exclude_terms` list to a product type (English at the start of a word, Finnish anywhere, like `name_terms`) and use it for `milk`; add a separate `sour_milk` type if the data supports one. Report the new counts (91 and 35 before) and update the tests that state them.
+
+## Not to change
+The oat rule, the `X99` handling, the family table, the pack-size logic, the portion-pack rule and lot rounding.
+
+## Rules for this fix
+- Read `AIMO/build/AGENT-RULES.md` first. Then the hand-back of the package's builder (named below) and the files named in each finding.
+- Other agents are working in the same tree right now: T07 writes `src/tta/offers/`, T08 writes `src/tta/orders/`, and other fix agents edit other packages. Touch only the paths this task owns. Keep every file importable after each edit: make one coherent edit per file rather than leaving it half-changed while you run something.
+- For each finding: write the failing test first, see it fail, fix, see it pass. Keep the existing tests passing; change an existing test only when the finding changes the intended behaviour, and say which in the hand-back.
+- Run your package's tests and the linter, with `COVERAGE_FILE` set to a file in your scratch directory. Then run the tests of the packages that import yours (named below) and report their result; do not edit them.
+- Hand-back in `AIMO/build/handback/<this task id>.md` in the usual shape, with one line per finding: fixed, partly fixed (what is left), or not fixed (why).

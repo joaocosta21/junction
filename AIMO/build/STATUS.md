@@ -24,6 +24,10 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | todo | |
 | T16 | Review and fixes | each wave | running | round 1 (wave 1) running; rounds after waves 2, 3 and at the end to come |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
+| FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | running | |
+| FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | running | |
+| FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | running | |
+| FIX-4 | Valio client: budget lock, clock bound, HTTPS only, bounded input | T01 | running | |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -37,6 +41,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 03:28 T02 done and committed. Questions T02-1, T02-2 (Valio), T02-3, T02-4 (team) added. Fix candidates are kept in `fix-candidates.md`.
 - 03:30 T05 done and committed. Wave 1 complete: 852 tests pass, lint clean, the six packages satisfy their ports together (smoke run). Demo approvers added for every role on both profiles. Questions T05-1 to T05-3 (team) added.
 - 03:30 wave 2 started: T07 T08. T16 round 1 started on wave 1 (three reviewers, read-only), base commit 1e20827.
+- 03:37 T16 round 1 back: no critical finding. High: the 60-second cache could hide a change from the order-time re-check (fixed by the orchestrator: `fresh=True` on the port, commit 2b3444c); the policy counted a missing claim as confirmed (FIX-1, new fixed rule F-07 in SPEC §7). Request bounds added to the contract. Four fix tasks started (FIX-1 to FIX-4). T07 and T08 were told what changes.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
