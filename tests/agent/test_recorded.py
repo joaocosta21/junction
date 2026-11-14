@@ -208,6 +208,13 @@ def test_a_recorded_answer_with_no_date_or_on_a_text_with_two_days_is_served_as_
     )
 
 
+# The brief's own sentence (AIMO/CHALLENGE.md), recorded by hand so the demo reads it without a model.
+BRIEF_SENTENCE = (
+    "I need 1,000 litres of lactose-free milk by Monday. "
+    "Find an option that meets our requirements based on price and availability."
+)
+
+
 def test_the_recordings_of_the_repository_name_the_profile_they_were_recorded_for(
     fixtures_agent_dir: Path, texts: dict[str, str], demo_photo_lines: tuple[str, ...]
 ) -> None:
@@ -217,7 +224,9 @@ def test_the_recordings_of_the_repository_name_the_profile_they_were_recorded_fo
     one, two, none = (text_key(texts[name]) for name in ("scenario_1", "scenario_2", "no_quantity"))
     finnish_1, finnish_2 = (text_key(texts[name]) for name in ("finnish_1", "finnish_2"))
     photo = text_key("\n".join(demo_photo_lines))
+    brief = text_key(BRIEF_SENTENCE)
     assert profiles == {
+        ("parse", brief): "hotel-kitchen", ("run", brief): "hotel-kitchen",
         ("parse", one): "hotel-kitchen", ("run", one): "hotel-kitchen", ("parse", none): "hotel-kitchen",
         ("parse", two): "allergy-ward", ("run", two): "allergy-ward",
         ("parse", finnish_1): "hotel-kitchen", ("parse", finnish_2): "allergy-ward",

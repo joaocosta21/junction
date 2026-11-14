@@ -1,0 +1,36 @@
+{
+  "kind": "run",
+  "text": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.",
+  "profile_id": "hotel-kitchen",
+  "model": "hand-built",
+  "source": "hand-built",
+  "note": "Written by hand, not by a model: the brief's own sentence (AIMO/CHALLENGE.md), so the demo reads it when the model cannot be reached. The sequence of calls is that of scenario 1 (run-scenario-1.json). Delete this file to have the model read it.",
+  "turns": [
+    {
+      "calls": [
+        {
+          "name": "get_authority",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "create_offer",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "calls": [
+        {
+          "name": "place_order",
+          "arguments": {
+            "option_id": "opt_1"
+          }
+        }
+      ]
+    }
+  ]
+}
