@@ -32,7 +32,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | done | 185 offers tests; 7 of 8 findings fixed, one as a note (question FIX6-1) |
 | FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
 | FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | done | 251 API tests; all 14 findings fixed; `/mcp` and `/v1` exact paths |
-| T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | running | |
+| T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | done | 148 tests; `gemini-3.8-flash` 504 every time, `gemini-3.6-flash` answers (now the default); first real recording (scenario 1) |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -67,6 +67,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 07:50 Gemini probe: `generateContent` answers for `gemini-3.8-flash` and `gemini-3.6-flash` with the same key; only the Interactions endpoint answers 503. T10 follow-up started (switch endpoint, fall back to recordings, live check with at most 14 more model requests; 6 used tonight).
 - 08:00 FIX-8 done and committed (the first agent had built every finding; the restarted one checked them and added one test). Importers green: ui 159, mcp 54, agent 120, offers 194, orders 157, audit 144.
 - 08:03 T12 done and committed (restarted agent found every item built; fixed one spacing defect, added 6 tests, ran the app in replay). T13, T14 (files only) and T15 started in parallel.
+- 08:15 T10 follow-up done and committed. Gemini is slow today (21.7 s for one word); `gemini-3.6-flash` read scenario 1 correctly in 29 s and is now the default. Recording scenario 2 and the no-quantity sentence (at most 7 requests; 12 used so far of 20).
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
