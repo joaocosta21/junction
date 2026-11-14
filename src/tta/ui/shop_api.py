@@ -26,13 +26,23 @@ the suggestions computed from that customer's past orders, judged under the sett
 customer's people, usual products and synthetic history). A book whose settings never arrived answers `409` to
 every call that would apply them (C2 F3): before its first `PUT /kitchen` a book holds a copy of the hotel's
 profile, and the ward's 1,000 litres of milk would be offered under it.
+
+Two routes answer before the settings arrive, because they read the customer file and judge under the customer's
+profile file until the book has settings of its own: `GET /reorder` (the "you usually order this: order again?"
+prompt, computed from the customer's past orders on every call by `tta.suggestions.reorder_prompt`; it orders
+nothing, its `request` is posted to `POST /offers` like any request) and `GET /standing-orders` (the customer
+file's standing orders, each with the trend of its quantities, `tta.suggestions.standing_order_trends`).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
+import threading
 from collections.abc import Callable
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
@@ -41,16 +51,23 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from tta.api.customers import customer_view
-from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, Sandbox, file_profile
-from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Identity
-from tta.contracts.customer import Customer
-from tta.contracts.errors import TtaError
+from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, KITCHEN_PROFILE_ID, Sandbox, file_profile
+from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Identity, OrderStatus, Quantity, Unit
+from tta.contracts.customer import Customer, CustomerStandingOrder
+from tta.contracts.errors import SupplierUnavailable, TtaError
 from tta.contracts.order import DecisionRequest
+from tta.contracts.policy import BuyerProfile
+from tta.contracts.ports import ValioGateway
 from tta.contracts.request import PurchaseRequest
 from tta.customers import shipped_customers
 from tta.policy import PolicyLoadError
+from tta.standing import StandingOrders
+from tta.standing.demo import NO_PRICE, past_renewals, standing_order_of
+from tta.suggestions import ReorderPrompt, SuggestionPorts, history_of, reorder_prompt, standing_order_trends
 from tta.ui import security
 from tta.ui.site import Site
+from tta.ui.standing_page import StandingBooks, data_clock
+from tta.valio import ReplayGateway
 
 SHOP_PATH = "/shop"
 API = f"{SHOP_PATH}/api"
@@ -75,8 +92,17 @@ NOT_RECEIVED = (
 )
 NOBODY_HOLDS = "Nobody at {customer} holds the role {role}, so nobody there can sign for it."
 NOT_ONE_OF_THEM = "Only {person} signs as {role} for {customer}. Nothing was signed."
+COMMITTED = (OrderStatus.ORDERED, OrderStatus.PENDING_APPROVAL)  # an order placed, or waiting for a person
+STANDING_NOTE = (
+    "From the customer file, which is synthetic. A trend's request renews the standing order once at the suggested "
+    "quantity: it is sent for an offer like any request, checked against the past renewals (rule P-08), and a person "
+    "confirms it. The quantity the standing order stores does not change."
+)
+STANDING_NOT_SET_UP = "The standing orders of %s could not be set up in a shop book: %s"
 MAX_TEXT = 2000
 MAX_KEY = 100
+
+logger = logging.getLogger(__name__)
 MAX_NAME = 80
 MAX_ID = 64
 
@@ -104,6 +130,49 @@ class DecisionBody(_Body):
     name: str | None = Field(default=None, min_length=1, max_length=MAX_NAME, pattern=r"^[\w .,'-]+$")
 
 
+class StandingLineView(_Body):
+    product_id: str
+    name: str
+    quantity: Quantity
+    unit: Unit
+
+
+class PastOrderView(_Body):
+    """One past order of the customer file that holds a product of the standing order: made up, and says so."""
+
+    delivered_on: date
+    lines: tuple[StandingLineView, ...]
+    synthetic: bool
+
+
+class TrendView(_Body):
+    """What the past orders say about one line: the sentence, and one renewal at the suggested quantity."""
+
+    product_id: str
+    sentence: str
+    suggested_quantity: Quantity
+    unit: Unit
+    accept_request: PurchaseRequest | None
+
+
+class StandingOrderView(_Body):
+    standing_order_id: str
+    name: str
+    cadence_days: int
+    lines: tuple[StandingLineView, ...]
+    past_orders: tuple[PastOrderView, ...]
+    synthetic: bool
+    trend: TrendView | None  # the first line that has one
+    trends: tuple[TrendView, ...] = ()  # every line that has one
+
+
+class StandingOrdersView(_Body):
+    customer_id: str
+    synthetic: bool
+    standing_orders: tuple[StandingOrderView, ...]
+    note: str = STANDING_NOTE
+
+
 def _problem(status: int, title: str, detail: str, **extra: Any) -> JSONResponse:
     return JSONResponse({"title": title, "status": status, "detail": detail, **extra}, status, media_type=PROBLEM)
 
@@ -115,6 +184,8 @@ def _refused(error: TtaError) -> JSONResponse:
 
 
 def _json(value: Any) -> JSONResponse:
+    if isinstance(value, dict):
+        return JSONResponse(value)
     if isinstance(value, BaseModel):
         return JSONResponse(value.model_dump(mode="json"))
     return JSONResponse([one.model_dump(mode="json") for one in value])
@@ -166,6 +237,99 @@ def _signer(customer: Customer, role: ApproverRole, name: str | None) -> str | J
     return signed
 
 
+def _recorded_prices(prices: ValioGateway, product_ids: list[str]) -> dict[str, Decimal]:
+    """The recording's net price per sales unit of each product, for the past renewals that state none."""
+    found, by_id = prices.price(product_ids).by_id(), {}
+    for product_id in product_ids:
+        line = found.get(product_id)
+        if line is None or not line.has_price or line.catalog_price is None:
+            raise SupplierUnavailable(NO_PRICE.format(product_id=product_id))
+        by_id[product_id] = line.catalog_price.value
+    return by_id
+
+
+def _hold_standing_orders(standing: StandingOrders, customer: Customer, prices: ValioGateway) -> None:
+    """Set up the customer file's standing orders in a shop book, once, with their synthetic past renewals: the
+    calls the gateway makes at start (`tta.standing.demo`), for the book's own buyer. A renewal sent from the shop
+    is then judged against them like any other (rule P-08)."""
+    for entry in customer.standing_orders:
+        if standing.find(KITCHEN_AGENT, entry.standing_order_id) is not None:
+            continue
+        now = standing.now()
+        recorded = _recorded_prices(prices, [line.product_id for line in entry.lines])
+        renewals = past_renewals(customer, entry, recorded, now)
+        order = standing_order_of(customer, entry, KITCHEN_AGENT.id, renewals, now)
+        standing.set_up(KITCHEN_AGENT, order.model_copy(update={"profile_id": KITCHEN_PROFILE_ID}), renewals)
+
+
+def _with_names(one: Sandbox, view: BaseModel, customer: Customer) -> dict[str, Any]:
+    """The customer view with the catalog's `name` on each usual product (absent for one the catalog lacks)."""
+    names, body = _names(one, customer), view.model_dump(mode="json")
+    usual = [{**each, **({"name": names[each["product_id"]]} if each["product_id"] in names else {})}
+             for each in body["customer"]["usual"]]
+    return {**body, "customer": {**body["customer"], "usual": usual}}
+
+
+def _ports(one: Sandbox) -> SuggestionPorts | None:
+    """What the book's own suggestions read (the product file, price and availability, the data clock); None where
+    offers carry no suggestion (live mode: a look at price and stock is spent on offers only)."""
+    # The gateway has no public way to them yet (asked of the api lane in RO's hand-back): read from its parts.
+    suggesting = one.service._deps.suggestions  # type: ignore[attr-defined]
+    return suggesting.ports if suggesting is not None else None
+
+
+def _names(one: Sandbox, customer: Customer) -> dict[str, str]:
+    """The catalog's name of each usual product, for the sentences; a product the catalog lacks keeps its id."""
+    names: dict[str, str] = {}
+    for usual in customer.usual:
+        try:
+            names[usual.product_id] = one.service.get_product(KITCHEN_AGENT, usual.product_id).display_name
+        except TtaError:
+            continue
+    return names
+
+
+def _reorder(one: Sandbox, customer: Customer, profile: BuyerProfile) -> ReorderPrompt:
+    """The customer's regular order as a ready-made request, checked under `profile`, without the products of
+    this book's orders placed or waiting for the same delivery."""
+    committed = [
+        (line.product_id, line.availability.available_date)
+        for order in one.service.list_orders(KITCHEN_AGENT) if order.status in COMMITTED
+        for line in order.option.lines
+    ]
+    return reorder_prompt(customer, profile=profile, ports=_ports(one), names=_names(one, customer),
+                          today=datetime.now(UTC).date(), committed=committed)
+
+
+def _standing_order(customer: Customer, entry: CustomerStandingOrder, names: dict[str, str],
+                    profile: BuyerProfile) -> StandingOrderView:
+    history = history_of(customer, names)
+    stored = standing_order_of(customer, entry, KITCHEN_AGENT.id, (), datetime.now(UTC))
+    held = {line.product_id for line in entry.lines}
+
+    def line(product_id: str, quantity: Any) -> StandingLineView:
+        return StandingLineView(product_id=product_id, name=history.name_of(product_id), quantity=quantity,
+                                unit=history.unit_of(product_id) or Unit.UNIT)
+
+    # The trend's request renews the standing order once (`standing_order_id`): the book holds the customer's
+    # standing orders with their past renewals (`_hold_standing_orders`), so rule P-08 judges it like any renewal.
+    trends = tuple(
+        TrendView(product_id=trend.product_id, sentence=trend.sentence, suggested_quantity=trend.quantity,
+                  unit=trend.unit, accept_request=trend.accept_request)
+        for trend in standing_order_trends(history, stored, tolerance=profile.standing_order_drift_ratio)
+    )
+    past = tuple(
+        PastOrderView(delivered_on=order.delivered_on, synthetic=customer.synthetic, lines=tuple(
+            line(product_id, quantity) for product_id, quantity in order.quantities.items() if product_id in held))
+        for order in customer.history if held & set(order.quantities)
+    )
+    return StandingOrderView(
+        standing_order_id=entry.standing_order_id, name=entry.name, cadence_days=entry.cadence_days,
+        lines=tuple(line(each.product_id, each.quantity) for each in entry.lines), past_orders=past,
+        synthetic=customer.synthetic, trend=trends[0] if trends else None, trends=trends,
+    )
+
+
 async def _body(request: Request, model: type[BaseModel]) -> BaseModel | JSONResponse:
     """The body as `model`, or the refusal: the guard's first, so a caller that is not the shop page gets its 403
     whatever it sent."""
@@ -191,10 +355,22 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
     if missing:
         raise ValueError(f"The shop's customers have no customer file: {', '.join(missing)}.")
 
+    # The recording's prices build the past renewals, on the same clock as the book's offers (`standing_page`).
+    replay = ReplayGateway.from_settings(site.settings)
+    standing_books = StandingBooks(data_clock(site.settings, replay))
+    setting_up = threading.Lock()  # two first calls of one book must not both set its standing orders up
+
     def book(request: Request) -> Sandbox:
-        """This browser's book of the customer the header names, which the book's suggestions are computed for."""
+        """This browser's book of the customer the header names, which the book's suggestions are computed for,
+        holding that customer's standing orders."""
+        customer_id = str(_customer_id(request))
         one = site.sandboxes.open(_book_key(request))
-        one.customer.name(str(_customer_id(request)))
+        one.customer.name(customer_id)
+        try:
+            with setting_up:
+                _hold_standing_orders(standing_books.of(one), customers[customer_id], replay)
+        except TtaError as error:  # the book still answers; a renewal then says no standing order is set up
+            logger.warning(STANDING_NOT_SET_UP, customer_id, error)
         return one
 
     def answer(request: Request, call: Callable[[Sandbox], Any], *, needs_settings: bool = False) -> Response:
@@ -294,7 +470,34 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
 
         def call(one: Sandbox) -> Any:
             own = one.kitchen.profile if one.kitchen.is_set_up else file_profile(customer_id)
-            return customer_view(KITCHEN_AGENT, lambda _: own, customers=lambda _: customers[customer_id])
+            view = customer_view(KITCHEN_AGENT, lambda _: own, customers=lambda _: customers[customer_id])
+            return _with_names(one, view, customers[customer_id])
+
+        return answer(request, call)
+
+    def own_profile(one: Sandbox, customer_id: str) -> BuyerProfile:
+        """The book's own settings once the shop sent them; the customer's profile file until then."""
+        return one.kitchen.profile if one.kitchen.is_set_up else file_profile(customer_id)
+
+    @app.get(API + "/reorder")
+    def reorder(request: Request) -> Response:
+        """"You usually order this: order again?" for the shop's selected customer, computed from its past orders
+        on every call. `lines` empty and `request` null: nothing regular, and `sentence` says why. Nothing is
+        ordered: the page posts `request` to `POST /offers`, and a person confirms the offer as always."""
+        customer_id = str(_customer_id(request))
+        return answer(request, lambda one: _reorder(one, customers[customer_id], own_profile(one, customer_id)))
+
+    @app.get(API + "/standing-orders")
+    def standing_orders(request: Request) -> Response:
+        """The standing orders of the shop's selected customer, from its customer file, each with its synthetic past
+        orders and the trend of its quantities (`trend` null: no change is suggested)."""
+        customer_id = str(_customer_id(request))
+
+        def call(one: Sandbox) -> Any:
+            customer = customers[customer_id]  # after the guard: the header names one of the shop's customers
+            names, profile = _names(one, customer), own_profile(one, customer_id)
+            return StandingOrdersView(customer_id=customer_id, synthetic=customer.synthetic, standing_orders=tuple(
+                _standing_order(customer, entry, names, profile) for entry in customer.standing_orders))
 
         return answer(request, call)
 

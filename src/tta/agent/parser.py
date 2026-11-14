@@ -18,6 +18,12 @@ PRICE or a certificate label one it has a word for (task FALLBACK-1). A disagree
 any other, named by its field: "the reading did not match the text". It is never corrected here. A text that
 names no number, or no unit word, has its quantity or its unit reported as missing.
 
+With `held_to_words` (an open-weights model, task AG) the reading is held closer still (`tta.agent.held`): a text
+the fixed reader asks about whoever reads (an ambiguous number, "cancel", an impossible date, words addressed to
+the agent) is asked about before the model is called; a claim or a name term the text does not say is a fault; and
+the second answer is a corrective turn, sent with the first answer and what failed. Two failed answers raise
+`ReadingFailedChecks`, which the fallback turns into the fixed rules' reading.
+
 `read` says who read the text: the model just now, a recording of it, or a person (`tta.contracts.agent.Reading`).
 `read_image` reads a photo of an order list: transcribed first, then read by `read` (`tta.agent.photo`, task T18).
 """
@@ -27,7 +33,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal
 
@@ -36,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from tta.agent.brands import NO_BRANDS, Brands
 from tta.agent.days import helsinki_date
 from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
+from tta.agent.held import added_faults, ask_whoever_reads
 from tta.agent.labels import reading_sentence
 from tta.agent.model import AgentModel, ExtractCall
 from tta.agent.notes import NO_USE_NAMED, with_notes
@@ -44,6 +51,7 @@ from tta.agent.prompts import parser_instruction
 from tta.agent.purpose import formula_matters
 from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES, checked_keys, proposal_schema
 from tta.agent.textcheck import TextFacts
+from tta.agent.unread import NotReadByRules, as_question
 from tta.allergens import describe, normalise_code, parent_of
 from tta.contracts.agent import Reading, ReadingSource
 from tta.contracts.common import AllergenStrictness, Identity, PackPreference, Preference, Unit
@@ -87,6 +95,10 @@ NO_SUCH_LABEL = "the text names no such label"
 NO_SUCH_PREFERENCE = "the text names no such preference"
 
 logger = logging.getLogger(__name__)
+
+
+class ReadingFailedChecks(InvalidRequest):
+    """The model's answers did not validate or did not match the buyer's words, the corrective one included."""
 
 
 class _Proposal(BaseModel):
@@ -286,8 +298,10 @@ class ModelRequestParser:
         product_type_keys: Sequence[str],
         profile_strictness: Callable[[str], AllergenStrictness | None],
         brands: Brands = NO_BRANDS,
+        held_to_words: bool = False,
     ) -> None:
         self._model = model
+        self._held_to_words = held_to_words  # the checks of `tta.agent.held`, for a model that answers just now
         self._clock = clock
         self._keys = checked_keys(product_type_keys)
         self._schema = proposal_schema(self._keys)
@@ -312,6 +326,11 @@ class ModelRequestParser:
         if len(words) > MAX_TEXT_LENGTH:
             raise InvalidRequest(TEXT_TOO_LONG.format(limit=MAX_TEXT_LENGTH))
         today = helsinki_date(self._clock.now())  # "by Monday" is resolved against the data clock's day
+        if self._held_to_words:
+            try:
+                ask_whoever_reads(words, today)  # before the model is called: asked about whoever reads
+            except NotReadByRules as unread:
+                raise as_question(unread) from unread
         read = self._ask(words, today, identity)
         answer = self._model.answer_source(words)
         sentence = reading_sentence(answer)
@@ -337,12 +356,15 @@ class ModelRequestParser:
         facts = TextFacts.of(words, today)
         faults: tuple[Fault, ...] = ()
         for answer_number in range(1, MAX_ANSWERS + 1):
-            read = self._read(self._model.extract(call), words, facts, today, identity)
+            answer = self._model.extract(call)
+            read = self._read(answer, words, facts, today, identity)
             if isinstance(read, _Read):
                 return read
             faults = read
             logger.info("Answer %d of the model did not validate: %s", answer_number, "; ".join(map(str, faults)))
-        raise InvalidRequest(
+            # The next answer is a corrective turn: the model is sent its answer and the checks' own words.
+            call = replace(call, previous_answer=answer, faults=tuple(map(str, faults)))
+        raise ReadingFailedChecks(
             NOT_READ.format(answers=MAX_ANSWERS, faults="; ".join(map(str, faults))),
             faults=[fault.path for fault in faults],
         )
@@ -355,6 +377,8 @@ class ModelRequestParser:
         if not isinstance(proposal, RequestProposal):
             return proposal
         faults = _faults(proposal, facts, today, self._keys, text)
+        if self._held_to_words:
+            faults = (*faults, *added_faults(proposal.lines, text))
         if faults:
             return faults
         self._refuse_what_is_missing(proposal, facts)

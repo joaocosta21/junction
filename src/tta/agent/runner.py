@@ -19,8 +19,8 @@ import uuid
 from dataclasses import dataclass, replace
 
 from tta.agent.model import AgentModel, FunctionCall, TurnCall
-from tta.agent.prompts import RUN_INPUT_LEAD, RUNNER_INSTRUCTION
-from tta.agent.summaries import offer_sentence
+from tta.agent.prompts import RUN_INPUT_LEAD, RUNNER_INSTRUCTION, runner_instruction_with
+from tta.agent.summaries import authority_sentence, authority_summary, offer_sentence
 from tta.agent.tools import PLACE_ORDER, TOOL_DECLARATIONS, GatewayTools, RunState, ToolOutcome
 from tta.contracts.agent import MAX_AGENT_STEPS, AgentRun, AgentStep
 from tta.contracts.common import Identity, JsonDict
@@ -62,6 +62,7 @@ class _Progress:
     steps: tuple[AgentStep, ...] = ()
     gateway_refusals: tuple[str, ...] = ()  # the gateway's own sentences for the calls it refused
     called: bool = False  # a call reached the gateway, or was on its way when it failed
+    read_note: str | None = None  # who read the buyer's words, when the run says it (task AG)
 
     def after(self, call: FunctionCall, outcome: ToolOutcome) -> _Progress:
         step = AgentStep(
@@ -105,7 +106,7 @@ def _report(progress: _Progress, *, opening: str | None = None, at_cap: bool = F
         parts = [offer_sentence(state.offer) if state.offer else None, progress.refusal(), NO_ORDER_PLACED]
     if at_cap:
         parts.append(STOPPED_AT_CAP.format(steps=_steps(MAX_AGENT_STEPS)))
-    return " ".join(part for part in (opening, *parts) if part)
+    return " ".join(part for part in (opening, progress.read_note, *parts) if part)
 
 
 def _model_failed(error: Exception, steps: int) -> str:
@@ -118,9 +119,12 @@ def _model_failed(error: Exception, steps: int) -> str:
 class ModelAgentRunner:
     """Implements the `AgentRunner` port over any `AgentModel`: the Gemini model or the recorded one."""
 
-    def __init__(self, *, model: AgentModel, parser: RequestParser) -> None:
+    def __init__(self, *, model: AgentModel, parser: RequestParser, states_authority: bool = False) -> None:
+        """`states_authority`: the buyer's authority is read from the gateway before the first turn and stated in
+        the model's instruction (task AG). It is a read; the run's trace starts at the model's own first call."""
         self._model = model
         self._parser = parser
+        self._states_authority = states_authority
 
     @property
     def model_id(self) -> str:
@@ -131,15 +135,16 @@ class ModelAgentRunner:
         when the model cannot be reached: both before any gateway call. Once a call was made the run is
         always returned, so an order that was placed is never lost behind an error."""
         # Its own parser, not `tools.parse_request`: the gateway already recorded this text as received.
-        request = self._parser.parse_request(text, identity)
+        request, read_note = self._read(text, identity)
         toolbox = GatewayTools(tools, identity)
-        progress = _Progress(state=RunState(request=request, run_id=uuid.uuid4().hex))
+        system = self._instruction(identity, tools)
+        progress = _Progress(state=RunState(request=request, run_id=uuid.uuid4().hex), read_note=read_note)
         history: list[JsonDict] = [_user_input(request)]
         turn_number = 0
         while len(progress.steps) < MAX_AGENT_STEPS:
             turn_number += 1
             call_for_turn = TurnCall(
-                system=RUNNER_INSTRUCTION, request_text=text, history=tuple(history), tools=TOOL_DECLARATIONS,
+                system=system, request_text=text, history=tuple(history), tools=TOOL_DECLARATIONS,
                 turn=turn_number, profile_id=identity.profile_id,
             )
             try:
@@ -161,6 +166,22 @@ class ModelAgentRunner:
                 progress = progress.after(call, outcome)
                 history.append(_function_result(call, outcome))
         return self._run(text, progress, at_cap=True)
+
+    def _read(self, text: str, identity: Identity) -> tuple[PurchaseRequest, str | None]:
+        """The typed request and, for a run that states its authority, the sentence that says who read the text:
+        the model, checked against the buyer's words, or the fixed rules and why."""
+        read = getattr(self._parser, "read", None)
+        if not self._states_authority or not callable(read):
+            return self._parser.parse_request(text, identity), None
+        reading = read(text, identity)
+        return reading.request, reading.sentence
+
+    def _instruction(self, identity: Identity, tools: GatewayService) -> str:
+        """The instruction of every turn of this run. Raises what `get_authority` raises: nothing was done yet."""
+        if not self._states_authority:
+            return RUNNER_INSTRUCTION
+        authority = tools.get_authority(identity)
+        return runner_instruction_with(authority_summary(authority), authority_sentence(authority))
 
     @staticmethod
     def _model_done(progress: _Progress) -> str | None:

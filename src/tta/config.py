@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AwareDatetime, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,13 @@ DEMO_ENVIRONMENTS = ("dev", "demo")
 MAX_TRUSTED_PROXY_HOPS = 10
 _SECRET_FIELDS = (
     "valio_aimo_api_key", "gemini_api_key", "database_url", "context_dev_api_key", "tta_tokens", "tta_signing_key",
+    "tta_agent_api_key",
+)
+AGENT_PROVIDER_NONE, AGENT_PROVIDER_OPENAI, AGENT_PROVIDER_GEMINI = "none", "openai_compatible", "gemini"
+AGENT_URL_SCHEMES = ("http", "https")
+BAD_AGENT_URL = (
+    "TTA_AGENT_BASE_URL must be an http or https address with a host and no user name, password, query or "
+    "fragment, for example https://host.example/v1. The key goes in TTA_AGENT_API_KEY."
 )
 
 
@@ -35,7 +43,8 @@ class Settings(BaseSettings):
     """Read once from the environment and, when present, the repository's `.env`."""
 
     model_config = SettingsConfigDict(
-        env_file=REPO_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", frozen=True
+        env_file=REPO_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", frozen=True,
+        hide_input_in_errors=True,  # a refused value is never repeated: it may be an address with a secret in it
     )
 
     # Fails closed: with TTA_ENV unset the app is in `prod`, where no demo token exists and the app refuses to
@@ -58,6 +67,15 @@ class Settings(BaseSettings):
     # The customer number does not change the mock's answers (AIMO/docs/API.md section 3).
     tta_customer: str = "123"
     tta_gemini_model: str | None = None  # overrides the model the agent package chooses
+    # The language model behind the buyer's agent (task AG). `openai_compatible`: an OpenAI-compatible
+    # chat-completions endpoint with tool calling, for example the open-weights model of `deploy/agent_model.py` on
+    # Modal; it needs the base URL (ending in /v1) and the model name the endpoint serves. `gemini`: the Gemini
+    # API, with GEMINI_API_KEY. `none`: no provider is chosen, and, as before this setting existed, Gemini is
+    # asked only when GEMINI_API_KEY is set. With no model, a recording or the fixed rules read a request.
+    tta_agent_provider: Literal["none", "openai_compatible", "gemini"] = "none"
+    tta_agent_base_url: str | None = None  # never shown: `/healthz` says only whether it is set
+    tta_agent_model: str | None = None
+    tta_agent_api_key: SecretStr | None = None  # sent as the bearer key of the endpoint and nowhere else
     tta_tokens: SecretStr | None = None  # JSON map of bearer token to identity; required outside dev and demo
     # How many proxies of ours stand in front of the app, each appending the address it saw to X-Forwarded-For.
     # 0: no forwarded header is believed and the peer address is the visitor (Modal: the peer is the visitor).
@@ -93,6 +111,25 @@ class Settings(BaseSettings):
         """`TTA_DEMO_CLOCK=` with nothing after it reads as unset, as a deploy file may leave it."""
         return None if isinstance(value, str) and not value.strip() else value
 
+    @field_validator("tta_agent_base_url", "tta_agent_model", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("tta_agent_base_url")
+    @classmethod
+    def _a_plain_address(cls, value: str | None) -> str | None:
+        """An address that can hold no secret: the value itself is never repeated in the refusal."""
+        if value is None:
+            return None
+        parts = urlsplit(value.strip())
+        plain = parts.scheme in AGENT_URL_SCHEMES and parts.hostname and not (
+            parts.username or parts.password or parts.query or parts.fragment
+        )
+        if not plain:
+            raise ValueError(BAD_AGENT_URL)
+        return value.strip().rstrip("/")
+
     @property
     def demo_clock(self) -> datetime | None:
         """The demo clock in force: the instant set, in replay; None when it is unset or the mode is live."""
@@ -123,6 +160,24 @@ class Settings(BaseSettings):
         return _is_set(self.gemini_api_key)
 
     @property
+    def has_agent_key(self) -> bool:
+        return _is_set(self.tta_agent_api_key)
+
+    @property
+    def has_agent_endpoint(self) -> bool:
+        """True when the OpenAI-compatible provider is chosen and its address and model name are both set."""
+        return bool(
+            self.tta_agent_provider == AGENT_PROVIDER_OPENAI and self.tta_agent_base_url and self.tta_agent_model
+        )
+
+    @property
+    def has_agent_model(self) -> bool:
+        """True when a language model is asked first: the OpenAI-compatible endpoint, or Gemini with its key."""
+        if self.tta_agent_provider == AGENT_PROVIDER_OPENAI:
+            return self.has_agent_endpoint
+        return self.has_gemini_key
+
+    @property
     def has_database_url(self) -> bool:
         return _is_set(self.database_url)
 
@@ -147,6 +202,10 @@ class Settings(BaseSettings):
             "valio_call_budget": self.tta_valio_call_budget,
             "valio_key_set": self.has_valio_key,
             "gemini_key_set": self.has_gemini_key,
+            "agent_provider": self.tta_agent_provider,
+            "agent_model": self.tta_agent_model if self.has_agent_endpoint else None,
+            "agent_base_url_set": bool(self.tta_agent_base_url),
+            "agent_key_set": self.has_agent_key,
             "database_url_set": self.has_database_url,
             "context_dev_key_set": self.has_context_dev_key,
             "tokens_set": self.has_tokens,
@@ -161,6 +220,7 @@ class Settings(BaseSettings):
         empty: the demo customers' standing orders are set up at start only when a test asks for them."""
         values: dict[str, Any] = {name: None for name in _SECRET_FIELDS}
         values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None, tta_demo_clock=None,
+                      tta_agent_provider=AGENT_PROVIDER_NONE, tta_agent_base_url=None, tta_agent_model=None,
                       tta_supplier_suggestions=True, tta_customer_standing_orders=False)
         values.update(overrides)
         return cls(_env_file=None, **values)

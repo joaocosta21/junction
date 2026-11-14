@@ -14,6 +14,14 @@ from typing import Protocol, runtime_checkable
 
 from tta.contracts.agent import ReadingSource
 from tta.contracts.common import JsonDict
+from tta.contracts.errors import SupplierUnavailable
+
+
+class ModelUnreachable(SupplierUnavailable):
+    """The model gave no answer after the retries (a time-out, a connection failure, 408, 429 or a 5xx), or it is
+    not available to this gateway at all (401, 402 or 403, at once). Raised by every model client alike.
+    Answered as `supplier-unavailable` like its parent; a recording or the fixed rules may stand in for it
+    (`tta.agent.fallback`)."""
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,11 @@ class ExtractCall:
     # `needed_by` is read again by the calendar rule when it was recorded on another day than `today`.
     profile_id: str | None = None
     today: date | None = None  # the date in Helsinki the request is read on
+    # The corrective turn (task AG): the answer that failed the checks and what failed, each fault as its field
+    # path and a fixed reason of ours. A client that holds no conversation (a recording, the fixed rules) ignores
+    # both and answers as it did.
+    previous_answer: str | None = None
+    faults: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -83,6 +96,8 @@ class AnswerSource:
     source: ReadingSource
     model: str  # the model id; for a recording, the model it was recorded from; "hand-built" for a person
     recorded_at: datetime | None = None  # when the recording was made
+    host: str | None = None  # where a model of ours is served ("Modal"), when the reading's sentence says so
+    checked: bool = False  # the reading passed the checks of `tta.agent.held`, and its sentence says so
 
 
 @runtime_checkable

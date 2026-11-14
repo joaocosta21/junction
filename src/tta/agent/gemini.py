@@ -44,7 +44,15 @@ from google import genai
 from google.genai import errors, types
 
 from tta.agent.contents import function_tool, model_step, to_contents
-from tta.agent.model import AnswerSource, ExtractCall, FunctionCall, ModelTurn, TranscribeCall, TurnCall
+from tta.agent.model import (
+    AnswerSource,
+    ExtractCall,
+    FunctionCall,
+    ModelTurn,
+    ModelUnreachable,
+    TranscribeCall,
+    TurnCall,
+)
 from tta.agent.outage import Outage
 from tta.config import Settings
 from tta.contracts.agent import ReadingSource
@@ -99,11 +107,7 @@ NOT_RECOGNISED = "not recognised"
 
 logger = logging.getLogger(__name__)
 
-
-class ModelUnreachable(SupplierUnavailable):
-    """The model gave no answer after the retries (a time-out, a connection failure, 408, 429 or a 5xx), or it is
-    not available to this gateway at all (401, 402 or 403, at once).
-    Answered as `supplier-unavailable` like its parent; a recording may stand in for it (`tta.agent.fallback`)."""
+__all__ = ["DEFAULT_MODEL", "GeminiModel", "ModelUnreachable", "chosen_model", "sdk_transport"]
 
 
 class ContentTransport(Protocol):
