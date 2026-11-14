@@ -12,7 +12,7 @@ Part 1 is for João. Part 2 is the procedure the orchestrating Claude session fo
 Open a new Claude Code session in the repository, in automatic permission mode, and send this one line. The approvals are in the line itself on purpose: they are your words, and the line is repeated at every step of the loop.
 
 ```
-/loop Tonight's build: follow part 2 of AIMO/build/replan/RUNBOOK.md from the state in AIMO/build/replan/STATUS.md until every task is done or blocked, then write AIMO/build/replan/HANDOVER.md and end the loop. Start every task whose needs are done at the same time, each agent on its own paths. Run the baseline agent and every reviewer agent at high effort. I approve for this run: creating the local branch replan-build from overnight-build; local commits on it with no AI co-author line; a local merge of origin/codex/mandatory-human-approval if AIMO/build/replan/C1-human-approval-branch.md says to take it; and adding cryptography to pyproject.toml if signed offers are built. I do not approve, so never do: a push, a deployment, a call to any outside service (Valio's mock, Gemini, Modal, Aiven, Context.dev), reading .env, or a change under src/tta/ui/ or tests/ui/ beyond what the runbook allows. Do not ask me about time or scope: take the runbook's defaults, write questions into the hand-over, and keep building.
+/loop Tonight's build: follow part 2 of AIMO/build/replan/RUNBOOK.md from the state in AIMO/build/replan/STATUS.md until every task is done or blocked, then write AIMO/build/replan/HANDOVER.md and end the loop. Start every task whose needs are done at the same time, each agent on its own paths. Run the baseline agent and every reviewer agent at high effort. I approve for this run: creating the local branch replan-build from overnight-build; local commits on it with no AI co-author line; a local merge of origin/codex/mandatory-human-approval if AIMO/build/replan/C1-human-approval-branch.md says to take it; a local merge of origin/frontend-shop if AIMO/build/replan/C2-frontend-branch.md says to build on top of it; and adding cryptography to pyproject.toml if signed offers are built. I do not approve, so never do: a push, a deployment, a call to any outside service (Valio's mock, Gemini, Modal, Aiven, Context.dev), reading .env, or a change under src/tta/ui/ or tests/ui/ beyond what the runbook and C2 allow. Do not ask me about time or scope: take the runbook's defaults, write questions into the hand-over, and keep building.
 ```
 
 ### Watch, stop, resume
@@ -23,7 +23,7 @@ Open a new Claude Code session in the repository, in automatic permission mode, 
 
 ### What stays with you
 - Give [UI-CONTRACT.md](UI-CONTRACT.md) to the teammate who builds the interface. The run keeps it up to date.
-- Merge the interface branch into `replan-build` when both are ready.
+- Gabriela's shop page (`origin/frontend-shop`) is merged by the run at the start if its review, `C2-frontend-branch.md`, says to build on top of it. Later interface work is merged by you.
 - The redeploy: the hand-over gives the exact command. The run never deploys.
 - Gemini: the key has no credits, so the run calls no model. If credits arrive, the hand-over lists the three recordings to make.
 - Pushing: `git push -u origin replan-build`, when you want the others to have it.
@@ -50,6 +50,8 @@ You are the main session. You coordinate; agents build. After any context reset,
 
 ### The interface is not yours
 `src/tta/ui/**` and `tests/ui/**` belong to a teammate on another branch. No agent edits them, with one exception: when a back-end change moves a figure or a status word that a test under `tests/ui/` pins, or would stop a page from rendering, change only that figure, word or field name, and write the line into [UI-CONTRACT.md](UI-CONTRACT.md) under "Changed under the interface". Everything a page should newly show or call goes into the same file under the package's heading: the field or route, an example value, and the sentence a person should read. You keep that file current after every task.
+
+**If [C2-frontend-branch.md](C2-frontend-branch.md) says to build on top of the shop page,** its verdict replaces this paragraph for the files it names: it says which files under `src/tta/ui/` the build may edit and which lines of `UI-CONTRACT.md` become your work because the page already has the place for them. Copy that list to the top of `UI-CONTRACT.md` and give it to the lane that owns the back end of each line. The shop's own JavaScript, HTML and CSS (`src/tta/ui/static/shop/**`) stay Gabriela's unless C2 says otherwise.
 
 ### Each turn
 1. Read `STATUS.md`. For a task marked `running` with no live agent: read its hand-back if there is one, otherwise set it back to `todo`.
@@ -79,9 +81,11 @@ The proposals named below are in this folder; "P8 M1" is item M1 of `P8-confirm.
 | 4 | **X** later, one at a time | by file | A5 #8 · A5 #10 · P9a F1–F3 · the back-end of P4 F1, F2 · P12 W4–W6 · P8 F4 | wave 3 |
 
 ### The baseline (B0)
-Do this before starting the agent. If `C1-human-approval-branch.md` does not exist yet, wait for it one wake-up, then go on without the merge and build R1 from `P8-confirm.md`.
-- If its verdict is to take the commit, as it is or with fixes: `git merge --no-ff origin/codex/mandatory-human-approval` on `replan-build`, then give B0 the review's list of fixes.
-- If its verdict is to take parts or nothing: no merge; B0 builds R1 from P8 M1–M4 and may copy what the review names.
+Two reviews decide what is merged before B0 starts: `C1-human-approval-branch.md` (Sofia's commit that forces human approval, `origin/codex/mandatory-human-approval`) and `C2-frontend-branch.md` (Gabriela's shop page, `origin/frontend-shop`, which adds files under `src/tta/ui/` and `tests/ui/` only). If a review file does not exist yet, wait for it one wake-up, then go on without that merge.
+- **C2 first.** If its verdict is to build on top of the shop page, as it is or after fixes: `git merge --no-ff origin/frontend-shop` on `replan-build`. Give its back-end fixes to B0 or to the lane that owns the file; list its interface fixes in `UI-CONTRACT.md`.
+- **Then C1.** If its verdict is to take the commit, as it is or with fixes: `git merge --no-ff origin/codex/mandatory-human-approval`, then give B0 the review's list of fixes. If its verdict is to take parts or nothing: no merge; B0 builds R1 from P8 M1–M4 and may copy what the review names.
+- A merge that conflicts: resolve it only where both sides can be kept. If one side would have to be dropped, `git merge --abort`, build that part from the plan instead, and say so in the hand-over.
+- After the merges and before B0: run the whole suite once and write the result in the log.
 - Either way B0 ends in this state, and you check each line yourself:
   1. With the shipped profiles no path places an order without a person: REST, the agent run, MCP, a standing-order renewal, a menu plan.
   2. The buyer's setting still exists, is off in every shipped profile, and a test proves that with it on and everything confirmed the ward's 200 L are ordered alone. With it on, an unconfirmed quantity still goes to a person.
