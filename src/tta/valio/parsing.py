@@ -21,7 +21,7 @@ from tta.contracts.availability import (
     PriceResponse,
     ScheduleLine,
 )
-from tta.contracts.common import DataSource
+from tta.contracts.common import ClockBasis, DataSource
 from tta.contracts.errors import SupplierUnavailable
 
 PRICE_ENDPOINT = "price"
@@ -79,6 +79,7 @@ def parse_availability_body(body: Mapping[str, Any], source: DataSource) -> Avai
             _availability_line(entry, f"availability entry {number}") for number, entry in _entries(body, where)
         ),
         source=source,
+        time_basis=ClockBasis.of(source),  # the answer's own `timeNow`: the supplier's live, the recording's in replay
     )
 
 

@@ -35,6 +35,11 @@ class ProductType(Contract):
     )
     claims: tuple[str, ...] = Field(default=(), description="Every one of these nutritionalClaim codes is present")
     products: int = Field(gt=0, description="Products of this type in the catalog when the entry was written")
+    note: str | None = Field(
+        default=None, min_length=1,
+        description="A sentence for the buyer whenever a request asks for this type: what the type leaves out "
+        "and how to ask for it",
+    )
     derived_from: str = Field(min_length=1, description="How the entry was derived")
 
     @field_validator("exclude_terms")

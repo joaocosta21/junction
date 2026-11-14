@@ -29,7 +29,7 @@ def test_scenario_1_shows_a_confirmed_option_an_unconfirmed_alternative_and_the_
     page = response.text
 
     assert response.status_code == 200
-    assert "Best confirmed option" in page and "€2,580.64" in page
+    assert "Best confirmed option" in page and "€1,083.39" in page
     assert "Alternative: quantity not confirmed" in page and "€1,010.00" in page
     assert "Quantity: confirmed" in page and "Quantity: not confirmed" in page
     assert "Cut-off passed" in page and "Order cut-off passed on" in page
@@ -65,17 +65,17 @@ def test_exclusions_are_collapsed_after_the_first_five_and_every_reason_is_seen_
     seen = _before_the_fold(page)
 
     assert seen.count('class="exclusion"') == 5
-    assert "Show the other 14" in page
-    assert page.count('class="exclusion"') == 19
+    assert "Show the other 12" in page
+    assert page.count('class="exclusion"') == 17
     for reason in ("Cut-off passed", "Not deliverable", "Portion pack"):
         assert reason in seen
-    assert "19 excluded" in page
+    assert "17 excluded" in page
 
 
 def test_the_notes_of_an_offer_are_shown_under_the_exclusions(client: TestClient, run_example: Post) -> None:
     page = run_example(client, "scenario-1").text
 
-    note = page.index("7 products fit the request and are in no option")
+    note = page.index("6 products fit the request and are in no option")
     assert note > page.index('id="excluded"')
     assert note < page.index('id="outcome"')
 
@@ -296,9 +296,9 @@ def test_a_result_opens_at_a_summary_of_what_is_confirmed_what_is_not_and_what_w
     glance = page[page.index('id="glance"'):page.index('id="request"')]
 
     assert response.url.fragment == "glance"  # the browser opens the result at the summary, not at the form
-    assert "3 confirmed products cover the 1,000 L asked for" in glance
+    assert "2 confirmed products cover 435 L of the 1,000 L asked for" in glance
     assert "Valio does not confirm the quantity in stock" in glance
-    assert "19 products, each with its reason" in glance
+    assert "17 products, each with its reason" in glance
     for reason in ("Cut-off passed", "Not deliverable", "Portion pack"):
         assert reason in glance
     assert "Sent for approval" in glance

@@ -21,7 +21,6 @@ SPEC_RULES = {
     "F-07": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "F-08": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "F-09": (True, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),  # task MENU-1: a recipe stand-in
-    "P-00": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-01": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
     "P-02": (False, Verdict.APPROVAL, ApproverRole.FINANCE),
     "P-03": (False, Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER),
@@ -142,7 +141,7 @@ def _break(data: dict[str, Any], case: str) -> None:
     elif case == "condition without a value":
         del _rule(data, "P-01")["when"]["all"][0]["value"]
     elif case == "no unconditional summary":
-        _rule(data, "P-00")["authority"] = _rule(data, "P-00")["authority"][:1]
+        _rule(data, "P-05")["authority"] = _rule(data, "P-05")["authority"][:1]
     elif case == "verdicts out of order":
         data["verdicts"] = ["BLOCK", "APPROVAL", "AUTO"]
     elif case == "unknown key":
@@ -164,11 +163,11 @@ def _break(data: dict[str, Any], case: str) -> None:
     elif case == "undeclared fact in records":
         _rule(data, "P-02")["records"] = ["context.typo"]
     elif case == "value on an operator that takes none":
-        _rule(data, "P-00")["when"]["all"][0]["value"] = True
+        _rule(data, "F-01")["when"]["all"][0]["value"] = True
     elif case == "yes-or-no operator on a number":
-        _rule(data, "P-00")["when"]["all"][0]["fact"] = "profile.max_order_net_eur"
+        _rule(data, "P-06")["when"]["all"][0]["fact"] = "profile.max_order_net_eur"
     elif case == "list operator on a yes-or-no fact":
-        _rule(data, "P-00")["when"]["all"][0] = {"fact": "profile.auto_order_enabled", "op": "not_empty"}
+        _rule(data, "P-01")["when"]["all"][0] = {"fact": "profile.auto_order_enabled", "op": "not_empty"}
     elif case == "contains_any on a text":
         _rule(data, "P-04")["when"]["all"][0]["fact"] = "line.name"
     elif case == "in without a list":
@@ -231,7 +230,7 @@ def _break(data: dict[str, Any], case: str) -> None:
         ("fact nobody can read", "fact 'line.typo' is declared but the engine cannot read it"),
         ("number compared with a word", "P-01: 'gt' compares numbers"),
         ("condition without a value", "P-01: op 'gt' needs a value"),
-        ("no unconditional summary", "P-00: the last authority text must have no `when`"),
+        ("no unconditional summary", "P-05: the last authority text must have no `when`"),
         ("verdicts out of order", "verdicts"),
         ("unknown key", "sentinel_qty_threshold"),
         ("no missing-fact rule", "F-03"),
@@ -242,9 +241,9 @@ def _break(data: dict[str, Any], case: str) -> None:
         ("rule without a scope", "P-01: a rule needs a `scope` and a `when`"),
         ("undeclared fact as a value", "P-01: undeclared fact 'profile.typo'"),
         ("undeclared fact in records", "P-02: records undeclared fact 'context.typo'"),
-        ("value on an operator that takes none", "P-00: op 'is_false' takes no value"),
-        ("yes-or-no operator on a number", "P-00: 'is_false' reads a yes-or-no fact"),
-        ("list operator on a yes-or-no fact", "P-00: 'not_empty' reads a list"),
+        ("value on an operator that takes none", "F-01: op 'is_false' takes no value"),
+        ("yes-or-no operator on a number", "P-06: 'is_true' reads a yes-or-no fact"),
+        ("list operator on a yes-or-no fact", "P-01: 'not_empty' reads a list"),
         ("contains_any on a text", "P-04: 'contains_any' reads a list"),
         ("in without a list", "P-05: op 'not_in' needs a list as its value"),
         ("authority text reads the option", "P-01: an authority text may only read declared profile facts"),

@@ -20,11 +20,11 @@ VEGETABLE_FAT_BLENDS = {"462703", "463254", "463299", "463975", "469160", "46916
 MAX_PRODUCT_IDS = 1000
 
 
-def test_table_has_the_demo_types_and_twenty_to_thirty_one_entries(catalog: ProductCatalog) -> None:
+def test_table_has_the_demo_types_and_twenty_to_thirty_two_entries(catalog: ProductCatalog) -> None:
     keys = catalog.product_type_keys()
 
     assert set(keys) >= REQUIRED_KEYS
-    assert 20 <= len(keys) <= 31
+    assert 20 <= len(keys) <= 32  # 31 until coffee milk became a type of its own (14 Nov 2026)
     assert list(keys) == sorted(keys)
 
 

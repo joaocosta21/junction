@@ -16,14 +16,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api.sandbox import KITCHEN_AGENT as KITCHEN_IDENTITY
-from tta.contracts.common import OrderStatus
+from tta.contracts.common import OrderStatus, PlacedBy
 
 KITCHEN = "/kitchen"
 KITCHEN_AGENT = "agent:my-kitchen"
 KITCHEN_PURCHASING = "human:my-kitchen-purchasing"
 SCENARIO_1 = "1,000 litres of lactose-free milk by Monday"
-SETTINGS_SHOWN = ("P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
-FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-10")
+SETTINGS_SHOWN = ("F-10", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08")
+FIXED_SHOWN = ("F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08")
 HASH = re.compile(r"sha256:[0-9a-f]{64}")
 PROBLEM = re.compile(r'id="problem">(.*?)</div>', re.DOTALL)
 
@@ -63,7 +63,11 @@ def test_the_page_shows_each_setting_with_its_rule_and_the_fixed_rules_below(cli
     assert page.status_code == 200
     for rule_id in (*SETTINGS_SHOWN, *FIXED_SHOWN):
         assert rule_id in page.text
-    assert 'name="auto_order_enabled"' not in page.text
+    # The buyer's own setting is on the page again, and starts unticked: no order without a person by default.
+    assert 'name="auto_order_enabled" value="yes">' in page.text
+    assert 'name="auto_order_enabled" value="yes" checked' not in page.text
+    always = page.text.split('id="fixed-title"')[1]
+    assert "F-10" not in always  # the setting drives it, so it is not one of the rules that hold whatever is set
     assert "whatever you set" in page.text.lower()
     assert 'value="AM"' in page.text and "Milk and its derivatives" in page.text  # GS1 codes with their names
     assert HASH.search(page.text)
@@ -170,12 +174,34 @@ def test_scenario_1_as_my_kitchen_needs_approval_at_both_spend_limits(
     newest, first = _kitchen_orders(book, client)
     assert within_limit.status_code == to_a_human.status_code == 200
     assert (first.status, first.decision.rule_ids, first.profile_id) == (
-        OrderStatus.PENDING_APPROVAL, ("F-10",), "my-kitchen",
+        OrderStatus.PENDING_APPROVAL, ("P-03",), "my-kitchen",
     )
-    assert (newest.status, newest.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01",))
-    assert only_order(client).decision.rule_ids == ("P-01",) and hotel.status_code == 200
+    assert (newest.status, newest.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01", "P-03"))
+    assert only_order(client).decision.rule_ids == ("P-01", "P-03") and hotel.status_code == 200
     record = client.get(f"/orders/{first.order_id}").text
     assert first.decision.policy_hash in record and "my-kitchen" in record
+
+
+def test_ordering_alone_is_the_visitors_own_choice_and_starts_switched_off(
+    client: TestClient, form_fields: Callable[..., Form], run_text: Any, book: Any,
+) -> None:
+    """The one place a buyer can switch the setting on. Ticked: an order inside every limit, with every statement
+    confirmed, is placed by the agent. Unticked, as the page starts: the same order waits for a person (F-10).
+    The order is scenario 1's confirmed option, 435 L for €1,083.39, in a kitchen that accepts a 40% fill."""
+    limits = {"max_order_net_eur": "3000", "min_fill_ratio": "40"}
+    _save(client, form_fields, **limits)
+    waiting_page = run_text(client, SCENARIO_1, who=KITCHEN_AGENT)
+    saved = _save(client, form_fields, auto_order_enabled="yes", **limits)
+    ticked = client.get(KITCHEN).text
+    alone_page = run_text(client, SCENARIO_1, who=KITCHEN_AGENT)
+
+    newest, first = _kitchen_orders(book, client)
+    assert saved.status_code == 303 and 'name="auto_order_enabled" value="yes" checked' in ticked
+    assert (first.status, first.placed_by, first.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, None, ("F-10",))
+    assert "Sent for approval" in waiting_page.text and "Ordered by the agent" not in waiting_page.text
+    assert (newest.status, newest.placed_by, newest.decision.fired) == (OrderStatus.ORDERED, PlacedBy.AGENT, ())
+    assert "Ordered by the agent" in alone_page.text
+    assert newest.option.totals.net == first.option.totals.net == Decimal("1083.39")  # the same option both times
 
 
 def test_the_kitchens_approvals_are_decided_by_its_own_approvers(

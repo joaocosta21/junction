@@ -81,7 +81,7 @@ def test_the_supplier_view_shows_no_limit_value_no_approver_and_no_note(
         assert buyer_only not in supplier, buyer_only
     assert "A human at the buyer approved order" in supplier
     assert "What Valio Aimo sees" in supplier
-    assert "469363" in supplier and "€2,580.64" in supplier  # what was ordered, and the statements relied on
+    assert "469363" in supplier and "€1,083.39" in supplier  # what was ordered, and the statements relied on
     assert "384" in supplier[supplier.index('id="reliance"'):supplier.index('id="trail"')]
     assert "The hash chain verifies" in supplier
 

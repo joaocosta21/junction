@@ -13,6 +13,7 @@ from tta.contracts.common import (
     AvailabilityState,
     ClaimName,
     ClaimStatus,
+    ClockBasis,
     Contract,
     DataSource,
     Number,
@@ -87,6 +88,12 @@ class AvailabilityResponse(Contract):
     requested_date: datetime | None = None
     lines: tuple[AvailabilityLine, ...] = ()
     source: DataSource
+    # What `time_now` rests on. None: the answer does not say, and `ClockBasis.of(source)` holds.
+    time_basis: ClockBasis | None = None
+
+    @property
+    def basis(self) -> ClockBasis:
+        return self.time_basis or ClockBasis.of(self.source)
 
     def by_id(self) -> dict[str, AvailabilityLine]:
         return {line.product_id: line for line in self.lines}

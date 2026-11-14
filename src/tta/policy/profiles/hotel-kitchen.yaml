@@ -11,7 +11,8 @@ display_name: Hotel kitchen
 description: "Illustrative profile of a hotel kitchen: spend limits, no allergen exclusion, substitutes from the same category."
 illustrative: true
 
-auto_order_enabled: true          # false sends every order to a human (P-00)
+auto_order_enabled: false         # off: every order needs a person (F-10). true lets the agent order alone,
+                                  # and only when every statement is confirmed and no rule asks for a human
 max_order_net_eur: 750            # EUR before tax per order without a human (P-01)
 max_daily_net_eur: 3000           # EUR before tax per day, this order included (P-02)
 min_fill_ratio: 0.9               # share of the requested quantity that must be covered (P-03)

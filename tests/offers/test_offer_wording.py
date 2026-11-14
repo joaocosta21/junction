@@ -100,10 +100,10 @@ def test_a_one_line_partial_fill_keeps_its_wording_and_gains_the_amounts(
     option = service.build_offer(make_request(1500), agent_hotel).options[0]
 
     assert option.summary == (
-        "3 confirmed products cover 1,133 L of the 1,500 L asked for (367 L missing), for €2,933.09 before tax."
+        "2 confirmed products cover 435 L of the 1,500 L asked for (1,065 L missing), for €1,083.39 before tax."
     )
     assert p03(option).sentence == (
-        "Only 75.5% of the requested quantity is covered, below the 90% minimum (covered: 1,133 of 1,500 L)."
+        "Only 29% of the requested quantity is covered, below the 90% minimum (covered: 435 of 1,500 L)."
     )
 
 

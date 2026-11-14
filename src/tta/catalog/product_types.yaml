@@ -14,21 +14,43 @@
 #                  and its Finnish name contains none
 #   claims         (when given) it carries every one of these nutritionalClaim codes
 # `products` is how many products that selects and `derived_from` says how the entry was derived.
+# `note` (optional) is a sentence for the buyer whenever a request asks for the type: what the type
+# leaves out and how to ask for it. The offer carries it as a note.
+#
+# A type names one kind of product. A kind a buyer would send back is not in it: it has a type of its
+# own (milk for coffee is `coffee_milk`, not `milk`).
 #
 # A claim is never an allergen statement: a request for lactose-free milk is type `milk` plus the
-# claim FREE_FROM_LACTOSE, and all 30 such products still declare milk as an allergen.
+# claim FREE_FROM_LACTOSE, and all 26 such products still declare milk as an allergen.
 
 milk:
   categories: ["10400"]
-  exclude_terms: ["sour", "piimä", "coffee drink", "maitokahvi", "soygurt"]
-  products: 78
+  exclude_terms: ["sour", "piimä", "coffee drink", "maitokahvi", "soygurt", "coffee milk", "kahvimaito", "cafè milk"]
+  products: 74
+  note: >-
+    Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk.
+    Ask for coffee milk by name (product type coffee_milk) to get it.
   derived_from: >-
-    Category 10400 holds 91 products. The exclude terms leave out the 13 that are not milk: 11 sour
-    milks ("sour" in the English name, "piimä" in the Finnish one), a coffee drink (469266,
-    "maitokahvijuoma") and a soy yoghurt (472516). The 78 that stay are milk and lactose-free milk
-    drinks, among them 4 milks for coffee (462626, 464237, 473142 "coffee milk", 463380 "Cafè
-    milk"). With the claim FREE_FROM_LACTOSE the type gives 30 products; the category has 35 with
-    that claim, 4 of them sour milks and 1 the coffee drink.
+    Category 10400 holds 91 products. The exclude terms leave out the 17 that are not plain milk: 11
+    sour milks ("sour" in the English name, "piimä" in the Finnish one), a coffee drink (469266,
+    "maitokahvijuoma"), a soy yoghurt (472516) and the 4 milks for coffee, which are type coffee_milk
+    (462626, 464237 and 473142 say "coffee milk" and "kahvimaito"; 463380 says "Cafè milk"). Valio
+    Aimo was asked on 14 Nov 2026 whether a buyer who asks for milk accepts milk for coffee and
+    answered "no be explicit". The 74 that stay are milk and lactose-free milk drinks of every fat
+    level. With the claim FREE_FROM_LACTOSE the type gives 26 products; the category has 35 with that
+    claim, 4 of them sour milks, 4 milks for coffee and 1 the coffee drink.
+
+coffee_milk:
+  categories: ["10400"]
+  name_terms: ["coffee milk", "kahvimaito", "cafè milk"]
+  products: 4
+  derived_from: >-
+    The 4 milks for coffee of category 10400 (91 products), left out of type milk: Valio coffee milk
+    5 dl (462626) and 1 l (464237), Valio coffee milk drink vanilla (473142, the one flavoured milk
+    of the category) and Arla Cafè milk (463380). Each says "coffee milk" in its English name or
+    "kahvimaito" in its Finnish one, or "Cafè milk". All 4 carry the claim FREE_FROM_LACTOSE. The
+    term is "cafè milk" and not "cafè", so that a sentence about a café does not name the type. The
+    coffee drink 469266 ("maitokahvijuoma") is a ready drink and is in neither type.
 
 sour_milk:
   categories: ["10400"]

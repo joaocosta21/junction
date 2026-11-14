@@ -1,8 +1,10 @@
 """Scenario 1 (SPEC section 13): the hotel kitchen asks for 1,000 litres of lactose-free milk by Monday.
 
-Tonight's capture differs from Friday's plan: three confirmed milks together cover the 1,000 litres, so option 1
-is a combined full fill, not a 749-litre partial fill. The verdict is still `APPROVAL` (P-01, the per-order
-limit). The partial-fill case is shown with 1,500 litres, more than the 1,133 litres of confirmed stock.
+Milk for coffee is a product type of its own since 14 Nov (Valio Aimo: "no be explicit"), so Arla Cafè milk no
+longer fills the request. Two confirmed milks cover 435 of the 1,000 litres: option 1 is a partial fill, 43.5%,
+and goes to a person for the per-order limit and the minimum fill (P-01, P-03). The alternative is 1,000 litres
+of a milk whose quantity Valio Aimo does not confirm. Asking for 1,500 litres changes only what is missing.
+Measured at the recording's own clock (Saturday 14 Nov 2026, 02:52 Helsinki time).
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ from typing import Any
 from tta.contracts.common import AvailabilityState, ClaimStatus, OptionKind, OrderStatus, PlacedBy, Verdict
 
 PORTION_MILK = "463203"  # Arla portion milk, 100 x 2 cl: a single-serve pack, excluded from a bulk line
-CONFIRMED_MILKS = {"469363": Decimal(384), "462775": Decimal(51), "463380": Decimal(565)}
-FULL_CONFIRMED_STOCK = {"469363": Decimal(384), "462775": Decimal(51), "463380": Decimal(698)}  # 1,133 L
+CONFIRMED_MILKS = {"469363": Decimal(384), "462775": Decimal(51)}  # 435 L: all the confirmed stock there is
+COFFEE_MILKS = {"462626", "463380", "464237", "473142"}  # another product type: never offered for milk
 UNCONFIRMED_MILK = "464306"  # the cheapest lactose-free milk; Valio does not confirm its stock
 APPROVER_NOTE = "Checked with the kitchen."
 SCENARIO_1_EVENTS = [
@@ -36,10 +38,15 @@ def _assert_scenario_1_offer(offer: dict[str, Any], money: Any, fired: Any, line
     for line in best["lines"]:
         assert line["availability"]["state"] == AvailabilityState.CONFIRMED
         assert {claim["claim"]: claim["status"] for claim in line["claims"]}["quantity"] == ClaimStatus.CONFIRMED
-    assert money(best["totals"]["net"]) == Decimal("2580.64")
-    assert money(best["fill_ratio"]) == 1
+    assert money(best["totals"]["net"]) == Decimal("1083.39")
+    assert money(best["fill_ratio"]) == Decimal("0.435")
+    coverage = best["coverage"][0]
+    assert (money(coverage["covered"]), money(coverage["missing"])) == (Decimal(435), Decimal(565))
     assert best["decision"]["verdict"] == Verdict.APPROVAL
-    assert fired(best) == {"P-01"}
+    assert fired(best) == {"P-01", "P-03"}
+    offered = {line["product_id"] for option in offer["options"] for line in option["lines"]}
+    assert not offered & COFFEE_MILKS
+    assert offer["notes"][0].startswith("Request line 1: Coffee milk was left out:")
 
     alternative = _option(offer, OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert lines_of(alternative) == {UNCONFIRMED_MILK: Decimal(1000)}
@@ -71,7 +78,7 @@ def test_scenario_1_from_the_pasted_sentence_goes_to_a_human_who_approves_it(
     decided = demo.approve_all_roles("hotel", order, APPROVER_NOTE)
     assert decided["status"] == OrderStatus.ORDERED
     assert decided["placed_by"] == PlacedBy.HUMAN_APPROVAL
-    assert money(decided["option"]["totals"]["net"]) == Decimal("2580.64")
+    assert money(decided["option"]["totals"]["net"]) == Decimal("1083.39")
     assert {statement["product_id"] for statement in decided["reliance"]} == set(CONFIRMED_MILKS)
 
     trail = demo.audit("hotel", order["order_id"])
@@ -79,7 +86,7 @@ def test_scenario_1_from_the_pasted_sentence_goes_to_a_human_who_approves_it(
     assert all(event["sentence"].strip() for event in trail["events"])
     assert trail["chain"]["ok"] is True
     rules = {event["type"].removeprefix("tta.v1."): set(event["rule_ids"]) for event in trail["events"]}
-    assert rules["approval.requested"] == rules["order.confirmed"] == {"P-01"}
+    assert rules["approval.requested"] == rules["order.confirmed"] == {"P-01", "P-03"}
 
 
 def test_scenario_1_the_supplier_sees_every_step_without_the_buyers_limits_names_or_notes(
@@ -111,16 +118,16 @@ def test_scenario_1_the_typed_request_gives_the_same_offer_as_the_pasted_sentenc
 def test_scenario_1_partial_fill_typed_request_for_more_than_the_confirmed_stock(
     demo: Any, texts: Any, money: Any, fired: Any, lines_of: Any, event_types: Any
 ) -> None:
-    """1,500 litres: the confirmed milks cover 1,133 litres (75.5%), below the profile's 90% minimum (P-03)."""
+    """1,500 litres: the confirmed milks cover 435 litres (29%), below the profile's 90% minimum (P-03)."""
     offer = demo.offer("hotel", texts.milk(1500))
 
     best = offer["options"][0]
     assert best["kind"] == OptionKind.BEST_CONFIRMED
-    assert lines_of(best) == FULL_CONFIRMED_STOCK
+    assert lines_of(best) == CONFIRMED_MILKS
     coverage = best["coverage"][0]
-    assert (money(coverage["covered"]), money(coverage["missing"])) == (Decimal(1133), Decimal(367))
-    assert money(best["fill_ratio"]) < Decimal("0.9")
-    assert money(best["totals"]["net"]) == Decimal("2933.09")
+    assert (money(coverage["covered"]), money(coverage["missing"])) == (Decimal(435), Decimal(1065))
+    assert money(best["fill_ratio"]) == Decimal("0.29")
+    assert money(best["totals"]["net"]) == Decimal("1083.39")
     assert best["decision"]["verdict"] == Verdict.APPROVAL
     assert fired(best) == {"P-01", "P-03"}
     quantity = [check for check in best["constraint_checks"] if check["kind"] == "QUANTITY"]

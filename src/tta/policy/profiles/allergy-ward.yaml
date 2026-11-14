@@ -10,7 +10,8 @@ display_name: Allergy ward
 description: "Illustrative profile of a hospital allergy ward: no milk, no gluten, confirmed data only, no substitute without a human."
 illustrative: true
 
-auto_order_enabled: true          # false sends every order to a human (P-00)
+auto_order_enabled: false         # off: every order needs a person (F-10). true lets the agent order alone,
+                                  # and only when every statement is confirmed and no rule asks for a human
 max_order_net_eur: 500            # EUR before tax per order without a human (P-01)
 max_daily_net_eur: 1500           # EUR before tax per day, this order included (P-02)
 min_fill_ratio: 1.0               # the whole requested quantity must be covered (P-03)

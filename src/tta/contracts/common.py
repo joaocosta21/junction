@@ -259,6 +259,19 @@ class DataSource(StrEnum):
     REPLAY = "replay"
 
 
+class ClockBasis(StrEnum):
+    """What the data clock rests on: the instant every order cut-off is compared with."""
+
+    RECORDING = "recording"  # replay: the moment Valio Aimo's data was recorded
+    SUPPLIER = "supplier"  # live: the server time of Valio Aimo's answer
+    DEMO_SETTING = "demo_setting"  # replay: an instant we chose and set (TTA_DEMO_CLOCK)
+
+    @classmethod
+    def of(cls, source: DataSource) -> ClockBasis:
+        """The basis of an answer that names none: the recording's own instant in replay, the supplier's live."""
+        return cls.SUPPLIER if source is DataSource.LIVE else cls.RECORDING
+
+
 class Identity(Contract):
     """Who is calling. A token maps to exactly one identity (SPEC section 2).
 

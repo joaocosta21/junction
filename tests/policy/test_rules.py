@@ -268,18 +268,19 @@ def test_p05_is_silent_for_a_line_that_replaces_nothing(
     assert ward.substitution_without_approval is SubstitutionScope.NONE and decision.rule_ids == ("F-10",)
 
 
-# --- P-00 to P-03 -------------------------------------------------------------------------------------------
+# --- F-10 (the buyer's setting), P-01 to P-03 ----------------------------------------------------------------
 
-def test_p00_sends_every_order_to_a_human_when_the_profile_switches_auto_ordering_off(
+def test_f10_sends_every_order_to_a_human_while_the_profile_keeps_ordering_alone_switched_off(
     engine: RulePolicyEngine, hotel: BuyerProfile, make_option: Callable[..., OfferOption],
     make_context: Callable[..., PolicyContext],
 ) -> None:
-    profile = hotel.model_copy(update={"auto_order_enabled": False})
+    assert hotel.auto_order_enabled is False  # as shipped
 
-    decision = engine.evaluate(make_option(), profile, make_context())
+    decision = engine.evaluate(make_option(), hotel, make_context())
 
-    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("P-00",)
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
+    assert not decision.fired[0].fixed and decision.fired[0].facts == {"profile.auto_order_enabled": False}
 
 
 @pytest.mark.parametrize(("net", "fires"), [("750.00", False), ("750.01", True), ("749.99", False)])

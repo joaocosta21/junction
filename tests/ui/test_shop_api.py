@@ -7,9 +7,13 @@ agent still cannot approve, and the audit trail names the person who signed).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
+
+import tta.ui
 
 API = "/shop/api"
 CREAM = {  # 10 L of whipping cream by Monday: some €30-60 in the recordings
@@ -18,7 +22,7 @@ CREAM = {  # 10 L of whipping cream by Monday: some €30-60 in the recordings
 }
 BAKERY = {
     "display_name": "Kallio Bakery",
-    "auto_order_enabled": True,
+    "auto_order_enabled": False,
     "max_order_net_eur": 50,
     "max_daily_net_eur": 400,
     "min_fill_ratio": 1,
@@ -29,6 +33,49 @@ BAKERY = {
     "deposits": "APPROVAL",
     "require_confirmed": False,
     "standing_order_drift_ratio": 0.15,
+}
+
+MONDAY = "2026-11-16"
+KITCHENS_JS = Path(tta.ui.__file__).parent / "static" / "shop" / "js" / "kitchens.js"
+# What the shop page sends for each of its four customers: `BASE_SETTINGS` and the customer's `settings` block of
+# kitchens.js, as `withAllergenRules` shapes them. Copied here by hand: the page is JavaScript and no test runs it.
+_BASE = {"auto_order_enabled": False, "variable_weight": "APPROVAL", "deposits": "APPROVAL",
+         "standing_order_drift_ratio": 0.25}
+SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
+    "school": {
+        **_BASE, "display_name": "Kilo School", "max_order_net_eur": 250, "max_daily_net_eur": 800,
+        "min_fill_ratio": 1, "excluded_allergens": ["AN", "AP", "AS"], "allergen_strictness": "DECLARED_ONLY",
+        "allergen_strictness_by_code": {"AN": "DECLARED_ONLY", "AP": "DECLARED_ONLY", "AS": "DECLARED_ONLY"},
+        "substitution_without_approval": "LISTED_BY_SUPPLIER", "require_confirmed": False,
+    },
+    "ward": {
+        **_BASE, "display_name": "City Hospital, Ward 4", "max_order_net_eur": 500, "max_daily_net_eur": 1500,
+        "min_fill_ratio": 1, "excluded_allergens": ["AM", "AW"], "allergen_strictness": "STRICT",
+        "allergen_strictness_by_code": {"AM": "STRICT", "AW": "STRICT"},
+        "substitution_without_approval": "NONE", "require_confirmed": True,
+    },
+    "hotel": {
+        **_BASE, "display_name": "Harbourside Hotel", "max_order_net_eur": 750, "max_daily_net_eur": 3000,
+        "min_fill_ratio": 0.9, "excluded_allergens": [], "allergen_strictness": None,
+        "allergen_strictness_by_code": {}, "substitution_without_approval": "SAME_CATEGORY",
+        "require_confirmed": False,
+    },
+    "bakery": {
+        **_BASE, "display_name": "Kallio Bakery", "max_order_net_eur": 50, "max_daily_net_eur": 400,
+        "min_fill_ratio": 1, "excluded_allergens": [], "allergen_strictness": None,
+        "allergen_strictness_by_code": {}, "substitution_without_approval": "SAME_CATEGORY",
+        "require_confirmed": False,
+    },
+}
+# One of each customer's own example buttons: an order inside that customer's limits, with every statement
+# confirmed in the recording (measured at the recording's own clock, Saturday 14 Nov 2026 02:52).
+SHOP_EXAMPLES: dict[str, dict[str, Any]] = {
+    "school": {"text": "40 litres of lactose-free milk by Monday", "product_type": "milk",
+               "required_claims": ["FREE_FROM_LACTOSE"], "quantity": 40, "unit": "L"},
+    "ward": {"text": "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only",
+             "product_type": "plant_drink", "quantity": 200, "unit": "L", "exclude_allergens": ["AM", "AW"]},
+    "hotel": {"text": "30 litres of cream by Monday", "product_type": "cream", "quantity": 30, "unit": "L"},
+    "bakery": {"text": "10 litres of milk by Monday", "product_type": "milk", "quantity": 10, "unit": "L"},
 }
 
 
@@ -191,3 +238,59 @@ def test_a_kitchen_can_set_a_rule_per_allergen(client: TestClient) -> None:
 
     stray = _set_up(client, excluded_allergens=["AS"], allergen_strictness_by_code={"AP": "STRICT"})
     assert stray.status_code == 422
+
+
+# --- no order without a person, for each of the shop's four customers ---------------------------------------
+
+def _order_example(client: TestClient, kitchen: str, key: str) -> dict[str, Any]:
+    """The customer's example request, offered and ordered as the page does it: the first option."""
+    request = {"needed_by": MONDAY, "lines": [SHOP_EXAMPLES[kitchen]]}
+    offered = _call(client, "POST", "/offers", kitchen, json=request)
+    assert offered.status_code == 200, offered.text
+    offer = offered.json()
+    body = {"offer_id": offer["offer_id"], "option_id": offer["options"][0]["option_id"], "key": key}
+    placed = _call(client, "POST", "/orders", kitchen, json=body)
+    assert placed.status_code == 200, placed.text
+    return placed.json()
+
+
+def test_the_shop_page_ships_with_ordering_alone_and_sending_alone_switched_off() -> None:
+    script = KITCHENS_JS.read_text(encoding="utf-8")
+
+    assert "auto_order_enabled: false" in script and "auto_order_enabled: true" not in script
+    assert "autoSend: true" not in script
+    assert all(settings["auto_order_enabled"] is False for settings in SHOP_CUSTOMERS.values())
+
+
+@pytest.mark.parametrize("kitchen", sorted(SHOP_CUSTOMERS))
+def test_each_of_the_four_customers_settings_is_accepted_and_no_order_is_placed_without_a_decision(
+    kitchen: str, client: TestClient
+) -> None:
+    saved = _call(client, "PUT", "/kitchen", kitchen, json=SHOP_CUSTOMERS[kitchen])
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["profile"]["auto_order_enabled"] is False
+
+    order = _order_example(client, kitchen, f"test.{kitchen}.four")
+
+    assert (order["status"], order["placed_by"]) == ("PENDING_APPROVAL", None)
+    assert order["decision"]["verdict"] == "APPROVAL" and order["decision"]["required_roles"]
+    waiting = _call(client, "GET", "/approvals", kitchen).json()
+    assert [approval["order_id"] for approval in waiting] == [order["order_id"]]
+    trail = _call(client, "GET", f"/audit?order_id={order['order_id']}&reader=buyer", kitchen).json()
+    assert not any(event["type"].endswith("order.placed_by_agent") for event in trail["events"])
+
+
+def test_a_customer_who_switches_ordering_alone_on_gets_a_fully_confirmed_order_placed_by_the_agent(
+    client: TestClient,
+) -> None:
+    """The buyer's own choice, off by default: the ward's 200 litres, every statement confirmed, no rule fired."""
+    saved = _call(client, "PUT", "/kitchen", "ward", json={**SHOP_CUSTOMERS["ward"], "auto_order_enabled": True})
+    assert saved.status_code == 200, saved.text
+
+    order = _order_example(client, "ward", "test.ward.alone")
+
+    assert (order["status"], order["placed_by"]) == ("ORDERED", "AGENT")
+    assert (order["decision"]["verdict"], order["decision"]["fired"]) == ("AUTO", [])
+    assert order["option"]["totals"]["net"] == 402.0
+    assert [(line["product_id"], line["quantity"]) for line in order["option"]["lines"]] == [("464013", 200)]
+    assert _call(client, "GET", "/approvals", "ward").json() == []

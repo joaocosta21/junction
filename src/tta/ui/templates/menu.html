@@ -141,7 +141,7 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
       <input type="hidden" name="offer" value="{{ offer.offer_id }}">
       <input type="hidden" name="option" value="{{ option.option_id }}">
       <input type="hidden" name="order_key" value="{{ view.order_key }}">
-      <button type="submit">Send this option for approval</button>
+      <button type="submit">{% if option.decision.verdict.value == "AUTO" %}Order this option{% else %}Send this option for approval{% endif %}</button>
     </form>
     {% endif %}
     {% endif %}

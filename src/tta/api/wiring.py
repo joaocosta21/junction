@@ -55,11 +55,20 @@ LIVE_CLIENT_NOT_BUILT = (
     "TTA_MODE=live was asked for, but the live supplier client cannot be built: {why} "
     "Correct VALIO_AIMO_BASE_URL, or start with TTA_MODE=replay."
 )
+DEMO_CLOCK_OUTSIDE_DEMO = (
+    "TTA_DEMO_CLOCK is set, but TTA_ENV is neither dev nor demo. A clock somebody chose belongs to a "
+    "demonstration only: unset TTA_DEMO_CLOCK, or start with TTA_ENV=demo and TTA_MODE=replay."
+)
+DEMO_CLOCK_NOT_HONOURED = (
+    "TTA_DEMO_CLOCK is set and TTA_MODE is live: the demo clock is honoured in replay only, so the supplier's "
+    "server time is the clock."
+)
 
 
 class GatewayConfigurationError(RuntimeError):
-    """Live mode was asked for with settings the live client refuses. The gateway does not start: serving
-    the capture instead would look like live mode until someone read an offer's source."""
+    """The gateway does not start on these settings. Live mode was asked for with settings the live client
+    refuses (serving the capture instead would look like live mode until someone read an offer's source), or a
+    demo clock is set outside a demonstration."""
 
 
 class UtcClock:
@@ -212,14 +221,19 @@ def build_parts(
     caller that already holds it (the catalog takes about 1.3 seconds to build).
 
     Raises `TokenConfigurationError` outside dev and demo when the environment holds no usable tokens,
-    `GatewayConfigurationError` when live mode is asked for with an address the live client refuses,
+    `GatewayConfigurationError` when live mode is asked for with an address the live client refuses, or when a
+    demo clock is set outside dev and demo,
     `HookError` when an optional package is there without what the gateway calls, and `SupplierUnavailable`
     when the replay capture cannot be read. Whatever this function had opened by then is closed again.
     """
+    if settings.tta_demo_clock is not None and not settings.is_demo_environment:
+        raise GatewayConfigurationError(DEMO_CLOCK_OUTSIDE_DEMO)
+    if settings.tta_demo_clock is not None and settings.demo_clock is None:
+        logger.warning(DEMO_CLOCK_NOT_HONOURED)
     policy = RulePolicyEngine.from_files()
     tokens = load_tokens(settings, policy.profile_ids())  # first: without tokens nothing else is worth building
     catalog = catalog or ProductCatalog.from_settings(settings)
-    replay = ReplayGateway(settings.replay_capture_dir)
+    replay = ReplayGateway.from_settings(settings)
     opened: list[object] = []  # what this call opened itself, newest first: a gateway handed in is the caller's
     try:
         if gateway is None:

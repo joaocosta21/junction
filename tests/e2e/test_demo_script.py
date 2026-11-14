@@ -42,7 +42,7 @@ def test_demo_script_scenarios_1_2_3_in_order_on_an_empty_database(
     order = demo.order("hotel", third)
     assert (order["status"], order["placed_by"]) == (OrderStatus.PENDING_APPROVAL, None)
 
-    assert _day_spend(demo, "hotel", money) == Decimal("2754.64")  # 2,580.64 + 174.00, under the €3,000 a day
+    assert _day_spend(demo, "hotel", money) == Decimal("1257.39")  # 1,083.39 + 174.00, under the €3,000 a day
     assert _day_spend(demo, "ward", money) == Decimal("402.00")
 
 
@@ -55,6 +55,9 @@ def test_demo_script_run_twice_on_one_database_changes_the_outcome_so_start_empt
     assert _day_spend(demo, "ward", money) > WARD_DAILY_LIMIT
 
     demo.run_agent("hotel", texts.scenario_1)
+    second = demo.offer("hotel", texts.milk(1000))["options"][0]
+    assert fired(second) == {"P-01", "P-03"}  # 2 x 1,083.39 = 2,166.78: a second one is still under €3,000 a day
+    demo.order("hotel", demo.offer("hotel", texts.milk(1000)))
     again = demo.offer("hotel", texts.milk(1000))["options"][0]
-    assert fired(again) == {"P-01", "P-02"}  # a second scenario 1 the same day also needs finance
+    assert fired(again) == {"P-01", "P-02", "P-03"}  # a third scenario 1 the same day also needs finance
     assert _day_spend(demo, "hotel", money) + money(again["totals"]["net"]) > HOTEL_DAILY_LIMIT

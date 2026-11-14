@@ -28,7 +28,8 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers import OfferDeps, OfferService, build_offer
 
 # Three lactose-free milks of category 10400, each a 1-litre carton sold by the piece (ST).
-A, B, C = "469363", "462775", "463380"
+# C was 463380, Arla Cafè milk, until milk for coffee became a product type of its own (14 Nov 2026).
+A, B, C = "469363", "462775", "464201"
 UNCONFIRMED = "464306"
 PLACEHOLDER = 999_999
 
@@ -267,8 +268,9 @@ def test_confirmed_only_leaves_the_unconfirmed_product_out_and_says_so(
     )
 
     assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED]
-    assert len(offer.notes) == 1
-    assert UNCONFIRMED in offer.notes[0] and "confirmed data only" in offer.notes[0].lower()
+    type_note, left_out = offer.notes  # the note of product type milk comes first (coffee milk is another type)
+    assert type_note.startswith("Request line 1: Coffee milk was left out:")
+    assert UNCONFIRMED in left_out and "confirmed data only" in left_out.lower()
     assert reasons(offer)[UNCONFIRMED] is ExclusionReason.QUANTITY_NOT_CONFIRMED  # listed, not only in the note
 
 

@@ -7,11 +7,12 @@ the service it belongs to.
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import AwareDatetime, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tta.contracts.common import DataSource
@@ -44,6 +45,11 @@ class Settings(BaseSettings):
     tta_valio_call_budget: int = Field(default=DEFAULT_CALL_BUDGET, ge=0)
     tta_fixtures_dir: Path = REPO_ROOT / "fixtures"
     tta_replay_capture: str = "2026-11-14-demo"
+    # The demo clock: an instant with an offset, for example 2026-11-12T14:15:00+02:00. Honoured in replay only
+    # and in dev and demo only: it replaces the recording's own instant as the clock every order cut-off is
+    # compared with. Unset: the recording's instant. Valio Aimo, 14 Nov 2026: "this is all static data so we can
+    # chose the date". The audit trail keeps the real time whatever is set here.
+    tta_demo_clock: AwareDatetime | None = None
     tta_product_file: Path = REPO_ROOT / "valio_aimo_junction26_product_data.json"
     tta_reliability_file: Path = REPO_ROOT / "valio_aimo_junction26_delivery_reliability.csv"
     tta_carbon_file: Path = REPO_ROOT / "valio_aimo_junction26_carbon_footprint.csv"
@@ -60,6 +66,17 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
     context_dev_api_key: SecretStr | None = None
+
+    @field_validator("tta_demo_clock", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        """`TTA_DEMO_CLOCK=` with nothing after it reads as unset, as a deploy file may leave it."""
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @property
+    def demo_clock(self) -> datetime | None:
+        """The demo clock in force: the instant set, in replay; None when it is unset or the mode is live."""
+        return self.tta_demo_clock if self.tta_mode is DataSource.REPLAY else None
 
     @property
     def db_path(self) -> Path:
@@ -115,7 +132,7 @@ class Settings(BaseSettings):
     def for_tests(cls, **overrides: Any) -> Settings:
         """Settings that read no `.env` file and carry no secret unless a test passes one."""
         values: dict[str, Any] = {name: None for name in _SECRET_FIELDS}
-        values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None)
+        values.update(tta_env="dev", tta_mode=DataSource.REPLAY, tta_gemini_model=None, tta_demo_clock=None)
         values.update(overrides)
         return cls(_env_file=None, **values)
 

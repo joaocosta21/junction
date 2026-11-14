@@ -142,7 +142,9 @@ def _quantities(form: FormData, standing: StandingOrder) -> tuple[Decimal, ...]:
 
 
 def add_routes(app: FastAPI, site: Site) -> None:
-    replay = ReplayGateway(site.settings.replay_capture_dir)  # the capture's prices build the demo's history
+    # The capture's prices build the demo's history, on the same clock as the book's offers (the demo clock
+    # when one is set).
+    replay = ReplayGateway.from_settings(site.settings)
     books = StandingBooks(data_clock(site.settings, replay))
     prices: ValioGateway = replay
 

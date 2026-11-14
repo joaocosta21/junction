@@ -88,6 +88,11 @@ class Catalog(Protocol):
 
     def product_type_keys(self) -> tuple[str, ...]: ...
 
+    def product_type_note(self, key: str) -> str | None:
+        """What a request for this product type leaves out and how to ask for it, as a sentence for the buyer;
+        None when the type has nothing to say or is not in the table."""
+        ...
+
     def listed_substitutes(self, product_id: str) -> tuple[str, ...]: ...
 
     def same_category(self, product_id: str, digits: int) -> tuple[Product, ...]:

@@ -2,7 +2,7 @@
 
 Live:   `client = ValioClient(settings)` and `client.clock` for the `Clock` port;
         `client.calls_remaining` says how much of the call budget is left.
-Replay: `replay = ReplayGateway(settings.replay_capture_dir)` and `replay.clock`.
+Replay: `replay = ReplayGateway.from_settings(settings)` and `replay.clock`.
 """
 
 from tta.valio.budget import CallBudget

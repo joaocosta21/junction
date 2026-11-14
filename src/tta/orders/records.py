@@ -24,6 +24,7 @@ from tta.contracts.offer import Offer, OfferOption
 from tta.contracts.order import Approval, ApprovalDecision, DecisionRequest, Evidence, Order, RelianceStatement
 from tta.contracts.policy import PolicyDecision
 from tta.orders import wording
+from tta.policy.human_approval import let_a_named_role_sign
 
 ORDER_ID_PREFIX = "ord_"
 APPROVAL_ID_PREFIX = "apr_"
@@ -77,6 +78,20 @@ def is_overdue(order: Order, approval: Approval | None, now: datetime) -> bool:
     return is_past_order_by(order.model_copy(update={"option": dated}), now)
 
 
+def signed_by_a_named_role(
+    check: OrderTimeCheck, approval: Approval, signer_roles: tuple[ApproverRole, ...]
+) -> OrderTimeCheck:
+    """The check as it holds for this signer: when F-10 is the only rule left at decision time, a role the
+    approval already names completes it (`tta.policy.human_approval.let_a_named_role_sign`)."""
+    decision = let_a_named_role_sign(check.decision, approval.required_roles, signer_roles)
+    if decision is check.decision:
+        return check
+    return OrderTimeCheck(
+        option=check.option.model_copy(update={"decision": decision}), decision=decision,
+        revalidation=check.revalidation,
+    )
+
+
 def roles_still_needed(approval: Approval, check: OrderTimeCheck) -> tuple[ApproverRole, ...]:
     """The roles the order-time decision asks for and nobody has given yet. An approval given for another
     option than the one checked does not count."""
@@ -126,6 +141,20 @@ def evidence_reasons(evidence: tuple[Evidence, ...], option: OfferOption) -> tup
     )
 
 
+def placed_by_agent(
+    order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
+) -> Order:
+    """The order the agent placed alone: no rule asked for a human."""
+    return Order(
+        order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
+        agent_id=agent.id, status=OrderStatus.ORDERED, placed_by=PlacedBy.AGENT, option=check.option,
+        decision=check.decision, reliance=reliance_statements(check, offer.time_now), idempotency_key=idempotency_key,
+        created_at=now, updated_at=now,
+        status_sentence=wording.placed_alone(check.option.totals.net, offer.profile_id),
+        source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
+    )
+
+
 def awaiting_approval(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
     evidence: tuple[Evidence, ...] = (),
@@ -139,14 +168,11 @@ def awaiting_approval(
         required_roles=check.decision.required_roles, reasons=reasons, evidence=evidence, created_at=now,
         valid_until=decide_by(check.option, now),
     )
-    order = Order(
-        order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
-        agent_id=agent.id, status=OrderStatus.PENDING_APPROVAL, placed_by=None, approval_id=approval.approval_id,
-        option=check.option, decision=check.decision, reliance=reliance_statements(check, offer.time_now),
-        idempotency_key=idempotency_key, created_at=now, updated_at=now,
-        status_sentence=wording.waiting(approval, check.decision),
-        source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
-    )
+    # The same record as an order placed alone, in the state of one that waits.
+    order = placed_by_agent(order_id, offer, check, agent, idempotency_key, now).model_copy(update={
+        "status": OrderStatus.PENDING_APPROVAL, "placed_by": None, "approval_id": approval.approval_id,
+        "status_sentence": wording.waiting(approval, check.decision),
+    })
     return order, approval
 
 

@@ -22,7 +22,8 @@ from tta.policy.custom import custom_profile
 from tta.policy.errors import PolicyLoadError
 from tta.policy.facts import Missing, OrderScope, Reading, read_fact, read_profile_fact
 from tta.policy.hashing import policy_hash
-from tta.policy.human_approval import HUMAN_APPROVAL, require_human_approval
+from tta.policy.human_approval import authority_summary, require_human_approval
+from tta.policy.human_approval import canonical as human_approval_canonical
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
 from tta.policy.profiles import check_profile, load_profiles
 from tta.policy.rulebook import AccessRule, AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
@@ -58,9 +59,8 @@ class RulePolicyEngine:
 
     def __init__(self, rulebook: Rulebook, profiles: Iterable[BuyerProfile]) -> None:
         self._rulebook = rulebook
-        self._canonical_rules: JsonDict = {
-            **rulebook.canonical(), "gateway_approval": HUMAN_APPROVAL.model_dump(mode="json"),
-        }
+        # The hash covers the rules file and the one rule written in code (F-10, tta.policy.human_approval).
+        self._canonical_rules: JsonDict = {**rulebook.canonical(), "gateway_approval": human_approval_canonical()}
         self._profiles = {profile.profile_id: profile for profile in profiles}
         self._missing_fact_rule = next(rule for rule in rulebook.rules if rule.trigger is Trigger.MISSING_FACT)
 
@@ -116,21 +116,17 @@ class RulePolicyEngine:
                     gaps.extend(_Gap(name, _reason(read(name)), rule.id, line, line_index) for name in outcome.missing)
         every = [*findings, *self._missing_fact_findings(gaps)]
         in_file_order = sorted(every, key=lambda finding: finding.order)  # stable: line order is kept within a rule
-        return require_human_approval(self._decision(in_file_order, scope))
+        return require_human_approval(self._decision(in_file_order, scope), profile, option)
 
     def describe_authority(self, profile: BuyerProfile) -> Authority:
         read = partial(read_profile_fact, profile=profile, substitution_scopes=self._rulebook.substitution_scopes)
         entries: dict[str, list[RuleSpec]] = {}
         for rule in self._rulebook.rules:
             entries.setdefault(rule.id, []).append(rule)
-        rules = (
-            RuleSummary(
-                rule_id=HUMAN_APPROVAL.rule_id, title=HUMAN_APPROVAL.title, fixed=HUMAN_APPROVAL.fixed,
-                verdict=HUMAN_APPROVAL.verdict, approver_role=HUMAN_APPROVAL.approver_role,
-                sentence=HUMAN_APPROVAL.sentence,
-            ),
-            *(self._summary(found, read) for found in entries.values()),
-        )
+        summaries = [self._summary(found, read) for found in entries.values()]
+        fixed_count = sum(1 for rule in summaries if rule.fixed)
+        # F-10 is listed where the profile rules start: after the fixed rules, before P-01.
+        rules = (*summaries[:fixed_count], authority_summary(profile), *summaries[fixed_count:])
         section = self._rulebook.authority
         summary = [self._text(text, read) for text in section.summary if _holds(text, read)]
         summary.extend(rule.text for rule in self._rulebook.access_rules)

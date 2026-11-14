@@ -14,6 +14,7 @@ from tta.contracts.common import (
     CheckResult,
     ClaimName,
     ClaimStatus,
+    ClockBasis,
     ConstraintKind,
     Contract,
     DataSource,
@@ -194,6 +195,9 @@ class Offer(Contract):
     candidates_considered: int = 0
     source: DataSource  # live or replay
     time_now: datetime  # the clock the offer was built against
+    # What that clock rests on: the recording's own instant, the supplier's server time, or an instant we set
+    # (TTA_DEMO_CLOCK, replay only). None on an offer stored before the field existed.
+    time_basis: ClockBasis | None = None
     notes: tuple[str, ...] = ()  # for example why there is no option
 
     def option(self, option_id: str) -> OfferOption | None:

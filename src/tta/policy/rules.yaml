@@ -4,7 +4,9 @@
 # The structure is Gabriela's (AIMO/policy/policy.yaml, branch bio2): declared facts, declarative rules,
 # the most severe verdict wins, a missing fact never passes, and a hash of the policy in force.
 #
-# This file is DATA. The engine (tta.policy.engine) only reads it; no rule is written in code.
+# This file is DATA. The engine (tta.policy.engine) only reads it. One rule is written in code and not here:
+# F-10, "every order needs human approval", in tta.policy.human_approval. It fires only when no other rule
+# asks for a person, which a `when` of this file cannot say. It is described where the profile rules start.
 #   * Every rule is evaluated deterministically. No model decides a verdict, a price or a quantity.
 #   * Fixed rules (fixed: true) hold for every buyer. Their `when` may not read a `profile.*` fact, so no
 #     profile setting can switch one off or weaken it, and a profile file that names one is rejected at load.
@@ -13,7 +15,7 @@
 #   * Profile rules compare an option with the settings of one buyer profile (profiles/*.yaml).
 #     The limit values live there and are illustrative. Nothing in this file is a Valio Aimo limit.
 #   * A condition whose fact is missing is unknown, not false. A rule left unknown fires F-03.
-#   * The policy hash is the SHA-256 of the canonical form of this file plus the profile in force.
+#   * The policy hash is the SHA-256 of the canonical form of this file, of F-10 and of the profile in force.
 #
 # Dropped from Friday's file, as AIMO/PLAN.md section 5 asks: the contradicted-closing-time setting and its
 # trust finding (a passed cut-off now excludes the product, SPEC section 4), the three placeholder values
@@ -27,7 +29,7 @@ version: 1.0.0
 
 verdicts:
   # Least to most severe. The most severe verdict of the rules that fire wins.
-  - AUTO        # base policy passes; the gateway still requires human approval (F-10)
+  - AUTO        # no rule of this file fired; the agent orders alone only if the buyer switched that on (F-10)
   - APPROVAL    # a human with the named role decides
   - BLOCK       # cannot be ordered, even with approval
 
@@ -287,21 +289,19 @@ rules:
     justification: "Valio Aimo's scenarios ask for substitutions through recipe logic rather than a simple SKU swap. Whether a natural yoghurt can carry a quark dessert, or a vegetable-fat cream a sauce, changes the dish a kitchen serves; the recipes and their alternatives are ours and illustrative, so the agent never decides that alone."
 
   # --- Profile rules: the settings of one buyer ---
-  - id: P-00
-    fixed: false
-    title: The profile does not let the agent order alone
-    scope: order
-    when:
-      all:
-        - {fact: profile.auto_order_enabled, op: is_false}
-    verdict: APPROVAL
-    approver_role: purchasing_manager
-    message: "profile {profile.profile_id} does not let the agent place any order alone"
-    authority:
-      - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
-        text: "Gateway rule F-10 requires a human even when this profile adds no approval requirement."
-      - text: "This profile requires the purchasing manager to approve every order."
-    justification: "A buyer can keep a human on every order, for example while it gains trust in the agent."
+  # F-10, "Every order needs human approval", is the rule the profile setting `auto_order_enabled` drives.
+  # It is NOT an entry of this list: it is written in code (tta.policy.human_approval) and applied twice, when
+  # an option is judged (tta.policy.engine) and when an order is placed (tta.orders.checking).
+  #   * auto_order_enabled: false (every shipped profile; Valio Aimo, 14 Nov 2026: "the final submition should
+  #     always have the input from the user"): an order that no rule of this file sends to a person goes to
+  #     the purchasing manager under F-10. When another rule already names a role, that role signs and F-10
+  #     is not added.
+  #   * auto_order_enabled: true (the buyer's own choice; Valio Aimo: "after and if you are 100% sure yes"):
+  #     the agent orders alone only when no rule of this file fires and every statement of every line is
+  #     confirmed (price, quantity, delivery date, allergens, origin). One statement that is unknown or
+  #     missing, and F-10 still sends the order to the purchasing manager and names it.
+  # It is not marked fixed, because a profile setting switches it. It replaces the rule P-00 of earlier
+  # versions of this file, which fired next to every other rule. The id F-11 is kept for the formula rule.
 
   - id: P-01
     fixed: false
@@ -469,7 +469,13 @@ decision_sentences:
 authority:
   note: "The limit values of this profile are illustrative: they are ours, chosen for the demonstration. The Valio Aimo mock has no customer limits."
   summary:
-    - text: "Every order needs human approval before it can be confirmed (F-10). The purchasing manager approves when no other approval role is required."
-    - text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
+      text: "Every order needs human approval before it can be confirmed (F-10). The purchasing manager approves when no other approval role is required."
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
+      text: "Profile {profile.profile_id} lets the agent place an order alone, and only when no rule asks for a human and every statement of the offer is confirmed: price, quantity, delivery date, allergens and origin (F-10)."
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
+      text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
+      text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
     - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

@@ -20,6 +20,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
 from tta.api.sandbox import Sandbox, Sandboxes
+from tta.audit.phrases import moment
 from tta.config import Settings
 from tta.contracts.common import ApproverRole, DataSource, Identity
 from tta.ui import security, view
@@ -41,6 +42,15 @@ MODE_LABELS = {
     DataSource.REPLAY: "Replay: recorded Valio Aimo data, clock pinned to the recording",
     DataSource.LIVE: "Live: Valio Aimo mock API. Each offer says where its data came from",
 }
+# With a demo clock in force (TTA_DEMO_CLOCK, replay only) the clock is not the recording's: the label says which.
+DEMO_CLOCK_LABEL = "Replay: recorded Valio Aimo data, demo clock set to {now} (we chose it; the log keeps real time)"
+
+
+def mode_label(settings: Settings) -> str:
+    """The line every page shows about where the data comes from and which clock judges the deadlines."""
+    if settings.demo_clock is not None:
+        return DEMO_CLOCK_LABEL.format(now=moment(settings.demo_clock))
+    return MODE_LABELS[settings.tta_mode]
 
 
 class PageError(Exception):
@@ -139,7 +149,7 @@ class Site:
         is_new = token is None
         token = token or security.new_token()
         html = self.templates.get_template(template).render(
-            csrf=token, mode_label=MODE_LABELS[self.settings.tta_mode], path=request.url.path, own_book=OWN_BOOK,
+            csrf=token, mode_label=mode_label(self.settings), path=request.url.path, own_book=OWN_BOOK,
             live_model=self.settings.has_gemini_key, **context,
         )
         response = HTMLResponse(html, status_code=status)

@@ -93,7 +93,8 @@ class Renewal(Contract):
 class StandingHistory(Contract):
     """What rule P-08 reads: the standing order a request renews and its past renewals, oldest first.
 
-    The renewal being judged is never one of them. A renewal whose order was rejected or expired is left out.
+    The renewal being judged is never one of them. Only a renewal whose order was placed counts: one that still
+    waits for a person, was rejected or expired is left out.
     """
 
     standing_order_id: StandingOrderId

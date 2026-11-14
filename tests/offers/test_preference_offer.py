@@ -115,7 +115,7 @@ def test_price_is_the_default_and_changes_nothing(
     assert [(o.kind, o.product_ids, o.totals.net, o.title) for o in by_price.options] == [
         (o.kind, o.product_ids, o.totals.net, o.title) for o in default.options
     ]
-    assert default.options[0].totals.net == Decimal("2580.64")
+    assert default.options[0].totals.net == Decimal("1083.39")
 
 
 def test_a_key_no_product_has_falls_back_to_price_and_says_how_many_lines_had_no_value(
@@ -126,9 +126,9 @@ def test_a_key_no_product_has_falls_back_to_price_and_says_how_many_lines_had_no
     offer = service.build_offer(request, agent_hotel)
     first = offer.options[0]
 
-    assert first.totals.net == Decimal("2580.64")
-    assert first.title == "Best confirmed option, ranked by delivery reliability"
-    assert "No delivery reliability in Valio Aimo's data for 3 of the 3 lines" in first.summary
+    assert first.totals.net == Decimal("1083.39")
+    assert first.title == "Best confirmed option, ranked by delivery reliability (partial fill)"
+    assert "No delivery reliability in Valio Aimo's data for 2 of the 2 lines" in first.summary
     assert OptionKind.CHEAPEST_CONFIRMED not in kinds(offer)
 
 
@@ -144,7 +144,7 @@ def test_lines_carry_reliability_carbon_and_labels_from_their_product(
     assert by_id[MILK_B].labels == ("FINNISH_HEART_SYMBOL", "GOODS_FROM_FINLAND_BLUE_SWAN")
     assert first.comparison is not None
     assert first.comparison.labels_on_every_line == ("GOODS_FROM_FINLAND_BLUE_SWAN",)
-    assert first.comparison.carbon_kg_co2e == pytest.approx(Decimal("1100"))
+    assert first.comparison.carbon_kg_co2e == pytest.approx(Decimal("478.5"))  # 435 L at 1.1 kg CO2e per kg
 
 
 def test_earliest_takes_the_earlier_delivery_date_first(

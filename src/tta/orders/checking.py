@@ -84,7 +84,11 @@ class OrderTimeChecker:
             now=self._clock.now(), day_committed_net_eur=committed, at_order_time=True, revalidation=revalidation,
             standing_history=self._standing_history(attempt),
         )
-        decision = require_human_approval(self._policy.evaluate(attempt.option, attempt.profile, context))
+        # F-10 is applied by the engine already; applying it again here means no policy engine, a test's own
+        # included, can let an order through alone while the buyer's setting is off.
+        decision = require_human_approval(
+            self._policy.evaluate(attempt.option, attempt.profile, context), attempt.profile, attempt.option
+        )
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
             revalidation=revalidation,

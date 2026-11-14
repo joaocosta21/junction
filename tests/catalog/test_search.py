@@ -14,13 +14,15 @@ from tta.contracts.product import Product
 from tta.contracts.request import ProductQuery
 
 MILK_CATEGORY = "10400"
-MILKS = 78  # catalog: the 91 products of category 10400 without the 13 below
+MILKS = 74  # catalog: the 91 products of category 10400 without the 17 below
 SOUR_MILKS = {
     "463373", "463439", "469331", "469457", "469491", "472492", "475433", "475534", "476855", "476957", "477050",
 }
 LACTOSE_FREE_SOUR_MILKS = {"469331", "472492", "476957", "477050"}
 COFFEE_DRINK = "469266"  # "Valio Latte original coffee drink", lactose free
 SOY_YOGHURT = "472516"
+# Milk for coffee is a type of its own: Valio Aimo, 14 Nov 2026, "no be explicit". All four are lactose free.
+COFFEE_MILKS = {"462626", "464237", "473142", "463380"}
 
 
 def _claim_ids(raw: dict[str, Any]) -> set[str]:
@@ -46,36 +48,48 @@ def _lactose_free_code(raw_products: list[dict[str, Any]]) -> str:
     return codes.pop()
 
 
-def test_lactose_free_milk_is_exactly_the_30_milks_of_category_10400(
+def test_lactose_free_milk_is_exactly_the_26_milks_of_category_10400(
     catalog: ProductCatalog, raw_products: list[dict[str, Any]]
 ) -> None:
     claim = _lactose_free_code(raw_products)
     with_claim = sorted(
         raw["id"] for raw in raw_products if raw["category"] == MILK_CATEGORY and claim in _claim_ids(raw)
     )
-    not_milk = LACTOSE_FREE_SOUR_MILKS | {COFFEE_DRINK}
+    not_milk = LACTOSE_FREE_SOUR_MILKS | COFFEE_MILKS | {COFFEE_DRINK}
 
     result = catalog.search(ProductQuery(product_type="milk", required_claims=(claim,)))
 
-    # Category 10400 has 35 products with the claim: 30 milks, 4 sour milks and a coffee drink.
+    # Category 10400 has 35 products with the claim: 26 milks, 4 sour milks, 4 coffee milks and a coffee drink.
     assert len(with_claim) == 35 and not_milk < set(with_claim)
     assert [product.id for product in result.products] == [pid for pid in with_claim if pid not in not_milk]
-    assert result.total == 30
+    assert result.total == 26
     assert result.categories == (MILK_CATEGORY,)
     assert result.unmatched_terms == ()
 
 
-def test_milk_leaves_out_sour_milk_the_coffee_drink_and_the_soy_yoghurt(catalog: ProductCatalog) -> None:
+def test_milk_leaves_out_sour_milk_coffee_milk_the_coffee_drink_and_the_soy_yoghurt(catalog: ProductCatalog) -> None:
     result = catalog.search(ProductQuery(product_type="milk", limit=1000))
 
     ids = {product.id for product in result.products}
     assert result.total == MILKS
-    assert not ids & (SOUR_MILKS | {COFFEE_DRINK, SOY_YOGHURT})
+    assert not ids & (SOUR_MILKS | COFFEE_MILKS | {COFFEE_DRINK, SOY_YOGHURT})
     assert all(re.search(r"\bmilk", (product.name_en or "").casefold()) for product in result.products)
-    # Milk for coffee is milk: "Valio coffee milk" (kahvimaito) and "Arla Cafè milk" stay in.
-    assert {"462626", "464237", "473142", "463380"} <= ids
-    # The lactose-free milks of the demo capture, and the portion pack, are still candidates.
-    assert {"469363", "462775", "463380", "463203", "464306"} <= ids
+    # The plain lactose-free milks of the demo capture, and the portion pack, are still candidates.
+    assert {"469363", "462775", "463203", "464306"} <= ids
+
+
+def test_coffee_milk_is_a_product_type_of_its_own_with_a_note_on_milk(catalog: ProductCatalog) -> None:
+    every = catalog.search(ProductQuery(product_type="coffee_milk", limit=1000))
+    lactose_free = catalog.search(ProductQuery(product_type="coffee_milk", required_claims=("FREE_FROM_LACTOSE",)))
+
+    assert {product.id for product in every.products} == COFFEE_MILKS
+    assert every.categories == (MILK_CATEGORY,)
+    assert {product.id for product in lactose_free.products} == COFFEE_MILKS
+    assert catalog.product_type_note("milk") == (
+        "Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk. "
+        "Ask for coffee milk by name (product type coffee_milk) to get it."
+    )
+    assert catalog.product_type_note("coffee_milk") is None and catalog.product_type_note("no-such-type") is None
 
 
 def test_sour_milk_is_a_product_type_of_its_own(catalog: ProductCatalog) -> None:
@@ -87,13 +101,16 @@ def test_sour_milk_is_a_product_type_of_its_own(catalog: ProductCatalog) -> None
     assert {product.id for product in lactose_free.products} == LACTOSE_FREE_SOUR_MILKS
 
 
-def test_milk_and_sour_milk_share_no_product_and_cover_all_but_two_of_the_category(catalog: ProductCatalog) -> None:
+def test_milk_sour_milk_and_coffee_milk_share_no_product_and_cover_all_but_two_of_the_category(
+    catalog: ProductCatalog,
+) -> None:
     milk = {product.id for product in catalog.search(ProductQuery(product_type="milk", limit=1000)).products}
     sour = {product.id for product in catalog.search(ProductQuery(product_type="sour_milk", limit=1000)).products}
+    coffee = {product.id for product in catalog.search(ProductQuery(product_type="coffee_milk", limit=1000)).products}
     category = {product.id for product in catalog.products if product.category == MILK_CATEGORY}
 
-    assert not milk & sour
-    assert category - milk - sour == {COFFEE_DRINK, SOY_YOGHURT}
+    assert not milk & sour and not milk & coffee and not sour & coffee
+    assert category - milk - sour - coffee == {COFFEE_DRINK, SOY_YOGHURT}
 
 
 def _named(product_id: str, english: str | None, finnish: str | None) -> Product:

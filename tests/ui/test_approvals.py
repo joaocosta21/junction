@@ -76,7 +76,7 @@ def test_a_card_says_why_a_human_is_needed_shows_the_options_and_the_order_by_ti
     assert "above the €750 limit per order" in page  # why
     assert "Needs: purchasing manager" in page
     assert "Order by Sunday 15 Nov 2026 at 17:00" in page
-    assert "Best confirmed option" in page and "€2,580.64" in page
+    assert "Best confirmed option" in page and "€1,083.39" in page
     assert "Alternative: quantity not confirmed" in page and "€1,010.00" in page
     assert page.count('name="option"') == 2
     assert 'value="opt_1" checked' in page  # the option the agent proposed

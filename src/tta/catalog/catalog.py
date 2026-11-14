@@ -59,6 +59,10 @@ class ProductCatalog:
     def product_type_keys(self) -> tuple[str, ...]:
         return tuple(sorted(self._product_types))
 
+    def product_type_note(self, key: str) -> str | None:
+        found = self._product_types.get(key)
+        return None if found is None else found.note
+
     def listed_substitutes(self, product_id: str) -> tuple[str, ...]:
         """The substitutes Valio lists for the product, in file order, as a seed to re-check.
 

@@ -27,7 +27,7 @@ LINE_KEYS = (
     "price_valid_to", "variable_weight", "has_deposits", "country_of_origin",
 )
 AVAILABILITY_KEYS = ("state", "usable_amount", "available_date", "closing_time", "logistic_model")
-OFFER_KEYS = ("offer_id", "agent_id", "created_at", "source", "time_now", "candidates_considered")
+OFFER_KEYS = ("offer_id", "agent_id", "created_at", "source", "time_now", "time_basis", "candidates_considered")
 ORDER_KEYS = (
     "order_id", "offer_id", "option_id", "agent_id", "status", "placed_by", "created_at", "updated_at", "source",
     "record_note", "reliance",
@@ -43,7 +43,7 @@ SUPPLIER_EVIDENCE_KEYS = ("product_id", "found")
 # Reasons that exist only because of the buyer's allergen exclusions: never counted for the supplier.
 BUYER_ONLY_EXCLUSION_REASONS = (ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.ALLERGEN_NOT_STATED)
 # Facts a caller may add that describe a lookup in Valio Aimo's own data. Every other caller fact is buyer-only.
-SUPPLIER_CALLER_KEYS = ("products_looked_up", "product_ids", "source", "time_now")
+SUPPLIER_CALLER_KEYS = ("products_looked_up", "product_ids", "source", "time_now", "time_basis")
 
 
 def _dump(model: Contract | None) -> JsonDict | None:

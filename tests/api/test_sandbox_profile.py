@@ -78,14 +78,14 @@ def test_scenario_1_requires_approval_at_both_spend_limits(
     assert (alone.status, alone.decision.verdict, str(alone.decision.policy_hash)) == (
         OrderStatus.PENDING_APPROVAL, Verdict.APPROVAL, generous.service.get_authority(KITCHEN_AGENT).policy_hash
     )
-    assert alone.profile_id == KITCHEN_PROFILE_ID and alone.option.totals.net == Decimal("2580.64")
-    assert [(line.product_id, line.quantity) for line in alone.option.lines] == [
-        ("469363", 384), ("462775", 51), ("463380", 565)
-    ]
-    assert (to_a_human.status, to_a_human.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01",))
+    # Without coffee milk the confirmed stock covers 435 of the 1,000 litres: the fill rule fires as well (P-03).
+    assert alone.profile_id == KITCHEN_PROFILE_ID and alone.option.totals.net == Decimal("1083.39")
+    assert [(line.product_id, line.quantity) for line in alone.option.lines] == [("469363", 384), ("462775", 51)]
+    assert alone.decision.rule_ids == ("P-03",)  # within the €3,000 limit; 43.5% covered, below the 90% minimum
+    assert (to_a_human.status, to_a_human.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01", "P-03"))
     assert to_a_human.decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert (hotel.status, hotel.decision.rule_ids, hotel.profile_id) == (
-        OrderStatus.PENDING_APPROVAL, ("P-01",), "hotel-kitchen"
+        OrderStatus.PENDING_APPROVAL, ("P-01", "P-03"), "hotel-kitchen"
     )
 
 
@@ -96,7 +96,7 @@ def test_one_books_kitchen_never_changes_another_books_offers(parts: Parts, milk
     there = _order_milk(other, KITCHEN_AGENT, milk, "k-1")
 
     assert other.kitchen.profile.display_name == "My kitchen"
-    assert (there.status, there.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01",))
+    assert (there.status, there.decision.rule_ids) == (OrderStatus.PENDING_APPROVAL, ("P-01", "P-03"))
     assert one.service.list_orders(KITCHEN_AGENT) == ()
 
 

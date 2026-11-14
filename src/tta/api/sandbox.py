@@ -98,9 +98,9 @@ _FIXED_PARTS: Mapping[str, Any] = {
     "approver_roles": {role.value: [one.id for one in KITCHEN_APPROVERS if role in one.roles] for role in ApproverRole},
 }
 
-# What a page may leave out. The old kitchen page no longer shows the ordering setting; the shop page sends it.
-# Either way every order needs a person today (F-10, tta.policy.human_approval).
-_UNSENT_PARTS: Mapping[str, Any] = {"auto_order_enabled": True}
+# What a page may leave out. A page that does not send the ordering setting gets it switched off: every order
+# then needs a person (F-10, tta.policy.human_approval). Ordering alone is only ever a buyer's own choice.
+_UNSENT_PARTS: Mapping[str, Any] = {"auto_order_enabled": False}
 
 
 @functools.cache

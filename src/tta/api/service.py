@@ -195,6 +195,8 @@ class Gateway:
         looked_up = {
             "products_looked_up": offer.candidates_considered, "source": offer.source.value,
             "time_now": offer.time_now.isoformat(),
+            # What the clock rests on: the recording, the supplier's answer, or a demo clock that was set.
+            **({} if offer.time_basis is None else {"time_basis": offer.time_basis.value}),
         }
         record(AuditEventType.LOOKUP_PERFORMED, SYSTEM_ACTOR, AuditContext(facts=looked_up, **scope))
         record(AuditEventType.OFFER_CREATED, SYSTEM_ACTOR, AuditContext(offer=_once_per_product(offer)))

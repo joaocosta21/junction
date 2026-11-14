@@ -174,16 +174,18 @@ def test_every_option_carries_the_policy_verdict_with_the_rules_named(offer: Off
     assert "P-01" in first.rule_ids
 
 
-def test_tonight_three_confirmed_milks_cover_the_1000_litres_cheapest_first(offer: Offer) -> None:
+def test_tonight_two_confirmed_milks_cover_435_of_the_1000_litres_cheapest_first(offer: Offer) -> None:
+    """Until 14 Nov a third line, 565 x 463380 Arla Cafè milk, filled the rest for €2,580.64 in all. Milk for
+    coffee is now a product type of its own, so the confirmed stock of plain milk is all there is: 435 litres."""
     first = offer.options[0]
 
     assert [(line.product_id, line.quantity) for line in first.lines] == [
-        ("469363", Decimal(384)), ("462775", Decimal(51)), ("463380", Decimal(565)),
+        ("469363", Decimal(384)), ("462775", Decimal(51)),
     ]
-    assert first.totals.net == Decimal("2580.64")
-    assert first.fill_ratio == 1
-    assert first.is_partial is False
-    assert first.coverage[0].missing == 0
+    assert first.totals.net == Decimal("1083.39")
+    assert first.fill_ratio == Decimal("0.435")
+    assert first.is_partial is True
+    assert first.coverage[0].missing == 565
 
 
 def test_tonight_the_cheapest_unconfirmed_milk_is_the_alternative(

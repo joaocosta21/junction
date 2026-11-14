@@ -57,7 +57,9 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         candidates_considered=sum(outcome.considered for outcome in outcomes),
         source=lookup.source,
         time_now=lookup.now,
+        time_basis=lookup.time_basis,
         notes=(
+            *_type_notes(request.lines, deps.catalog),
             *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options, request.prefer),
             *_empty_notes(outcomes, late, options, lookup.now),
         ),
@@ -91,6 +93,17 @@ def _judge_line(
         need=need, asked=asked, considered=len(found.products), fitting=tuple(fitting), excluded=tuple(excluded)
     )
     return outcome, tuple(late)
+
+
+def _type_notes(lines: Sequence[RequestLine], catalog: Catalog) -> tuple[str, ...]:
+    """What the product type a line asks for leaves out, said on the offer: a buyer who asks for milk gets no
+    milk for coffee, and is told so and how to ask for it (Valio Aimo, 14 Nov 2026: "no be explicit")."""
+    notes = []
+    for index, line in enumerate(lines):
+        note = catalog.product_type_note(line.product_type) if line.product_type is not None else None
+        if note:
+            notes.append(f"{line_label(index)}: {note}")
+    return tuple(notes)
 
 
 def _search_notes(found: Sequence[Found]) -> tuple[str, ...]:

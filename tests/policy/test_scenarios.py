@@ -104,22 +104,25 @@ def test_unconfirmed_alternative_goes_to_a_human_by_f01_and_p01(
     )
 
 
-def test_tonights_combined_full_fill_still_goes_to_the_purchasing_manager_by_p01(
+def test_tonights_partial_fill_of_435_litres_goes_to_the_purchasing_manager_by_p01_and_p03(
     engine: RulePolicyEngine, hotel: BuyerProfile, make_line: Callable[..., OfferLine],
     make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
 ) -> None:
-    """The capture of 14 Nov covers 1,000 L with confirmed stock, cheapest first (AIMO/build/AGENT-RULES.md)."""
+    """The capture of 14 Nov confirms 435 L of plain lactose-free milk, cheapest first. Until milk for coffee
+    became a product type of its own, 565 x 463380 Arla Cafè milk filled the rest (€2,580.64, P-01 alone)."""
     lines = (
         make_line("469363", "Lactose-free milk 1 L", quantity="384", unit_net_price="2.48"),
         make_line("462775", "Arla fat-free milk drink 1 L UHT", quantity="51", unit_net_price="2.57"),
-        make_line("463380", "Arla Café milk 1 L UHT", quantity="565", unit_net_price="2.65"),
     )
-    option = make_option(lines, net="2580.64", fill_ratio="1")
+    option = make_option(lines, net="1083.39", fill_ratio="0.435")
 
     decision = engine.evaluate(option, hotel, make_context())
 
-    assert sum(line.net for line in lines) == Decimal("2580.64")
-    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("P-01",)
+    assert sum(line.net for line in lines) == Decimal("1083.39")
+    assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("P-01", "P-03")
+    assert decision.fired[1].sentence == (
+        "Only 43.5% of the requested quantity is covered, below the 90% minimum (covered: 435 of 1,000 L)."
+    )
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
 
 

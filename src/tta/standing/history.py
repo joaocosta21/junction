@@ -17,8 +17,10 @@ UNKNOWN_STANDING_ORDER = (
     "No standing order {standing_order_id} is set up for this buyer, so the request cannot renew it. "
     "Send the request without standing_order_id, or set the standing order up first (POST /v1/standing-orders)."
 )
-# A renewal whose order a human rejected, or that expired waiting, is not part of what the kitchen usually orders.
-LEFT_OUT = (OrderStatus.REJECTED, OrderStatus.EXPIRED)
+# Only a renewal that was ordered is part of what the kitchen usually orders. One that still waits for a person,
+# that a person rejected or that expired waiting is not: otherwise the agent's own unapproved requests would move
+# the median its next renewal is judged against (review A2a, finding S-1).
+COUNTED = OrderStatus.ORDERED
 
 HistoryLookup = Callable[[str, str], StandingHistory]
 
@@ -43,12 +45,12 @@ def standing_history(
 
 
 def _counts(store: Store, renewal: Renewal) -> bool:
-    """A synthetic renewal, or one whose order is placed or waits. An order that cannot be found is kept: leaving it
-    out could only remove a check."""
+    """A synthetic renewal, or one whose order was placed. An order that cannot be found is kept: leaving it out
+    could only remove a check."""
     if renewal.order_id is None:
         return True
     order = store.get_order(renewal.order_id)
-    return order is None or order.status not in LEFT_OUT
+    return order is None or order.status is COUNTED
 
 
 def history_lookup(store: Store) -> HistoryLookup:

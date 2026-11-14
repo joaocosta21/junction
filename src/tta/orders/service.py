@@ -3,7 +3,8 @@
 Scores on the 30% end-to-end flow (the order and approval half), on the 20% "what the agent can decide alone,
 what needs human sign-off, and how decisions are logged", and on Core 2 and Core 3.
 
-    request ─► re-check ─► policy ─┬─ APPROVAL ─► PENDING_APPROVAL ─► approve ─► re-check ─► ORDERED
+    request ─► re-check ─► policy ─► AUTO      ─► ORDERED (placed by the agent)
+                                  ├─ APPROVAL ─► PENDING_APPROVAL ─► approve ─► re-check ─► ORDERED
                                   │                              ├─ reject ─► REJECTED
                                   │                              └─ "order by" passes ─► EXPIRED
                                   └─ BLOCK    ─► typed error, an audit event, no order
@@ -20,7 +21,7 @@ import threading
 from decimal import Decimal
 from typing import Protocol
 
-from tta.contracts.common import ApprovalStatus, ApproverRole, DecisionKind, Identity, OrderStatus
+from tta.contracts.common import ApprovalStatus, ApproverRole, DecisionKind, Identity, OrderStatus, Verdict
 from tta.contracts.errors import InvalidRequest, NotAuthorised, NotFound, OfferExpired, TtaError
 from tta.contracts.offer import Offer, OfferOption
 from tta.contracts.order import Approval, DecisionRequest, Evidence, Order
@@ -83,6 +84,10 @@ class OrderBookService:
             agent = access.actor_of(identity)
             check = self._checker.check(Attempt(agent, profile, offer.offer_id, option))
             order_id, now = records.new_order_id(), self._clock.now()
+            if check.decision.verdict is Verdict.AUTO:
+                order = records.placed_by_agent(order_id, offer, check, identity, idempotency_key, now)
+                self._write.placed_alone(order, check, agent)
+                return order
             # The web is asked before the unit of work opens: no outside call sits inside a store transaction.
             evidence = self._evidence.for_approval(check.option, check.decision) if self._evidence else ()
             order, approval = records.awaiting_approval(
@@ -202,7 +207,7 @@ class OrderBookService:
         offer = self._offer_of(order)
         option = self._chosen(order, offer, request.option_id)
         attempt = Attempt(access.actor_of(approver), profile, order.offer_id, option, order)
-        check = self._checked(attempt)
+        check = records.signed_by_a_named_role(self._checked(attempt), approval, roles)
         needed = records.roles_still_needed(approval, check)
         if needed and not set(roles) & set(needed):
             raise self._refused(approver, approval, NotAuthorised(wording.role_not_missing(needed, roles)))

@@ -80,7 +80,10 @@ def _check_header(rulebook: Rulebook) -> list[str]:
     if rulebook.verdicts != tuple(Verdict):
         problems.append("verdicts must be [AUTO, APPROVAL, BLOCK], least to most severe")
     if rulebook.defaults.verdict_when_no_rule_fires is not Verdict.AUTO:
-        problems.append("defaults.verdict_when_no_rule_fires must be AUTO before gateway approval (F-10)")
+        problems.append(
+            "defaults.verdict_when_no_rule_fires must be AUTO; whether such an order still needs a person is the "
+            "profile setting auto_order_enabled (F-10)"
+        )
     if rulebook.defaults.on_missing_fact is Verdict.AUTO:
         problems.append("defaults.on_missing_fact must be APPROVAL or BLOCK: a missing fact never passes")
     problems.extend(f"roles: {role.value} is not described" for role in ApproverRole if role not in rulebook.roles)

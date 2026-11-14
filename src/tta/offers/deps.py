@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
-from tta.contracts.common import DataSource
+from tta.contracts.common import ClockBasis, DataSource
 from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 from tta.contracts.ports import Catalog, Clock, PairedLookup, PolicyEngine, ValioGateway
 from tta.contracts.standing import StandingHistory
@@ -59,6 +59,11 @@ class Lookup:
     availability: Mapping[str, AvailabilityLine]
     now: datetime  # `timeNow` of the availability answer: the clock every cut-off is compared with
     source: DataSource
+    basis: ClockBasis | None = None  # what `now` rests on; None reads as `ClockBasis.of(source)`
+
+    @property
+    def time_basis(self) -> ClockBasis:
+        return self.basis or ClockBasis.of(self.source)
 
     def price(self, product_id: str) -> PriceLine | None:
         return self.prices.get(product_id)
@@ -78,14 +83,18 @@ def look_up(deps: OfferDeps, product_ids: Iterable[str], *, fresh: bool = False)
     """
     ids = tuple(dict.fromkeys(product_ids))
     if not ids:
-        return Lookup(prices={}, availability={}, now=deps.clock.now(), source=deps.gateway.source)
+        return Lookup(
+            prices={}, availability={}, now=deps.clock.now(), source=deps.gateway.source,
+            basis=getattr(deps.gateway, "time_basis", None),
+        )
     prices, availability = _pair(deps.gateway, ids, fresh)
     if prices.source is not availability.source:
         raise SupplierUnavailable(
             TWO_SOURCES.format(price=prices.source.value, availability=availability.source.value)
         )
     return Lookup(
-        prices=prices.by_id(), availability=availability.by_id(), now=availability.time_now, source=availability.source
+        prices=prices.by_id(), availability=availability.by_id(), now=availability.time_now,
+        source=availability.source, basis=availability.basis,
     )
 
 

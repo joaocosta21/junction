@@ -1,7 +1,8 @@
 """The `ValioGateway` port answered from a capture folder of `fixtures/valio/` (SPEC section 10).
 
 No network and no key. The clock is pinned to the capture's `timeNow`, so a demo gives the same
-answer whatever the hour, and survives the mock API being down.
+answer whatever the hour, and survives the mock API being down. A demo clock (`TTA_DEMO_CLOCK`) pins it
+to an instant we chose instead; each availability answer says which of the two its `time_now` is.
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
+from tta.config import Settings
 from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
-from tta.contracts.common import CURRENCY_EUR, DataSource
+from tta.contracts.common import CURRENCY_EUR, ClockBasis, DataSource
 from tta.contracts.errors import SupplierUnavailable
 from tta.valio.clock import PinnedClock
 from tta.valio.ids import distinct_ids
@@ -54,9 +56,16 @@ class ReplayGateway:
     """Price and availability as one capture recorded them. An id outside the capture reads as unknown and is
     marked `not_in_recording` (SPEC section 5, `NOT_IN_RECORDING`)."""
 
-    def __init__(self, capture_dir: Path) -> None:
+    def __init__(self, capture_dir: Path, *, demo_clock: datetime | None = None) -> None:
+        """`demo_clock`: an instant we chose, which then replaces the capture's own `timeNow` as the clock of
+        every answer (`Settings.tta_demo_clock`). The recorded prices and availability are not changed."""
         self._name = capture_dir.name
-        time_now, files = _read_manifest(capture_dir)
+        recorded_at, files = _read_manifest(capture_dir)
+        if demo_clock is not None and demo_clock.utcoffset() is None:
+            raise ValueError("a demo clock needs a time with an offset, not a naive one")
+        time_now = demo_clock or recorded_at
+        self._recorded_at = recorded_at
+        self._basis = ClockBasis.RECORDING if demo_clock is None else ClockBasis.DEMO_SETTING
         price_parts = [
             _read_part(path, self._name, lambda body: parse_price_body(body, DataSource.REPLAY, time_now))
             for path in files[PRICE_ENDPOINT]
@@ -76,10 +85,26 @@ class ReplayGateway:
     def source(self) -> DataSource:
         return DataSource.REPLAY
 
+    @classmethod
+    def from_settings(cls, settings: Settings) -> ReplayGateway:
+        """The capture of the settings, on the demo clock when one is in force (replay mode only)."""
+        return cls(settings.replay_capture_dir, demo_clock=settings.demo_clock)
+
     @property
     def time_now(self) -> datetime:
-        """The server time of the capture: the instant every cut-off is compared with in replay."""
+        """The instant every cut-off is compared with in replay: the server time of the capture, or the demo
+        clock when one was set."""
         return self._time_now
+
+    @property
+    def recorded_at(self) -> datetime:
+        """The server time of the capture itself, whatever the clock is set to."""
+        return self._recorded_at
+
+    @property
+    def time_basis(self) -> ClockBasis:
+        """Whether `time_now` is the recording's own instant or one we set."""
+        return self._basis
 
     @property
     def clock(self) -> PinnedClock:
@@ -106,7 +131,8 @@ class ReplayGateway:
             for product_id in distinct_ids(product_ids)
         )
         return AvailabilityResponse(
-            time_now=self._time_now, requested_date=self._requested_date, lines=lines, source=DataSource.REPLAY
+            time_now=self._time_now, requested_date=self._requested_date, lines=lines, source=DataSource.REPLAY,
+            time_basis=self._basis,
         )
 
 

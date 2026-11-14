@@ -60,6 +60,20 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
   - LARGER_PACK: "Oatly iKaffe Oat drink 1,5L (473278) is the same product in a larger pack: €1.48 per litre against €1.78. 40 × 1.5 L cover the 60 L for €88.80, €18.00 less. 156 are confirmed in stock for delivery on Monday 16 November."
   - The usual-product question: "Your last 8 orders of milk hold A (id) 4 times and B (id) 4 times. Which one do you mean?"
 
+### B0 — the baseline
+| Field, route or sentence | Example | What a person should read |
+|---|---|---|
+| `profile.auto_order_enabled` (`GET`/`PUT /shop/api/kitchen`, `authority.profile`) | `false` | The setting exists again, off by default; a page that does not send it gets `false`. "Off: every order needs a person." |
+| The setting's rule id | `F-10` | `views/settings.js:190` prints `rule("P-00")`: P-00 no longer exists, the rule is F-10 |
+| `authority.rules[]` F-10 | `fixed: false` | F-10 left the locked list. Off: "Every order needs human approval before it can be confirmed: this profile does not let the agent place an order alone. …" On: "This profile lets the agent place an order alone, and only when no rule asks for a human and every statement of the offer is confirmed: …" |
+| `decision.verdict == "AUTO"`, `order.placed_by == "AGENT"` | ward, 200 L, setting on | Only when the buyer switched the setting on: "The agent placed this order alone for €402.00 net: …" |
+| `decision.sentence`, setting on, a statement not confirmed | | "The agent orders alone only when every statement of the offer is confirmed (F-10). Not confirmed: the origin of 464013. It needs the purchasing manager." |
+| `offer.notes[0]` when a line asks for `milk` | | "Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk. Ask for coffee milk by name (product type coffee_milk) to get it." |
+| Product type `coffee_milk` | `{"product_type": "coffee_milk"}` | A typed request or an example button can ask for it |
+| `offer.time_basis` | `"recording"`, `"supplier"`, `"demo_setting"` | What `offer.time_now` rests on |
+| `GET /healthz` → `clock` | `{now, basis, demo_clock_set, recorded_at, sentence}` | "Demo clock: Thursday 12 November 2026 at 14:15 (UTC+02:00), set with TTA_DEMO_CLOCK. Order deadlines are judged against it. We chose it: … The audit trail is stamped with the real time." |
+| Scenario 1 on any page | | 435 L of 1,000 L, €1,083.39, P-01 and P-03; alternative €1,010.00 |
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |
@@ -69,3 +83,5 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 | merge | `src/tta/ui/static/shop/js/store.js:5` | `tt-shop-v1` → `tt-shop-v2` | A browser that already opened the page would keep the old defaults |
 | merge | `src/tta/ui/templates/index.html` (the customer cards) | "Every order requires human approval." → the same, plus the limits and who they decide | Sofia's commit dropped the limits; a test pins them |
 | merge | `tests/ui/test_shop_api.py:106` | `ORDERED` → `PENDING_APPROVAL` | An order inside the kitchen's limit waits for a person too |
+
+**B0 (the interface is ours since 14 Nov 17:33, so these are a record, not a request):** `kitchen_page.py` and `kitchen.html` have the "Ordering alone" checkbox again (rule F-10); `index.html` and `menu.html` follow the setting; `standing_page.py:145` uses `ReplayGateway.from_settings`; `site.py`'s banner names the demo clock when one is set; pinned figures in `tests/ui/test_approvals.py`, `test_order.py`, `test_run.py`, `test_kitchen_page.py`, `test_shop_api.py` moved with scenario 1 (€2,580.64 → €1,083.39) and with P-00 → F-10. `kitchens.js` not changed.

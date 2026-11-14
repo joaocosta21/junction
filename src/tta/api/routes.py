@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from tta.api import docs
 from tta.api.agent_calls import header_value
+from tta.api.clock_info import HealthClock, describe_clock
 from tta.api.identity import Caller
 from tta.api.service import Gateway
 from tta.api.uploads import READ_IMAGE_PATH, REQUEST_BODY, ImageReading, body_too_large_answer, read_upload
@@ -336,6 +337,7 @@ class Health(BaseModel):
     environment: str
     mode: str  # what was asked for: live or replay
     source: str | None  # where the last look at price and availability came from; null before the first one
+    clock: HealthClock  # the instant order deadlines are judged against, what it rests on, whether it was set
     audit_head: AuditHead
     settings: dict[str, Any]  # secrets appear only as true or false
     agent: dict[str, bool]
@@ -363,7 +365,8 @@ def _looks(gateway: Any, mode: DataSource) -> tuple[DataSource | None, tuple[str
 
 @public.get("/healthz", operation_id="get_health", tags=[docs.TAG_OPEN], summary="What is running")
 def get_health(request: Request) -> Health:
-    """The environment, the mode, the source of the last look at price and availability, whether the gateway
+    """The environment, the mode, the source of the last look at price and availability, the clock in force
+    (the recording's instant, the supplier's time, or a demo clock that was set), whether the gateway
     is `ok` or `degraded` and why, and the head of the audit chain. No token needed; no secret, no path and
     no budget figure is shown. Nothing is asked of the supplier and the audit trail is not read through."""
     parts, state = request.app.state.parts, request.app.state
@@ -376,6 +379,7 @@ def get_health(request: Request) -> Health:
         environment=parts.settings.tta_env,
         mode=parts.settings.tta_mode.value,
         source=None if source is None else source.value,
+        clock=describe_clock(parts.settings, parts.clock, parts.replay),
         audit_head=AuditHead(events=events, last_hash=last_hash),
         settings={name: value for name, value in parts.settings.describe().items() if name not in NOT_SHOWN},
         agent={

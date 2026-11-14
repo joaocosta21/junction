@@ -53,8 +53,10 @@ one rule, shown next to it with your values. The fixed rules below hold whatever
   </fieldset>
 
   <fieldset>
-    <legend>Approval and purchasing limits</legend>
-    <p>Every order requires human approval.</p>
+    <legend>Ordering alone</legend>
+    <label><input type="checkbox" name="auto_order_enabled" value="yes"{% if form.auto_order_enabled %} checked{% endif %}> The agent may order alone at all</label>
+    <p class="small">Off by default: every order then needs a person. Switched on, the agent orders alone only when every statement of the offer is confirmed and no rule asks for a human.</p>
+    {{ rule_note("auto_order_enabled") }}
     <label class="field-label" for="max_order_net_eur">Spend limit per order, EUR before tax (0 to {{ max_limit_eur|money }})</label>
     <input type="text" inputmode="decimal" id="max_order_net_eur" name="max_order_net_eur" value="{{ form.max_order_net_eur }}">
     {{ rule_note("max_order_net_eur") }}

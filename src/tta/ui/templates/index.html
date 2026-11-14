@@ -27,7 +27,11 @@ goes to a human.</p>
       <span class="agent-name">{{ card.identity.display_name }}</span>
       <span class="tag">Illustrative profile: {{ profile.display_name }}</span>
       <span class="agent-limits">
+        {% if profile.auto_order_enabled %}
+        May order alone up to {{ profile.max_order_net_eur|money }} per order and {{ profile.max_daily_net_eur|money }} per day, with at least {{ profile.min_fill_ratio|percent }} of the quantity covered, and only when every statement is confirmed.
+        {% else %}
         Every order requires human approval. The limits decide who signs: {{ profile.max_order_net_eur|money }} per order and {{ profile.max_daily_net_eur|money }} per day, with at least {{ profile.min_fill_ratio|percent }} of the quantity covered.
+        {% endif %}
         {% if profile.excluded_allergens %} Excludes allergens {{ profile.excluded_allergens|join(", ") }} ({{ profile.allergen_strictness|words|lower }}).{% endif %}
         {% if profile.require_confirmed %} Confirmed data only.{% endif %}
       </span>

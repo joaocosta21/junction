@@ -230,13 +230,20 @@ def test_a_rule_that_no_longer_holds_at_approval_time_is_not_asked_of_the_human(
     assert second.decision.rule_ids == ("P-02",)  # €700.00 more would pass €3,000 a day
     book.service.decide(first.approval_id, approver_purchasing, samples.reject())
 
-    with pytest.raises(NotAuthorised):
-        book.service.decide(second.approval_id, approver_finance, samples.approve())
-    order = book.service.decide(second.approval_id, approver_purchasing, samples.approve())
+    order = book.service.decide(second.approval_id, approver_finance, samples.approve())
 
+    # The spend rule no longer holds, so only F-10 is left: it asks for a person, and the role the approval
+    # names is one. Finance completes the approval it was asked for.
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
-    assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (PURCHASING,)
-    assert "F-10" in order.status_sentence
+    assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (FINANCE,)
+    assert order.decision.sentence == (
+        "Every order needs human approval before it can be confirmed (F-10). The roles this approval already "
+        "names sign it."
+    )
+    assert order.status_sentence == (
+        "Ordered for €700.00 net with approval by Finance (demo) (finance): rule F-10 asked for a human and was "
+        "accepted."
+    )
 
 
 def test_only_the_roles_the_profile_lists_for_the_approver_are_signed(

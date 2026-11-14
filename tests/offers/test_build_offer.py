@@ -23,7 +23,8 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers.options import Draft, _Assembled, _rank_key
 
 # Three lactose-free milks of category 10400, each a 1-litre carton sold by the piece (ST).
-A, B, C = "469363", "462775", "463380"
+# C was 463380, Arla Cafè milk, until milk for coffee became a product type of its own (14 Nov 2026).
+A, B, C = "469363", "462775", "464201"
 UNCONFIRMED = "464306"
 PLACEHOLDER = 999_999
 

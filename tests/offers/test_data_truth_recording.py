@@ -94,16 +94,18 @@ def test_substitutes_outside_the_recording_say_so_and_are_not_ruled_out(
             assert claims[name].sentence == NOT_IN_RECORDING_SENTENCE
 
 
-def test_scenario_1_is_unchanged(service: OfferService, make_request: Build, agent_hotel: Identity) -> None:
+def test_scenario_1_keeps_its_exclusions_and_its_confirmed_option(
+    service: OfferService, make_request: Build, agent_hotel: Identity
+) -> None:
     offer = service.build_offer(make_request(1000, text="1,000 litres of lactose-free milk by Monday"), agent_hotel)
 
     counts = Counter(exclusion.reason for exclusion in offer.excluded)
     assert counts == {
-        ExclusionReason.CUTOFF_PASSED: 17, ExclusionReason.PORTION_PACK: 1, ExclusionReason.NOT_DELIVERABLE: 1,
+        ExclusionReason.CUTOFF_PASSED: 15, ExclusionReason.PORTION_PACK: 1, ExclusionReason.NOT_DELIVERABLE: 1,
     }
     best = offer.options[0]
     assert best.kind is OptionKind.BEST_CONFIRMED
-    assert best.totals.net == Decimal("2580.64")
+    assert best.totals.net == Decimal("1083.39")  # 435 L: no coffee milk in a request for milk since 14 Nov
 
 
 def test_scenario_2_is_unchanged(service: OfferService, make_request: Build, agent_ward: Identity) -> None:

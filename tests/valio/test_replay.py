@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from tta.contracts.availability import AvailabilityLine, PriceLine
-from tta.contracts.common import DataSource
+from tta.contracts.common import ClockBasis, DataSource
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Clock, ValioGateway
 from tta.valio import ReplayGateway
@@ -70,9 +71,13 @@ def test_replay_equals_parsing_the_same_bodies_live(load_capture, make_api, make
     expected_availability = _marked_not_in_recording(live_availability.lines, UNKNOWN_ID)
     assert replayed_price.lines == expected_price
     assert replayed_availability.lines == expected_availability
-    # Apart from the stated source (and when the price was fetched) the answers are the same objects.
+    # Apart from the stated source and what the clock rests on (and when the price was fetched) the answers are
+    # the same objects: a live answer's `time_now` is the supplier's, a replayed one's is the recording's.
+    assert (live_availability.time_basis, replayed_availability.time_basis) == (
+        ClockBasis.SUPPLIER, ClockBasis.RECORDING
+    )
     assert replayed_availability == live_availability.model_copy(
-        update={"source": DataSource.REPLAY, "lines": expected_availability}
+        update={"source": DataSource.REPLAY, "lines": expected_availability, "time_basis": ClockBasis.RECORDING}
     )
     assert replayed_price == live_price.model_copy(
         update={"source": DataSource.REPLAY, "retrieved_at": replayed_price.retrieved_at, "lines": expected_price}
@@ -205,3 +210,23 @@ def test_a_capture_with_availability_only_still_answers_prices_as_unknown(tmp_pa
     availability = replay.availability(["1"]).lines[0]
     assert price.error is True and price.not_in_recording is True
     assert availability.product_id == "1" and availability.not_in_recording is False
+
+
+def test_a_demo_clock_replaces_the_instant_of_every_answer_and_leaves_the_recorded_data_alone(capture_demo) -> None:
+    """`TTA_DEMO_CLOCK`: Thursday 12 Nov 2026 14:15 Helsinki time in place of the recording's Saturday 02:52."""
+    thursday = datetime.fromisoformat("2026-11-12T14:15:00+02:00")
+    recorded, moved = ReplayGateway(capture_demo.path), ReplayGateway(capture_demo.path, demo_clock=thursday)
+    ids = capture_demo.ids[:25]
+
+    assert (recorded.time_now, recorded.time_basis) == (capture_demo.time_now, ClockBasis.RECORDING)
+    assert (moved.time_now, moved.clock.now(), moved.time_basis) == (thursday, thursday, ClockBasis.DEMO_SETTING)
+    assert moved.recorded_at == capture_demo.time_now
+    assert moved.availability(ids).time_now == thursday and moved.price(ids).retrieved_at == thursday
+    assert moved.availability(ids).time_basis is ClockBasis.DEMO_SETTING
+    assert moved.availability(ids).lines == recorded.availability(ids).lines
+    assert moved.price(ids).lines == recorded.price(ids).lines
+
+
+def test_a_demo_clock_without_an_offset_is_refused(capture_demo) -> None:
+    with pytest.raises(ValueError, match="offset"):
+        ReplayGateway(capture_demo.path, demo_clock=datetime(2026, 11, 12, 14, 15))
