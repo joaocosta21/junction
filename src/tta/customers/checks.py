@@ -1,8 +1,16 @@
 """The customer files against the product file and a recording (P1 section 5.3).
 
-Kept apart from loading: the catalog takes about a second and 0.6 GB, so a customer file loads without it, and these
-checks run where the catalog is already built (the tests, and the gateway at start-up). Each check gives one sentence
-per problem; an empty answer means the file holds.
+Each check gives one sentence per problem; an empty answer means the file holds. Where each one runs (corrected
+after review finding S14, which found that nothing called these at start-up although this text said so):
+
+- `type_problems`: every load. It needs only the product-type table, so `load_customers` always runs it and
+  refuses a file that names a product type the table does not have.
+- `catalog_problems`: a load that is given a catalog (`load_customers(directory, catalog=...)`). It makes no
+  supplier call: every product id is in the product file and is of the product type the file says. The catalog
+  takes about a second and 0.6 GB, so a load without one skips it. `tests/customers` runs it over the four shipped
+  files. The gateway does not pass its catalog yet: that call is in `tta.api`, which this task did not own.
+- `customer_problems` and `states_at`: these need recorded prices or availability, so they run in the tests only
+  (`tests/customers/test_against_catalog.py`), never at start-up.
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from tta.availability.states import classify
+from tta.catalog.kinds import is_product_type
 from tta.contracts.availability import AvailabilityAssessment, AvailabilityResponse, PriceLine, PriceResponse
 from tta.contracts.common import Unit
 from tta.contracts.customer import Customer, UsualProduct
@@ -30,6 +39,26 @@ class PriceSource(Protocol):
 
 class AvailabilitySource(Protocol):
     def availability(self, product_ids: Sequence[str], *, fresh: bool = False) -> AvailabilityResponse: ...
+
+
+def type_problems(customer: Customer) -> tuple[str, ...]:
+    """Every usual product whose product type the product-type table does not have, in file order."""
+    return tuple(
+        f"{customer.customer_id}: {usual.product_type} (for {usual.product_id}) is not a product type of the catalog"
+        for usual in customer.usual if not is_product_type(usual.product_type)
+    )
+
+
+def catalog_problems(customer: Customer, catalog: Catalog) -> tuple[str, ...]:
+    """Every usual product that is not in the product file, or is not of the product type the file says, in
+    file order. No supplier call. A type the table does not have is `type_problems`' to say."""
+    problems: list[str] = []
+    for usual in customer.usual:
+        if catalog.get_product(usual.product_id) is None:
+            problems.append(f"{customer.customer_id}: {usual.product_id} is not in the catalog, or is marked deleted")
+        elif is_product_type(usual.product_type) and (problem := _type_problem(usual, catalog)) is not None:
+            problems.append(f"{customer.customer_id}: {problem}")
+    return tuple(problems)
 
 
 def customer_problems(customer: Customer, catalog: Catalog, prices: PriceSource) -> tuple[str, ...]:

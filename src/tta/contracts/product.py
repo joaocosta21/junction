@@ -126,6 +126,15 @@ class ReplaceCheck(Contract):
     original_uses: tuple[str, ...] = ()
     uses: tuple[str, ...] = ()
     other_use: bool = False  # the names say different uses (made for coffee, for whipping, for cooking)
+    # The two are of one brand and their names differ in a word no list of ours explains: variants of a product
+    # line (`tta.catalog.name_words`). A last resort unless Valio lists the pair.
+    name_difference: bool = False
+    original_name_words: tuple[str, ...] = ()  # the differing words of the original's name, as written
+    name_words: tuple[str, ...] = ()  # the differing words of the candidate's name, as written
+    type_not_judged: bool = False  # the original has no product type of ours: only the category was compared
+    # The type was not judged and the candidate's name shares no product word with the original's: a last
+    # resort unless Valio lists the pair.
+    no_shared_word: bool = False
     reasons: tuple[str, ...] = ()  # why it is not like-for-like, each in plain words; empty when replaceable
     sentence: str  # for a person: "Replaceable: ..." or "Not a like-for-like replacement: ..."
 

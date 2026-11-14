@@ -31,6 +31,7 @@ from decimal import Decimal
 
 from tta.allergens import check_substitute
 from tta.catalog.kinds import flavours_of, is_other_use, is_same_type, product_types_of, uses_of
+from tta.catalog.name_words import name_difference, shares_a_product_word
 from tta.contracts.allergen import SubstituteAllergenCheck
 from tta.contracts.availability import ClaimCheck, PriceLine
 from tta.contracts.common import ExclusionReason, PackPreference, Unit
@@ -60,7 +61,7 @@ from tta.offers.substitute_wording import (
     replace_sentence,
     why,
 )
-from tta.offers.wording import counted, measured
+from tta.offers.wording import counted, measured, plain_name
 
 # One price call and one availability call hold 1,000 ids (SPEC section 5), the original included.
 MAX_POOL = MAX_PRODUCT_IDS - 1
@@ -141,10 +142,27 @@ class Judged:
 
     @property
     def other_kind(self) -> bool:
-        """Not the same kind of product: flavoured against plain, or another product type that Valio does not
-        list for the original. Such a candidate leaves the list while a like-for-like one can be ordered."""
+        """Not the same kind of product, or not shown to be: flavoured against plain; or, unless Valio lists
+        the pair, another product type, or (for an original with no product type of ours) a name that shares
+        no product word with the original's.
+        Such a candidate leaves the list while a like-for-like one can be ordered."""
         check = self.replaceable
-        return check.plain_against_flavoured or (check.other_type and not self.listed)
+        return check.plain_against_flavoured or ((check.other_type or check.no_shared_word) and not self.listed)
+
+    @property
+    def unexplained_variant(self) -> bool:
+        """A variant of the original's product line that nothing explains (review finding S11): the names
+        differ in a word no list of ours knows, the six nutrition figures show no difference, and Valio does
+        not list the pair. It is the same kind of product, so it stays in the list in its place, after the
+        candidates of its formula class whose names differ in nothing; but it is always marked `last_resort`,
+        so rule F-12 sends it to a person: the data cannot say that "high heat" and "instant" milk powder
+        are the same in a kitchen.
+
+        Where the figures do differ, the candidate is already "not like for like" for its formula and is
+        ranked as any product of another formula; the words are still said. A pair Valio lists stays unmarked
+        (Valio's own judgement) and says the words too. Ours, decided on 14 Nov 2026."""
+        differs = self.replaceable.name_difference and self.formula.outcome is not FormulaOutcome.DIFFERENT
+        return differs and not self.listed
 
 
 @dataclass(frozen=True)
@@ -196,6 +214,7 @@ def find_substitutes(
 def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Sequence[str] = ()) -> Ranking:
     """Judge and rank the candidates for `original`; `skip` names products that must not stand in."""
     pool = _pool(original, deps.catalog, frozenset(skip))
+    missing = missing_listed(original, deps.catalog)
     lookup = look_up(deps, (original.id, *(product.id for product, _, _ in pool)))
     asked = need
     need, per_piece = _by_content(evaluate(original, asked, lookup, deps.catalog), asked)
@@ -204,6 +223,7 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
               for product, is_listed, distance in pool]
     key = _rank_key(original_seen, need)
     kept, held_back = _hold_back_last_resorts(judged)
+    kept = [replace(each, last_resort=True) if each.passes and each.unexplained_variant else each for each in kept]
     shown, notes = _shown(kept, key, checked=len(judged))
     return Ranking(
         original=original,
@@ -211,7 +231,8 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
         original_pack=original_seen.pack,
         ranked=tuple(sorted(shown, key=key)),
         lookup=lookup,
-        notes=(*notes, *held_back, *_pool_notes(pool), *_content_note(asked, need, per_piece)),
+        notes=(*notes, *held_back, *_missing_note(missing), *_pool_notes(pool),
+               *_content_note(asked, need, per_piece)),
         asked=asked,
         need=need,
         per_piece=per_piece,
@@ -261,6 +282,25 @@ def _pool(original: Product, catalog: Catalog, skip: frozenset[str]) -> list[tup
     return pool
 
 
+def missing_listed(original: Product, catalog: Catalog) -> tuple[str, ...]:
+    """The ids Valio lists as substitutes for the original that the product file does not hold."""
+    return tuple(
+        product_id for product_id in dict.fromkeys(catalog.listed_substitutes(original.id))
+        if catalog.get_product(product_id) is None
+    )
+
+
+def _missing_note(missing: Sequence[str]) -> tuple[str, ...]:
+    """A listed substitute that is not in the product file is said, never dropped in silence (review S12)."""
+    if not missing:
+        return ()
+    one = len(missing) == 1
+    return (
+        f"{counted(len(missing), 'substitute')} Valio {'lists is' if one else 'list are'} not in the product file "
+        f"and could not be judged: {', '.join(plain_name(product_id) for product_id in missing)}.",
+    )
+
+
 def _pool_notes(pool: Sequence[tuple[Product, bool, int]]) -> tuple[str, ...]:
     if len(pool) < MAX_POOL:
         return ()
@@ -302,12 +342,22 @@ def replace_check(
     """Can `other` take the original's place like for like? Type, flavour and use are read from the product
     file (`tta.catalog.kinds`, word lists ours); the formula and the dietary claims lost are given.
 
-    Where the original has no product type of ours, the type is not judged.
+    Nothing the reader does not know is read as "the same" (review finding S11). Where the original has no
+    product type of ours, the type cannot be judged: the sentence says so, the verdict is never plain
+    "Replaceable", and a candidate whose name shares no product word with the original's is not like for like.
+    Two names of one brand that differ in a word no list explains are variants of a product line: not like
+    for like either, and the words are said.
     """
     original_types, types = product_types_of(original), product_types_of(other)
     original_flavours, flavours = flavours_of(original), flavours_of(other)
     original_uses, uses = uses_of(original), uses_of(other)
+    words = name_difference(original, other)
     facts = ReplaceCheck(
+        name_difference=words is not None,
+        original_name_words=words.original_words if words is not None else (),
+        name_words=words.words if words is not None else (),
+        type_not_judged=not original_types,
+        no_shared_word=not original_types and not shares_a_product_word(original, other),
         verdict=ReplaceVerdict.REPLACEABLE,
         original_types=original_types,
         types=types,
@@ -324,8 +374,9 @@ def replace_check(
     reasons = replace_reasons(facts, formula, lost, listed=listed)
     if reasons:
         verdict = ReplaceVerdict.NOT_LIKE_FOR_LIKE
-    elif formula.outcome is FormulaOutcome.NOT_KNOWN:
-        verdict = ReplaceVerdict.NOT_SHOWN  # NOT_KNOWN is never read as the same formula
+    elif formula.outcome is FormulaOutcome.NOT_KNOWN or facts.type_not_judged:
+        # NOT_KNOWN is never read as the same formula, nor a type that was not judged as the same type.
+        verdict = ReplaceVerdict.NOT_SHOWN
     else:
         verdict = ReplaceVerdict.REPLACEABLE
     same_category = original.category == other.category
@@ -333,7 +384,10 @@ def replace_check(
         update={
             "verdict": verdict,
             "reasons": reasons,
-            "sentence": replace_sentence(facts, verdict, reasons, same_category=same_category),
+            "sentence": replace_sentence(
+                facts, verdict, reasons, same_category=same_category,
+                formula_known=formula.outcome is not FormulaOutcome.NOT_KNOWN,
+            ),
         }
     )
 
@@ -390,7 +444,8 @@ def _claim_note(judged: Sequence[Judged]) -> tuple[str, ...]:
     losers = sum(each.passes and bool(each.claims_lost) for each in judged)
     if not losers:
         return ()
-    keepers = sum(each.orderable and not each.claims_lost for each in judged)
+    # Only the candidates that stay in the list: one of another kind keeps its claims and is held back too.
+    keepers = sum(each.orderable and not _is_last_resort(each) for each in judged)
     lack = "lacks" if losers == 1 else "lack"
     are = "is" if losers == 1 else "are"
     keep = "keeps" if keepers == 1 else "keep"
@@ -400,19 +455,32 @@ def _claim_note(judged: Sequence[Judged]) -> tuple[str, ...]:
     )
 
 
+# Each candidate held back for its kind is counted once, under the first of these that holds.
+_OTHER_KIND_WORDS = (
+    "flavoured where the original is not, or the reverse",
+    "of another product type",
+    "whose name shares no product word with the original's, which has no product type of ours",
+)
+
+
+def _other_kind_counts(others: Sequence[Judged]) -> tuple[int, ...]:
+    counts = [0] * len(_OTHER_KIND_WORDS)
+    for each in others:
+        check = each.replaceable
+        flags = (check.plain_against_flavoured, check.other_type, check.no_shared_word)
+        counts[flags.index(True)] += 1
+    return tuple(counts)
+
+
 def _other_kind_note(judged: Sequence[Judged]) -> tuple[str, ...]:
     """The candidates held back for their kind alone; one that also loses a claim is counted in the claim note."""
     others = [each for each in judged if each.passes and each.other_kind and not each.claims_lost]
     if not others:
         return ()
-    flavour = sum(each.replaceable.plain_against_flavoured for each in others)
-    kind = sum(each.replaceable.other_type and not each.replaceable.plain_against_flavoured for each in others)
+    counts = _other_kind_counts(others)
     same = sum(each.orderable and not _is_last_resort(each) for each in judged)
     why_not = " and ".join(
-        part for part in (
-            f"{flavour} flavoured where the original is not, or the reverse" if flavour else "",
-            f"{kind} of another product type" if kind else "",
-        ) if part
+        f"{count} {words}" for count, words in zip(counts, _OTHER_KIND_WORDS, strict=True) if count
     )
     are = "is" if len(others) == 1 else "are"
     return (
@@ -469,10 +537,13 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         return (
             not each.passes,
             _is_last_resort(each),
+            bool(each.claims_lost),  # among the last resorts, one that keeps every dietary claim comes first
             each.replaceable.other_type,
+            each.replaceable.plain_against_flavoured,  # among the last resorts, after one of the same flavour
             each.replaceable.other_use,
             each.replaceable.other_flavour,
             FORMULA_ORDER[each.formula.outcome],
+            each.unexplained_variant,  # after the candidates of the same formula class whose names say no variant
             not each.listed,
             _pack_gap(original.pack, candidate.pack),
             verification,

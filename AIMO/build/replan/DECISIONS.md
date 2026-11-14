@@ -63,6 +63,8 @@ Last updated: Sat 14 Nov, 20:50.
 | B42 | New fixed rule F-12: a last-resort substitute (loses a dietary claim, flavoured against plain, another product type) always goes to the purchasing manager, even with ordering alone switched on | Without it such a substitute could be ordered with no person: 11 cases in a sample over the recording | P3 |
 | B43 | "Before Friday" is read as needed by Thursday; "by Friday" as Friday. The reading says which | A delivery on Friday does not meet "before Friday" | L1-3 |
 | B44 | "1,250 kg" is read as 1,250 (the brief itself writes "1,000 litres") and the reading says so; "1,5 l" is read as 1.5; "1.250 kg" is asked about | A Finnish buyer writes a decimal comma; a silent 1,000-fold error is the worst outcome | L1-3 |
+| B45 | Two products of one brand whose names differ in a word the data does not explain ("Tiramisu" against "Vanilla", "high heat" against "instant") are not called like for like; such a substitute goes to a person (F-12) unless the nutrition figures already show a different formula. Pairs Valio lists stay listed and the difference is said | A flavour or variant no word list knows must not read as the same product. It errs towards a person: 8,292 products have at least one candidate it marks | FX-K |
+| B46 | A product with none of our 32 product types (14,685 of 17,546) is never called "Replaceable" without "as far as the data shows", and a same-category candidate that shares no product word with it is a last resort | The category alone put tzatziki in place of crème fraîche | FX-K |
 
 ## C. Questions for the team (domain)
 
@@ -75,6 +77,7 @@ Last updated: Sat 14 Nov, 20:50.
 | C5 | With no like-for-like candidate, the last-resort list for a coffee milk includes sour milks. Should another product type never be offered, even as a last resort for a person? | Offered as last resort |
 | C6 | The list of hosts treated as "the manufacturer's page" is ours and unverified: elovena → `elovena.fi`, `raisiofoodsolutions.fi`; oddlygood → `oddlygood.com`; fazer → `fazer.com`; valio → `valio.fi`, `valio.com`; arla → `arla.fi`, `arla.com`; alpro → `alpro.com`. Confirm or correct | Any other host reads "a web page whose owner was not checked" |
 | C7 | Tzatziki ranks as a stand-in for crème fraîche and smetana (same category; no product type of ours separates them). Add types? | Not added; F-11 sends it to a person where the formula matters |
+| C8 | A 2 kg, 28% crème fraîche (`465122`) says "LACTOSE FREE" in its name but carries no lactose-free claim in its data, so it is held back as losing a claim. Should a claim stated only in the name count? | It does not count: the data is taken as it stands |
 
 ## D. Questions for Valio's mentors (booth shape: context → what we did → what we got → is that expected?)
 

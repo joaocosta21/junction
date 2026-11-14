@@ -83,7 +83,7 @@ def plan_options(
     if any(alternatives):
         drafts.append(Draft(OptionKind.ALTERNATIVE_UNCONFIRMED, _swapped(confirmed, alternatives)))
     if any(substitutes):
-        drafts.append(Draft(OptionKind.SUBSTITUTE, _extended(confirmed, substitutes)))
+        drafts.append(Draft(_stand_in_kind(substitutes), _extended(confirmed, substitutes)))
     drafts.extend(_labelled_stand_ins(confirmed, stand_ins))
     kept, filter_notes = _confirmed_only(outcomes, [draft for draft in drafts if draft.lines])
     notes = [note for pool in pools for note in pool.notes]
@@ -98,11 +98,17 @@ def _labelled_stand_ins(confirmed: Sequence[tuple[OfferLine, ...]], stand_ins: S
     if not any(stand_ins.alternatives):
         return ()
     lines = [other or own for own, other in zip(stand_ins.lines, stand_ins.alternatives, strict=True)]
+    return (Draft(_stand_in_kind(lines), _extended(confirmed, lines)),)
+
+
+def _stand_in_kind(stand_ins: Sequence[OfferLine | None]) -> OptionKind:
+    """An option that holds any quantity Valio does not confirm is an alternative: it is titled and summarised
+    as one and ranks after every option of confirmed stock only (Python review, item P2). Before, a stand-in
+    whose quantity was not confirmed made an option of kind SUBSTITUTE that read as a confirmed full fill."""
     unconfirmed = any(
-        line is not None and line.availability.state is not AvailabilityState.CONFIRMED for line in lines
+        line is not None and line.availability.state is not AvailabilityState.CONFIRMED for line in stand_ins
     )
-    kind = OptionKind.ALTERNATIVE_UNCONFIRMED if unconfirmed else OptionKind.SUBSTITUTE
-    return (Draft(kind, _extended(confirmed, lines)),)
+    return OptionKind.ALTERNATIVE_UNCONFIRMED if unconfirmed else OptionKind.SUBSTITUTE
 
 
 def _said(outcomes: Sequence[LineOutcome], said: Sequence[str]) -> str:

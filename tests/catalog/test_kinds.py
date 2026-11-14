@@ -48,6 +48,24 @@ def _named(english: str, finnish: str | None = None, category: str = "99999") ->
         ("472879", ("pumpkin spice",)),
         ("474957", ("gingerbread",)),  # only the Finnish name says it in Finnish: "piparkakku"
         ("473142", ("vanilla",)),  # Valio coffee milk drink vanilla
+        # Review finding S11: each of these read as "not flavoured" before.
+        ("470974", ("raisin", "rum")),  # Ingman Rum & Raisin ice cream
+        ("469651", ("tiramisu",)),  # Carte d'Or Tiramisu ice cream
+        ("462635", ("cookies and cream",)),  # GelatoLAB "Cookies Cream"
+        ("464837", ("cookies and cream",)),  # Ingman Scooping Oreo
+        ("466173", ("cookies and cream",)),
+        ("468099", ("cookies and cream",)),
+        ("468714", ("cookies and cream",)),  # "Cookies and cream", "Keksimuru"
+        ("470927", ("cookies and cream",)),
+        ("460458", ("tutti frutti",)),  # Heartbrand Rainbow/Tutti Frutti
+        ("467755", ("tutti frutti",)),  # Fazer "TuttiFrutti"
+        ("468764", ("tutti frutti",)),
+        ("460304", ("honey",)),  # Hunajainen SAM Kesäkukka Hunaja: a honey
+        ("466611", ()),  # the same brand's agave syrup: "Hunajainen" is the brand, not a flavour
+        ("460103", ()),  # "TOMATO HONEY": a tomato variety
+        ("461067", ("melon",)),  # honeydew melons
+        ("466257", ()),  # a paper cup printed "Coca Cola"
+        ("476949", ("cola",)),
         ("464237", ()),  # Valio coffee milk: made for coffee, and coffee is not its flavour
         ("463047", ()),  # Arla whole milk
         ("469346", ()),  # Arla Pro whipping cream
@@ -94,11 +112,14 @@ def test_how_many_products_the_flavour_reading_marks_and_where(catalog: ProductC
         by_type.update(product_types_of(product))
 
     assert len(catalog.products) == 17546
-    assert len(marked) == 3465
-    # The product types where it marks more than a handful: all are sold in flavours.
+    # 3,465 before review finding S11 added the dessert, sweet and drink flavours (rum and raisin, tiramisu,
+    # cookies and cream, tutti frutti, honey, cola, earl grey and the rest).
+    assert len(marked) == 3715
+    # The product types where it marks more than a handful: all are sold in flavours. The 10 chickens are
+    # honey-marinated ones.
     assert {key: count for key, count in by_type.items() if count > 6} == {
-        "ice_cream": 284, "yoghurt": 110, "juice": 84, "soft_drink": 81, "quark": 36, "tea": 33,
-        "plant_drink": 22, "mineral_water": 20,
+        "ice_cream": 309, "yoghurt": 110, "soft_drink": 101, "juice": 85, "tea": 56, "quark": 36,
+        "plant_drink": 22, "mineral_water": 20, "chicken": 10,
     }
     # Plain kinds stay plain: no milk, coffee, butter, egg, rice, pasta, sausage or minced meat is marked.
     for plain in ("milk", "sour_milk", "coffee", "butter", "eggs", "rice", "pasta", "sausage", "minced_meat",

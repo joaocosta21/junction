@@ -269,6 +269,29 @@ def exclusion_for(candidate: Candidate, need: Need, now: datetime) -> Dropped | 
     return None
 
 
+def supplier_reason_for(candidate: Candidate, need: Need, now: datetime, reason: ExclusionReason) -> (
+    ExclusionReason | None
+):
+    """For a product that dropped out for the buyer's allergen rule: the first reason it would have dropped out
+    for anyway, by the same checks in the same order; `None` when there is none, or the reason is not an
+    allergen one.
+
+    An offer records one reason per product and judges the allergen first. Without this, a product whose
+    cut-off has passed and that also declares an excluded allergen is missing from the supplier's list of
+    products left out for a reason in its own data, and the supplier, who knows its data, can read the buyer's
+    exclusion from the gap (security review, 14 Nov 2026). The buyer's view does not use it.
+    """
+    if reason not in _ALLERGEN_REASONS:
+        return None
+    for check in _CHECKS:
+        if check in _ALLERGEN_CHECKS:
+            continue
+        dropped = check(candidate, need, now)
+        if dropped is not None:
+            return dropped[0]
+    return None
+
+
 def price_problem(price: PriceLine | None, now: datetime) -> str | None:
     """Why the price cannot carry an offer, as one sentence; `None` when it can."""
     amount = price.catalog_price if price is not None and price.has_price else None
@@ -455,4 +478,10 @@ _CHECKS: tuple[Callable[[Candidate, Need, datetime], Dropped | None], ...] = (
     _price,
     _allergen_not_stated,
     _not_confirmed,
+)
+# The checks of the buyer's allergen rule and their reasons; every other check is asked again for
+# `supplier_reason_for`.
+_ALLERGEN_CHECKS = (_allergen_declared, _claim_contradicted, _allergen_not_stated)
+_ALLERGEN_REASONS = frozenset(
+    {ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.CLAIM_CONTRADICTED, ExclusionReason.ALLERGEN_NOT_STATED}
 )

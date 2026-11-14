@@ -156,3 +156,20 @@ def test_a_replacement_that_loses_a_dietary_claim_is_dropped(world_now: Any) -> 
 
     assert isinstance(dropped, DroppedSuggestion)
     assert dropped.reason in (DropReason.DIETARY_CLAIM_MISSING, DropReason.ADDS_ALLERGEN)
+
+
+def test_under_the_declared_only_rule_a_product_with_no_statement_is_not_suggested(world_now: Any) -> None:
+    # Python review, item P3. Oatly Oat Drink Organic 460825 makes no statement about tree nuts. Under the
+    # declared-only rule that passes the allergen rule, and the offer still labels it "allergen not ruled out"
+    # (`tta.offers.safety.ruled_out`). Before, a suggestion for it was shown with no flag.
+    request, suggestion = _added(world_now, MILK, "460825", exclude_allergens=["AN"],
+                                 allergen_strictness="DECLARED_ONLY")
+
+    dropped = _check(world_now, HOTEL, request, suggestion)
+
+    assert isinstance(dropped, DroppedSuggestion)
+    assert dropped.reason == DropReason.ALLERGEN_NOT_RULED_OUT
+    assert dropped.sentence == (
+        "The product makes no statement about tree nuts (AN): it passes as unverified. A product whose data does "
+        "not rule out an excluded allergen is not suggested."
+    )

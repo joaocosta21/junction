@@ -36,6 +36,8 @@ def quantity_trend(history: OrderHistory, product_id: str, *, standing_order_id:
         return None
     values = tuple(order.quantities[product_id] for order in orders)
     before, recent = middle(values[:HALF]), middle(values[HALF:])
+    if before == 0 or recent == 0:
+        return None  # a median of 0 has no ratio to measure: no trend is said (Python review, item P11)
     change = (recent - before) / before
     rising = change > 0
     steps = [later - earlier for earlier, later in pairwise(values)]
@@ -70,6 +72,8 @@ def quantity_trend(history: OrderHistory, product_id: str, *, standing_order_id:
 
 def _within(stored: Decimal, recent: Decimal, tolerance: Decimal | None) -> bool:
     """True when the stored quantity is within the tolerance of the recent median, as rule P-08 measures it."""
+    if recent == 0:
+        return stored == 0  # no ratio to measure: only the same quantity is within any tolerance
     drift = abs(stored - recent) / recent
     return drift == 0 if tolerance is None else drift <= tolerance
 

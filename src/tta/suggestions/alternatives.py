@@ -13,7 +13,6 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 
 from tta.catalog.kinds import product_types_of
-from tta.contracts.errors import InvalidRequest
 from tta.contracts.offer import Offer, OfferLine
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -107,10 +106,10 @@ def _same_type(original: Product, line: RequestLine, catalog: Catalog) -> list[P
     types = dict.fromkeys([*([line.product_type] if line.product_type else []), *product_types_of(original)])
     found: dict[str, Product] = {}
     for key in types:
-        try:
-            result = catalog.search(ProductQuery(product_type=key, limit=ALTERNATIVES_MAX_POOL))
-        except InvalidRequest:
-            continue  # a type the table does not hold: no pool from it
+        # Raises `InvalidRequest` for a type the table does not hold. None can arrive here: the line's type was
+        # checked when the offer was built and the product's own types are keys of the table. It is not caught:
+        # a silent "no alternative" would hide a broken table (review finding S15).
+        result = catalog.search(ProductQuery(product_type=key, limit=ALTERNATIVES_MAX_POOL))
         for product in result.products:
             if product.id != original.id and not product.deleted:
                 found.setdefault(product.id, product)
@@ -121,7 +120,11 @@ def _pack(product: Product, line_index: int, request: PurchaseRequest, profile: 
           lookup: Lookup, original: PackOption | None, formula: FormulaCheck | None = None) -> PackOption | None:
     """The product's pack in litres or kilograms with its price and availability, read as an offer line reads
     them; None when the size or the price is not known. `original`: the pack it is measured against, with the
-    `formula` found against it."""
+    `formula` found against it.
+
+    Nothing here judges allergens, claims or stock: every suggestion built from a pack goes through the guard
+    (`tta.suggestions.guard.check`), which drops a product whose data does not rule out an excluded allergen
+    by the offer's own test, `tta.offers.safety.ruled_out` (Python review, items P3 and P10)."""
     line = request.lines[line_index]
     units = (original.measure,) if original is not None else (line.unit,) if line.unit in MEASURES else MEASURES
     for unit in units:

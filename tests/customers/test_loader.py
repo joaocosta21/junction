@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tta.catalog import ProductCatalog
 from tta.contracts.common import ApproverRole, Preference, Unit
 from tta.contracts.customer import Customer, ProductUse
 from tta.customers import CUSTOMERS_DIR, CustomerLoadError, load_customers, shipped_customer, shipped_customers
@@ -229,3 +230,32 @@ def test_a_customer_is_immutable() -> None:
     assert isinstance(customer, Customer)
     with pytest.raises(ValueError, match="frozen"):
         customer.name = "Another hotel"  # type: ignore[misc]
+
+
+# --- Review findings S14 and S15: the load itself checks what it can without a supplier call -----------------
+
+
+def test_a_file_that_names_a_product_type_the_catalog_does_not_have_does_not_load(tmp_path: Path) -> None:
+    _write(tmp_path, "test-kitchen", GOOD_FILE.replace("product_type: milk", "product_type: mlik"))
+
+    assert _problems(tmp_path) == ("test-kitchen: mlik (for 469363) is not a product type of the catalog",)
+
+
+def test_a_load_given_a_catalog_refuses_a_product_the_catalog_lacks_and_one_of_another_type(
+    tmp_path: Path, catalog: ProductCatalog,
+) -> None:
+    _write(tmp_path, "test-kitchen", GOOD_FILE.replace("469363", "459999"))
+    _write(tmp_path, "other-kitchen", GOOD_FILE.replace("test-kitchen", "other-kitchen").replace("milk", "cream"))
+
+    with pytest.raises(CustomerLoadError) as raised:
+        load_customers(tmp_path, catalog=catalog)
+
+    assert raised.value.problems == (
+        "other-kitchen: 469363 is not of the product type cream",
+        "test-kitchen: 459999 is not in the catalog, or is marked deleted",
+    )
+    assert load_customers(tmp_path)  # without a catalog only the shape and the type names are checked
+
+
+def test_the_four_shipped_customers_load_against_the_catalog(catalog: ProductCatalog) -> None:
+    assert set(load_customers(CUSTOMERS_DIR, catalog=catalog)) == set(shipped_customers())

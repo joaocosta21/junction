@@ -107,20 +107,24 @@ def test_a_coffee_milk_is_not_a_like_for_like_replacement_for_a_milk(judge: Call
 
 def test_a_replaceable_candidate_says_so_in_the_owners_words(judge: Callable[..., Any]) -> None:
     assert judge("469346", "464194").sentence == (  # Arla Pro whipping cream and Valio whipping cream
-        "Replaceable: same type, same use, not flavoured, same formula within tolerance."
+        "Replaceable: same type, same use, no flavour named, same formula within tolerance."
     )
     assert judge("469346", "464194").verdict is ReplaceVerdict.REPLACEABLE
-    # Where no product type of ours covers the original, the type is not judged and the category is named.
+    # Where no product type of ours covers the original, the type is not judged. Before review finding S11
+    # this pair read "Replaceable: same category, same use, not flavoured, same formula within tolerance.";
+    # "high heat" against "instant" is now said (tests/offers/test_substitutes_unknown.py).
     powder = judge(MILK_POWDER, "462224")
-    assert powder.other_type is False and powder.original_types == ()
-    assert powder.sentence == "Replaceable: same category, same use, not flavoured, same formula within tolerance."
+    assert powder.other_type is False and powder.original_types == () and powder.type_not_judged is True
+    assert powder.verdict is ReplaceVerdict.NOT_LIKE_FOR_LIKE
 
 
 def test_a_different_formula_another_use_and_a_lost_claim_are_each_a_reason_with_numbers(
     judge: Callable[..., Any],
 ) -> None:
+    # Since review finding S11 the listed pair also says the variant word of its name.
     assert judge(BARISTA, LISTED_DELIGHT, listed=True).sentence == (
-        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g)."
+        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
+        "for like: its name adds “Delight”, which the data does not explain."
     )
     assert judge(BARISTA, PLAIN_OAT).sentence == (
         "Not a like-for-like replacement: not made for coffee, as the product asked for is; a different formula "
@@ -136,8 +140,8 @@ def test_a_formula_that_cannot_be_compared_is_never_called_replaceable(judge: Ca
     assert unknown.reasons == ()
     assert unknown.verdict is ReplaceVerdict.NOT_SHOWN
     assert unknown.sentence == (
-        "Replaceable as far as the data shows: same category, same use, not flavoured; the formula cannot be "
-        "compared."
+        "Replaceable as far as the data shows: same category, same use, no flavour named; the product asked for "
+        "has no product type of ours, so only its category was compared; the formula cannot be compared."
     )
 
 
@@ -186,11 +190,14 @@ def test_at_the_demo_clock_the_suggestion_is_valios_listed_drink_and_not_the_nut
     # 474724 for €235.45.
     assert (first.product_id, first.orderable, first.listed_by_supplier) == (LISTED_DELIGHT, True, True)
     assert first.formula is not None and first.formula.mixed_basis is True
-    option = next(each for each in offer.options if each.kind is OptionKind.SUBSTITUTE)
+    # Its quantity is not confirmed at the demo clock, so the option is an alternative (Python review, P2).
+    option = next(each for each in offer.options if any(line.substitute for line in each.lines))
+    assert (option.kind, option.title) == (OptionKind.ALTERNATIVE_UNCONFIRMED, "Alternative: quantity not confirmed")
     assert [(line.product_id, int(line.quantity)) for line in option.lines] == [(LISTED_DELIGHT, 10)]
     assert str(option.totals.net) == "155.50"
     assert option.lines[0].substitute.gives_up.startswith(
-        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g). Compared with "
+        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
+        "for like: its name adds “Delight”, which the data does not explain. Compared with "
     )
 
 
@@ -201,7 +208,7 @@ def test_a_coffee_milk_no_longer_stands_first_for_a_milk(service: OfferService, 
     assert CAFE_MILK not in _ids(result)
     assert result.candidates[0].product_id == "464073"  # Valio whole milk 1 l lactose free UHT
     assert result.candidates[0].gives_up.startswith(
-        "Replaceable: same type, same use, not flavoured, same formula within tolerance."
+        "Replaceable: same type, same use, no flavour named, same formula within tolerance."
     )
     assert any("10 of another product type" in note for note in result.notes)
 
@@ -288,7 +295,8 @@ def test_a_price_difference_under_half_a_cent_is_not_said_as_dearer(demo_deps: O
     # Before: "it costs €0.00 more per kg" (€2.7120 against €2.7115 per kg).
     assert "more per kg" not in same_powder.gives_up
     assert same_powder.gives_up.startswith(
-        "Replaceable: same category, same use, not flavoured, same formula within tolerance. Compared with "
+        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in “high heat” "
+        "against “instant”, which the data does not explain. Compared with "
     )
 
 
@@ -311,5 +319,9 @@ def test_how_the_pairs_valio_lists_split_under_our_rules(catalog: ProductCatalog
     assert sum(check.other_type for check in checks) == 2  # both stay in the list: Valio lists them
     assert sum(check.other_use for check in checks) == 2
     assert {verdict: sum(check.verdict is verdict for check in checks) for verdict in ReplaceVerdict} == {
-        ReplaceVerdict.REPLACEABLE: 73, ReplaceVerdict.NOT_SHOWN: 72, ReplaceVerdict.NOT_LIKE_FOR_LIKE: 104,
+        ReplaceVerdict.REPLACEABLE: 32, ReplaceVerdict.NOT_SHOWN: 95, ReplaceVerdict.NOT_LIKE_FOR_LIKE: 122,
     }
+    # Review finding S11. Before: 73 replaceable, 72 not shown, 104 not like for like.
+    assert sum(check.name_difference for check in checks) == 46  # each stays listed and says the words
+    assert sum(check.type_not_judged for check in checks) == 164  # the original is of none of our product types
+    assert sum(check.no_shared_word for check in checks) == 13  # and the two names share no product word

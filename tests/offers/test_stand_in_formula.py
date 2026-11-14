@@ -33,6 +33,12 @@ def of_kind(offer: Offer, kind: OptionKind) -> OfferOption | None:
     return next((option for option in offer.options if option.kind is kind), None)
 
 
+def with_stand_in(offer: Offer) -> OfferOption | None:
+    """The first option that holds a substitute. Since the Python review's item P2 its kind is
+    ALTERNATIVE_UNCONFIRMED when the stand-in's quantity is not confirmed, and SUBSTITUTE when it is."""
+    return next((option for option in offer.options if any(line.substitute for line in option.lines)), None)
+
+
 def picked(option: OfferOption) -> list[tuple[str, Decimal]]:
     return [(line.product_id, line.quantity) for line in option.lines]
 
@@ -73,8 +79,13 @@ def test_with_no_confirmed_like_for_like_stock_the_unconfirmed_product_stands_in
 
     offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,)), agent_hotel)
 
-    assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED, OptionKind.SUBSTITUTE]
+    # The stand-in's quantity is not confirmed, so the option is an alternative and says so (review item P2).
+    assert [option.kind for option in offer.options] == [
+        OptionKind.BEST_CONFIRMED, OptionKind.ALTERNATIVE_UNCONFIRMED,
+    ]
     assert picked(offer.options[1]) == [(CREAM, 48), (VALIO, 52)]
+    assert offer.options[1].title == "Alternative: quantity not confirmed"
+    assert "Valio does not confirm the quantity in stock for 52 L of it" in offer.options[1].summary
 
 
 def test_confirmed_stock_that_fills_the_whole_gap_needs_no_unconfirmed_alternative(
@@ -102,7 +113,7 @@ def test_a_confirmed_product_of_another_formula_does_not_jump_ahead(
 
     offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,)), agent_hotel)
 
-    assert picked(of_kind(offer, OptionKind.SUBSTITUTE)) == [(CREAM, 48), (VALIO, 52)]
+    assert picked(with_stand_in(offer)) == [(CREAM, 48), (VALIO, 52)]
 
 
 # --- the request's word on the formula ----------------------------------------------------------------------
@@ -163,9 +174,9 @@ def test_where_the_formula_matters_a_substitute_that_keeps_it_stands_in_as_usual
 
     offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,), keep_formula=True), agent_hotel)
 
-    with_substitute = of_kind(offer, OptionKind.SUBSTITUTE)
+    with_substitute = with_stand_in(offer)
     assert picked(with_substitute) == [(CREAM, 48), (VALIO, 52)]
-    assert with_substitute.title.startswith("With a substitute")
+    assert with_substitute.title == "Alternative: quantity not confirmed"  # 52 L of it are not confirmed
     assert COOKING not in {line.product_id for option in offer.options for line in option.lines}
     assert "F-11" not in with_substitute.decision.rule_ids
 

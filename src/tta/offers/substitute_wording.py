@@ -45,6 +45,14 @@ LAST_RESORT_OTHER_KIND = (
     "Last resort: no candidate of the same kind as the original can be ordered, so a person decides whether "
     "this one will do."
 )
+# Said wherever the original is of none of our product types (14,685 of the 17,546 products, whole catalog).
+NO_PRODUCT_TYPE = "the product asked for has no product type of ours, so only its category was compared"
+NO_KNOWN_FLAVOUR = "names no flavour our lists know"
+# For a variant of the original's product line whose name differs in a word the data does not explain.
+UNEXPLAINED_VARIANT = (
+    "It cannot be shown to be like for like with the product asked for, so a person decides whether this one "
+    "will do."
+)
 _NUTRIENT_WORDS = {"saturated_fat": "saturated fat"}
 # A price difference under half a cent reads "€0.00 more": it is not said.
 _LEAST_SAID = Decimal("0.005")
@@ -64,10 +72,7 @@ def replace_reasons(
         pair = "; Valio lists the pair" if listed else ""
         reasons.append(f"another product type ({mine}, not {type_words(check.original_types)}{pair})")
     if check.plain_against_flavoured:
-        reasons.append(
-            f"{_flavoured(check.flavours)}; the product asked for is not flavoured" if check.flavours
-            else f"not flavoured; the product asked for is {_flavoured(check.original_flavours)}"
-        )
+        reasons.append(_plain_against_flavoured(check))
     elif check.other_flavour:
         reasons.append(
             f"another flavour ({flavour_words(check.flavours)}, not {flavour_words(check.original_flavours)})"
@@ -83,7 +88,39 @@ def replace_reasons(
             for each in formula.differences if not each.within_tolerance
         )
         reasons.append(f"a different formula ({figures})" if figures else "another fat source")
+    if check.name_difference:
+        reasons.append(f"it cannot be shown to be like for like: {_name_difference(check)}")
+    if check.no_shared_word:
+        reasons.append(
+            "it cannot be shown to be the same kind of product: its name shares no product word with the name of "
+            f"the product asked for, and {NO_PRODUCT_TYPE}"
+        )
     return tuple(reasons)
+
+
+def _plain_against_flavoured(check: ReplaceCheck) -> str:
+    """Flavoured against plain. Where the side that reads plain has a word in its name that no list explains,
+    "not flavoured" is not claimed for it (review finding S11)."""
+    if check.flavours:
+        plain = NO_KNOWN_FLAVOUR if check.original_name_words else "is not flavoured"
+        return f"{_flavoured(check.flavours)}; the product asked for {plain}"
+    mine = "it names no flavour our lists know" if check.name_words else "not flavoured"
+    return f"{mine}; the product asked for is {_flavoured(check.original_flavours)}"
+
+
+def _quoted(words: Sequence[str]) -> str:
+    """Words of a product name inside a sentence: text of the product file, entered like a name."""
+    return f"“{plain_name(' '.join(words))}”"
+
+
+def _name_difference(check: ReplaceCheck) -> str:
+    if check.original_name_words and check.name_words:
+        said = f"the names differ in {_quoted(check.original_name_words)} against {_quoted(check.name_words)}"
+    elif check.name_words:
+        said = f"its name adds {_quoted(check.name_words)}"
+    else:
+        said = f"its name lacks {_quoted(check.original_name_words)}"
+    return f"{said}, which the data does not explain"
 
 
 def _flavoured(flavours: Sequence[str]) -> str:
@@ -99,16 +136,23 @@ def _use_reason(check: ReplaceCheck) -> str:
 
 
 def replace_sentence(
-    check: ReplaceCheck, verdict: ReplaceVerdict, reasons: Sequence[str], *, same_category: bool
+    check: ReplaceCheck, verdict: ReplaceVerdict, reasons: Sequence[str], *, same_category: bool,
+    formula_known: bool = True,
 ) -> str:
     """The answer to "can this replace the product asked for?", in one sentence."""
     if verdict is ReplaceVerdict.NOT_LIKE_FOR_LIKE:
         return f"Not a like-for-like replacement: {'; '.join(reasons)}."
-    kind = "same type" if check.original_types else ("same category" if same_category else "")
-    flavour = "same flavour" if check.flavours else "not flavoured"
-    same = ", ".join(part for part in (kind, "same use", flavour) if part)
+    kind = "same type" if check.original_types else ("same category" if same_category else "another category")
+    flavour = "same flavour" if check.flavours else "no flavour named"
+    same = ", ".join((kind, "same use", flavour))
     if verdict is ReplaceVerdict.NOT_SHOWN:
-        return f"Replaceable as far as the data shows: {same}; the formula cannot be compared."
+        not_shown = "; ".join(
+            part for part in (
+                NO_PRODUCT_TYPE if check.type_not_judged else "",
+                "" if formula_known else "the formula cannot be compared",
+            ) if part
+        )
+        return f"Replaceable as far as the data shows: {same}; {not_shown}."
     return f"Replaceable: {same}, same formula within tolerance."
 
 
@@ -122,12 +166,18 @@ def why(judged: Judged) -> str:
     if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict
         lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
     if judged.last_resort:
-        lacks += f" {LAST_RESORT if judged.claims_lost else LAST_RESORT_OTHER_KIND}"
+        lacks += f" {_last_resort_sentence(judged)}"
     if judged.reason in BUYER_RULE_REASONS:
         return f"It adds no allergen, but this buyer's rules exclude it. {judged.reason_sentence}{lacks}"
     if judged.reason is not None:
         return f"It adds no allergen, but it cannot be ordered now. {judged.reason_sentence}{lacks}"
     return f"{judged.rule.sentence} {judged.candidate.assessment.sentence}{_to_a_human(judged)}{lacks}"
+
+
+def _last_resort_sentence(judged: Judged) -> str:
+    if judged.claims_lost:
+        return LAST_RESORT
+    return LAST_RESORT_OTHER_KIND if judged.other_kind else UNEXPLAINED_VARIANT
 
 
 def _to_a_human(judged: Judged) -> str:

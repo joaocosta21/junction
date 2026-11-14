@@ -15,6 +15,7 @@ from tta.offers import OfferDeps, OfferService
 
 # As in test_stand_in_formula.py: VALIO keeps the formula of CREAM, COOKING (10 % fat) does not.
 CREAM, VALIO, COOKING = "469346", "464194", "463797"
+LIGHT_CREME_FRAICHE = "468277"  # Valio Hyvä suomalainen Arki créme fraîche 12 % 180 g lactose free
 PLACEHOLDER = 999_999  # the amount Valio reports when it does not know the stock
 CREME_FRAICHE, TZATZIKI = "477055", "470260"
 NOT_KEPT = "Alternative: a substitute that does not keep the formula"
@@ -49,9 +50,10 @@ def test_the_bakery_gets_the_formula_keeper_first_without_saying_the_word(
 
     offer = service.build_offer(make_request(100, Unit.L, product_ids=(CREAM,)), agent_bakery)
 
-    with_substitute = of_kind(offer, OptionKind.SUBSTITUTE)
+    # The stand-in's quantity is not confirmed: the option is an alternative (Python review, item P2).
+    with_substitute = of_kind(offer, OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert [(line.product_id, line.quantity) for line in with_substitute.lines] == [(CREAM, 48), (VALIO, 52)]
-    assert with_substitute.title.startswith("With a substitute")
+    assert with_substitute.title == "Alternative: quantity not confirmed"
     assert COOKING not in {line.product_id for option in offer.options for line in option.lines}
     assert "F-11" not in with_substitute.decision.rule_ids
 
@@ -95,7 +97,11 @@ def test_the_requests_own_word_is_still_named_as_the_requests(
 def test_the_recording_40_kg_of_creme_fraiche_for_the_bakery_names_the_tzatziki_as_the_alternative(
     service: OfferService, make_request: Any, agent_bakery: Identity, keep_formula: bool | None
 ) -> None:
-    """Before B35 the tzatziki was the suggestion unless the request repeated the word."""
+    """Before B35 the tzatziki was the suggestion unless the request repeated the word. Since review finding S11
+    the tzatziki is not offered at this clock at all: crème fraîche has no product type of ours and "tzatziki"
+    shares no product word with it, so it is held back as a last resort while another crème fraîche can be
+    ordered. That one is a 12% crème fraîche in 180 g pots whose quantity is not confirmed: it does not keep the
+    formula either, and the option says both."""
     request = make_request(40, Unit.KG, product_ids=(CREME_FRAICHE,), keep_formula=keep_formula)
 
     offer = service.build_offer(request, agent_bakery)
@@ -104,6 +110,10 @@ def test_the_recording_40_kg_of_creme_fraiche_for_the_bakery_names_the_tzatziki_
     assert (first.kind, first.title) == (OptionKind.ALTERNATIVE_UNCONFIRMED, "Alternative: quantity not confirmed")
     assert [(line.product_id, line.quantity) for line in first.lines] == [(CREME_FRAICHE, 20)]
     assert first.totals.net == Decimal("214.40") and first.decision.rule_ids == ("F-01",)
-    assert (second.kind, second.title) == (OptionKind.SUBSTITUTE, NOT_KEPT)
-    assert [(line.product_id, line.quantity) for line in second.lines] == [(TZATZIKI, 20)]
-    assert second.totals.net == Decimal("240.40") and "F-11" in second.decision.rule_ids
+    assert (second.kind, second.title) == (
+        OptionKind.ALTERNATIVE_UNCONFIRMED,
+        "Alternative: quantity not confirmed, a substitute that does not keep the formula",
+    )
+    assert [(line.product_id, line.quantity) for line in second.lines] == [(LIGHT_CREME_FRAICHE, 223)]
+    assert second.totals.net == Decimal("198.47") and {"F-01", "F-11"} <= set(second.decision.rule_ids)
+    assert TZATZIKI not in {line.product_id for option in offer.options for line in option.lines}

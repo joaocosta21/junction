@@ -36,7 +36,7 @@ from tta.suggestions.companions import forgotten_items
 from tta.suggestions.guard import DroppedSuggestion, GuardContext, Proposal, check
 from tta.suggestions.history import OrderHistory, history_of
 from tta.suggestions.ranking import HeldBackSuggestion, ranked
-from tta.suggestions.supplier import related_products, silenced
+from tta.suggestions.supplier import related_products, silenced, unknown_type_notes
 from tta.suggestions.thresholds import MAX_SUPPLIER_SUGGESTIONS, SUPPLIER_MAX_TRIES
 from tta.suggestions.trend import standing_order_trends
 from tta.suggestions.usual import usual_products_for_request, usual_quantities_for_request
@@ -60,7 +60,9 @@ class SuggestionList(Contract):
     shown: tuple[Suggestion, ...] = ()
     dropped: tuple[DroppedSuggestion, ...] = ()
     held_back: tuple[HeldBackSuggestion, ...] = ()  # passed the guard and is not shown, with the reason
-    notes: tuple[str, ...] = ()  # why nothing was computed, when the supplier could not be asked
+    # Why nothing was computed, when the supplier could not be asked; and a product type of the customer file
+    # that the catalog does not have.
+    notes: tuple[str, ...] = ()
 
 
 def suggestions_for(
@@ -103,7 +105,7 @@ def _suggestions(
     found = ranked(each for each in checked if isinstance(each, Suggestion))
     return SuggestionList(
         shown=found.shown, dropped=tuple(each for each in checked if isinstance(each, DroppedSuggestion)),
-        held_back=found.held_back,
+        held_back=found.held_back, notes=unknown_type_notes(customer) if customer is not None else (),
     )
 
 

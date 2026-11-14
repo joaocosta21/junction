@@ -178,11 +178,11 @@ def _without_the_products_left_out(events: list[dict[str, Any]]) -> list[dict[st
 
 @pytest.mark.parametrize("case", list(EXCLUSIONS_ONLY))
 def test_valio_reads_no_count_of_the_products_left_out_for_what_the_buyer_excludes(parts: Parts, case: str) -> None:
-    """What still differs is named exactly: a product that Valio Aimo's own data would leave out as well (its
-    closing time has passed, it cannot be delivered) is judged on the buyer's allergen first, so it goes missing
-    from Valio Aimo's list when the buyer excludes its allergen. Nothing else differs, and no count of the masked
-    products is anywhere. Closing that needs the offer to say both reasons (hand-back of FX-M1, for the offers lane);
-    the test below is the strict form and is expected to fail until then."""
+    """No count of the masked products is anywhere, and nothing goes missing from Valio Aimo's own list: a product
+    that Valio Aimo's own data would leave out as well (its closing time has passed, it cannot be delivered) is
+    judged on the buyer's allergen first, and since FX-K the offer also carries the reason of Valio Aimo's own
+    data (`Exclusion.supplier_reason`), under which Valio Aimo's view lists it. So Valio Aimo's counts are those
+    of its own data, the same for both buyers, and no smaller than what the buyer reads under the same reason."""
     one, other = EXCLUSIONS_ONLY[case]
     (first, first_buyer), (second, second_buyer) = _logs(parts, "one", *one), _logs(parts, "other", *other)
 
@@ -195,27 +195,21 @@ def test_valio_reads_no_count_of_the_products_left_out_for_what_the_buyer_exclud
         offers = [event["facts"]["offer"] for event in events if "offer" in event["facts"]]
         assert offers and all(OF_THE_BUYER.isdisjoint(offer["excluded_by_reason"]) for offer in offers)
         assert all(OF_THE_BUYER.isdisjoint(entry["reason"] for entry in offer["left_out"]) for offer in offers)
-        for offer in offers:  # what Valio Aimo is told is true of its own data: the buyer reads the same counts
-            assert offer["excluded_by_reason"] == {r: n for r, n in counts.items() if r not in OF_THE_BUYER}
+        for offer in offers:  # what Valio Aimo is told is true of its own data: never fewer than the buyer reads
+            assert all(offer["excluded_by_reason"].get(r, 0) >= n for r, n in counts.items() if r not in OF_THE_BUYER)
         text = json.dumps(events, ensure_ascii=False)
         masked = sum(number for reason, number in counts.items() if reason in OF_THE_BUYER)
         assert f"{sum(counts.values())} product" not in text and "allergen the buyer excludes" not in text
         assert not re.search(rf"\b{masked} (products? )?(declaring|stating|left out|for an allergen)", text)
-    # the residue: products missing from one list are exactly as many as moved to the masked reasons
+    # No residue: the products that moved to the masked reasons in the buyer's view stay in Valio Aimo's list.
     listed = [{entry["product_id"] for event in events if "offer" in event["facts"]
                for entry in event["facts"]["offer"]["left_out"]} for events in supplier]
-    assert listed[1] < listed[0]
+    assert listed[0] == listed[1]
     moved = sum(buyers[0][r] for r in buyers[0] if r not in OF_THE_BUYER) - sum(
         buyers[1][r] for r in buyers[1] if r not in OF_THE_BUYER)
-    assert len(listed[0] - listed[1]) == moved > 0
+    assert moved > 0  # the case still has products with two reasons
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "A product left out for the buyer's allergen is not also listed under the reason Valio Aimo's own data gives "
-    "(closing time passed, cannot be delivered): the offer records one reason per product, the allergen first "
-    "(tta.offers.candidates). Valio Aimo, who knows its own data, can see which of its products are missing from "
-    "the list. Needs the second reason from the offers lane; see the hand-back of FX-M1."
-))
 @pytest.mark.parametrize("case", list(EXCLUSIONS_ONLY))
 def test_valio_reads_the_same_log_whatever_the_buyer_excludes(parts: Parts, case: str) -> None:
     one, other = EXCLUSIONS_ONLY[case]

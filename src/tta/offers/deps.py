@@ -15,6 +15,7 @@ from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, P
 from tta.contracts.common import ClockBasis, DataSource
 from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 from tta.contracts.ports import Catalog, Clock, PairedLookup, PolicyEngine, ValioGateway
+from tta.contracts.request import MAX_PRODUCT_IDS
 from tta.contracts.standing import StandingHistory
 
 NO_STANDING_ORDERS = (
@@ -107,15 +108,26 @@ def look_up(deps: OfferDeps, product_ids: Iterable[str], *, fresh: bool = False)
             prices={}, availability={}, now=deps.clock.now(), source=deps.gateway.source,
             basis=getattr(deps.gateway, "time_basis", None),
         )
-    prices, availability = _pair(deps.gateway, ids, fresh)
-    if prices.source is not availability.source:
-        raise SupplierUnavailable(
-            TWO_SOURCES.format(price=prices.source.value, availability=availability.source.value)
-        )
-    return Lookup(
-        prices=prices.by_id(), availability=availability.by_id(), now=availability.time_now,
-        source=availability.source, basis=availability.basis,
-    )
+    # One price call and one availability call hold `MAX_PRODUCT_IDS` ids. A request of several lines can
+    # find more (Python review): they are asked in batches, so no product is left out. Every batch must come
+    # from one source; the clock is the first batch's.
+    prices, first = _pair(deps.gateway, ids[:MAX_PRODUCT_IDS], fresh)
+    answers = [(prices, first)]
+    answers += [
+        _pair(deps.gateway, ids[start:start + MAX_PRODUCT_IDS], fresh)
+        for start in range(MAX_PRODUCT_IDS, len(ids), MAX_PRODUCT_IDS)
+    ]
+    price_lines: dict[str, PriceLine] = {}
+    stock_lines: dict[str, AvailabilityLine] = {}
+    for prices, availability in answers:
+        other = next((each.source for each in (prices, availability) if each.source is not first.source), None)
+        if other is not None:
+            sources = (other.value, first.source.value) if other is prices.source else (first.source.value, other.value)
+            raise SupplierUnavailable(TWO_SOURCES.format(price=sources[0], availability=sources[1]))
+        price_lines.update(prices.by_id())
+        stock_lines.update(availability.by_id())
+    return Lookup(prices=price_lines, availability=stock_lines, now=first.time_now, source=first.source,
+                  basis=first.basis)
 
 
 def _pair(gateway: ValioGateway, ids: tuple[str, ...], fresh: bool) -> tuple[PriceResponse, AvailabilityResponse]:

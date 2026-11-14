@@ -24,7 +24,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from tta.allergens import check_substitute
-from tta.contracts.common import AllergenOutcome, AvailabilityState, Contract, round_money
+from tta.contracts.common import AllergenOutcome, AllergenRelation, AvailabilityState, Contract, round_money
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -34,6 +34,7 @@ from tta.contracts.suggestion import Suggestion, SuggestionEffect, SuggestionKin
 from tta.offers.candidates import Candidate, Need, evaluate, exclusion_for, need_for, units_needed
 from tta.offers.deps import Lookup
 from tta.offers.formula import compare_formula
+from tta.offers.safety import ruled_out
 from tta.offers.substitutes import COVERED_BY, claims_lost
 from tta.suggestions import reasons
 from tta.suggestions.wording import amount, day, euros, number, sentence
@@ -161,10 +162,15 @@ def _first_failure(proposal: Proposal, candidate: Candidate, need: Need, line: R
 
 
 def _allergen_doubt(candidate: Candidate) -> Failure | None:
+    """The offer's own test (`tta.offers.safety.ruled_out`), under either allergen rule: a product is suggested
+    only when its data states it is free from every excluded allergen. Under the declared-only rule a product
+    with no statement passes the rule and is still not ruled out; the offer labels it "allergen not ruled
+    out", so a suggestion for it is dropped (Python review, item P3)."""
     check_ = candidate.allergen_check
-    if check_ is None or check_.outcome is AllergenOutcome.PASS:
+    if check_ is None or ruled_out(check_):
         return None
-    doubts = [finding.sentence for finding in check_.findings if finding.outcome is not AllergenOutcome.PASS]
+    doubts = [finding.sentence for finding in check_.findings
+              if finding.outcome is not AllergenOutcome.PASS or finding.relation is not AllergenRelation.FREE_FROM]
     said = sentence(*doubts, "A product whose data does not rule out an excluded allergen is not suggested.")
     return Failure(DropReason.ALLERGEN_NOT_RULED_OUT.value, said, reasons.allergen_summary(check_))
 

@@ -435,3 +435,29 @@ def test_a_rule_that_asks_for_nobody_says_so_and_an_offer_that_left_nothing_out_
         f"{NOT_SHOWN_OR_COUNTED}"
     )
     assert built.data.supplier_facts["offer"]["left_out"] == []
+
+
+def test_a_product_the_buyers_allergen_excluded_is_listed_under_the_reason_of_valios_own_data() -> None:
+    """Security review, 14 Nov 2026: Valio Aimo knows its own data, so a product missing from its own list would
+    tell it what the buyer excludes. `Exclusion.supplier_reason` keeps the product in the list."""
+    from types import SimpleNamespace
+
+    from tta.audit.supplier_decisions import left_out_counts, left_out_facts
+    from tta.contracts.common import ExclusionReason
+    from tta.contracts.offer import Exclusion
+
+    def excluded(product_id: str, reason: ExclusionReason, supplier: ExclusionReason | None = None) -> Exclusion:
+        return Exclusion(product_id=product_id, name=f"Product {product_id}", request_line_index=0, reason=reason,
+                         sentence="Left out.", supplier_reason=supplier)
+
+    offer = SimpleNamespace(excluded=(
+        excluded("471690", ExclusionReason.CUTOFF_PASSED),
+        excluded("474774", ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.CUTOFF_PASSED),
+        excluded("464013", ExclusionReason.ALLERGEN_DECLARED),  # only the buyer's rule leaves it out: not listed
+        excluded("460825", ExclusionReason.ALLERGEN_NOT_STATED, ExclusionReason.NOT_DELIVERABLE),
+    ))
+
+    assert left_out_counts(offer) == {"CUTOFF_PASSED": 2, "NOT_DELIVERABLE": 1}
+    assert [(entry["product_id"], entry["reason"]) for entry in left_out_facts(offer)] == [
+        ("471690", "CUTOFF_PASSED"), ("474774", "CUTOFF_PASSED"), ("460825", "NOT_DELIVERABLE"),
+    ]

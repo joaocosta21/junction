@@ -1,5 +1,8 @@
 """The customer files: one YAML file per customer in `data/`, checked when they load (P1 C2).
 
+Every load checks the shape of each file and that each product type it names is one the catalog has. A load
+that is given a catalog also checks every product id against the product file (`tta.customers.checks`).
+
 Every file is synthetic and says so (`synthetic: true`). The file name is the customer id, which is the id of its
 buyer profile. A folder with a file that fails any check does not load, and the error lists every problem.
 Data files are untrusted input: they are read with `yaml.safe_load` and validated, never executed.
@@ -16,6 +19,8 @@ import yaml
 from pydantic import ValidationError
 
 from tta.contracts.customer import Customer
+from tta.contracts.ports import Catalog
+from tta.customers.checks import catalog_problems, type_problems
 
 CUSTOMERS_DIR = Path(__file__).resolve().parent / "data"
 FILE_SUFFIX = ".yaml"
@@ -54,8 +59,11 @@ def _read(path: Path) -> tuple[Customer | None, str | None]:
     return customer, None
 
 
-def load_customers(directory: Path = CUSTOMERS_DIR) -> Mapping[str, Customer]:
-    """Every customer of the folder, by id. Raises `CustomerLoadError` listing every problem."""
+def load_customers(directory: Path = CUSTOMERS_DIR, catalog: Catalog | None = None) -> Mapping[str, Customer]:
+    """Every customer of the folder, by id. Raises `CustomerLoadError` listing every problem.
+
+    `catalog`: when given, every product id of each file must be in the product file and of the product type
+    the file says; no supplier is called."""
     paths = sorted(directory.glob(f"*{FILE_SUFFIX}")) if directory.is_dir() else []
     if not paths:
         raise CustomerLoadError([f"there is no customer file in {directory.name}"])
@@ -67,6 +75,9 @@ def load_customers(directory: Path = CUSTOMERS_DIR) -> Mapping[str, Customer]:
             problems.append(problem)
         elif customer is not None:
             customers[customer.customer_id] = customer
+            problems.extend(type_problems(customer))
+            if catalog is not None:
+                problems.extend(catalog_problems(customer, catalog))
     if problems:
         raise CustomerLoadError(problems)
     return MappingProxyType(customers)

@@ -98,7 +98,7 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
     stand_in = alternative.lines[1]
     assert (stand_in.product_id, stand_in.quantity) == (VALIO_WHIPPING, 52)
     assert stand_in.substitute.gives_up == (
-        "Replaceable: same type, same use, not flavoured, same formula within tolerance. "
+        "Replaceable: same type, same use, no flavour named, same formula within tolerance. "
         "Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; Valio does "
         "not list it as a substitute; Valio does not confirm the quantity in stock. Same formula within our "
         "tolerance of 15% or 1 g per nutrient (salt 0.25 g): fat 38 g against 36 g; saturated fat 22 g against "

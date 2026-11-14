@@ -180,8 +180,19 @@ def decision_facts(decision: PolicyDecision) -> JsonDict:
 def _by_reason(excluded: Sequence[Exclusion]) -> dict[ExclusionReason, list[str]]:
     """The reasons about Valio Aimo's own data, in the order of the code list. None of the buyer's."""
     ordered = [reason for reason in ExclusionReason if reason not in REASONS_OF_THE_BUYER]
-    found = {reason: [entry.product_id for entry in excluded if entry.reason is reason] for reason in ordered}
+    found = {reason: [entry.product_id for entry in excluded if _own_reason(entry) is reason] for reason in ordered}
     return {reason: product_ids for reason, product_ids in found.items() if product_ids}
+
+
+def _own_reason(entry: Exclusion) -> ExclusionReason | None:
+    """The reason Valio Aimo's own data gives for leaving the product out; None when only a requirement of the
+    buyer's does. A product the buyer's allergen rule excluded is listed under the reason it would have been left
+    out for anyway (`Exclusion.supplier_reason`): Valio Aimo knows its own data, so a product missing from its
+    own list would tell it what the buyer excludes."""
+    for reason in (entry.reason, entry.supplier_reason):
+        if reason is not None and reason not in REASONS_OF_THE_BUYER:
+            return reason
+    return None
 
 
 def left_out(offer: Offer) -> str:
@@ -208,7 +219,7 @@ def left_out_facts(offer: Offer) -> list[JsonDict]:
     buyer's."""
     return [
         {"product_id": entry.product_id, "name": entry.name, "request_line_index": entry.request_line_index,
-         "reason": entry.reason.value}
+         "reason": reason.value}
         for entry in offer.excluded
-        if entry.reason not in REASONS_OF_THE_BUYER
+        if (reason := _own_reason(entry)) is not None
     ]

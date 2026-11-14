@@ -24,10 +24,9 @@ from collections.abc import Collection, Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from tta.catalog.kinds import flavours_of, is_other_use, uses_of
+from tta.catalog.kinds import flavours_of, is_other_use, is_product_type, uses_of
 from tta.contracts.common import Unit
 from tta.contracts.customer import Customer, UsualProduct
-from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import Catalog
 from tta.contracts.product import Product
 from tta.contracts.request import MAX_REQUEST_LINES, ProductQuery, PurchaseRequest, RequestLine
@@ -39,6 +38,7 @@ from tta.contracts.suggestion import (
     SuggestionKind,
     suggestion_id_for,
 )
+from tta.offers.wording import plain_name
 from tta.suggestions.guard import DroppedSuggestion, DropReason, Failure, dropped
 from tta.suggestions.history import OrderHistory
 from tta.suggestions.requests import with_line_added
@@ -137,11 +137,27 @@ def _anchors(customer: Customer, history: OrderHistory, in_request: Collection[s
 
 
 def _same_type(product_type: str, catalog: Catalog) -> tuple[Product, ...]:
-    try:
-        found = catalog.search(ProductQuery(product_type=product_type, limit=ALTERNATIVES_MAX_POOL))
-    except InvalidRequest:
-        return ()  # a type the table does not hold: nothing is related through it
+    if not is_product_type(product_type):
+        return ()  # nothing is related through it, and `unknown_type_notes` says so on the suggestion list
+    found = catalog.search(ProductQuery(product_type=product_type, limit=ALTERNATIVES_MAX_POOL))
     return tuple(product for product in found.products if not product.deleted)
+
+
+def unknown_type_notes(customer: Customer) -> tuple[str, ...]:
+    """One sentence when the customer file names a product type the catalog does not have (review finding
+    S15). The loader refuses such a file (`tta.customers.loader`); a customer built another way still says it
+    here instead of a silent "no related product"."""
+    unknown = {
+        usual.product_type: usual.product_id for usual in reversed(customer.usual)
+        if not is_product_type(usual.product_type)
+    }
+    if not unknown:
+        return ()
+    named = ", ".join(f"{plain_name(key)} (for {product_id})" for key, product_id in reversed(unknown.items()))
+    return (
+        f"The customer file names a product type the catalog does not have: {named}. No related product could "
+        "be suggested from it.",
+    )
 
 
 def _related(customer: Customer, history: OrderHistory, request: PurchaseRequest, usual: UsualProduct,

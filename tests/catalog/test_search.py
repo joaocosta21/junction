@@ -351,3 +351,42 @@ def test_a_blank_term_or_claim_is_refused_by_the_query_itself() -> None:
     # The contract strips and bounds every term, so a blank one never reaches the search.
     with pytest.raises(ValueError, match="at least 1 character"):
         ProductQuery(name_terms=("  ",), required_claims=("",))
+
+
+# --- A name term and the word before it (found by the reader lane, 14 Nov 2026) --------------------------------
+
+
+def test_skimmed_milk_is_not_filled_with_semi_skimmed_milk(catalog: ProductCatalog) -> None:
+    # Before: 46 milks, 29 of them semi-skimmed ("semi skimmed" has a word that starts with "skimmed").
+    skimmed = catalog.search(ProductQuery(product_type="milk", name_terms=("skimmed",), limit=1000))
+    semi = catalog.search(ProductQuery(product_type="milk", name_terms=("semi-skimmed",), limit=1000))
+
+    assert skimmed.total == 17 and semi.total == 29
+    assert not {product.id for product in skimmed.products} & {product.id for product in semi.products}
+    assert "463171" in {product.id for product in skimmed.products}  # Valio skimmed milk 1 l
+    assert "469363" in {product.id for product in semi.products}  # Arla Semi skimmed milkdrink 1 L
+    assert "469363" not in {product.id for product in skimmed.products}
+
+
+def test_salted_butter_was_never_filled_with_unsalted_butter(catalog: ProductCatalog) -> None:
+    # "unsalted" is one word, so "salted" never matched it: 8 salted and 3 unsalted of 19 butters, before and after.
+    salted = catalog.search(ProductQuery(product_type="butter", name_terms=("salted",), limit=1000))
+    unsalted = catalog.search(ProductQuery(product_type="butter", name_terms=("unsalted",), limit=1000))
+
+    assert (salted.total, unsalted.total) == (8, 3)
+    assert not {product.id for product in salted.products} & {product.id for product in unsalted.products}
+    assert "463744" in {product.id for product in salted.products}  # "less salted" is salted
+
+
+def test_a_word_of_opposite_meaning_before_the_term_is_no_match() -> None:
+    from tta.catalog.text import ProductNames, normalise
+
+    def names(english: str) -> ProductNames:
+        return ProductNames(english=f" {normalise(english)}", finnish=" ")
+
+    assert names("Arla Semi-skimmed milk 1 L").has("skimmed") is False
+    assert names("Arla Semi-skimmed milk 1 L").has("semi skimmed") is True
+    assert names("Skimmed milk, not semi skimmed").has("skimmed") is True  # one clean occurrence is enough
+    assert names("Non-alcoholic sparkling wine").has("alcoholic") is False
+    assert names("Lightly salted butter").has("salted") is True  # a word of degree, not of opposite meaning
+    assert names("Fat free milk").has("fat free") is True

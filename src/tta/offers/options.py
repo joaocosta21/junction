@@ -58,6 +58,7 @@ TITLES = {
 # item M1). Both carry the kind ALTERNATIVE_UNCONFIRMED: `OptionKind` has no kind of its own for the second.
 ALTERNATIVE = "Alternative: "
 QUANTITY_NOT_CONFIRMED = "quantity not confirmed"
+LAST_RESORT_SUBSTITUTE = "a substitute a person must judge"
 ALLERGEN_NOT_RULED_OUT = "allergen not ruled out"
 # A substitute that does not keep the formula on a line where the formula matters: the request says so (P10
 # item F5) or the buyer profile does (decision B35). `said` is `Need.formula_said`.
@@ -107,6 +108,11 @@ class _Assembled:
     @property
     def quantity_unconfirmed(self) -> bool:
         return any(line.availability.state is not AvailabilityState.CONFIRMED for line in self.draft.lines)
+
+    @property
+    def last_resort(self) -> bool:
+        """A line holds a substitute that is a last resort (`SubstituteInfo.last_resort`; rule F-12)."""
+        return any(line.substitute is not None and line.substitute.last_resort for line in self.draft.lines)
 
     @property
     def allergen_doubt(self) -> bool:
@@ -304,11 +310,16 @@ def _rank_key(assembled: _Assembled) -> tuple[bool, bool, bool, int, int, int, D
     another option exists. This is the one case where an option with an unconfirmed quantity can come first:
     the product asked for, quantity not confirmed, before a confirmed stand-in of another formula. Both go to a
     person (rules F-01 and F-11).
+
+    An option whose substitute is marked `last_resort` (it loses a dietary claim, it is not shown to be the same
+    kind of product, or it is a variant the data does not explain) is ranked the same way and for the same
+    reason: it is never the suggestion while another option exists, and it goes to a person (rule F-12).
     """
     not_met = sum(check.result is CheckResult.NOT_MET for check in assembled.checks)
     unverified = sum(check.result is CheckResult.UNVERIFIED for check in assembled.checks)
     return (
-        assembled.allergen_doubt, assembled.formula_changed, assembled.quantity_unconfirmed, not_met, unverified,
+        assembled.allergen_doubt, assembled.formula_changed or assembled.last_resort,
+        assembled.quantity_unconfirmed, not_met, unverified,
         _kind_order(assembled), assembled.totals.net,
     )
 
@@ -337,6 +348,8 @@ def _title(assembled: _Assembled, prefer: Preference, fill_ratio: Decimal) -> st
         title = ALTERNATIVE + ", ".join(doubts or [QUANTITY_NOT_CONFIRMED])
     elif assembled.formula_changed:
         title = ALTERNATIVE + FORMULA_NOT_KEPT
+    elif assembled.last_resort:
+        title = ALTERNATIVE + LAST_RESORT_SUBSTITUTE
     return title + (PARTIAL_SUFFIX if fill_ratio < 1 else "")
 
 
@@ -396,12 +409,23 @@ def _alternative_summary(assembled: _Assembled, covered: str, money: str) -> str
     in_place = f", a substitute for {originals}," if stand_ins else ""
     text = f"{_names(open_lines)}{in_place} for {covered}, {money}."
     if assembled.quantity_unconfirmed or not assembled.allergen_doubt:
-        text += " Valio does not confirm the quantity in stock, so a human must approve this option."
+        part = _unconfirmed_part(assembled)
+        text += f" Valio does not confirm the quantity in stock{part}, so a human must approve this option."
     if assembled.allergen_doubt:
         allergens = open_allergens(line.allergen_check for line in lines)
         decides = who_decides(line.allergen_check for line in lines)
         text += f" The product data does not rule out {allergens}, so {decides}."
     return text
+
+
+def _unconfirmed_part(assembled: _Assembled) -> str:
+    """` for 616 L of it`: how much of a one-line request the unconfirmed products cover, when the option also
+    holds confirmed stock; empty when all of it is unconfirmed or the request has several lines."""
+    lines, coverage = assembled.draft.lines, assembled.coverage
+    unconfirmed = [line for line in lines if line.availability.state is not AvailabilityState.CONFIRMED]
+    if len(coverage) != 1 or not unconfirmed or len(unconfirmed) == len(lines):
+        return ""
+    return f" for {measured(sum((line.covers for line in unconfirmed), Decimal(0)), coverage[0].unit)} of it"
 
 
 def _covered_phrase(coverage: Sequence[Coverage]) -> str:

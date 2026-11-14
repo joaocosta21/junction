@@ -243,3 +243,32 @@ def test_a_supplier_that_cannot_be_reached_gives_no_suggestion_and_says_so(world
 
     assert (found.shown, found.dropped) == ((), ())
     assert len(found.notes) == 1 and found.notes[0].startswith("No suggestion was computed: ")
+
+
+def test_a_product_type_the_catalog_does_not_have_is_said_on_the_suggestion_list(world_now: Any) -> None:
+    # Review finding S15: before, a mistyped type in a customer file gave a silent "no related product".
+    from tta.customers import shipped_customer
+    from tta.suggestions import suggestions_for
+    from tta.suggestions.history import history_of
+    from tta.suggestions.supplier import related_products
+
+    hotel = shipped_customer("hotel-kitchen")
+    assert hotel is not None
+    mistyped = hotel.model_copy(update={
+        "usual": tuple(usual.model_copy(update={"product_type": "mlik"}) for usual in hotel.usual),
+    })
+    request = world_now.request({"text": "milk", "product_ids": ["469363"], "quantity": "100", "unit": "L"})
+    offer = world_now.offer("hotel-kitchen", request)
+
+    found = suggestions_for(mistyped, request, offer, profile=world_now.profile("hotel-kitchen"),
+                            ports=world_now.ports)
+
+    first = mistyped.usual[0].product_id
+    assert len(found.notes) == 1
+    assert found.notes[0].startswith(
+        f"The customer file names a product type the catalog does not have: mlik (for {first})."
+    )
+    assert found.notes[0].endswith("No related product could be suggested from it.")
+    assert related_products(mistyped, history_of(mistyped, {}), request, (), world_now.catalog) == ()
+    plain = suggestions_for(hotel, request, offer, profile=world_now.profile("hotel-kitchen"), ports=world_now.ports)
+    assert plain.notes == ()

@@ -202,6 +202,10 @@ class Exclusion(Contract):
     request_line_index: int = Field(ge=0)
     reason: ExclusionReason
     sentence: str
+    supplier_reason: ExclusionReason | None = Field(
+        default=None,
+        description="The reason in the supplier's own data, when there is one beside the buyer's",
+    )
 
 
 PROOF_ALGORITHM = "EdDSA"  # RFC 8037: Ed25519 in JSON Web Signatures

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from decimal import Decimal
+from typing import Any
+
+import pytest
 
 from tta.contracts.common import Unit
 from tta.contracts.suggestion import Suggestion, SuggestionKind
@@ -85,3 +88,29 @@ def test_without_a_tolerance_only_a_stored_quantity_equal_to_the_recent_median_s
 
 def test_fewer_than_6_orders_stay_silent(make_history: Callable[..., OrderHistory]) -> None:
     assert _trend(make_history, (60, 66, 72, 80, 90)) is None
+
+
+# --- Python review, item P11: a median of 0 raised InvalidOperation and cost the offer all its suggestions ------
+
+
+class _ZeroHistory:
+    """A history whose orders hold a quantity of 0, which the customer file's own check refuses: built by hand."""
+
+    def __init__(self, values: Sequence[int]) -> None:
+        from types import SimpleNamespace
+
+        self._orders = [SimpleNamespace(quantities={"470863": Decimal(value)}) for value in values]
+
+    def orders_with(self, product_id: str) -> list[Any]:
+        return self._orders
+
+    def unit_of(self, product_id: str) -> Unit:
+        return Unit.L
+
+
+@pytest.mark.parametrize("values", [(0, 0, 0, 10, 20, 30), (30, 20, 10, 0, 0, 0), (0, 0, 0, 0, 0, 0)])
+def test_a_median_of_zero_gives_no_trend_and_does_not_raise(values: Sequence[int]) -> None:
+    history: Any = _ZeroHistory(values)
+
+    assert quantity_trend(history, "470863", standing_order_id="so", stored_quantity=STORED,
+                          tolerance=TOLERANCE) is None

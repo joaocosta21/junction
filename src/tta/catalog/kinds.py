@@ -46,6 +46,19 @@ def product_types_of(product: Product, table: Mapping[str, ProductType] | None =
     return tuple(sorted(found))
 
 
+def is_product_type(key: str, table: Mapping[str, ProductType] | None = None) -> bool:
+    """`key` is a key of `product_types.yaml`."""
+    return key in (table if table is not None else _table())
+
+
+def type_terms_of(product: Product, table: Mapping[str, ProductType] | None = None) -> tuple[str, ...]:
+    """The name terms of the product's own types, normalised: the words that say what type it is."""
+    entries = table if table is not None else _table()
+    return tuple(
+        dict.fromkeys(normalise(term) for key in product_types_of(product, entries) for term in entries[key].name_terms)
+    )
+
+
 def is_same_type(original: tuple[str, ...], other: tuple[str, ...]) -> bool:
     """`other` is of every type the original is of. A chuck steak stands in for beef; beef does not stand in
     for a chuck steak (`beef_chuck` is inside `beef`)."""
@@ -69,7 +82,7 @@ def type_words(keys: tuple[str, ...]) -> str:
 _FLAVOURS: Mapping[str, tuple[str, str]] = {
     "vanilla": (r"vanilla|vanille", r"vanilj"),
     "chocolate": (r"chocolate|choco|cocoa|cacao", r"suklaa|kaakao"),
-    "caramel": (r"caramel|toffee|fudge|butterscotch", r"karamelli|kinuski"),
+    "caramel": (r"caramel|toffee|fudge|butterscotch|dulce de leche", r"karamelli|kinuski"),
     # Not "espresso" or "latte": in this catalog they name coffee itself, or a mozzarella ("fior di latte").
     "coffee": (r"mocha|mocca|cappuccino|coffee flavou?r(?:ed)?", r"mokka|kahvinmaku"),
     "strawberry": (r"strawberr(?:y|ies)", r"mansik"),
@@ -114,20 +127,67 @@ _FLAVOURS: Mapping[str, tuple[str, str]] = {
     "cardamom": (r"cardamom", r"kardemumma"),
     "mint": (r"mint|peppermint|spearmint", r"minttu|mintun|piparmint"),
     "liquorice": (r"liquorice|licorice", r"lakrits|salmiak"),
+    # Added after review finding S11 (14 Nov 2026): each of these read as "not flavoured" before. The words
+    # are the ones the whole catalog shows in names of flavoured product families (ice cream, syrup, candy,
+    # tea, soft drinks).
+    "blackberry": (r"blackberr(?:y|ies)", r"karhunvatuk"),
+    "gooseberry": (r"gooseberr(?:y|ies)", r"karviais"),
+    "rosehip": (r"rose ?hips?", r"ruusunmarja"),
+    "elderflower": (r"elderflowers?|elderberr(?:y|ies)", r"seljankuk|seljanmarj"),
+    "lychee": (r"lychees?|litchi", r"litsi"),
+    "guava": (r"guavas?", r"guava"),
+    "papaya": (r"papayas?", r"papaija"),
+    "yuzu": (r"yuzu", r"yuzu"),
+    "rum": (r"rum", r"rommi"),
+    "raisin": (r"raisins?", r"rusina"),
+    "tiramisu": (r"tiramisu", r"tiramisu"),
+    "cookies and cream": (r"cookies? ?(?:&|and|n)? ?cream|cookie dough|oreo", r"keksimuru|keksitaikina"),
+    "tutti frutti": (r"tutti[ -]?frutti", r"tutti[ -]?frutti"),
+    "honey": (r"honey", r"hunaja"),
+    "cola": (r"cola", r"cola\b|kola\b"),
+    "nougat": (r"nougat", r"nougat|nugaa"),
+    "marzipan": (r"marzipan", r"marsipaani"),
+    "stracciatella": (r"stracciatella", r"stracciatella"),
+    "brownie": (r"brownies?", r"brownie"),
+    "creme brulee": (r"cr[eè]me br[uû]l[eé]e", r"cr[eè]me br[uû]l[eé]e"),
+    "cheesecake": (r"cheese ?cake", r"juustokakku"),
+    "maple": (r"maple", r"vaahtera"),
+    "bubblegum": (r"bubble ?gum", r"purukumi"),
+    "amaretto": (r"amaretto", r"amaretto"),
+    "irish cream": (r"irish cream", r"irish cream"),
+    "pina colada": (r"pi[nñ]a colada", r"pi[nñ]a colada"),
+    "mojito": (r"mojito", r"mojito"),
+    "matcha": (r"matcha", r"matcha"),
+    "chai": (r"chai", r"chai\b"),
+    "earl grey": (r"earl gr[ea]y", r"earl gr[ea]y"),
+    "glogg": (r"glogg", r"glögi"),
+    "menthol": (r"menthol|eucalyptus", r"mentol|eukalyptus"),
 }
-_SPICES = frozenset({"gingerbread", "pumpkin spice", "cinnamon", "cardamom", "mint", "liquorice"})
+_SPICES = frozenset(
+    {"gingerbread", "pumpkin spice", "cinnamon", "cardamom", "mint", "liquorice", "glogg", "menthol", "matcha",
+     "chai", "earl grey"}
+)
+# Flavours of a dessert, a sweet or a drink that are no fruit: the general word "fruit" does not cover them.
+_SWEETS = frozenset(
+    {"rum", "tiramisu", "cookies and cream", "tutti frutti", "honey", "cola", "nougat", "marzipan",
+     "stracciatella", "brownie", "creme brulee", "cheesecake", "maple", "bubblegum", "amaretto", "irish cream",
+     "pina colada", "mojito"}
+)
 # Words that say a flavour without naming one. Each is dropped when a named flavour of its group is found.
 _GENERAL: Mapping[str, tuple[str, str]] = {
     "berry": (r"berr(?:y|ies)|berry ?mix", r"marja"),
     "fruit": (r"fruits?|fruity|tropical", r"hedelm"),
     "nut": (r"nuts?|nutty", r"pähkinä"),
 }
-_BERRIES = frozenset({"strawberry", "raspberry", "blueberry", "lingonberry", "cranberry", "cloudberry", "currant"})
+_BERRIES = frozenset(
+    {"strawberry", "raspberry", "blueberry", "lingonberry", "cranberry", "cloudberry", "currant", "blackberry",
+     "gooseberry", "rosehip"}
+)
 _NUTS = frozenset({"hazelnut", "almond", "pistachio", "walnut", "peanut", "cashew", "pecan", "coconut"})
 _GROUP_OF: Mapping[str, frozenset[str]] = {
     "berry": _BERRIES,
     "nut": _NUTS,
-    "fruit": frozenset(_FLAVOURS) - _NUTS - _SPICES - {"vanilla", "chocolate", "caramel", "coffee"},
+    "fruit": frozenset(_FLAVOURS) - _NUTS - _SPICES - _SWEETS - {"vanilla", "chocolate", "caramel", "coffee"},
 }
 # "flavoured" and "maustettu" (flavoured, seasoned) with no flavour named. "unflavoured" and "maustamaton"
 # (plain) do not match: neither holds the word at a word start.
@@ -139,7 +199,13 @@ _FLAVOURED = (r"flavou?red", r"maustettu")
 _NOT_A_FLAVOUR = re.compile(
     r"(?:cherry|plum|kirsikka|luumu)[ -]?toma\w*|capsicum orange|orange (?:capsicum|paprika|pepper|carrot)s?"
     r"|toma\w* (?:luumu|kirsikka|plum|cherry)|oranssi\w*|lemon ?grass|sitruunaruoho\w*|hedelmäsokeri\w*"
-    r"|nut[ -]?free|pähkinät[öo]n\w*",
+    r"|nut[ -]?free|pähkinät[öo]n\w*"
+    # A tomato variety, and a paper cup printed for a cola (review finding S11).
+    # and a melon; the brand "Hunajainen SAM" also sells agave syrup; a napkin colour.
+    r"|toma\w* (?:honey|hunaja)|honey toma\w*|pomelo hunaja|honey ?dew|honey ?melon\w*|hunajamelon\w*"
+    r"|hunajainen sam|napkin honey|lautasliina\w* hunaja"
+    r"|coca[ -]?cola(?= [^|]*\bcups?\b)|\bcups? [^|]*coca[ -]?cola"
+    r"|coca[ -]?cola kylmäjuomapikari|kylmäjuomapikari [^|]*coca[ -]?cola",
     re.IGNORECASE,
 )
 # The name says the product is coffee: "mokka" is then a roast or a brand (Juhla Mokka), not a flavour.
@@ -174,6 +240,16 @@ def flavours_of(product: Product) -> tuple[str, ...]:
     if not found and _FLAVOURED_PATTERN.search(text):
         return (FLAVOURED,)
     return tuple(sorted(found))
+
+
+@lru_cache(maxsize=1)
+def known_word_pattern() -> re.Pattern[str]:
+    """Every word a list of this module explains (a flavour, a general flavour word, "flavoured", a use), as
+    one pattern. A Finnish word start takes the rest of its word with it."""
+    lists = (*_FLAVOURS.values(), *_GENERAL.values(), _FLAVOURED, *_USES.values())
+    english = "|".join(words[0] for words in lists)
+    finnish = "|".join(words[1] for words in lists)
+    return re.compile(rf"\b(?:{english})\b|\b(?:{finnish})\w*", re.IGNORECASE)
 
 
 def flavour_words(flavours: tuple[str, ...]) -> str:

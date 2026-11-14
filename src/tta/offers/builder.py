@@ -18,7 +18,16 @@ from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
 from tta.contracts.request import PurchaseRequest, RequestLine
-from tta.offers.candidates import Candidate, Found, Need, evaluate, exclusion_for, find_products, need_for
+from tta.offers.candidates import (
+    Candidate,
+    Found,
+    Need,
+    evaluate,
+    exclusion_for,
+    find_products,
+    need_for,
+    supplier_reason_for,
+)
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
@@ -93,7 +102,7 @@ def _judge_line(
         excluded.append(
             Exclusion(
                 product_id=product.id, name=product.display_name, request_line_index=need.index, reason=reason,
-                sentence=sentence,
+                sentence=sentence, supplier_reason=supplier_reason_for(candidate, need, lookup.now, reason),
             )
         )
     outcome = LineOutcome(
