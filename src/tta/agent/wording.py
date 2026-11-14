@@ -71,6 +71,10 @@ _STRICTNESS: Sequence[tuple[AllergenStrictness, re.Pattern[str]]] = (
 
 # A substitute for a product is not that product (the model's rule 3): only a model reads such a request.
 SUBSTITUTE = re.compile(r"\bsubstitut|\breplacement|\binstead\b|\balternative|\bkorvik|\bvastike|\bersättning")
+# The one substitute the fixed rules read: a milk substitute is a plant drink, the product type of Valio Aimo's
+# category 10402 (`catalog/product_types.yaml`). It names a type, never a product. Ours, said in the reading.
+MILK_SUBSTITUTE = re.compile(r"\bmilk[\s-]+substitutes?\b|\bsubstitutes?\s+for\s+milk\b")
+MILK_SUBSTITUTE_TYPE = "plant_drink"
 
 
 def _found[T](table: Sequence[tuple[T, re.Pattern[str]]], folded: str) -> Iterator[tuple[T, Span]]:

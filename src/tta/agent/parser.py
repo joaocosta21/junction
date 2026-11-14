@@ -37,8 +37,10 @@ from tta.agent.days import helsinki_date
 from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
 from tta.agent.labels import reading_sentence
 from tta.agent.model import AgentModel, ExtractCall
+from tta.agent.notes import NO_USE_NAMED, with_notes
 from tta.agent.photo import read_photo
 from tta.agent.prompts import parser_instruction
+from tta.agent.purpose import formula_matters
 from tta.agent.schema import CLAIM_CODES, EXCLUDABLE_ALLERGEN_CODES, LABEL_CODES, checked_keys, proposal_schema
 from tta.agent.textcheck import TextFacts
 from tta.allergens import describe, normalise_code, parent_of
@@ -104,6 +106,9 @@ class LineProposal(_Proposal):
     pack: PackPreference | None
     # The schema requires both fields below; a recording made before they existed (task FALLBACK-1) says neither.
     required_labels: tuple[str, ...] = ()
+    # True only when the text names a use for which the formula matters ("for whipping"). A recording made before
+    # the field existed (wave 2) does not say it.
+    keep_formula: bool | None = None
 
 
 class RequestProposal(_Proposal):
@@ -201,10 +206,15 @@ def _request_faults(proposal: RequestProposal, facts: TextFacts, today: date) ->
     return faults
 
 
-def _faults(proposal: RequestProposal, facts: TextFacts, today: date, keys: Sequence[str]) -> tuple[Fault, ...]:
+def _faults(
+    proposal: RequestProposal, facts: TextFacts, today: date, keys: Sequence[str], text: str
+) -> tuple[Fault, ...]:
     """What the schema cannot hold the model to: our tables, the buyer's text and the clock."""
     lines = [fault for index, line in enumerate(proposal.lines) for fault in _line_faults(index, line, facts, keys)]
-    return (*_request_faults(proposal, facts, today), *lines)
+    names_a_use = formula_matters(text)
+    formula = [_mismatch(f"lines[{index}].keep_formula", NO_USE_NAMED)
+               for index, line in enumerate(proposal.lines) if line.keep_formula and not names_a_use]
+    return (*_request_faults(proposal, facts, today), *lines, *formula)
 
 
 def _line_missing(index: int, line: LineProposal, facts: TextFacts) -> list[Missing]:
@@ -248,7 +258,8 @@ def _typed(proposal: RequestProposal, text: str) -> PurchaseRequest | tuple[Faul
     lines = [
         {
             "text": text,  # the buyer's own words, set here and never by the model
-            **line.model_dump(exclude={"exclude_allergens", "pack"}),
+            **line.model_dump(exclude={"exclude_allergens", "pack", "keep_formula"}),
+            **({"keep_formula": True} if line.keep_formula else {}),  # it can only add the check
             "exclude_allergens": tuple(dict.fromkeys(normalise_code(code) for code in line.exclude_allergens)),
             **({} if line.pack is None else {"pack": line.pack}),  # left out, the contract's default applies
         }
@@ -305,7 +316,7 @@ class ModelRequestParser:
             sentence = f"{sentence} {strict_assumed(read.read_as_strict)}"
         return Reading(
             request=read.request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
-            sentence=sentence,
+            sentence=with_notes(sentence, read.request, words),
         )
 
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
@@ -338,7 +349,7 @@ class ModelRequestParser:
         proposal = _proposal(answer)
         if not isinstance(proposal, RequestProposal):
             return proposal
-        faults = _faults(proposal, facts, today, self._keys)
+        faults = _faults(proposal, facts, today, self._keys, text)
         if faults:
             return faults
         self._refuse_what_is_missing(proposal, facts)

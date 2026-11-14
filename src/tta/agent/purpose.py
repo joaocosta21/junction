@@ -10,7 +10,8 @@ as a purpose, after "for", "to", "in" or "into": "cream for whipping", "milk for
 "cream to whip". A product's own name is not a purpose: "whipping cream" and "baking chocolate" say nothing about
 what the buyer will do with it. A negated purpose ("not for baking") is not one. English only: the Finnish and
 Swedish words were not checked with a speaker, so none is in the table.
-Not yet wired into the reading (wave 2): `tta.agent.rules_reader` does not call it.
+Wired into the reading since wave 2: `tta.agent.rules_reader` sets `keep_formula` on the line the words belong
+to, and `tta.agent.notes` writes the sentence.
 """
 
 from __future__ import annotations
@@ -47,15 +48,17 @@ class FormulaUse:
         return FORMULA_MATTERS.format(said=self.said)
 
 
-def formula_use(text: str) -> FormulaUse | None:
-    """The first use the text names as a purpose, or `None` when it names none."""
+def formula_uses(text: str) -> tuple[FormulaUse, ...]:
+    """Every use the text names as a purpose, in the order said."""
     folded = text.casefold()
     found = [(match.start(), use, match.group()) for use, pattern in _PATTERNS for match in pattern.finditer(folded)
              if not _NEGATED.search(folded[:match.start()])]
-    if not found:
-        return None
-    _, use, said = min(found)
-    return FormulaUse(use=use, said=" ".join(said.split()))
+    return tuple(FormulaUse(use=use, said=" ".join(said.split())) for _, use, said in sorted(found))
+
+
+def formula_use(text: str) -> FormulaUse | None:
+    """The first use the text names as a purpose, or `None` when it names none."""
+    return next(iter(formula_uses(text)), None)
 
 
 def formula_matters(text: str) -> bool:

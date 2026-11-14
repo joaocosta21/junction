@@ -39,7 +39,8 @@ from collections.abc import Sequence
 from tta.agent.gemini import ModelUnreachable
 from tta.agent.labels import fallback_sentence, made_on, photo_sentence, rules_sentence
 from tta.agent.model import AnswerSource
-from tta.agent.parser import SAFE_READING, ModelRequestParser
+from tta.agent.notes import notes_of
+from tta.agent.parser import ModelRequestParser
 from tta.agent.recorded import HAND_BUILT_MODEL_ID, LIVE_SOURCE, RECORDED_MODEL_ID, RecordedModel, Recording
 from tta.agent.runner import ModelAgentRunner
 from tta.agent.unread import NotReadByRules, as_question
@@ -90,12 +91,6 @@ def _not_read(missed: SupplierUnavailable, unread: NotReadByRules, *, key_set: b
     if not key_set:
         return as_question(unread)
     return type(missed)(either(missed.detail, unread.why), **missed.extensions)
-
-
-def _safe_reading_note(sentence: str) -> str:
-    """What a reading's sentence says after naming its source: that an allergen rule was read as strict."""
-    at = sentence.find(SAFE_READING)
-    return "" if at < 0 else f" {sentence[at:]}"
 
 
 def _answered_by(reading: Reading) -> str:
@@ -156,7 +151,8 @@ class FallbackParser:
             reading = self._rules.read(text, identity)
         except NotReadByRules as unread:
             raise _not_read(missed, unread, key_set=self._live is not None) from unread
-        sentence = rules_sentence(key_set=self._live is not None) + _safe_reading_note(reading.sentence)
+        # What the sentence says after its source stays: a rule read as strict, the formula, "the usual".
+        sentence = rules_sentence(key_set=self._live is not None) + notes_of(reading)
         return reading.model_copy(update={"sentence": sentence})
 
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
@@ -181,7 +177,7 @@ class FallbackParser:
     def _from_recording(self, text: str, identity: Identity) -> Reading:
         reading = self._recorded.read(text, identity)
         answer = AnswerSource(reading.source, reading.model, reading.recorded_at)
-        sentence = fallback_sentence(answer) + _safe_reading_note(reading.sentence)
+        sentence = fallback_sentence(answer) + notes_of(reading)
         return reading.model_copy(update={"sentence": sentence})
 
 

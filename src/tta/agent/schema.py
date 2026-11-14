@@ -4,7 +4,9 @@ It has the fields of the typed request (`tta.contracts.request`), with two diffe
 from guessing: every field is required and a field the text does not state is `null`, and the fields that are
 not the buyer's to say are left out: the buyer's own words (`text`) are set by the parser, and the standing order
 a request renews (`standing_order_id`) and the recipe ingredient a line stands in for (`stands_in_for`,
-`stands_in_role`) by the gateway (tasks FALLBACK-1, MENU-1). A test compares the fields with the contract.
+`stands_in_role`) by the gateway (tasks FALLBACK-1, MENU-1). `keep_formula` is the reader's to set: the buyer's
+words say what the product is for ("for whipping"), and the parser refuses it when the text names no such use.
+A test compares the fields with the contract, field by field: a new contract field fails it until it is placed.
 
 Only keywords the Gemini documentation lists as enforced are used (structured output, read 14 Nov 2026):
 `type`, `properties`, `required`, `additionalProperties`, `enum`, `format`, `items`, `anyOf`, `description`.
@@ -97,6 +99,12 @@ def _line_schema(keys: tuple[str, ...]) -> JsonDict:
         "required_labels": _strings(
             "Certificate labels the product must carry, only when the text names one (organic, MSC, Fairtrade).",
             LABEL_CODES,
+        ),
+        "keep_formula": _nullable(
+            {"type": "boolean"},
+            "True only when the text says what the product is for and the formula matters for that use (for "
+            "baking, for cakes, for whipping, for a sauce, for a recipe); otherwise null. A product's own name "
+            "(whipping cream) is not a use.",
         ),
     })
 

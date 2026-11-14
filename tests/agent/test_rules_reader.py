@@ -199,7 +199,7 @@ def test_gluten_free_is_both_the_claim_and_the_exclusion_the_text_check_holds(
         ("200 oat drinks by Monday", "plant drink is named with no quantity in digits and unit"),
         ("200 litres of something nice", "line 1 names no product type of the table"),
         ("1000 litres of milk and some cheese", "cheese is named with no quantity"),
-        ("200 litres of a milk substitute by Monday", "a substitute"),
+        ("20 kg of a butter substitute by Monday", "a substitute"),  # a milk substitute is the plant drink
         ("10 kg of sugar-free butter", "excludes something the allergen table does not name"),
         ("1.5 kg of cream cheese", "more than one product type (cheese, cream)"),
         ("200 x 1 l of milk", "a number besides its quantity"),

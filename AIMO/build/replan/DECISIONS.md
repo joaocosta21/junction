@@ -57,6 +57,9 @@ Last updated: Sat 14 Nov, about 19:00.
 | B36 | Valio's token cannot read a customer's people, history or limits (403) | The same line as Valio's view of the log | L4-2b |
 | B37 | Offers and orders are signed by the gateway with a demo key that changes at every start unless `TTA_SIGNING_KEY` is set; every proof says "demo key" and nothing says "signed by Valio" | An honest trust layer without claiming Valio's signature | L4-2b |
 | B38 | A manufacturer's page is shown as evidence only when its variant marks agree with the product (fat percentage, lactose-free, UHT, flavour, pack). The chilled version's page is not shown for the UHT product | A page for a sibling can state different allergens; a false match in front of the person who signs is worse than no page | EV |
+| B39 | A word in a request that is a brand in Valio's catalog ("Arla") is kept as a term the product must carry; any other unknown word before the product is still not asked about | "Arla whipping cream" must not come back as another brand; asking about every adjective would refuse ordinary sentences | L1-3 |
+| B40 | "Cream for whipping" is read as whipping cream with the formula marked as mattering | The use names the product a kitchen means | L1-3 |
+| B41 | "A milk substitute" is read as a plant drink, and the reading says so | It is scenario 2's own sentence | L1-2 |
 
 ## C. Questions for the team (domain)
 
@@ -64,7 +67,7 @@ Last updated: Sat 14 Nov, about 19:00.
 |---|---|---|
 | C1 | Are the formula tolerances right (six nutrients within 15% or 1 g, salt 0.25 g, same fat source)? A biomedical member should sign them and the fat-source word list | As in P10 |
 | C2 | `VEGETARIAN` as a claim a substitute must keep hides a pair Valio itself lists (Arla whipping cream for Valio's, because Arla does not declare it on cream). Keep it in the gate? | Kept |
-| C3 | A brand word before the product ("Arla milk") is dropped silently by the reader. Ask about it, or add a brand field? | Dropped, as before |
+| C3 | (decided, B39) |  |
 | C4 | Savoury flavours (garlic, smoke, herbs, cheese) are read only through the word "flavoured". Extend the list? | Not extended |
 | C5 | With no like-for-like candidate, the last-resort list for a coffee milk includes sour milks. Should another product type never be offered, even as a last resort for a person? | Offered as last resort |
 | C6 | The list of hosts treated as "the manufacturer's page" is ours and unverified: elovena → `elovena.fi`, `raisiofoodsolutions.fi`; oddlygood → `oddlygood.com`; fazer → `fazer.com`; valio → `valio.fi`, `valio.com`; arla → `arla.fi`, `arla.com`; alpro → `alpro.com`. Confirm or correct | Any other host reads "a web page whose owner was not checked" |

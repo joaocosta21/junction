@@ -20,7 +20,13 @@ and read nothing else. Deterministic: no model, no network.
   line is that line's, said elsewhere every line's. Every exclusion is every line's, as the text check holds it.
   An exclusion with no strictness word stays without one: the parser reads it as strict when the profile sets no
   rule either, and says so, as it does for a model.
-- Not read: a substitute ("a milk substitute"), an exclusion of something the allergen table lacks ("no sugar"),
+- A use for which the formula matters ("cream for whipping", "butter for baking": `tta.agent.purpose`) sets
+  `keep_formula` on the line whose part says it; said in a part with no quantity, on the line right before it
+  (the first line when none is before). A product's own name ("whipping cream") and "not for baking" set nothing.
+- "The usual" is never turned into a product or a number (`tta.agent.usual`): with a type and a quantity the line
+  is the plain type, with no quantity or no type it is asked about. "A milk substitute" is the type plant drink.
+- Not read: any other substitute ("a butter substitute"), an exclusion of something the allergen table lacks
+  ("no sugar"),
   two days, a day before today, two preferences, both "strict" and "declared only", and every wording of
   `tta.agent.asking` (a negation, a deadline in days or weeks, an allergen named outside an exclusion, a case,
   a box or a portion).
@@ -45,6 +51,7 @@ from tta.agent.asking import (
 )
 from tta.agent.days import named_dates
 from tta.agent.parts import NOT_A_TERM, Part, Text, part_of, with_lone_product_numbers
+from tta.agent.purpose import formula_matters
 from tta.agent.quantity import quantity
 from tta.agent.textcheck import (
     CONFIRMED,
@@ -54,7 +61,17 @@ from tta.agent.textcheck import (
 )
 from tta.agent.typenames import TypeNames, type_names, types_named
 from tta.agent.unread import RULES_CANNOT_READ, NotReadByRules
-from tta.agent.wording import SUBSTITUTE, Span, claims_in, labels_in, preferences_in, strictness_in
+from tta.agent.usual import says_usual_amount, usual_amount, usual_with_no_product, usual_words, without_usual
+from tta.agent.wording import (
+    MILK_SUBSTITUTE,
+    MILK_SUBSTITUTE_TYPE,
+    SUBSTITUTE,
+    Span,
+    claims_in,
+    labels_in,
+    preferences_in,
+    strictness_in,
+)
 from tta.contracts.common import JsonDict, Unit
 from tta.contracts.request import MAX_REQUEST_LINES
 
@@ -126,6 +143,8 @@ class _Context:
     shared: tuple[Span, ...]  # the parts that speak for every line
     excluded: tuple[str, ...]  # the GS1 codes the text excludes
     strictness: str | None
+    usual: frozenset[int]  # the words that say "the usual"
+    formula: frozenset[int]  # the numbers of the lines for which the words say the formula matters
 
 
 class RuleReader:
@@ -133,15 +152,19 @@ class RuleReader:
 
     def __init__(self, table: Sequence[TypeNames]) -> None:
         self._table = tuple(table)
+        self._reads_milk_substitute = any(entry.key == MILK_SUBSTITUTE_TYPE for entry in self._table)
 
     def proposal(self, text: str, today: date) -> JsonDict:
         seen = Text.of(text, today)
         excluded, excluding = exclusions(seen.words)
-        _refuse_what_is_not_read(seen, excluding)
+        _refuse_what_is_not_read(seen, excluding, milk_substitute=self._reads_milk_substitute)
         parts = with_lone_product_numbers(seen, [part_of(seen, span) for span in seen.parts])
+        usual = usual_words(seen.asked(excluding))
+        if usual and not any(self._named(seen, part, excluding) or part.product_ids for part in parts):
+            raise usual_with_no_product()
         for part in parts:
             if part.quantity is None:
-                self._refuse_a_product_without_quantity(seen, part, excluding)
+                self._refuse_a_product_without_quantity(seen, part, excluding, usual)
         lines = [part for part in parts if part.quantity is not None]
         if not lines:
             raise NotReadByRules(NOTHING_TO_READ, ASK_HOW_MUCH_OF_WHAT)
@@ -149,7 +172,8 @@ class RuleReader:
             raise NotReadByRules(TOO_MANY_LINES.format(most=MAX_REQUEST_LINES),
                                  ASK_FEWER_LINES.format(most=MAX_REQUEST_LINES))
         context = _Context(
-            seen=seen, excluding=excluding, used=_used(seen, excluding),
+            seen=seen, excluding=excluding, used=_used(seen, excluding) | usual, usual=usual,
+            formula=_formula_lines(seen, parts),
             shared=tuple(part.span for part in parts if part.quantity is None), excluded=tuple(sorted(excluded)),
             strictness=next((strictness.value for strictness, _ in strictness_in(seen.folded)), None),
         )
@@ -161,14 +185,24 @@ class RuleReader:
         return {**_request_facts(seen), "lines": read}
 
     def _named(self, seen: Text, part: Part, excluding: frozenset[int]) -> dict[str, frozenset[int]]:
-        """The types the part names, leaving out the words of an exclusion: "no milk" names no milk."""
-        return types_named([(index, seen.words[index]) for index in part.indices if index not in excluding],
-                            self._table)
+        """The types the part names, leaving out the words of an exclusion: "no milk" names no milk. "A milk
+        substitute" names the plant drink, not milk, when the table holds that type."""
+        stand_in = _milk_substitute_words(seen, part) if self._reads_milk_substitute else frozenset()
+        words = [(index, seen.words[index]) for index in part.indices if index not in excluding | stand_in]
+        named = types_named(words, self._table)
+        if not stand_in:
+            return named
+        return {MILK_SUBSTITUTE_TYPE: named.get(MILK_SUBSTITUTE_TYPE, frozenset()) | stand_in,
+                **{key: covered for key, covered in named.items() if key != MILK_SUBSTITUTE_TYPE}}
 
-    def _refuse_a_product_without_quantity(self, seen: Text, part: Part, excluding: frozenset[int]) -> None:
+    def _refuse_a_product_without_quantity(
+        self, seen: Text, part: Part, excluding: frozenset[int], usual: frozenset[int]
+    ) -> None:
         what = next(iter(sorted(self._named(seen, part, excluding))), None) or next(iter(part.product_ids), None)
         if what is not None:
             name = what.replace("_", " ")
+            if usual & set(part.indices) or says_usual_amount(seen.asked(excluding)):
+                raise usual_amount(name)
             raise NotReadByRules(NO_QUANTITY_FOR.format(what=name), ASK_HOW_MUCH.format(what=name))
         if part.other_numbers:  # "200 of them", "Ward 4": a number in a part that gives no quantity
             number = part.other_numbers[0]
@@ -194,6 +228,8 @@ class RuleReader:
             ask = ASK_COFFEE_MILK if set(named) == COFFEE_AND_MILK else ASK_ONE_PRODUCT.format(line=number)
             raise NotReadByRules(TWO_TYPES.format(line=number, types=", ".join(sorted(named))), ask)
         if not named and not part.product_ids:
+            if context.usual & set(part.indices):
+                raise usual_with_no_product()
             raise NotReadByRules(NO_PRODUCT.format(line=number), ASK_WHICH_PRODUCT.format(line=number))
         key, covered = next(iter(named.items()), (None, frozenset[int]()))
         digits, unit = part.quantity or ("", Unit.UNIT)
@@ -210,6 +246,7 @@ class RuleReader:
             "quantity": str(quantity(digits, number)), "unit": unit.value,
             "exclude_allergens": list(context.excluded), "allergen_strictness": context.strictness, "pack": None,
             "required_labels": _said_for(labels_in(folded), part.span, context.shared),
+            "keep_formula": True if number in context.formula else None,
         }
 
 
@@ -223,13 +260,33 @@ def _said_for(found: Sequence[tuple[str, Span]], line: Span, shared: Sequence[Sp
     return list(dict.fromkeys(codes))
 
 
-def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int]) -> None:
-    if SUBSTITUTE.search(seen.folded):
+def _milk_substitute_words(seen: Text, part: Part) -> frozenset[int]:
+    """The words of "milk substitute" or "substitute for milk" in this part."""
+    spans = [match.span() for match in MILK_SUBSTITUTE.finditer(seen.folded)]
+    return frozenset(index for index in part.indices
+                     if any(_within(seen.starts[index], span) for span in spans))
+
+
+def _formula_lines(seen: Text, parts: Sequence[Part]) -> frozenset[int]:
+    """The numbers of the lines the words name a use for ("for whipping"): the line whose part says it; said in a
+    part with no quantity, the line right before it, or the first line when none is before."""
+    marked: set[int] = set()
+    lines_before = 0
+    for part in parts:
+        lines_before += part.quantity is not None
+        if formula_matters(seen.folded[part.span[0]:part.span[1]]):
+            marked.add(max(lines_before, 1))
+    return frozenset(marked)
+
+
+def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int], *, milk_substitute: bool) -> None:
+    other_substitute = MILK_SUBSTITUTE.sub("", seen.folded) if milk_substitute else seen.folded
+    if SUBSTITUTE.search(other_substitute):
         raise NotReadByRules(A_SUBSTITUTE, ASK_WHICH_INSTEAD)
     asked = seen.asked(excluding)
     refuse_negations(asked)
     refuse_an_unread_deadline(asked)
-    refuse_a_changed_amount(asked)
+    refuse_a_changed_amount(without_usual(asked))  # "the same as usual" is not "the same again"
     claimed = {index for _, span in claims_in(seen.folded) for index in seen.indices_in(span)}
     for index in sorted(exclusion_triggers(seen.words) - excluding - claimed):
         following = seen.words[index + 1] if index + 1 < len(seen.words) else ""

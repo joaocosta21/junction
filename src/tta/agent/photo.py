@@ -25,6 +25,7 @@ from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
 from tta.agent.images import checked_image
 from tta.agent.labels import photo_sentence
 from tta.agent.model import AnswerSource, ImageModel, TranscribeCall
+from tta.agent.notes import notes_of
 from tta.agent.prompts import TRANSCRIBE_REQUEST, TRANSCRIBER_INSTRUCTION
 from tta.agent.schema import TRANSCRIPTION_SCHEMA
 from tta.contracts.agent import Reading
@@ -113,4 +114,5 @@ def read_photo(
     reading = read(LINE_BREAK.join(lines), identity)
     transcribed = model.transcription_source(photo.digest)
     by = AnswerSource(reading.source, reading.model, reading.recorded_at)
-    return list(lines), reading.model_copy(update={"sentence": photo_sentence(transcribed, by)})
+    sentence = photo_sentence(transcribed, by) + notes_of(reading)  # a rule read as strict, the formula, the usual
+    return list(lines), reading.model_copy(update={"sentence": sentence})
