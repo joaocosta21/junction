@@ -41,6 +41,9 @@ TO_SINGLE_QUOTES = str.maketrans(dict.fromkeys(DOUBLE_QUOTES, "'"))
 UNICODE_CONTROL_CATEGORIES = "C"  # Cc control, Cf format (bidi overrides, zero width), Cs, Co, Cn
 # What an id, a sales unit, a product type or a claim code looks like. Anything else is shown as quoted text.
 CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,39}")
+# What a claim or label code of Valio Aimo's product file looks like (FREE_FROM_LACTOSE, EU_ORGANIC_FARMING).
+# The supplier reads a required claim or label only in this form: anything else may be the buyer's own words.
+LIST_CODE = re.compile(r"[A-Z0-9][A-Z0-9_]{0,39}")
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
           "November", "December")
@@ -66,6 +69,8 @@ RECHECKED = "Price and availability were checked again and had not changed."
 NOTHING_ORDERED = "Nothing was ordered."
 HUMAN_AT_BUYER = "a human at the buyer"
 FREE_TEXT_PRODUCT = "a product described in free text"
+# `totals.is_ceiling` keeps its name in the contract; what it means is "an estimate" (P9b-booth-answers.md, Q16).
+BY_WEIGHT = "an estimate: sold by weight, Valio Aimo invoices the weight delivered"
 SENTENCE_ENDS = (".", "!", "?")
 
 
@@ -184,14 +189,18 @@ def source_text(source: DataSource | None) -> str:
 def option_text(option: OfferOption) -> str:
     """698 ST of 463380 and 51 ST of 462775 for €1,980.77 net.
 
+    A total that holds a product sold by weight is an estimate, and the sentence says why: Valio Aimo invoices
+    the weight delivered, which can be below or above the weight ordered (Valio's answer of 14 Nov, Q16).
+
     Quantities are in sales units and prices exclude tax (AIMO/policy/LOG-FORMAT.md, rules 4 and 5).
     """
     lines = joined(
         f"{number(line.quantity)} {label(line.sales_unit)} of {label(line.product_id)}" for line in option.lines
     )
-    ceiling = "at most " if option.totals.is_ceiling else ""
+    estimate = "about " if option.totals.is_ceiling else ""
+    weight = f" ({BY_WEIGHT})" if option.totals.is_ceiling else ""
     deposits = ", deposits not included" if option.totals.excludes_deposits else ""
-    return f"{lines} for {ceiling}{money(option.totals.net)} net{deposits}"
+    return f"{lines} for {estimate}{money(option.totals.net)} net{weight}{deposits}"
 
 
 def coverage_text(option: OfferOption) -> str:
@@ -221,22 +230,36 @@ def _wanted(line: RequestLine, with_buyer_words: bool) -> str:
     return quoted(line.text)
 
 
+def code_shaped(codes: Sequence[str]) -> tuple[str, ...]:
+    """The claims or labels that are codes of Valio Aimo's lists; the rest may be the buyer's own words."""
+    return tuple(code for code in codes if LIST_CODE.fullmatch(code))
+
+
+def _required(codes: Sequence[str], with_buyer_words: bool, lead: str, singular: str, plural: str) -> str:
+    """ " with claim FREE_FROM_LACTOSE"; for the supplier, what is not a code is counted and not shown."""
+    shown = list(codes) if with_buyer_words else list(code_shaped(codes))
+    hidden = len(codes) - len(shown)
+    text = f" {lead} {singular if len(shown) == 1 else plural} {joined(label(code) for code in shown)}" if shown else ""
+    if hidden:
+        requirement = count(hidden, "more requirement is", "more requirements are")
+        text += f" ({requirement} in the buyer's own words and {'is' if hidden == 1 else 'are'} not shown)"
+    return text
+
+
 def _request_line(line: RequestLine, with_exclusions: bool) -> str:
     text = f"{amount(line.quantity, line.unit)} of {_wanted(line, with_buyer_words=with_exclusions)}"
-    if not with_exclusions:
-        return text
-    if line.required_claims:
-        claims = joined(label(claim) for claim in line.required_claims)
-        text += f" with {'claim' if len(line.required_claims) == 1 else 'claims'} {claims}"
-    if line.exclude_allergens:
+    text += _required(line.required_claims, with_exclusions, "with", "claim", "claims")
+    text += _required(line.required_labels, with_exclusions, "carrying", "label", "labels")
+    if with_exclusions and line.exclude_allergens:
         strictness = f" ({line.allergen_strictness.value})" if line.allergen_strictness else ""
         text += f", excluding allergens {joined(label(code) for code in line.exclude_allergens)}{strictness}"
     return text
 
 
 def request_text(request: PurchaseRequest, with_exclusions: bool) -> str:
-    """What the typed request asks for. The supplier's version (`with_exclusions=False`) names product ids and
-    product types only: no name term, no claim, no allergen exclusion and none of the buyer's own words."""
+    """What the typed request asks for. The supplier's version (`with_exclusions=False`) names product ids,
+    product types and the claim and label codes asked for: no name term, no allergen exclusion and none of the
+    buyer's own words."""
     text = "; ".join(_request_line(line, with_exclusions) for line in request.lines)
     if request.needed_by is not None:
         text += f", needed by {day(request.needed_by)}"

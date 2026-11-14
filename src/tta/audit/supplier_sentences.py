@@ -1,27 +1,28 @@
-"""Valio Aimo's sentence for each event type: what was asked of its data, what was offered and ordered,
-who the agent was, and whether it acted within its authority or with human approval (SPEC section 9).
+"""Valio Aimo's sentence for each event type: what was asked of its data, what was offered and ordered, who
+the agent was, and how the order was decided (SPEC section 9; package S4 after Valio's answers of 14 Nov).
 
-No sentence here reads a limit value, an allergen exclusion, an approver's name or role, or a note.
-A rule's own sentence is never quoted, because it can carry a limit; a fixed rule that does not come from
-the buyer's limits or exclusions is named with the meaning of SPEC section 7.
+Every rule that fired is named with its reason and outcome, and the products considered and left out are
+listed (`tta.audit.supplier_decisions`). No sentence here reads a limit value, an allergen exclusion, an
+approver's name or id, or a note: a rule's own sentence is never quoted, because it can carry a limit or an
+allergen, and a person is named by role only.
 
 As for the buyer, a sentence states only what its context holds and says what is not recorded.
 """
 
 from __future__ import annotations
 
-from tta.audit.phrases import (
-    HUMAN_AT_BUYER,
-    NOTHING_ORDERED,
-    actor_text,
-    capital,
-    joined,
-    label,
-    option_text,
-    request_text,
+from tta.audit.phrases import NOTHING_ORDERED, actor_text, capital, joined, label, option_text, request_text
+from tta.audit.readers import ROLE_SEPARATOR, supplier_role
+from tta.audit.scope import (
+    Scope,
+    approvals_given,
+    confirmed_by,
+    distinct_rule_ids,
+    option_change,
+    placed_within_authority,
+    rejection,
+    rules_with,
 )
-from tta.audit.readers import SUPPLIER_RULE_MEANINGS, supplier_rule_ids
-from tta.audit.scope import Scope, confirmed_by, option_change, placed_within_authority
 from tta.audit.sentences import (
     BY_THE_AGENT,
     DECISION_BEHIND_NOT_RECORDED,
@@ -36,12 +37,13 @@ from tta.audit.sentences import (
     recorded_note,
 )
 from tta.audit.standing_sentences import supplier_standing_order_created, supplier_standing_order_renewed
+from tta.audit.supplier_decisions import buyers_roles, decision_explained, rules_applied
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DecisionKind, PlacedBy, Verdict
 
 VERDICT_OUTCOMES = {
     Verdict.AUTO: "the agent may place this order within its authority.",
-    Verdict.APPROVAL: f"{HUMAN_AT_BUYER} must approve this order.",
+    Verdict.APPROVAL: "{who} must approve this order.",
     Verdict.BLOCK: "this order cannot be placed.",
 }
 
@@ -50,13 +52,10 @@ def _what(scope: Scope) -> str:
     return f": {option_text(scope.option)}" if scope.option else ""
 
 
-def _fixed_rules(scope: Scope) -> str:
-    """The fixed rules the supplier may see, each with its meaning. Stated as what happened, not as a fault."""
-    visible = supplier_rule_ids(scope.decision.rule_ids) if scope.decision else ()
-    if not visible:
-        return ""
-    named = joined(f"{rule_id} ({SUPPLIER_RULE_MEANINGS[rule_id]})" for rule_id in visible)
-    return f" Fixed {'rule' if len(visible) == 1 else 'rules'} that applied: {named}."
+def _acting_human(actor: Actor) -> str:
+    """The human who acted, by the roles the gateway knows: never by name or id."""
+    role = supplier_role(actor.role) if actor.kind is ActorKind.HUMAN else None
+    return buyers_roles(role.split(ROLE_SEPARATOR) if role else ())
 
 
 def request_received(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -78,10 +77,11 @@ def offer_created(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 
 def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    if scope.decision is None:
+    decision = scope.decision
+    if decision is None:
         return f"The buyer's rules were checked{checked_for(scope)}. {DECISION_NOT_RECORDED}"
-    outcome = VERDICT_OUTCOMES[scope.decision.verdict]
-    return f"The buyer's rules were checked for {scope.option_label}: {outcome}{_fixed_rules(scope)}"
+    outcome = VERDICT_OUTCOMES[decision.verdict].format(who=buyers_roles(decision.required_roles))
+    return f"The buyer's rules were checked for {scope.option_label}: {outcome}{decision_explained(decision)}"
 
 
 def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -98,28 +98,40 @@ def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> 
 
 
 def approval_requested(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    approval, decision = context.approval, scope.decision
+    roles = approval.required_roles if approval else decision.required_roles if decision else ()
     what = f" ({option_text(scope.option)})" if scope.option else ""
     return (
         f"The agent could not place {scope.order_label} alone under the buyer's rules. "
-        f"The order{what} was sent to {HUMAN_AT_BUYER} for approval.{_fixed_rules(scope)}"
+        f"The order{what} was sent to {buyers_roles(roles)} for approval."
+        f"{rules_applied(rules_with(decision, Verdict.APPROVAL))}"
     )
+
+
+def _accepted(scope: Scope) -> str:
+    accepted = distinct_rule_ids(rules_with(scope.decision, Verdict.APPROVAL))
+    if not accepted:
+        return ""
+    ids = joined(label(rule_id) for rule_id in accepted)
+    return f" This approval accepts {'rule' if len(accepted) == 1 else 'rules'} {ids}."
 
 
 def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    who = capital(HUMAN_AT_BUYER)
     decided = context.approval_decision
     if decided is None:
-        return f"{who} decided on {scope.order_label}."
+        return f"{capital(_acting_human(actor))} decided on {scope.order_label}."
+    who = capital(buyers_roles(decided.roles))
     if decided.decision is DecisionKind.REJECT:
         return f"{who} rejected {scope.order_label}."
     change = option_change(context)
-    if change is None:
-        return f"{who} approved {scope.order_label}."
-    described = f" ({option_text(change.chosen)})" if change.chosen else ""
-    return (
-        f"{who} approved {scope.order_label} and chose another option of the same offer: "
-        f"{change.chosen_id}{described}."
-    )
+    chose = ""
+    if change is not None:
+        described = f" ({option_text(change.chosen)})" if change.chosen else ""
+        instead = f" instead of {label(change.previous_id)}" if change.previous_id else ""
+        chose = f" and chose another option of the same offer: {label(change.chosen_id)}{described}{instead}"
+    missing = context.approval.roles_missing if context.approval else ()
+    still = f" The order still needs approval by {buyers_roles(missing)}." if missing else ""
+    return f"{who} approved {scope.order_label}{chose}.{_accepted(scope)}{still}"
 
 
 def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -127,31 +139,36 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if by is PlacedBy.AGENT:
         return confirmed_text(context, scope, BY_THE_AGENT)
     if by is PlacedBy.HUMAN_APPROVAL:
-        return confirmed_text(context, scope, f"with approval by {HUMAN_AT_BUYER}")
+        roles = [role for entry in approvals_given(context) for role in entry.roles]
+        return confirmed_text(context, scope, f"with approval by {buyers_roles(roles)}")
     return confirmed_text(context, scope, None)
 
 
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    return f"{capital(scope.order_label)} was rejected by {HUMAN_AT_BUYER}. {NOTHING_ORDERED}"
+    decided = rejection(context)
+    who = buyers_roles(decided.roles) if decided is not None else _acting_human(actor)
+    return f"{capital(scope.order_label)} was rejected by {who}. {NOTHING_ORDERED}"
 
 
 def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    missing = context.approval.roles_missing if context.approval else ()
     return (
-        f"{capital(scope.order_label)} expired while it waited for approval by {HUMAN_AT_BUYER}. {NOTHING_ORDERED}"
+        f"{capital(scope.order_label)} expired while it waited for approval by {buyers_roles(missing)}. "
+        f"{NOTHING_ORDERED}"
     )
 
 
 def order_blocked(actor: Actor, context: AuditContext, scope: Scope) -> str:
     return (
         f"The buyer's rules blocked the order of {scope.option_of_offer_label}. {NOTHING_ORDERED}"
-        f"{_fixed_rules(scope)}"
+        f"{rules_applied(rules_with(scope.decision, Verdict.BLOCK))}"
     )
 
 
 def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if actor.kind is ActorKind.AGENT:
         return agent_refused(scope)
-    who = capital(HUMAN_AT_BUYER) if actor.kind is ActorKind.HUMAN else actor_text(actor)
+    who = capital(_acting_human(actor)) if actor.kind is ActorKind.HUMAN else actor_text(actor)
     return f"{who} was refused on {scope.approval_label}: this caller may not decide it."
 
 

@@ -7,14 +7,15 @@ What the context carries (`tta.standing.service` writes it):
                              drift_sentence, drift (the report), renewal_id
 
 The buyer reads the drift found, in the words of the report the policy judged, and the outcome. The supplier reads
-that a standing order was set up or renewed and the ids: neither the buyer's name for it nor the drift, whose
-sentence states the buyer's tolerance, a limit (SPEC section 9).
+that a standing order was set up or renewed, the ids and every rule that fired by id, title and outcome (package
+S4): neither the buyer's name for it nor the drift, whose sentence states the buyer's tolerance, a limit.
 """
 
 from __future__ import annotations
 
 from tta.audit.phrases import actor_text, count, ended, label, quoted, request_text, roles_text
 from tta.audit.scope import Scope
+from tta.audit.supplier_decisions import rules_applied
 from tta.contracts.audit import Actor, ActorKind, AuditContext
 from tta.contracts.common import OrderStatus, PlacedBy
 
@@ -91,4 +92,5 @@ def supplier_standing_order_renewed(actor: Actor, context: AuditContext, scope: 
     offer = f" as offer {scope.offer_id}" if scope.offer_id else ""
     order = context.order
     placed = f" Order {order.order_id} is {order.status.value.lower().replace('_', ' ')}." if order else NO_ORDER
-    return f"{who} renewed a standing order{offer}.{placed}"
+    rules = rules_applied(scope.decision.fired) if scope.decision is not None else ""
+    return f"{who} renewed a standing order{offer}.{placed}{rules}"

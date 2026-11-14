@@ -74,6 +74,15 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 | `GET /healthz` → `clock` | `{now, basis, demo_clock_set, recorded_at, sentence}` | "Demo clock: Thursday 12 November 2026 at 14:15 (UTC+02:00), set with TTA_DEMO_CLOCK. Order deadlines are judged against it. We chose it: … The audit trail is stamped with the real time." |
 | Scenario 1 on any page | | 435 L of 1,000 L, €1,083.39, P-01 and P-03; alternative €1,010.00 |
 
+### L3b — Valio's view of the log (no new route or field needed: the shop page prints `events[].sentence`, `rule_ids`, `actor.display_name`)
+- `actor.display_name` for a human in Valio's view: "The buyer's purchasing manager" (was "A human at the buyer"); `actor.role`: `"purchasing_manager"`.
+- `rule_ids` in Valio's view: every rule that fired, e.g. `["P-01","P-03"]` (was `[]`).
+- `policy.evaluated`: "The buyer's rules were checked for option opt_1: the buyer's purchasing manager must approve this order. Rules that applied: P-01, a rule the buyer set (the order is above the spend limit per order; the amount is not shown): approval by the buyer's purchasing manager. … The strictest outcome among the rules that applied decides."
+- `offer.created`: "… 2 products were considered and left out: 1 that cannot be delivered (464440); 1 sold in portion packs, which the request does not ask for (463203)."
+- `approval.decided`: "The buyer's purchasing manager approved order ord_… . This approval accepts rules P-01 and P-03."
+- Facts a page may show for Valio: `facts.decision.rules[] {rule_id, title, fixed, verdict, approver_role, product_id}`, `facts.decision.required_roles`, `facts.offer.left_out[] {product_id, name, request_line_index, reason}`, `facts.offer.excluded_by_reason`.
+- A total with a product sold by weight, both readers: "for about €506.40 net (an estimate: sold by weight, Valio Aimo invoices the weight delivered)".
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

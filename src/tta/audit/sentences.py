@@ -43,6 +43,7 @@ from tta.audit.scope import (
     rules_with,
 )
 from tta.audit.standing_sentences import standing_order_created, standing_order_renewed
+from tta.audit.supplier_decisions import left_out
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DataSource, DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import Offer
@@ -109,18 +110,20 @@ def lookup_performed(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 
 def offer_text(offer: Offer, for_buyer: bool) -> str:
-    """The supplier's version leaves out how many products were excluded and the notes: both can show an exclusion."""
+    """The supplier's version leaves out the notes, which can name an excluded allergen, and ends with the
+    products considered and left out, by reason (`tta.audit.supplier_decisions.left_out`)."""
     start = f"The gateway built offer {offer.offer_id} from {source_text(offer.source)}: "
     candidates = count(offer.candidates_considered, "candidate")
     excluded = f", {count(len(offer.excluded), 'product')} excluded with a reason" if for_buyer else ""
+    dropped = "" if for_buyer else left_out(offer)
     if not offer.options:
         notes = "".join(f" {ended(note)}" for note in offer.notes) if for_buyer else ""
-        return f"{start}no option fits the request; {candidates}{excluded}.{notes}"
+        return f"{start}no option fits the request; {candidates}{excluded}.{notes}{dropped}"
     options = " ".join(
         f"Option {option.rank} ({OPTION_KINDS[option.kind]}): {option_text(option)}, {coverage_text(option)}."
         for option in offer.options
     )
-    return f"{start}{count(len(offer.options), 'option')} from {candidates}{excluded}. {options}"
+    return f"{start}{count(len(offer.options), 'option')} from {candidates}{excluded}. {options}{dropped}"
 
 
 def offer_created(actor: Actor, context: AuditContext, scope: Scope) -> str:

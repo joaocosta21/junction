@@ -140,18 +140,22 @@ def test_a_request_is_described_by_what_it_names() -> None:
     assert phrases.request_text(named, with_exclusions=True) == '30 kg of products named "beef chuck"'
 
 
-def test_name_terms_and_claims_are_the_buyer_s_words_too() -> None:
+def test_name_terms_are_the_buyer_s_words_and_claim_codes_are_read_by_both() -> None:
     named = _request(name_terms=("biscuits", "without", "peanuts"), required_claims=("FREE_FROM_PEANUTS",))
     typed = _request(product_type="biscuits", required_claims=("FREE_FROM_PEANUTS", "VEGAN"))
 
     assert phrases.request_text(named, with_exclusions=True) == (
         '30 kg of products named "biscuits without peanuts" with claim FREE_FROM_PEANUTS'
     )
-    assert phrases.request_text(named, with_exclusions=False) == "30 kg of a product described in free text"
+    assert phrases.request_text(named, with_exclusions=False) == (
+        "30 kg of a product described in free text with claim FREE_FROM_PEANUTS"
+    )
     assert phrases.request_text(typed, with_exclusions=True) == (
         "30 kg of product type biscuits with claims FREE_FROM_PEANUTS and VEGAN"
     )
-    assert phrases.request_text(typed, with_exclusions=False) == "30 kg of product type biscuits"
+    assert phrases.request_text(typed, with_exclusions=False) == (
+        "30 kg of product type biscuits with claims FREE_FROM_PEANUTS and VEGAN"
+    )
 
 
 def test_the_buyer_s_own_words_are_never_in_the_supplier_s_description() -> None:

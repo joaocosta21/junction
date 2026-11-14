@@ -12,10 +12,11 @@ from collections.abc import Sequence
 
 from pydantic_core import to_jsonable_python
 
-from tta.audit.readers import supplier_rule_ids
+from tta.audit.phrases import code_shaped
 from tta.audit.scope import Scope
+from tta.audit.supplier_decisions import decision_facts, left_out_facts
 from tta.contracts.audit import AuditContext
-from tta.contracts.common import ClaimName, Contract, ExclusionReason, JsonDict
+from tta.contracts.common import ClaimName, Contract, JsonDict
 from tta.contracts.offer import Offer, OfferOption
 from tta.contracts.order import Order
 from tta.contracts.request import PurchaseRequest
@@ -34,14 +35,14 @@ ORDER_KEYS = (
 )
 BUYER_ORDER_KEYS = (*ORDER_KEYS, "approval_id", "status_sentence")
 SUPPLIER_REQUEST_KEYS = ("needed_by", "require_confirmed")
-# Product ids and product types only. A name term or a required claim is the buyer's own wording and can
-# reveal an exclusion ("without peanuts"), so neither is listed.
+# Product ids and product types, and the claims and labels asked for where they are codes of Valio Aimo's own
+# lists (`_supplier_request`). A name term is the buyer's own wording ("without peanuts") and is never listed.
 SUPPLIER_REQUEST_LINE_KEYS = ("product_type", "product_ids", "quantity", "unit", "pack")
-SUPPLIER_APPROVAL_KEYS = ("approval_id", "status", "created_at", "valid_until")
-SUPPLIER_APPROVAL_DECISION_KEYS = ("decision", "option_id", "decided_at")
+SUPPLIER_REQUEST_CODE_KEYS = ("required_claims", "required_labels")
+# The roles are shown; the approver's id, name and note are not (`tta.audit.readers`).
+SUPPLIER_APPROVAL_KEYS = ("approval_id", "status", "required_roles", "created_at", "valid_until")
+SUPPLIER_APPROVAL_DECISION_KEYS = ("decision", "roles", "option_id", "decided_at")
 SUPPLIER_EVIDENCE_KEYS = ("product_id", "found")
-# Reasons that exist only because of the buyer's allergen exclusions: never counted for the supplier.
-BUYER_ONLY_EXCLUSION_REASONS = (ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.ALLERGEN_NOT_STATED)
 # Facts a caller may add that describe a lookup in Valio Aimo's own data. Every other caller fact is buyer-only.
 SUPPLIER_CALLER_KEYS = ("products_looked_up", "product_ids", "source", "time_now", "time_basis")
 
@@ -86,15 +87,12 @@ def _option(option: OfferOption | None, for_buyer: bool) -> JsonDict | None:
 def _offer(offer: Offer | None, for_buyer: bool) -> JsonDict | None:
     if offer is None:
         return None
-    reasons = Counter(
-        exclusion.reason.value
-        for exclusion in offer.excluded
-        if for_buyer or exclusion.reason not in BUYER_ONLY_EXCLUSION_REASONS
-    )
+    reasons = Counter(exclusion.reason.value for exclusion in offer.excluded)
     return _present({
         **_pick(_dump(offer), OFFER_KEYS),
         "options": [_option(option, for_buyer) for option in offer.options],
         "excluded_by_reason": dict(sorted(reasons.items())),
+        "left_out": None if for_buyer else left_out_facts(offer),
         "notes": list(offer.notes) if for_buyer else None,
     })
 
@@ -107,11 +105,15 @@ def _order(order: Order | None, for_buyer: bool) -> JsonDict | None:
 
 
 def _supplier_request(request: PurchaseRequest | None) -> JsonDict | None:
-    """What was asked of Valio Aimo's data: no buyer's words, name terms or claims, and no allergen exclusion."""
+    """What was asked of Valio Aimo's data: no buyer's words or name terms, and no allergen exclusion."""
     if request is None:
         return None
     dumped = request.model_dump(mode="json")
-    lines = [_pick(line, SUPPLIER_REQUEST_LINE_KEYS) for line in dumped["lines"]]
+    lines = [
+        {**_pick(line, SUPPLIER_REQUEST_LINE_KEYS),
+         **{key: list(code_shaped(line[key])) for key in SUPPLIER_REQUEST_CODE_KEYS}}
+        for line in dumped["lines"]
+    ]
     return {**_pick(dumped, SUPPLIER_REQUEST_KEYS), "lines": lines}
 
 
@@ -134,14 +136,7 @@ def buyer_facts(context: AuditContext, scope: Scope) -> JsonDict:
 
 def supplier_facts(context: AuditContext, scope: Scope) -> JsonDict:
     """The subset Valio Aimo may see: its own data, what was offered and ordered, and how the order was decided."""
-    decision = scope.decision
-    verdict = None
-    if decision is not None:
-        verdict = {
-            "verdict": decision.verdict.value,
-            "rule_ids": list(supplier_rule_ids(decision.rule_ids)),
-            "evaluated_at": decision.evaluated_at,
-        }
+    verdict = decision_facts(scope.decision) if scope.decision is not None else None
     recorded = _present({
         "request": _supplier_request(context.request),
         "offer": _offer(context.offer, for_buyer=False),

@@ -16,7 +16,8 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 
 LIMIT_VALUES = ("750", "3000", "3,000", "90%", "min_fill_ratio", "max_order_net_eur", "max_daily_net_eur")
 ALLERGEN_EXCLUSIONS = re.compile(r"\b(AM|AW|STRICT)\b|exclude_allergens|excluded_allergens|allergen_strictness")
-APPROVER_DETAILS = ("Maija", "Virtanen", "human:maija", "Weekly volume", "purchasing")
+# The role is shown since S4 (Valio, 14 Nov: "all the steps and decisions"); the name, the id and the note are not.
+APPROVER_DETAILS = ("Maija", "Virtanen", "human:maija", "Weekly volume")
 
 
 def _readable(view: AuditView) -> str:
@@ -61,7 +62,8 @@ def test_the_supplier_sees_what_was_ordered_and_the_statements_it_relied_on(hote
 
     order = confirmed.facts["order"]
     assert confirmed.sentence == (
-        "Order ord_1 is ordered, with approval by a human at the buyer: 1,000 ST of 464306 for €1,010.00 net. "
+        "Order ord_1 is ordered, with approval by the buyer's purchasing manager: "
+        "1,000 ST of 464306 for €1,010.00 net. "
         "Price and availability were checked again and had not changed. "
         "The order is recorded in the gateway's order book."
     )
@@ -75,7 +77,7 @@ def test_the_supplier_sees_what_was_ordered_and_the_statements_it_relied_on(hote
     assert "status_sentence" not in order and "decision" not in order
 
 
-def test_the_supplier_sees_that_a_human_decided_but_not_who(hotel_flow: AuditTrail) -> None:
+def test_the_supplier_sees_which_role_decided_but_not_who(hotel_flow: AuditTrail) -> None:
     buyer = hotel_flow.view(AuditReader.BUYER, order_id="ord_1").events[6]
     supplier = hotel_flow.view(AuditReader.SUPPLIER, order_id="ord_1").events[6]
 
@@ -85,26 +87,31 @@ def test_the_supplier_sees_that_a_human_decided_but_not_who(hotel_flow: AuditTra
     )
     assert supplier.actor.kind is ActorKind.HUMAN
     assert (supplier.actor.id, supplier.actor.role, supplier.actor.display_name) == (
-        "buyer-human", None, "A human at the buyer",
+        "buyer-human", "purchasing_manager", "The buyer's purchasing manager",
     )
     assert supplier.facts["approval_decision"] == {
-        "decision": "APPROVE", "option_id": "opt_2", "decided_at": "2026-11-14T02:52:00+02:00",
+        "decision": "APPROVE", "roles": ["purchasing_manager"], "option_id": "opt_2",
+        "decided_at": "2026-11-14T02:52:00+02:00",
     }
     assert supplier.hash == buyer.hash and supplier.id == buyer.id
 
 
-def test_the_supplier_sees_the_agent_and_only_the_rules_about_its_own_data(hotel_flow: AuditTrail) -> None:
+def test_the_supplier_sees_the_agent_and_every_rule_that_fired(hotel_flow: AuditTrail) -> None:
     buyer = hotel_flow.view(AuditReader.BUYER, order_id="ord_1").events[6]
     supplier = hotel_flow.view(AuditReader.SUPPLIER, order_id="ord_1").events
     requested = supplier[5]
 
     assert buyer.rule_ids == ("F-01", "P-01")
-    assert supplier[6].rule_ids == ("F-01",)
-    assert requested.rule_ids == ()
+    assert supplier[6].rule_ids == buyer.rule_ids
+    assert requested.rule_ids == ("P-01", "P-03")
     assert requested.actor.model_dump(exclude_none=True) == {"kind": ActorKind.AGENT, "id": "agent:hotel-kitchen"}
-    assert supplier[4].facts["decision"] == {
-        "verdict": "APPROVAL", "rule_ids": [], "evaluated_at": "2026-11-14T02:52:00+02:00",
-    }
+    decision = supplier[4].facts["decision"]
+    assert (decision["verdict"], decision["rule_ids"], decision["required_roles"]) == (
+        "APPROVAL", ["P-01", "P-03"], ["purchasing_manager"],
+    )
+    assert [sorted(rule) for rule in decision["rules"]] == [
+        ["approver_role", "fixed", "product_id", "rule_id", "title", "verdict"],
+    ] * 2  # never a rule's sentence or the facts it read: both hold the limit
 
 
 def test_a_supplier_rule_is_explained_without_the_buyer_s_wording(trail: AuditTrail, samples) -> None:
@@ -113,8 +120,10 @@ def test_a_supplier_rule_is_explained_without_the_buyer_s_wording(trail: AuditTr
     trail.record(AuditEventType.POLICY_EVALUATED, samples.gateway, AuditContext(offer_id="off_1", option=option))
 
     assert trail.view(AuditReader.SUPPLIER).events[0].sentence == (
-        "The buyer's rules were checked for option opt_2: a human at the buyer must approve this order. "
-        "Fixed rule that applied: F-01 (a line's quantity is not confirmed)."
+        "The buyer's rules were checked for option opt_2: the buyer's purchasing manager must approve this order. "
+        "Rules that applied: F-01, a fixed rule (rule F-01), on product 464306: approval by the buyer's purchasing "
+        "manager. P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by the buyer's "
+        "purchasing manager. The strictest outcome among the rules that applied decides."
     )
 
 
@@ -191,7 +200,9 @@ def test_a_reader_given_as_text_gets_its_own_view_and_an_unknown_reader_gets_non
         hotel_flow.view("auditor", order_id="ord_1")
 
 
-def test_the_supplier_never_reads_the_buyer_s_own_terms_or_claims(trail: AuditTrail, samples) -> None:
+def test_the_supplier_reads_the_claim_codes_asked_for_and_never_the_buyer_s_own_terms(
+    trail: AuditTrail, samples
+) -> None:
     by_name = RequestLine(text="20 kg of biscuits without peanuts", name_terms=("biscuits", "without", "peanuts"),
                           required_claims=("FREE_FROM_PEANUTS",), quantity=Decimal("20"), unit=Unit.KG)
     by_type = RequestLine(text="5 l of oat drink, gluten free", product_type="oat_drink", product_ids=("468319",),
@@ -205,14 +216,17 @@ def test_the_supplier_never_reads_the_buyer_s_own_terms_or_claims(trail: AuditTr
     supplier = trail.view(AuditReader.SUPPLIER, offer_id="off_3")
 
     assert supplier.events[1].sentence == (
-        "The request was read as: 20 kg of a product described in free text; 5 litres of product 468319."
+        "The request was read as: 20 kg of a product described in free text with claim FREE_FROM_PEANUTS; "
+        "5 litres of product 468319 with claim FREE_FROM_GLUTEN."
     )
     assert supplier.events[1].facts["request"]["lines"] == [
-        {"product_type": None, "product_ids": [], "quantity": 20.0, "unit": "KG", "pack": "BULK"},
-        {"product_type": "oat_drink", "product_ids": ["468319"], "quantity": 5.0, "unit": "L", "pack": "BULK"},
+        {"product_type": None, "product_ids": [], "quantity": 20.0, "unit": "KG", "pack": "BULK",
+         "required_claims": ["FREE_FROM_PEANUTS"], "required_labels": []},
+        {"product_type": "oat_drink", "product_ids": ["468319"], "quantity": 5.0, "unit": "L", "pack": "BULK",
+         "required_claims": ["FREE_FROM_GLUTEN"], "required_labels": []},
     ]
     shown = _readable(supplier)
-    assert [word for word in ("peanut", "PEANUT", "biscuit", "GLUTEN", "gluten", "claim") if word in shown] == []
+    assert [word for word in ("peanuts", "biscuit", "gluten", "name_terms", "without") if word in shown] == []
     assert 'products named "biscuits without peanuts" with claim FREE_FROM_PEANUTS' in buyer.events[1].sentence
     assert buyer.events[1].facts["request"]["lines"][0]["name_terms"] == ["biscuits", "without", "peanuts"]
 
@@ -221,8 +235,10 @@ def test_the_supplier_sees_an_agent_by_id_and_kind_only_and_no_name_of_a_human(h
     actors = [event.actor.model_dump(exclude_none=True) for event in hotel_flow.view(AuditReader.SUPPLIER).events]
 
     assert {"kind": ActorKind.AGENT, "id": "agent:hotel-kitchen"} in actors
-    assert {"kind": ActorKind.HUMAN, "id": "buyer-human", "display_name": "A human at the buyer"} in actors
-    assert [actor for actor in actors if actor.get("role") or "Hotel kitchen agent" in actor.values()] == []
+    assert {"kind": ActorKind.HUMAN, "id": "buyer-human", "role": "purchasing_manager",
+            "display_name": "The buyer's purchasing manager"} in actors
+    assert [actor for actor in actors if "Hotel kitchen agent" in actor.values()] == []
+    assert [actor for actor in actors if actor["kind"] is ActorKind.HUMAN and actor["id"] != "buyer-human"] == []
 
 
 def test_an_event_recorded_with_only_an_id_is_found_by_the_profile_view_when_what_it_names_is_stored(
