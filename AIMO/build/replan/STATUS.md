@@ -17,12 +17,12 @@ Branch: `replan-build`, to be created from `overnight-build`. Outside calls made
 | 1 | L5 | Customers and suggestions: pattern files, loader, the pure functions | B0 | todo |
 | 2 | L2a-2 | Formula on the request, the cheaper same-formula line, pieces converted, claims against allergen data | L2a, L2b, L5 | todo |
 | 2 | L3-2 | Rule F-10 and its settings; the rule for a preference's premium | L2a, L2b | todo |
-| 2 | L4-2 | Suggestions wired, customers loaded at start, the public link's settings, signed offers | L3, L5 | todo |
-| 2 | L1-2 | "Formula matters" and "the usual …" wired into the reading | L5, L2a-2 | todo |
+| 2 | L4-2 | Suggestions wired, customers loaded at start, the public link's settings, signed offers, the Context.dev cap and evidence | L3, L5 | todo |
+| 2 | L1-2 | "Formula matters" and "the usual …" wired into the reading; Gemini's schema and prompt; the reading table | L5, L2a-2 | todo |
 | 3 | E1 | The demo set re-measured at both clocks, end-to-end tests, the demo script | wave 2 | todo |
 | 3 | E2 | Documents made true | E1 | todo |
 | 3 | E3 | Review of the whole diff, at high effort | wave 2 | todo |
-| 4 | X | The "later" list, one at a time | wave 3 | todo |
+| 4 | X | The "later" list, one at a time, with Modal's scheduled witness | wave 3 | todo |
 
 ## Demo figures (measured offline; the orchestrator fills this in)
 
@@ -35,4 +35,5 @@ Branch: `replan-build`, to be created from `overnight-build`. Outside calls made
 | 5. The formula, bakery-café | — | — |
 
 ## Log
+- Sat 14 Nov 16:05 — the baseline now depends on two reviews: `C1-human-approval-branch.md` (Sofia's commit) and `C2-frontend-branch.md` (Gabriela's shop page). Both were still running. The four tech awards have their offline part in L1, L3, L4-2, E2 and wave 4.
 - Sat 14 Nov 15:55 — board written by the planning session. Nothing built yet. The review of `origin/codex/mandatory-human-approval` (file `C1-human-approval-branch.md`) was still running.

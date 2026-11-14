@@ -201,7 +201,7 @@ No clock times: the build runs until it is done.
 
 ## 8. Tech awards
 
-Four entries (`build/replan/P13-tech-awards.md`). The score is against each sponsor's own bar. None is withdrawn; none may delay Tier 0.
+Four entries (`build/replan/P13-tech-awards.md`). The score is against each sponsor's own bar. None is withdrawn; none may delay Tier 0. The build session does the part of each that needs no outside service (`build/replan/RUNBOOK.md`, "The four tech awards"); the rest is João's: Gemini credits and about 15 calls, the redeploy, two Context.dev lookups, the Aiven proof.
 
 | Award | Today | The gap | What we do |
 |---|---|---|---|
