@@ -10,9 +10,17 @@ The order of the gates (AIMO/build/replan/P10-formula.md section 4.4), first dec
 0. The allergen rule. A candidate that fails it is shown with its reason and can never be ordered.
 1. The dietary claims. A candidate that loses one is a last resort (Valio, answer B7): it is held back while
    a candidate that keeps them all can be ordered, and when shown it still goes to a human (rule F-08).
-2. The formula (`tta.offers.formula`): same product in another pack, same brand, other brand, different,
+2. Is it the same kind of product (ours, decided by the team on 14 Nov 2026; `tta.catalog.kinds`)? A candidate
+   of another product type than the original, or a flavoured one for a plain one (and a plain one for a
+   flavoured one), is a last resort like a claim-loser. A pair Valio lists stays when only the type differs,
+   after every candidate of the same type. Another use (made for coffee, for whipping, for cooking) and
+   another flavour of a flavoured product only order the candidates.
+3. The formula (`tta.offers.formula`): same product in another pack, same brand, other brand, different,
    not known. It only orders the candidates; nothing is hidden by it.
-3. Listed by Valio, pack size closest, verification, price.
+4. Listed by Valio, pack size closest, verification, price.
+
+Each candidate carries a `ReplaceCheck`: one sentence that says whether it can replace the original like for
+like, and each reason why not.
 """
 
 from __future__ import annotations
@@ -22,13 +30,14 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from tta.allergens import check_substitute
+from tta.catalog.kinds import flavours_of, is_other_use, is_same_type, product_types_of, uses_of
 from tta.contracts.allergen import SubstituteAllergenCheck
 from tta.contracts.availability import ClaimCheck, PriceLine
 from tta.contracts.common import ExclusionReason, PackPreference
 from tta.contracts.offer import SubstituteCandidate, SubstituteQuery, SubstituteResult
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
-from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, Product
+from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, Product, ReplaceCheck, ReplaceVerdict
 from tta.contracts.request import MAX_PRODUCT_IDS
 from tta.offers.candidates import (
     Candidate,
@@ -44,7 +53,7 @@ from tta.offers.candidates import (
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.formula import compare_formula
-from tta.offers.substitute_wording import gives_up, why
+from tta.offers.substitute_wording import gives_up, replace_reasons, replace_sentence, why
 from tta.offers.wording import counted
 
 # One price call and one availability call hold 1,000 ids (SPEC section 5), the original included.
@@ -107,7 +116,9 @@ class Judged:
     claims_lost: tuple[str, ...]  # dietary claims of the original that this product does not carry
     claims_not_carried: tuple[str, ...]  # every claim of the original it does not carry, dietary or not
     formula: FormulaCheck  # its composition measured against the original's
-    # It loses a dietary claim and is shown only because no candidate that keeps them all can be ordered.
+    replaceable: ReplaceCheck  # same kind of product as the original, or each reason why not
+    # It loses a dietary claim or is another kind of product, and is shown only because no candidate that
+    # keeps every claim and is the same kind can be ordered.
     last_resort: bool = False
 
     @property
@@ -118,6 +129,13 @@ class Judged:
     @property
     def orderable(self) -> bool:
         return self.reason is None
+
+    @property
+    def other_kind(self) -> bool:
+        """Not the same kind of product: flavoured against plain, or another product type that Valio does not
+        list for the original. Such a candidate leaves the list while a like-for-like one can be ordered."""
+        check = self.replaceable
+        return check.plain_against_flavoured or (check.other_type and not self.listed)
 
 
 @dataclass(frozen=True)
@@ -169,7 +187,7 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
     judged = [_judge(product, is_listed, distance, original, need, lookup, deps.catalog)
               for product, is_listed, distance in pool]
     key = _rank_key(original_seen, need)
-    kept, held_back = _hold_back_claim_losers(judged)
+    kept, held_back = _hold_back_last_resorts(judged)
     shown, notes = _shown(kept, key, checked=len(judged))
     return Ranking(
         original=original,
@@ -231,9 +249,52 @@ def _judge(
         reason_sentence=dropped[1] if dropped is not None else "",
         units=units,
         claims=claims_of(candidate, need, units, lookup.now),
-        claims_lost=claims_lost(original, product),
+        claims_lost=(lost := claims_lost(original, product)),
         claims_not_carried=claims_not_carried(original, product),
-        formula=compare_formula(original, product),
+        formula=(formula := compare_formula(original, product)),
+        replaceable=replace_check(original, product, formula, lost, listed=is_listed),
+    )
+
+
+def replace_check(
+    original: Product, other: Product, formula: FormulaCheck, lost: Sequence[str] = (), *, listed: bool = False
+) -> ReplaceCheck:
+    """Can `other` take the original's place like for like? Type, flavour and use are read from the product
+    file (`tta.catalog.kinds`, word lists ours); the formula and the dietary claims lost are given.
+
+    Where the original has no product type of ours, the type is not judged.
+    """
+    original_types, types = product_types_of(original), product_types_of(other)
+    original_flavours, flavours = flavours_of(original), flavours_of(other)
+    original_uses, uses = uses_of(original), uses_of(other)
+    facts = ReplaceCheck(
+        verdict=ReplaceVerdict.REPLACEABLE,
+        original_types=original_types,
+        types=types,
+        other_type=bool(original_types) and not is_same_type(original_types, types),
+        original_flavours=original_flavours,
+        flavours=flavours,
+        plain_against_flavoured=bool(original_flavours) is not bool(flavours),
+        other_flavour=bool(original_flavours) and bool(flavours) and original_flavours != flavours,
+        original_uses=original_uses,
+        uses=uses,
+        other_use=is_other_use(original_uses, uses),
+        sentence="",
+    )
+    reasons = replace_reasons(facts, formula, lost, listed=listed)
+    if reasons:
+        verdict = ReplaceVerdict.NOT_LIKE_FOR_LIKE
+    elif formula.outcome is FormulaOutcome.NOT_KNOWN:
+        verdict = ReplaceVerdict.NOT_SHOWN  # NOT_KNOWN is never read as the same formula
+    else:
+        verdict = ReplaceVerdict.REPLACEABLE
+    same_category = original.category == other.category
+    return facts.model_copy(
+        update={
+            "verdict": verdict,
+            "reasons": reasons,
+            "sentence": replace_sentence(facts, verdict, reasons, same_category=same_category),
+        }
     )
 
 
@@ -261,29 +322,63 @@ def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
     return tuple(claim for claim in claims_not_carried(original, other) if claim in DIETARY_CLAIMS)
 
 
-def _hold_back_claim_losers(judged: Sequence[Judged]) -> tuple[list[Judged], tuple[str, ...]]:
-    """A candidate that loses a dietary claim is a last resort (Valio, answer B7, clarified 14 Nov 2026).
+def _is_last_resort(each: Judged) -> bool:
+    return each.passes and (bool(each.claims_lost) or each.other_kind)
 
-    While at least one candidate that keeps every dietary claim can be ordered, those that lose one leave the
-    list, and a note says how many. The offer reads the same list, so it cannot take one either. When no
-    keeper can be ordered they stay, marked `last_resort`, and rule F-08 still sends them to a human. A
-    candidate that fails the allergen rule is not held back: it is shown with its reason and cannot be ordered.
+
+def _hold_back_last_resorts(judged: Sequence[Judged]) -> tuple[list[Judged], tuple[str, ...]]:
+    """A candidate that loses a dietary claim is a last resort (Valio, answer B7, clarified 14 Nov 2026), and
+    so is one that is another kind of product (`Judged.other_kind`; ours, decided on 14 Nov 2026).
+
+    While at least one candidate that keeps every dietary claim and is the same kind can be ordered, the last
+    resorts leave the list, and a note says how many. The offer reads the same list, so it cannot take one
+    either. When no such candidate can be ordered they stay, marked `last_resort`; rule F-08 sends a
+    claim-loser to a human. A candidate that fails the allergen rule is not held back: it is shown with its
+    reason and cannot be ordered.
     """
-    losers = [each for each in judged if each.passes and each.claims_lost]
-    if not losers:
+    last_resorts = [each for each in judged if _is_last_resort(each)]
+    if not last_resorts:
         return list(judged), ()
+    if not any(each.orderable and not _is_last_resort(each) for each in judged):
+        return [replace(each, last_resort=True) if _is_last_resort(each) else each for each in judged], ()
+    held = {id(each) for each in last_resorts}
+    notes = (*_claim_note(judged), *_other_kind_note(judged))
+    return [each for each in judged if id(each) not in held], notes
+
+
+def _claim_note(judged: Sequence[Judged]) -> tuple[str, ...]:
+    losers = sum(each.passes and bool(each.claims_lost) for each in judged)
+    if not losers:
+        return ()
     keepers = sum(each.orderable and not each.claims_lost for each in judged)
-    if keepers == 0:
-        return [replace(each, last_resort=True) if each.passes and each.claims_lost else each for each in judged], ()
-    held = {id(each) for each in losers}
-    lack = "lacks" if len(losers) == 1 else "lack"
-    are = "is" if len(losers) == 1 else "are"
+    lack = "lacks" if losers == 1 else "lack"
+    are = "is" if losers == 1 else "are"
     keep = "keeps" if keepers == 1 else "keep"
-    note = (
-        f"{counted(len(losers), 'candidate')} that {lack} a dietary claim of the original {are} held back as a "
-        f"last resort: {keepers} that {keep} every dietary claim can be ordered."
+    return (
+        f"{counted(losers, 'candidate')} that {lack} a dietary claim of the original {are} held back as a "
+        f"last resort: {keepers} that {keep} every dietary claim can be ordered.",
     )
-    return [each for each in judged if id(each) not in held], (note,)
+
+
+def _other_kind_note(judged: Sequence[Judged]) -> tuple[str, ...]:
+    """The candidates held back for their kind alone; one that also loses a claim is counted in the claim note."""
+    others = [each for each in judged if each.passes and each.other_kind and not each.claims_lost]
+    if not others:
+        return ()
+    flavour = sum(each.replaceable.plain_against_flavoured for each in others)
+    kind = sum(each.replaceable.other_type and not each.replaceable.plain_against_flavoured for each in others)
+    same = sum(each.orderable and not _is_last_resort(each) for each in judged)
+    why_not = " and ".join(
+        part for part in (
+            f"{flavour} flavoured where the original is not, or the reverse" if flavour else "",
+            f"{kind} of another product type" if kind else "",
+        ) if part
+    )
+    are = "is" if len(others) == 1 else "are"
+    return (
+        f"{counted(len(others), 'candidate')} that {are} not the same kind of product ({why_not}) {are} held "
+        f"back as a last resort: {same} of the same kind can be ordered.",
+    )
 
 
 def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[list[Judged], tuple[str, ...]]:
@@ -302,8 +397,9 @@ def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[l
 
 
 def _rank_key(original: Candidate, need: Need) -> RankKey:
-    """Passes the allergen rules, keeps every dietary claim of the original, formula outcome, listed by Valio,
-    pack size closest to the original, verification status, price difference.
+    """Passes the allergen rules, keeps every dietary claim of the original and is the same kind of product,
+    same product type (only a pair Valio lists can differ here), same use, same flavour, formula outcome,
+    listed by Valio, pack size closest to the original, verification status, price difference.
 
     Losing a dietary claim only orders the candidates that pass the allergen rules; it fails none of them.
     A claim that is not dietary does not order them at all. The formula comes after the dietary claims and
@@ -318,7 +414,10 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         verification = (not each.orderable, unconfirmed, _shortfall(candidate, need))
         return (
             not each.passes,
-            each.passes and bool(each.claims_lost),
+            _is_last_resort(each),
+            each.replaceable.other_type,
+            each.replaceable.other_use,
+            each.replaceable.other_flavour,
             FORMULA_ORDER[each.formula.outcome],
             not each.listed,
             _pack_gap(original.pack, candidate.pack),
@@ -386,4 +485,6 @@ def _candidate(rank: int, judged: Judged, ranking: Ranking) -> SubstituteCandida
         allergen_check=judged.rule,
         unit_net_price=unit_price,
         price_difference=difference,
+        formula=judged.formula,
+        last_resort=judged.last_resort,
     )

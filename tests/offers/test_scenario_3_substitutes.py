@@ -77,15 +77,21 @@ def test_candidates_are_ranked_passing_first_with_a_sentence_each(result: Substi
 def test_the_listed_substitute_that_passes_is_ranked_by_its_formula_like_any_other(
     result: SubstituteResult, by_id: dict[str, SubstituteCandidate]
 ) -> None:
-    # 471690 is listed by Valio and its figures are per 100 g against the original's per 100 ml: the formula
-    # cannot be compared, so it comes after every candidate whose formula can (it was rank 1 while the category
-    # number and the listing decided). A listed pair gets no exemption from the formula.
+    # 471690 is listed by Valio and its figures are per 100 g against the original's per 100 ml. Both are
+    # drinks, so the figures are compared as they stand: fat 1.5 g against 3 g, a different formula. A listed
+    # pair gets no exemption from the formula; it comes first here because every other candidate that passes
+    # also has a different formula, and it is the one Valio lists.
     passing = [candidate.product_id for candidate in result.candidates if candidate.passes]
 
-    assert passing[-1] == PASSES
-    assert "The formula cannot be compared" in by_id[PASSES].gives_up
-    # First: the same brand's barista drinks within tolerance (flavoured ones: the nutrition panel cannot tell).
-    assert passing[:3] == ["472879", "474957", "474724"]
+    assert passing[0] == PASSES
+    assert by_id[PASSES].gives_up.startswith(
+        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g). Compared with "
+    )
+    assert "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml." in by_id[PASSES].gives_up
+    # Before, the first three were the same brand's flavoured barista drinks (pumpkin spice, gingerbread, nutty
+    # vanilla): the nutrition panel cannot tell a flavour. A flavoured drink no longer replaces a plain one.
+    assert not {"472879", "474957", "474724"} & set(by_id)
+    assert any("11 flavoured where the original is not" in note for note in result.notes)
     assert result.original_id == ORIGINAL
     assert result.original_name
     assert result.source is DataSource.REPLAY
@@ -189,5 +195,5 @@ def test_losing_a_claim_does_not_reorder_the_candidates_that_fail_the_allergen_r
     # Claims only order the candidates that pass. Between the two that fail the formula decides: 471881 is the
     # same product in a 0.5 l pack, 464320 another brand that also loses a claim. Neither can be ordered.
     assert by_id["464320"].claims_lost and not by_id["471881"].claims_lost
-    assert failing == ["471881", "464320"]
+    assert failing[:2] == ["471881", "464320"]
     assert not by_id["471881"].orderable and not by_id["464320"].orderable

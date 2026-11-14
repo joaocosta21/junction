@@ -86,6 +86,9 @@ class FormulaCheck(Contract):
     differences: tuple[NutrientDifference, ...] = ()  # every nutrient whose two figures are not equal
     # True: one ingredient list names a vegetable oil or fat and the other does not. None: a list is missing.
     fat_source_differs: bool | None = None
+    # True: one product states its figures per 100 g and the other per 100 ml, and they were compared as they
+    # stand because both are drinks (our rule, `tta.offers.formula`). `basis` is then None.
+    mixed_basis: bool = False
     sentence: str  # for a person: the outcome and the reason, in numbers
 
     @property
@@ -94,6 +97,43 @@ class FormulaCheck(Contract):
         return self.outcome in (
             FormulaOutcome.SAME_PRODUCT_OTHER_PACK, FormulaOutcome.SAME_BRAND, FormulaOutcome.OTHER_BRAND
         )
+
+
+class ReplaceVerdict(StrEnum):
+    """Can one product take another's place in a kitchen? The reading and its word lists are ours."""
+
+    REPLACEABLE = "REPLACEABLE"  # same type, same use, same flavour, same formula within tolerance, no claim lost
+    NOT_SHOWN = "NOT_SHOWN"  # nothing the data shows speaks against it, but the formula cannot be compared
+    NOT_LIKE_FOR_LIKE = "NOT_LIKE_FOR_LIKE"  # at least one reason against it; `reasons` names each
+
+
+class ReplaceCheck(Contract):
+    """One candidate measured against the product it would replace (`tta.offers.substitutes`).
+
+    Types are keys of `product_types.yaml`; flavours and uses are read from the product names
+    (`tta.catalog.kinds`). An empty tuple means the table or the names say nothing, not that nothing is so.
+    """
+
+    verdict: ReplaceVerdict
+    original_types: tuple[str, ...] = ()
+    types: tuple[str, ...] = ()
+    other_type: bool = False  # the original has a product type and the candidate is not of it
+    original_flavours: tuple[str, ...] = ()
+    flavours: tuple[str, ...] = ()
+    # One of the two is flavoured and the other is not: the candidate leaves the list (a last resort).
+    plain_against_flavoured: bool = False
+    other_flavour: bool = False  # both are flavoured, with different flavours: said and ranked later, not left out
+    original_uses: tuple[str, ...] = ()
+    uses: tuple[str, ...] = ()
+    other_use: bool = False  # the names say different uses (made for coffee, for whipping, for cooking)
+    reasons: tuple[str, ...] = ()  # why it is not like-for-like, each in plain words; empty when replaceable
+    sentence: str  # for a person: "Replaceable: ..." or "Not a like-for-like replacement: ..."
+
+    @property
+    def leaves_the_list(self) -> bool:
+        """Held back while a like-for-like candidate can be ordered: another type (unless Valio lists the
+        pair, which the ranking decides), or flavoured against plain."""
+        return self.other_type or self.plain_against_flavoured
 
 
 class Product(Contract):

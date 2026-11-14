@@ -13,6 +13,13 @@ an ingredient text. Two products have the same formula when all of this holds:
 from the other figures and is the noisiest field. The panel does not show protein type, heat treatment or
 stabiliser dose, so the wording is "the data shows no difference", never "identical". Missing data is
 `NOT_KNOWN` and never read as the same (Valio, V5: not sure means ask).
+
+**Per 100 g against per 100 ml (our rule, decided by the team on 14 Nov 2026).** For a drink the two are read
+as they stand: a litre of milk weighs 1.03 kg, so a figure per 100 ml is about 3% above the same figure per
+100 g, well inside the tolerance. A product is a drink when its file says a litre of it weighs between 0.97
+and 1.06 kg, or, where the file states no weight for a volume, when its product type is one of the drink
+types (`tta.catalog.kinds.drink_evidence`). For anything else grams are never read as millilitres: the
+outcome stays `NOT_KNOWN`.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import re
 from decimal import Decimal
 
 from tta.availability.wording import format_amount
+from tta.catalog.kinds import drink_evidence
 from tta.contracts.product import (
     FormulaCheck,
     FormulaOutcome,
@@ -56,9 +64,19 @@ _VEGETABLE_FAT = re.compile(
     r"|\bolive oil|kasviöljy|kasvirasva|\brapsi|\brypsi|palmuöljy|palmurasva|kookos|auringonkukka|oliiviöljy",
     re.IGNORECASE,
 )
+# A lecithin is an emulsifier, a fraction of a gram, and not a fat source: "emulsifier (rapeseed lecitin)" in a
+# milk powder (465028), "sunflower lecithin" in a chocolate. Taken out before the search. Ours.
+_LECITHIN = re.compile(
+    r"(?:rape ?seed|sunflower|rapsi|rypsi|auringonkukka)[ -]?le[cs]it\w+"
+    r"|le[cs]it\w+ \((?:from )?(?:rape ?seed|sunflower|rapsi|rypsi|auringonkukka)\w*\)?",
+    re.IGNORECASE,
+)
 _TOLERANCE_WORDS = (
     f"our tolerance of {format_amount(RELATIVE_TOLERANCE * 100)}% or {format_amount(ABSOLUTE_TOLERANCE_G)} g per "
     f"nutrient (salt {format_amount(SALT_TOLERANCE_G)} g)"
+)
+_MIXED_BASIS = (
+    "Figures per 100 g compared with per 100 ml as they stand: for a drink the two are about 3% apart (our rule)."
 )
 _CANNOT = "The formula cannot be compared:"
 _NAMES_FAT = "Its ingredient list names a vegetable oil or fat; the original's does not."
@@ -67,37 +85,56 @@ _NAMES_NO_FAT = "The original's ingredient list names a vegetable oil or fat; th
 
 def compare_formula(original: Product, other: Product) -> FormulaCheck:
     """The formula of `other` measured against `original`'s: the outcome, the differences, and a sentence."""
-    unknown = _not_comparable(original.nutrition, other.nutrition)
+    mixed = _mixed_basis_of_two_drinks(original, other)
+    unknown = _not_comparable(original.nutrition, other.nutrition, mixed)
     if unknown is not None:
         return FormulaCheck(outcome=FormulaOutcome.NOT_KNOWN, sentence=f"{_CANNOT} {unknown}")
     assert original.nutrition is not None and other.nutrition is not None  # noqa: S101 - narrowed just above
-    basis = original.nutrition.basis
+    basis = None if mixed else original.nutrition.basis
+    per = _per(original.nutrition, other.nutrition)
+    note = f" {_MIXED_BASIS}" if mixed else ""
     differences = _differences(original.nutrition, other.nutrition)
     outside = tuple(each for each in differences if not each.within_tolerance)
     fat_source_differs = _fat_source_differs(original, other)
     if outside or fat_source_differs:
         return FormulaCheck(
-            outcome=FormulaOutcome.DIFFERENT, basis=basis, differences=differences,
-            fat_source_differs=fat_source_differs, sentence=_different_sentence(outside, basis, original, other),
+            outcome=FormulaOutcome.DIFFERENT, basis=basis, differences=differences, mixed_basis=mixed,
+            fat_source_differs=fat_source_differs,
+            sentence=f"{_different_sentence(outside, per, original, other)}{note}",
         )
     if fat_source_differs is None:
         whose = "this product's" if not other.key_ingredients else "the original's"
         return FormulaCheck(
-            outcome=FormulaOutcome.NOT_KNOWN, basis=basis, differences=differences,
-            sentence=f"{_CANNOT} the nutrition figures agree, but {whose} ingredient list is missing.",
+            outcome=FormulaOutcome.NOT_KNOWN, basis=basis, differences=differences, mixed_basis=mixed,
+            sentence=f"{_CANNOT} the nutrition figures agree, but {whose} ingredient list is missing.{note}",
         )
     return FormulaCheck(
-        outcome=_kept_outcome(original, other, differences), basis=basis, differences=differences,
-        fat_source_differs=False, sentence=_kept_sentence(original, other, differences, basis),
+        outcome=_kept_outcome(original, other, differences, mixed), basis=basis, differences=differences,
+        mixed_basis=mixed, fat_source_differs=False,
+        sentence=f"{_kept_sentence(original, other, differences, per, mixed)}{note}",
     )
+
+
+def _mixed_basis_of_two_drinks(original: Product, other: Product) -> bool:
+    """One states its figures per 100 g, the other per 100 ml, and both are drinks: compared as they stand."""
+    if original.nutrition is None or other.nutrition is None or original.nutrition.basis is other.nutrition.basis:
+        return False
+    return drink_evidence(original) is not None and drink_evidence(other) is not None
+
+
+def _per(original: Nutrition, other: Nutrition) -> str:
+    """ "per 100 g", or "per 100 g against per 100 ml" (this product's against the original's) when they differ."""
+    if original.basis is other.basis:
+        return _BASIS_WORDS[original.basis]
+    return f"{_BASIS_WORDS[other.basis]} against {_BASIS_WORDS[original.basis]}"
 
 
 def names_vegetable_fat(ingredients: str) -> bool:
     """Whether an ingredient list names a vegetable oil or fat. The text is data and is only searched."""
-    return _VEGETABLE_FAT.search(ingredients) is not None
+    return _VEGETABLE_FAT.search(_LECITHIN.sub(" ", ingredients)) is not None
 
 
-def _not_comparable(original: Nutrition | None, other: Nutrition | None) -> str | None:
+def _not_comparable(original: Nutrition | None, other: Nutrition | None, mixed: bool = False) -> str | None:
     """Why the figures cannot be compared, as the end of a sentence; `None` when they can."""
     for nutrition, whose in ((original, "the product asked for"), (other, "this product")):
         if nutrition is None:
@@ -106,10 +143,10 @@ def _not_comparable(original: Nutrition | None, other: Nutrition | None) -> str 
         if missing:
             return f"{whose} states no figure for {', '.join(missing)} per 100 g or ml."
     assert original is not None and other is not None  # noqa: S101 - both were checked in the loop
-    if original.basis is not other.basis:
+    if original.basis is not other.basis and not mixed:
         ours, theirs = _BASIS_WORDS[original.basis], _BASIS_WORDS[other.basis]
-        # Grams are never converted to millilitres: the density is not in the data. The figures that stand
-        # furthest apart are still said as they are stated, so a person can judge.
+        # Not two drinks: grams are never read as millilitres. The figures that stand furthest apart are
+        # still said as they are stated, so a person can judge.
         apart = [each for each in _differences(original, other) if not each.within_tolerance]
         stated = "; ".join(
             f"{_WORDS[each.nutrient]} {_grams(each.other)} {theirs}, not {_grams(each.original)} {ours}"
@@ -144,27 +181,37 @@ def _fat_source_differs(original: Product, other: Product) -> bool | None:
     return names_vegetable_fat(original.key_ingredients) is not names_vegetable_fat(other.key_ingredients)
 
 
-def _kept_outcome(original: Product, other: Product, differences: tuple[NutrientDifference, ...]) -> FormulaOutcome:
+def _kept_outcome(
+    original: Product, other: Product, differences: tuple[NutrientDifference, ...], mixed: bool = False
+) -> FormulaOutcome:
     same_brand = bool(original.brand) and original.brand == other.brand
     if not same_brand:
         return FormulaOutcome.OTHER_BRAND  # a brand that is not stated is never read as the same brand
-    return FormulaOutcome.SAME_BRAND if differences else FormulaOutcome.SAME_PRODUCT_OTHER_PACK
+    # Equal figures on two bases are about 3% apart, so they are never read as the same product.
+    return FormulaOutcome.SAME_BRAND if differences or mixed else FormulaOutcome.SAME_PRODUCT_OTHER_PACK
 
 
 def _kept_sentence(
-    original: Product, other: Product, differences: tuple[NutrientDifference, ...], basis: NutritionBasis
+    original: Product, other: Product, differences: tuple[NutrientDifference, ...], per: str, mixed: bool = False
 ) -> str:
     if differences:
         figures = "; ".join(
             f"{_WORDS[each.nutrient]} {_grams(each.other)} against {_grams(each.original)}" for each in differences
         )
-        return f"Same formula within {_TOLERANCE_WORDS}: {figures} {_BASIS_WORDS[basis]}."
+        return f"Same formula within {_TOLERANCE_WORDS}: {figures}{_per_words(per, mixed)}."
+    if mixed:
+        return f"Same formula within {_TOLERANCE_WORDS}: the six nutrition figures are equal as stated, {per}."
     brand = "same brand, and " if original.brand and original.brand == other.brand else ""
-    return f"The data shows no difference in formula: {brand}the six nutrition figures {_BASIS_WORDS[basis]} are equal."
+    return f"The data shows no difference in formula: {brand}the six nutrition figures {per} are equal."
+
+
+def _per_words(per: str, mixed: bool) -> str:
+    """The basis at the end of a list of figures: " per 100 g", or ", per 100 g against per 100 ml"."""
+    return f", {per}" if mixed else f" {per}"
 
 
 def _different_sentence(
-    outside: tuple[NutrientDifference, ...], basis: NutritionBasis, original: Product, other: Product
+    outside: tuple[NutrientDifference, ...], per: str, original: Product, other: Product
 ) -> str:
     fat_source = ""
     if _fat_source_differs(original, other):
@@ -174,7 +221,7 @@ def _different_sentence(
     figures = "; ".join(
         f"{_WORDS[each.nutrient]} {_grams(each.other)}, not {_grams(each.original)}" for each in outside
     )
-    return f"Different formula: {figures} {_BASIS_WORDS[basis]}.{fat_source}"
+    return f"Different formula: {figures}{_per_words(per, ' against ' in per)}.{fat_source}"
 
 
 def _grams(value: Decimal) -> str:

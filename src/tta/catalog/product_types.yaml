@@ -75,12 +75,6 @@ cream:
     2 products of the category that are not cream: a layered quark (473205) and a protein mousse
     (473461). 42 stay.
 
-vegetable_cream: 4 say "vegetable" in the English name and "kasvirasva" (vegetable fat) in
-    the Finnish one (462703, 463254, 463299, 463975), 2 say "cooking cream alternative" (469160,
-    469162), and 3 are Rama Professional (467142, 467173, 467297), whose Finnish ingredient lists
-    name vegetable oils or fats (their English lists read "-"). Of the 44 that stay, 1 is a quark
-    (473205) and 1 a protein mousse (473461) filed in the category.
-
 vegetable_cream:
   categories: ["10401"]
   name_terms: ["vegetable", "kasvirasva", "alternative", "rama professional"]

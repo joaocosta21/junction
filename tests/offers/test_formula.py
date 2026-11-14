@@ -8,7 +8,8 @@ from decimal import Decimal
 import pytest
 
 from tta.catalog import ProductCatalog
-from tta.contracts.product import FormulaCheck, FormulaOutcome, Nutrition, NutritionBasis, Product
+from tta.catalog.kinds import drink_evidence
+from tta.contracts.product import FormulaCheck, FormulaOutcome, Nutrition, NutritionBasis, Product, UnitConversion
 from tta.offers.formula import (
     ABSOLUTE_TOLERANCE_G,
     RELATIVE_TOLERANCE,
@@ -31,13 +32,13 @@ def check(catalog: ProductCatalog):  # noqa: ANN201
     return run
 
 
-def _product(product_id: str = "1", brand: str | None = "Valio", ingredients: str | None = "CREAM", **figures: str
-             ) -> Product:
+def _product(product_id: str = "1", brand: str | None = "Valio", ingredients: str | None = "CREAM",
+             category: str = "10401", **figures: str) -> Product:
     six = {"fat": "36", "saturated_fat": "23", "protein": "2.2", "carbohydrate": "2.9", "sugars": "2.9", "salt": "0.06"}
     basis = figures.pop("basis", "G")
     values = {name: Decimal(value) for name, value in {**six, **figures}.items() if value is not None}
     return Product(
-        id=product_id, category="10401", sales_unit="ST", base_unit="ST", allowed_lot_size=Decimal(1), brand=brand,
+        id=product_id, category=category, sales_unit="ST", base_unit="ST", allowed_lot_size=Decimal(1), brand=brand,
         key_ingredients=ingredients, nutrition=Nutrition(basis=NutritionBasis(basis), **values),
     )
 
@@ -60,12 +61,13 @@ def test_the_tolerances_are_named_values() -> None:
         ("464727", "465193", OTHER),  # Arla whipping cream against Valio food service whipping cream: cheaper
         ("464194", "464249", DIFFERENT),  # whipping 38 against cooking 15, same brand
         ("469549", "469556", DIFFERENT),  # semi skimmed 1.5 against whole 3.5: the floor stays under 1.5 g
-        ("464194", "467142", NOT_KNOWN),  # Rama Professional Whipping 30%: per 100 ml against per 100 g
+        ("464194", "467142", DIFFERENT),  # Rama Professional Whipping 30%, per 100 ml: two creams, so compared
         ("464249", "469162", DIFFERENT),  # cooking cream 15% against the vegetable-oil alternative 15%
         ("464411", "476849", DIFFERENT),  # butter against a butter and rapeseed-oil blend
         ("464411", "475797", DIFFERENT),  # unsalted butter 0.02 against salted 1.4
         ("473609", "468465", DIFFERENT),  # barista oat drink 3.0 against the plain one 1.0
-        ("473609", "471690", NOT_KNOWN),  # listed by Valio, fat 1.5 against 3.0: per 100 g against per 100 ml
+        ("473609", "471690", DIFFERENT),  # listed by Valio, fat 1.5 against 3.0: two drinks, so compared
+        ("469288", "470341", NOT_KNOWN),  # listed by Valio, per 100 ml against per 100 g, and not read as drinks
         ("464249", "463797", DIFFERENT),  # listed by Valio: fat 10, not 15
         ("469346", "463975", DIFFERENT),  # Arla Pro whipping cream 36 against the 15% vegetable mix
     ],
@@ -76,15 +78,62 @@ def test_the_examples_of_the_proposal(check, original: str, other: str, outcome:
     assert found.outcome is outcome, found.sentence
 
 
-def test_figures_per_100_g_are_never_compared_with_figures_per_100_ml(check) -> None:  # noqa: ANN001
-    found = check("473609", "471690")  # scenario 3: Barista oat drink and its listed substitute
+def test_for_two_drinks_figures_per_100_g_are_compared_with_figures_per_100_ml_and_the_sentence_says_so(
+    check,  # noqa: ANN001
+) -> None:
+    # Before: NOT_KNOWN, "The formula cannot be compared: ... As stated: fat 1.5 g per 100 g, not 3 g per 100 ml."
+    found = check("473609", "471690")  # scenario 3: Barista oat drink and its listed substitute, both plant drinks
+
+    assert found.outcome is DIFFERENT
+    assert found.mixed_basis is True
+    assert found.basis is None  # there is no one basis to name
+    assert found.sentence == (
+        "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml. Figures per 100 g compared with "
+        "per 100 ml as they stand: for a drink the two are about 3% apart (our rule)."
+    )
+    assert [each.nutrient for each in found.differences if not each.within_tolerance] == ["fat"]
+
+
+def test_for_anything_that_is_not_a_drink_grams_are_never_read_as_millilitres(check) -> None:  # noqa: ANN001
+    # 465655 is a juice concentrate (1+7): no product type of ours, and its file states no weight for a volume.
+    found = check("465655", "465623")
 
     assert found.outcome is NOT_KNOWN
-    assert found.sentence == (
+    assert found.mixed_basis is False
+    assert found.sentence.startswith(
         "The formula cannot be compared: the figures of the product asked for are per 100 ml and this product's "
-        "are per 100 g. As stated: fat 1.5 g per 100 g, not 3 g per 100 ml."
+        "are per 100 g. As stated: fat 0.1 g per 100 g, not 4 g per 100 ml;"
     )
     assert found.differences == ()  # no difference is claimed across two bases
+
+
+def test_two_drinks_on_two_bases_within_tolerance_keep_the_formula_and_are_never_the_same_product() -> None:
+    per_g = _product()  # category 10401 with no name: product type cream, read as a drink
+    equal = compare_formula(per_g, _product("2", basis="ML"))
+    close = compare_formula(per_g, _product("2", basis="ML", fat="35"))
+    other_brand = compare_formula(per_g, _product("2", basis="ML", brand="Arla"))
+
+    assert [each.outcome for each in (equal, close, other_brand)] == [BRAND, BRAND, OTHER]
+    assert all(each.mixed_basis and each.keeps_formula for each in (equal, close, other_brand))
+    assert equal.sentence == (
+        "Same formula within our tolerance of 15% or 1 g per nutrient (salt 0.25 g): the six nutrition figures "
+        "are equal as stated, per 100 ml against per 100 g. Figures per 100 g compared with per 100 ml as they "
+        "stand: for a drink the two are about 3% apart (our rule)."
+    )
+    assert "fat 35 g against 36 g, per 100 ml against per 100 g." in close.sentence
+
+
+def test_a_drink_is_read_from_the_weight_of_a_litre_and_else_from_the_product_type(catalog: ProductCatalog) -> None:
+    oil = _product(category="10531").model_copy(  # an olive oil: 0.92 kg per litre in its file
+        update={"unit_conversions": (UnitConversion(
+            packaging_type="BASE_UNIT_OR_EACH", volume_l=Decimal(1), net_weight_kg=Decimal("0.92")),)}
+    )
+
+    assert drink_evidence(catalog.get_product("473609")) == "one litre weighs about a kilogram in the product data"
+    assert drink_evidence(catalog.get_product("471690")) == "product type plant drink"  # no weight for a volume
+    assert drink_evidence(catalog.get_product("469148")) is None  # milk powder
+    assert drink_evidence(oil) is None
+    assert compare_formula(oil, _product("2", basis="ML", category="10531")).outcome is NOT_KNOWN
 
 
 def test_a_different_formula_is_said_in_numbers(check) -> None:  # noqa: ANN001
@@ -158,14 +207,14 @@ def test_another_brand_or_a_brand_that_is_not_stated_is_never_the_same_brand() -
 
 
 def test_missing_data_is_not_known_and_never_the_same(catalog: ProductCatalog) -> None:
-    original = _product()
+    original = _product(category="10500")  # butter: not a drink
     no_figures = original.model_copy(update={"id": "2", "nutrition": None})
 
     missing = compare_formula(original, no_figures)
-    partial = compare_formula(original, _product("2", salt=None))
-    per_ml = compare_formula(original, _product("2", basis="ML"))
-    no_list = compare_formula(original, _product("2", ingredients=None))
-    far_and_no_list = compare_formula(original, _product("2", fat="15", ingredients=None))
+    partial = compare_formula(original, _product("2", salt=None, category="10500"))
+    per_ml = compare_formula(original, _product("2", basis="ML", category="10500"))
+    no_list = compare_formula(original, _product("2", ingredients=None, category="10500"))
+    far_and_no_list = compare_formula(original, _product("2", fat="15", ingredients=None, category="10500"))
 
     assert [each.outcome for each in (missing, partial, per_ml, no_list)] == [NOT_KNOWN] * 4
     assert not any(each.keeps_formula for each in (missing, partial, per_ml, no_list))
@@ -193,6 +242,12 @@ def test_missing_data_is_not_known_and_never_the_same(catalog: ProductCatalog) -
         ("water, OAT, sunflower oil", True),
         ("Water, OATS 10%, rape seed oil, acidity regulator", True),  # 464320 Oatly iKaffe spells it in two words
         ("KERMA, stabilointiaine (karrageeni)", False),
+        # A lecithin is an emulsifier, not a fat source. Before: 465028, a skimmed milk powder, read as
+        # "another fat source" against the same powder in a 20 kg bag.
+        ("skimmed MILK, emulsifier (rapeseed lecitin), vitamin D.", False),
+        ("sugar, cocoa butter, whole MILK powder, emulsifier (sunflower lecithin)", False),
+        ("rasvaton MAITO, emulgointiaine (auringonkukkalesitiini)", False),
+        ("MILK, rapeseed oil, emulsifier (sunflower lecithin)", True),  # the oil still counts
     ],
 )
 def test_the_fat_source_words_in_english_and_finnish(text: str, names: bool) -> None:
@@ -201,7 +256,8 @@ def test_the_fat_source_words_in_english_and_finnish(text: str, names: bool) -> 
 
 def test_listed_by_valio_does_not_mean_the_same_formula(catalog: ProductCatalog) -> None:
     # Whole catalog: the pairs Valio lists (a product that lists itself left out), by outcome. Our measure.
-    # The proposal's draft counted 34 / 71 / 77 for the last three: it compared per 100 g with per 100 ml.
+    # Of the 5 listed pairs on two bases only 473609 and 471690 are two drinks: that pair moved from NOT_KNOWN
+    # to DIFFERENT (before: 67 and 82). The other 4 stay NOT_KNOWN.
     outcomes = [
         compare_formula(product, catalog.get_product(other)).outcome
         for product in catalog.products
@@ -210,5 +266,5 @@ def test_listed_by_valio_does_not_mean_the_same_formula(catalog: ProductCatalog)
 
     assert len(outcomes) == 249
     assert {outcome: outcomes.count(outcome) for outcome in FormulaOutcome} == {
-        SAME: 41, BRAND: 26, OTHER: 33, DIFFERENT: 67, NOT_KNOWN: 82,
+        SAME: 41, BRAND: 26, OTHER: 33, DIFFERENT: 68, NOT_KNOWN: 81,
     }

@@ -49,8 +49,10 @@ def test_candidates_that_keep_the_formula_come_before_those_that_do_not(
     assert {0, 1, 3} <= set(order)  # same product in another pack, same brand, different
     assert ids[0] == "463837"  # the same cream in 2 dl
     # Before: the 15% vegetable-oil alternative was rank 2 and the 15% cooking cream rank 3, ahead of every
-    # other whipping cream. Now every whipping cream that keeps the formula comes first.
-    assert ids.index("465193") < ids.index(COOKING_ALTERNATIVE)
+    # other whipping cream. Now every whipping cream that keeps the formula comes first, and the alternative
+    # is product type vegetable_cream, not cream: it is held back while a cream can be ordered.
+    assert COOKING_ALTERNATIVE not in ids
+    assert ids.index("465193") < ids.index(COOKING_CREAM)
     assert ids.index("464699") < ids.index(COOKING_CREAM)
 
 
@@ -61,12 +63,11 @@ def test_what_is_given_up_is_said_in_numbers(service: OfferService, agent_hotel:
     # Before, this sentence in full: "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list
     # it as a substitute; Valio does not confirm the quantity in stock."
     assert by_id[COOKING_CREAM].gives_up == (
+        "Not a like-for-like replacement: made for cooking; the product asked for is made for whipping; a "
+        "different formula (fat 15 g, not 38 g, saturated fat 8.8 g, not 22 g, carbohydrate 5.3 g, not 2.8 g). "
         "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list it as a substitute; Valio "
         "does not confirm the quantity in stock. Different formula: fat 15 g, not 38 g; saturated fat 8.8 g, not "
         "22 g; carbohydrate 5.3 g, not 2.8 g per 100 g."
-    )
-    assert "Its ingredient list names a vegetable oil or fat; the original's does not." in (
-        by_id[COOKING_ALTERNATIVE].gives_up
     )
     assert by_id["463837"].gives_up.endswith(
         "The data shows no difference in formula: same brand, and the six nutrition figures per 100 g are equal."
@@ -89,6 +90,7 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
     # The 52 L that are missing are filled with another whipping cream that keeps the formula, and it says so.
     assert (stand_in.product_id, stand_in.quantity) == (VALIO_WHIPPING, 52)
     assert stand_in.substitute.gives_up == (
+        "Replaceable: same type, same use, not flavoured, same formula within tolerance. "
         "Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; Valio does "
         "not list it as a substitute; Valio does not confirm the quantity in stock. Same formula within our "
         "tolerance of 15% or 1 g per nutrient (salt 0.25 g): fat 38 g against 36 g; saturated fat 22 g against "
@@ -134,7 +136,8 @@ def test_every_judged_candidate_carries_its_formula_check(
     ranking = rank_substitutes(catalog.get_product(ARLA_PRO_WHIPPING), need, replay_deps)
 
     by_id = {judged.candidate.product.id: judged for judged in ranking.ranked}
-    assert by_id[VEGETABLE_MIX].formula.outcome is FormulaOutcome.DIFFERENT
+    assert VEGETABLE_MIX not in by_id  # product type vegetable_cream: held back while a cream can be ordered
+    assert all(judged.replaceable.sentence for judged in ranking.ranked)
     assert by_id[VALIO_WHIPPING].formula.outcome is FormulaOutcome.OTHER_BRAND
     assert by_id["464727"].formula.keeps_formula
 
@@ -142,9 +145,10 @@ def test_every_judged_candidate_carries_its_formula_check(
 @pytest.mark.parametrize(
     ("original", "other", "words"),
     [
-        # Scenario 3. The listed substitute's figures are per 100 g and the original's per 100 ml.
-        ("473609", "471690", "The formula cannot be compared: the figures of the product asked for are per 100 ml "
-                             "and this product's are per 100 g. As stated: fat 1.5 g per 100 g, not 3 g per 100 ml."),
+        # Scenario 3. The listed substitute's figures are per 100 g and the original's per 100 ml: two drinks.
+        ("473609", "471690", "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml. Figures per "
+                             "100 g compared with per 100 ml as they stand: for a drink the two are about 3% "
+                             "apart (our rule)."),
         ("473609", "475224", "Different formula: carbohydrate 7.8 g, not 6.6 g; sugars 1.6 g, not 3.5 g per 100 ml."),
         ("473609", "468465", "Different formula: fat 1 g, not 3 g per 100 ml."),
     ],
@@ -166,7 +170,10 @@ def _bare(formula: FormulaCheck) -> tuple[Any, Any]:
     )
     original = product.model_copy(update={"id": "1", "name_en": "Cream A"})
     candidate = SimpleNamespace(product=product, pack=PackSize(), state=AvailabilityState.CONFIRMED, price=None)
-    judged = SimpleNamespace(claims_not_carried=(), listed=True, distance=0, candidate=candidate, formula=formula)
+    judged = SimpleNamespace(
+        claims_not_carried=(), listed=True, distance=0, candidate=candidate, formula=formula,
+        replaceable=SimpleNamespace(sentence="Verdict."),
+    )
     return judged, SimpleNamespace(original=original, original_pack=PackSize(), original_price=None)
 
 
@@ -175,6 +182,6 @@ def test_nothing_given_up_is_only_said_when_the_formula_shows_no_difference_eith
     different = FormulaCheck(outcome=FormulaOutcome.DIFFERENT, sentence="Different formula: fat 15 g, not 36 g.")
     unknown = FormulaCheck(outcome=FormulaOutcome.NOT_KNOWN, sentence="The formula cannot be compared: no figures.")
 
-    assert gives_up(*_bare(same)) == f"{NOTHING_GIVEN_UP} The data shows no difference."
-    assert gives_up(*_bare(different)) == "Compared with Cream A: Different formula: fat 15 g, not 36 g."
-    assert gives_up(*_bare(unknown)) == "Compared with Cream A: The formula cannot be compared: no figures."
+    assert gives_up(*_bare(same)) == f"Verdict. {NOTHING_GIVEN_UP} The data shows no difference."
+    assert gives_up(*_bare(different)) == "Verdict. Compared with Cream A: Different formula: fat 15 g, not 36 g."
+    assert gives_up(*_bare(unknown)) == "Verdict. Compared with Cream A: The formula cannot be compared: no figures."

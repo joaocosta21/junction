@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from tta.availability.wording import format_amount
+from tta.catalog.kinds import FLAVOURED, flavour_words, type_words, use_words
 from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason
-from tta.contracts.product import FormulaOutcome, PackSize
+from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, ReplaceCheck, ReplaceVerdict
 from tta.offers.candidates import price_problem
 from tta.offers.wording import UNIT_WORDS, eur, plain_name
 
@@ -38,6 +40,78 @@ LAST_RESORT = (
 )
 
 
+# For a candidate that is another kind of product (another product type, or flavoured against plain).
+LAST_RESORT_OTHER_KIND = (
+    "Last resort: no candidate of the same kind as the original can be ordered, so a person decides whether "
+    "this one will do."
+)
+_NUTRIENT_WORDS = {"saturated_fat": "saturated fat"}
+# A price difference under half a cent reads "€0.00 more": it is not said.
+_LEAST_SAID = Decimal("0.005")
+
+
+def replace_reasons(
+    check: ReplaceCheck, formula: FormulaCheck, claims_lost: Sequence[str], *, listed: bool
+) -> tuple[str, ...]:
+    """Each reason the candidate is not a like-for-like replacement, in plain words; empty when there is none.
+
+    Flavours, uses and product types are words of our own lists (`tta.catalog.kinds`), never text of the
+    product file.
+    """
+    reasons: list[str] = []
+    if check.other_type:
+        mine = type_words(check.types) if check.types else "of no product type we know"
+        pair = "; Valio lists the pair" if listed else ""
+        reasons.append(f"another product type ({mine}, not {type_words(check.original_types)}{pair})")
+    if check.plain_against_flavoured:
+        reasons.append(
+            f"{_flavoured(check.flavours)}; the product asked for is not flavoured" if check.flavours
+            else f"not flavoured; the product asked for is {_flavoured(check.original_flavours)}"
+        )
+    elif check.other_flavour:
+        reasons.append(
+            f"another flavour ({flavour_words(check.flavours)}, not {flavour_words(check.original_flavours)})"
+        )
+    if check.other_use:
+        reasons.append(_use_reason(check))
+    if claims_lost:
+        reasons.append(f"it does not carry the {_claims(claims_lost)}")
+    if formula.outcome is FormulaOutcome.DIFFERENT:
+        figures = ", ".join(
+            f"{_NUTRIENT_WORDS.get(each.nutrient, each.nutrient)} {format_amount(each.other)} g, not "
+            f"{format_amount(each.original)} g"
+            for each in formula.differences if not each.within_tolerance
+        )
+        reasons.append(f"a different formula ({figures})" if figures else "another fat source")
+    return tuple(reasons)
+
+
+def _flavoured(flavours: Sequence[str]) -> str:
+    return "flavoured" if tuple(flavours) == (FLAVOURED,) else f"flavoured with {flavour_words(tuple(flavours))}"
+
+
+def _use_reason(check: ReplaceCheck) -> str:
+    if check.uses and check.original_uses:
+        return f"{use_words(check.uses)}; the product asked for is {use_words(check.original_uses)}"
+    if check.uses:
+        return f"{use_words(check.uses)}; the product asked for is not"
+    return f"not {use_words(check.original_uses)}, as the product asked for is"
+
+
+def replace_sentence(
+    check: ReplaceCheck, verdict: ReplaceVerdict, reasons: Sequence[str], *, same_category: bool
+) -> str:
+    """The answer to "can this replace the product asked for?", in one sentence."""
+    if verdict is ReplaceVerdict.NOT_LIKE_FOR_LIKE:
+        return f"Not a like-for-like replacement: {'; '.join(reasons)}."
+    kind = "same type" if check.original_types else ("same category" if same_category else "")
+    flavour = "same flavour" if check.flavours else "not flavoured"
+    same = ", ".join(part for part in (kind, "same use", flavour) if part)
+    if verdict is ReplaceVerdict.NOT_SHOWN:
+        return f"Replaceable as far as the data shows: {same}; the formula cannot be compared."
+    return f"Replaceable: {same}, same formula within tolerance."
+
+
 def why(judged: Judged) -> str:
     """Why the candidate passes or fails, and whether it can be ordered."""
     if judged.reason is ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN:
@@ -48,7 +122,7 @@ def why(judged: Judged) -> str:
     if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict
         lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
     if judged.last_resort:
-        lacks += f" {LAST_RESORT}"
+        lacks += f" {LAST_RESORT if judged.claims_lost else LAST_RESORT_OTHER_KIND}"
     if judged.reason in BUYER_RULE_REASONS:
         return f"It adds no allergen, but this buyer's rules exclude it. {judged.reason_sentence}{lacks}"
     if judged.reason is not None:
@@ -66,7 +140,12 @@ def _to_a_human(judged: Judged) -> str:
 
 
 def gives_up(judged: Judged, ranking: Ranking) -> str:
-    """What changes for the buyer who takes this product in place of the original, the formula in numbers."""
+    """Whether it replaces the original like for like, then what changes for the buyer who takes it, the
+    formula in numbers."""
+    return f"{judged.replaceable.sentence} {_differences(judged, ranking)}"
+
+
+def _differences(judged: Judged, ranking: Ranking) -> str:
     original, product = ranking.original, judged.candidate.product
     parts: list[str] = []
     if judged.claims_not_carried:  # every claim, dietary or not: all of them are given up
@@ -122,6 +201,6 @@ def _price_part(judged: Judged, ranking: Ranking) -> list[str]:
     original_pack, pack = ranking.original_pack, candidate.pack
     if _comparable(original_pack, pack) and original_pack.value and pack.value and pack.unit:
         ours, theirs, per = ours / original_pack.value, theirs / pack.value, UNIT_WORDS[pack.unit]
-    if theirs <= ours:
+    if theirs - ours < _LEAST_SAID:
         return []
     return [f"it costs {eur(theirs - ours)} more per {per}"]
