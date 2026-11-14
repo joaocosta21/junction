@@ -47,7 +47,7 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 | P11 | LOW | `suggestions/trend.py:39,73` | A median of 0 raises and loses all suggestions of that offer | read | FX-K | open |
 | P12 | LOW | `standing/history.py` | A renewal whose order cannot be found still counts as history | read | FX-O | fixed (FX-O) |
 | P13 | LOW | several | `sandbox.KITCHEN_SETTINGS` lacks the two new settings; `shop_api._body` parses before the guard; Valio's reader is rendered "A human at the buyer"; `_claim_note` can overstate; more than 1,000 ids in one lookup; three field words missing in `audit/phrases.py` | read | L4-2d, FX-K, FX-O | open |
-| P14 | LOW | `audit/supplier_decisions.py` | Valio's view shows the product id for F-03 fired by an allergen outcome, which hints that the buyer excludes an allergen (the same information is masked for P-04) | read | wave 4 (audit) | open |
+| P14 | LOW | `audit/supplier_decisions.py` | Valio's view shows the product id for F-03 fired by an allergen outcome, which hints that the buyer excludes an allergen (the same information is masked for P-04) | read | wave 4 (audit) | fixed (FX-M1) |
 
 ## Security (`security-reviewer`, in at Sat 14 Nov about 20:35)
 
@@ -57,7 +57,7 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 |---|---|---|---|---|---|---|
 | H1 | HIGH | `ui/shop_api.py` | The shop's routes block the event loop: one slow call freezes the whole app, `/healthz` included (same as P4) | confirmed | L4-2d | open |
 | H2 | HIGH | `api/service.py`, `contracts/request.py:16` | Total growth is unbounded: one offer with 5 lines of 2,000 characters stores about 262 kB; at the address cap that is about 0.9 GB an hour, in a trail that cannot be deleted | confirmed (size) | FX-S, after L4-2d | open |
-| M1 | MED | `audit/supplier_decisions.py:144`, `audit/facts.py:98`, `ui/supplier_view.py` | Valio's view leaks the buyer's allergen exclusions through counts ("18 declaring / 5 stating nothing"), and the strict or declared-only rule | confirmed | FX-M1 | open |
+| M1 | MED | `audit/supplier_decisions.py:144`, `audit/facts.py:98`, `ui/supplier_view.py` | Valio's view leaks the buyer's allergen exclusions through counts ("18 declaring / 5 stating nothing"), and the strict or declared-only rule | confirmed | FX-M1 | fixed for counts (FX-M1); a residue remains: a product with both a Valio reason and a buyer's allergen reason goes missing from Valio's list (to FX-K) |
 | M2 | MED | `api/signing.py:117,152,164` | The "demo key" marker is outside the signature: a demo-signed record can be relabelled as signed with a set key and still verifies | confirmed | FX-S | open |
 | M3 | MED | `api/service.py:163` | Product search has no rate limit and costs about 0.9 s of CPU with 10 terms | confirmed | FX-S | open |
 | M4 | MED | `deploy/modal_app.py:144`, `orders/service.py` | Any visitor of the public link can spend the Context.dev budget (up to 40 calls of 100 credits), and the lookup is held under the order book's lock | read | FX-EV (the key stays off the link), FX-O (the lock) | open |

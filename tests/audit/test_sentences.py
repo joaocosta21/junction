@@ -305,8 +305,8 @@ def test_an_offer_with_no_option_says_so(trail: AuditTrail, samples) -> None:
     )
     assert event.data.supplier_sentence == (
         "The gateway built offer off_2 from a recorded copy of Valio Aimo's data: no option fits the "
-        "request; 12 candidates. 2 products were considered and left out: 2 declaring an allergen the buyer "
-        "excludes (which allergen and which products are not shown)."
+        "request; 12 candidates. No product was left out for a reason in Valio Aimo's own data. "
+        "Products left out for a requirement of the buyer's, if any, are not shown or counted."
     )
 
 

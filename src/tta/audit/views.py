@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from tta.audit.readers import supplier_actor, supplier_rule_ids
+from tta.audit.readers import shown_facts, shown_sentence, supplier_actor, supplier_rule_ids
 from tta.contracts.audit import AuditEvent, AuditViewEvent
 from tta.contracts.common import AuditReader
 from tta.contracts.errors import InvalidRequest
@@ -50,7 +50,8 @@ def select(
 
 def project(event: AuditEvent, reader: AuditReader) -> AuditViewEvent:
     """One event for one reader. Only the buyer gets the full event; any other reader gets the supplier's
-    sentence and facts and no approver's identity."""
+    sentence and facts and no approver's identity, with the counts an older event still holds masked
+    (`tta.audit.readers.shown_facts`)."""
     data = event.data
     if reader is AuditReader.BUYER:
         return AuditViewEvent(
@@ -59,6 +60,6 @@ def project(event: AuditEvent, reader: AuditReader) -> AuditViewEvent:
         )
     return AuditViewEvent(
         id=event.id, type=event.type, time=event.time, actor=supplier_actor(data.actor),
-        sentence=data.supplier_sentence, rule_ids=supplier_rule_ids(data.rule_ids), facts=data.supplier_facts,
-        hash=data.hash,
+        sentence=shown_sentence(data.supplier_sentence), rule_ids=supplier_rule_ids(data.rule_ids),
+        facts=shown_facts(data.supplier_facts), hash=data.hash,
     )

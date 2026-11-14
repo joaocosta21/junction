@@ -14,7 +14,7 @@ from pydantic_core import to_jsonable_python
 
 from tta.audit.phrases import code_shaped
 from tta.audit.scope import Scope
-from tta.audit.supplier_decisions import decision_facts, left_out_facts
+from tta.audit.supplier_decisions import decision_facts, left_out_counts, left_out_facts
 from tta.contracts.audit import AuditContext
 from tta.contracts.common import ClaimName, Contract, JsonDict
 from tta.contracts.offer import Offer, OfferOption
@@ -95,7 +95,9 @@ def _offer(offer: Offer | None, for_buyer: bool) -> JsonDict | None:
     return _present({
         **_pick(_dump(offer), OFFER_KEYS),
         "options": [_option(option, for_buyer) for option in offer.options],
-        "excluded_by_reason": dict(sorted(reasons.items())),
+        # The buyer reads every count. Valio Aimo reads the counts of the reasons about its own data and no
+        # other: a count of products left out for an allergen, with the catalog, names the allergen.
+        "excluded_by_reason": dict(sorted(reasons.items())) if for_buyer else left_out_counts(offer),
         "left_out": None if for_buyer else left_out_facts(offer),
         "notes": list(offer.notes) if for_buyer else None,
     })

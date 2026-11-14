@@ -24,8 +24,11 @@ const EVENT_NAMES = {
   "authorisation.refused": "Refused",
 };
 
-// Left out because of an allergen the buyer excludes: Valio Aimo gets the count only (`tta.audit.facts`).
-const ALLERGEN_REASONS = ["ALLERGEN_DECLARED", "ALLERGEN_NOT_STATED"];
+// Left out for a requirement of the buyer's (an allergen it excludes): Valio Aimo gets neither the products nor
+// how many, and no total that would give the number by subtraction. With the catalog, a count per product type
+// names the allergen (`tta.audit.readers.REASONS_OF_THE_BUYER`). The line is printed whatever the buyer excludes.
+const REASONS_OF_THE_BUYER = ["ALLERGEN_DECLARED", "ALLERGEN_NOT_STATED"];
+const NOT_SHOWN_OR_COUNTED = "Products left out for a requirement of the buyer's, if any, are not shown or counted.";
 const MAX_NAMED_PER_REASON = 10;
 export const MASKED = "Limit amounts and allergens are not shown to Valio Aimo";
 
@@ -61,18 +64,17 @@ function byReason(leftOut) {
 }
 
 function leftOutPart(offer) {
-  const leftOut = list(offer?.left_out);
-  const counts = offer?.excluded_by_reason && typeof offer.excluded_by_reason === "object" ? offer.excluded_by_reason : {};
-  const forAllergen = ALLERGEN_REASONS.reduce((sum, r) => sum + (Number(counts[r]) || 0), 0);
-  if (!leftOut.length && !forAllergen) return "";
+  if (!offer) return "";
+  const leftOut = list(offer.left_out).filter((one) => !REASONS_OF_THE_BUYER.includes(one.reason));
   const considered = Number.isFinite(Number(offer.candidates_considered)) ? Number(offer.candidates_considered) : null;
-  return html`<div><h4>${considered !== null ? `Looked at ${considered} products, ` : ""}left out ${leftOut.length + forAllergen}</h4>
-    <ul class="left-out">${byReason(leftOut).map(([reason, items]) => {
+  const head = `${considered !== null ? `Looked at ${considered} products. ` : ""}Left out for a reason in Valio Aimo's own data`;
+  return html`<div><h4>${head}</h4>
+    ${leftOut.length ? html`<ul class="left-out">${byReason(leftOut).map(([reason, items]) => {
       const named = items.slice(0, MAX_NAMED_PER_REASON).map((i) => `${i.name || "Product"} (${i.product_id})`).join(", ");
       const more = items.length > MAX_NAMED_PER_REASON ? ` and ${items.length - MAX_NAMED_PER_REASON} more` : "";
       return html`<li><b>${items.length} ${REASONS[reason] || String(reason).toLowerCase().replaceAll("_", " ")}</b>: ${named}${more}</li>`;
-    })}
-    ${forAllergen ? html`<li><b>${forAllergen} for an allergen the buyer excludes</b>: which allergen and which products are not shown to Valio Aimo</li>` : ""}</ul></div>`;
+    })}</ul>` : html`<p class="small muted">None.</p>`}
+    <p class="small muted">${NOT_SHOWN_OR_COUNTED}</p></div>`;
 }
 
 // The fold under one step of Valio Aimo's view, when the step carries a decision or products left out.

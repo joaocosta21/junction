@@ -4,7 +4,9 @@ Scores on the 20% "how decisions are logged and auditable" and on Valio's answer
 decisions"). The supplier's events carry the decision (`facts.decision`: every rule that fired, its title, whether
 it is fixed, its outcome and the role that signs) and the products left out for a reason about Valio Aimo's own
 data (`facts.offer.left_out`, `excluded_by_reason`). The trail masks the buyer's values (`tta.audit`): no limit
-amount, no allergen code, no approver's name, no note. The page reads those facts as data and adds nothing to them.
+amount, no allergen code, no approver's name, no note, and neither the products left out for a requirement of
+the buyer's nor how many they are (review finding M1: with the catalog, a count per product type names the
+allergen). The page reads those facts as data, adds nothing to them, and prints no total of the products left out.
 """
 
 from __future__ import annotations
@@ -16,14 +18,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from tta.audit.readers import MASKED_BY_RULE
+from tta.audit.readers import MASKED_BY_RULE, NOT_SHOWN_OR_COUNTED, REASONS_OF_THE_BUYER
 from tta.contracts.audit import AuditView
 from tta.contracts.common import ApproverRole, ExclusionReason, Verdict
 
 DECISION_FACT = "decision"
 OFFER_FACT = "offer"
-# Two reasons whose products the supplier's trail never names: they say which allergen the buyer excludes.
-ALLERGEN_REASONS = (ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.ALLERGEN_NOT_STATED)
 PRODUCTS_SHOWN_PER_REASON = 10  # the rest are counted: "and 5 more"
 
 logger = logging.getLogger(__name__)
@@ -73,13 +73,12 @@ class RuleRow:
 
 @dataclass(frozen=True)
 class ReasonRow:
-    """Why products were left out: the count, and the products when the reason is about Valio Aimo's own data."""
+    """Why products were left out, for one reason about Valio Aimo's own data: the count and the products."""
 
     reason: ExclusionReason
     count: int
-    products: tuple[tuple[str, str | None], ...]  # (id, name), the first few; empty for the two allergen reasons
+    products: tuple[tuple[str, str | None], ...]  # (id, name), the first few
     more: int  # products of this reason the trail names and the page does not list
-    masked: bool  # an allergen reason: the trail names neither the allergen nor the products
 
 
 @dataclass(frozen=True)
@@ -87,6 +86,7 @@ class SupplierDecision:
     verdict: Verdict | None
     rules: tuple[RuleRow, ...]
     left_out: tuple[ReasonRow, ...]
+    not_shown: str = NOT_SHOWN_OR_COUNTED  # said whether or not the buyer has such a requirement
 
 
 def _newest(audit: AuditView, fact: str, model: type[_Fact]) -> Any:
@@ -119,19 +119,16 @@ def _rows(rules: Iterable[_Rule]) -> tuple[RuleRow, ...]:
 
 
 def _reasons(counts: Mapping[ExclusionReason, int], left_out: Iterable[_LeftOut]) -> tuple[ReasonRow, ...]:
-    """Reasons about Valio Aimo's own data first, in the order of the code list; the two allergen reasons last."""
+    """The reasons about Valio Aimo's own data, in the order of the code list. A reason of the buyer's gives no
+    row, whatever the facts hold: an event stored before the fix can still carry its count."""
     entries = tuple(left_out)
-    ordered = [reason for reason in ExclusionReason if reason not in ALLERGEN_REASONS] + list(ALLERGEN_REASONS)
     rows = []
-    for reason in ordered:
-        if not counts.get(reason):
+    for reason in ExclusionReason:
+        if reason in REASONS_OF_THE_BUYER or not counts.get(reason):
             continue
-        named = [] if reason in ALLERGEN_REASONS else [
-            (entry.product_id, entry.name) for entry in entries if entry.reason is reason
-        ]
+        named = [(entry.product_id, entry.name) for entry in entries if entry.reason is reason]
         shown = tuple(named[:PRODUCTS_SHOWN_PER_REASON])
-        rows.append(ReasonRow(reason=reason, count=counts[reason], products=shown, more=len(named) - len(shown),
-                              masked=reason in ALLERGEN_REASONS))
+        rows.append(ReasonRow(reason=reason, count=counts[reason], products=shown, more=len(named) - len(shown)))
     return tuple(rows)
 
 

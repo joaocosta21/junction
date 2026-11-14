@@ -1,5 +1,6 @@
 {# How the order was decided, as Valio Aimo's view of the trail gives it (P9b B13-2). Every value comes from the
-   supplier's events; the trail itself masks the buyer's amounts, allergen codes, names and notes. #}
+   supplier's events; the trail itself masks the buyer's amounts, allergen codes, names and notes. Products left
+   out for a requirement of the buyer's are neither listed nor counted, and no total is printed (finding M1). #}
 {% from "_marks.html" import mark %}
 {% set decision = page.decision %}
 <section id="decision">
@@ -30,12 +31,12 @@
     {% for row in decision.left_out %}
     <li><strong>{{ row.count }}</strong> {{ row.reason|words|lower }}{% if row.products %}:
       {% for product_id, name in row.products %}{{ name or "Name not stated" }} <span class="id">({{ product_id }})</span>{% if not loop.last %}, {% endif %}{% endfor %}
-      {%- if row.more %}, and {{ row.more }} more{% endif %}
-      {%- elif row.masked %} (which allergen and which products are not shown){% endif %}</li>
+      {%- if row.more %}, and {{ row.more }} more{% endif %}{% endif %}</li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="empty">No product was left out, or the trail does not say.</p>
+  <p class="empty">No product was left out for a reason in Valio Aimo's own data, or the trail does not say.</p>
   {% endif %}
+  <p class="small">{{ decision.not_shown }}</p>
   {% endif %}
 </section>

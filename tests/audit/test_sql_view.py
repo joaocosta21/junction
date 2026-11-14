@@ -98,6 +98,10 @@ def test_the_sql_view_names_a_human_by_the_same_roles_and_words_as_the_reader() 
     reader_s = {
         *(role.value for role in ApproverRole), readers.HUMAN_ID, readers.HUMAN_WITHOUT_A_ROLE,
         readers.ROLE_SEPARATOR, readers.BUYERS_ROLE.format(roles=""),
+        readers.SUPPLIER_ROLE, readers.SUPPLIER_READER_ID, readers.SUPPLIER_READER,
+        *(text for mask in readers.STORED_SENTENCE_MASKS for text in mask),
+        *("{" + ",".join(path) + "}" for path in readers.STORED_COUNT_PATHS),
+        "g",  # the flag of regexp_replace: everywhere in the sentence, as `re.sub` does
     }
     # A JSON key, a kind of actor, what `replace` turns a role's "_" into, or a path into the stored event.
     of_the_view = {
@@ -108,6 +112,29 @@ def test_the_sql_view_names_a_human_by_the_same_roles_and_words_as_the_reader() 
 
     assert reader_s <= literals
     assert literals - reader_s - of_the_view == set()  # no other word, so no name of a person and no rule id
+
+
+def test_the_sql_view_masks_what_an_older_event_holds_exactly_as_the_reader_does() -> None:
+    """Review finding M1: the counts of products left out for an allergen, in the sentence and in the facts of
+    events stored before the fix. The same patterns, replacements and paths, applied in the same order."""
+    columns = _columns("audit_supplier")
+    sentence = [text.replace("''", "'") for text in STRING_LITERAL.findall(columns["sentence"])]
+    facts = STRING_LITERAL.findall(columns["facts"])
+
+    in_order = [text for mask in readers.STORED_SENTENCE_MASKS for text in (*mask, "g")]
+    assert sentence == ["{data,supplier_sentence}", *in_order]
+    assert columns["sentence"].count("regexp_replace(") == len(readers.STORED_SENTENCE_MASKS)
+    paths = ["{" + ",".join(path) + "}" for path in readers.STORED_COUNT_PATHS]
+    assert facts == ["{data,supplier_facts}", "{}", *paths]
+    assert columns["facts"].count("#-") == len(readers.STORED_COUNT_PATHS)
+    assert ";" not in "".join(in_order)  # the file is one statement per semicolon to whoever reads it by eye
+
+
+def test_valio_aimo_s_own_token_is_named_by_the_sql_view_as_by_the_reader() -> None:
+    actor = _columns("audit_supplier")["actor"]
+
+    assert f"= '{readers.SUPPLIER_ROLE}' THEN" in actor
+    assert actor.index(readers.SUPPLIER_READER.replace("'", "''")) < actor.index(readers.HUMAN_WITHOUT_A_ROLE)
 
 
 def test_the_file_can_run_at_every_start_whatever_view_the_database_already_holds() -> None:

@@ -12,7 +12,7 @@ As for the buyer, a sentence states only what its context holds and says what is
 from __future__ import annotations
 
 from tta.audit.phrases import NOTHING_ORDERED, actor_text, capital, joined, label, option_text, request_text
-from tta.audit.readers import ROLE_SEPARATOR, supplier_role
+from tta.audit.readers import ROLE_SEPARATOR, SUPPLIER_READER, is_supplier_reader, supplier_role
 from tta.audit.scope import (
     Scope,
     approvals_given,
@@ -55,7 +55,10 @@ def _what(scope: Scope) -> str:
 
 
 def _acting_human(actor: Actor) -> str:
-    """The human who acted, by the roles the gateway knows: never by name or id."""
+    """The human who acted, by the roles the gateway knows: never by name or id. Valio Aimo's own token is
+    not a person at the buyer and is named as what it is."""
+    if is_supplier_reader(actor):
+        return SUPPLIER_READER
     role = supplier_role(actor.role) if actor.kind is ActorKind.HUMAN else None
     return buyers_roles(role.split(ROLE_SEPARATOR) if role else ())
 
