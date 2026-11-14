@@ -78,6 +78,7 @@ from tta.suggestions.regular import RegularAlert, chosen_products, held_lines, r
 from tta.suggestions.reorder import rhythm_of
 from tta.suggestions.wording import set_up_sentence, weekday_name
 from tta.ui import security
+from tta.ui.shop_evidence import recorded_evidence
 from tta.ui.site import Site
 from tta.ui.standing_page import StandingBooks, data_clock
 from tta.valio import ReplayGateway
@@ -404,6 +405,27 @@ def _standing_order(customer: Customer, entry: CustomerStandingOrder, names: dic
     )
 
 
+def _name_of(one: Sandbox, product_id: str, otherwise: str) -> str:
+    try:
+        return one.service.get_product(KITCHEN_AGENT, product_id).display_name
+    except TtaError:
+        return otherwise
+
+
+def _set_up_here(one: Sandbox, made: StandingOrder) -> StandingOrderView:
+    """A standing order set up in this book (from "this order is regular"), as the page lists it beside the
+    customer file's: its lines as its request names them. It is the buyer's own, not synthetic, and has no past
+    order and no trend yet."""
+    lines = tuple(
+        StandingLineView(product_id=line.product_ids[0], name=_name_of(one, line.product_ids[0], line.text),
+                         quantity=line.quantity, unit=line.unit)
+        for line in made.request.lines if line.product_ids
+    )
+    return StandingOrderView(standing_order_id=made.standing_order_id, name=made.name,
+                             cadence_days=made.cadence_days, lines=lines, past_orders=(), synthetic=False,
+                             trend=None)
+
+
 def _menu_plan(one: Sandbox, body: MenuAsk, settings: Settings) -> MenuPlan:
     """The recipe plan of a sentence ("I want to make a chocolate cake for 20 people") for this book's customer, as
     `POST /v1/menus/plan` answers it: its offer is one of this book's, ordered and confirmed like any other. A refusal
@@ -566,6 +588,17 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         """An offer of this book, as it was made: the approvals page reads its options to offer the safe one (R6)."""
         return answer(request, lambda one: one.service.get_offer(KITCHEN_AGENT, offer_id))
 
+    @app.get(API + "/evidence")
+    def evidence(
+        request: Request, offer_id: str = Query(min_length=1, max_length=MAX_ID),
+        option_id: str = Query(min_length=1, max_length=MAX_ID),
+    ) -> Response:
+        """What the recorded manufacturer pages say about the products of one option of an offer of this book
+        whose data does not rule out an excluded allergen: the `Evidence` an approval would carry, for a question
+        asked on the result before any approval exists. Recordings only: nobody is asked, nothing is stored, and
+        no status or decision changes."""
+        return answer(request, lambda one: recorded_evidence(one, site.settings, offer_id, option_id))
+
     @app.get(API + "/suggestions")
     def suggestions(request: Request, offer_id: str = Query(min_length=1, max_length=MAX_ID)) -> Response:
         """What an offer of this book suggests (`suggestions`, as on the offer) and what it does not show, each
@@ -635,15 +668,21 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
 
     @app.get(API + "/standing-orders")
     def standing_orders(request: Request) -> Response:
-        """The standing orders of the shop's selected customer, from its customer file, each with its synthetic past
-        orders and the trend of its quantities (`trend` null: no change is suggested)."""
+        """The standing orders of the shop's selected customer: those of its customer file, each with its synthetic
+        past orders and the trend of its quantities (`trend` null: no change is suggested), then those set up in
+        this book since (`POST /standing-orders`), which have no past order yet."""
         customer_id = str(_customer_id(request))
 
         def call(one: Sandbox) -> Any:
             customer = customers[customer_id]  # after the guard: the header names one of the shop's customers
             names, profile = _names(one, customer), own_profile(one, customer_id)
-            return StandingOrdersView(customer_id=customer_id, synthetic=customer.synthetic, standing_orders=tuple(
-                _standing_order(customer, entry, names, profile) for entry in customer.standing_orders))
+            of_the_file = {entry.standing_order_id for entry in customer.standing_orders}
+            set_up_here = (made for made in standing_books.of(one).list(KITCHEN_AGENT)
+                           if made.standing_order_id not in of_the_file)
+            return StandingOrdersView(customer_id=customer_id, synthetic=customer.synthetic, standing_orders=(
+                *(_standing_order(customer, entry, names, profile) for entry in customer.standing_orders),
+                *(_set_up_here(one, made) for made in set_up_here),
+            ))
 
         return answer(request, call)
 

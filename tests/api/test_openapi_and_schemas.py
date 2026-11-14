@@ -20,7 +20,6 @@ from tta.config import Settings
 from tta.contracts.agent import AgentRun, ParseRequestBody
 from tta.contracts.common import Verdict
 from tta.contracts.errors import PROBLEM_CONTENT_TYPE, ProblemDetails
-from tta.contracts.menu import MenuRequest
 from tta.contracts.offer import Offer, SubstituteQuery, SubstituteResult
 from tta.contracts.order import Approval, DecisionRequest, Order, PlaceOrderRequest
 from tta.contracts.policy import Authority
@@ -28,6 +27,7 @@ from tta.contracts.product import Product, SearchResult
 from tta.contracts.request import ProductQuery, PurchaseRequest
 from tta.contracts.schemas import all_models
 from tta.contracts.standing import NewStandingOrder, RenewStandingOrder
+from tta.menus.sentence import MenuAsk
 
 # SPEC section 2, plus the order list the pages need (task note) and the health check.
 ROUTES = {
@@ -59,6 +59,7 @@ ROUTES = {
     ("get", "/llms.txt"): "get_llms_txt",
     ("get", "/v1/customers"): "list_customers",  # task L4-2b: the customer files (review C2 F5)
     ("get", "/v1/customers/{customer_id}"): "get_customer",
+    ("get", "/v1/insights"): "get_insights",  # lane BO: Valio Aimo's back office, the supplier's token only
     ("get", "/.well-known/jwks.json"): "get_signing_keys",  # P12 W8: the key offers and orders are signed with
 }
 PUBLIC = {"get_schemas", "get_health", "get_api_catalog", "head_api_catalog", "get_llms_txt", "get_signing_keys"}
@@ -66,7 +67,7 @@ REQUEST_MODELS: dict[str, Any] = {
     "search_products": ProductQuery,
     "find_substitutes": SubstituteQuery,
     "create_offer": PurchaseRequest,
-    "plan_menu": MenuRequest,
+    "plan_menu": MenuAsk,  # the typed menu request, or a sentence, or both (lane U5)
     "create_standing_order": NewStandingOrder,
     "renew_standing_order": RenewStandingOrder,
     "place_order": PlaceOrderRequest,

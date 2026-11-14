@@ -31,6 +31,12 @@ SCHOOL_PEOPLE = (
     ("demo-approver-school-dietitian", "dietitian"),
 )
 OWNER = "demo-approver-bakery-owner"
+# The four people the demonstration no longer has (decision SIMP): no separate finance signer anywhere, and no
+# dietitian of the hotel's own.
+REMOVED_TOKENS = (
+    "demo-approver-hotel-finance", "demo-approver-hotel-dietitian", "demo-approver-ward-finance",
+    "demo-approver-school-finance",
+)
 CREAM_WITHOUT_NUTS = {
     "lines": [{
         "text": "10 litres of whipping cream, no tree nuts", "product_ids": ["469346"], "quantity": 10, "unit": "L",
@@ -91,7 +97,14 @@ def test_llms_txt_names_the_two_new_agents(client: TestClient) -> None:
     text = client.get("/llms.txt").text
 
     assert "`demo-agent-school-kitchen`" in text and "`demo-agent-bakery-cafe`" in text
-    assert "15 identities" in text and "GET /v1/customers" in text
+    assert f"{len(_demo_tokens())} identities" in text and "11 identities" in text and "GET /v1/customers" in text
+
+
+@pytest.mark.parametrize("token", REMOVED_TOKENS)
+def test_a_person_the_demonstration_no_longer_has_is_refused(client: TestClient, token: str) -> None:
+    assert token not in _demo_tokens()
+    for path in ("/v1/approvals", "/v1/authority", "/v1/customers"):
+        assert client.get(path, headers=_bearer(token)).status_code == 401, path
 
 
 @pytest.mark.parametrize(("token", "role"), SCHOOL_PEOPLE)

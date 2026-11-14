@@ -49,6 +49,8 @@ export function gateway(kitchen) {
     plan: (text) => call(kitchen, "POST", "/menus/plan", { text }),
     getOffer: (id) => call(kitchen, "GET", `/offers/${q(id)}`),
     // What an offer suggests and what it does not show, with the reason (the buyer's view; nothing is added to it).
+    // What the recorded manufacturer pages say about the products of one option that ask an allergen question.
+    evidence: (offerId, optionId) => call(kitchen, "GET", `/evidence?offer_id=${q(offerId)}&option_id=${q(optionId)}`),
     suggestions: (offerId) => call(kitchen, "GET", `/suggestions?offer_id=${q(offerId)}`),
     // Who this customer is: its people, usual products and synthetic past orders, from the customer file.
     customer: () => call(kitchen, "GET", "/customer"),

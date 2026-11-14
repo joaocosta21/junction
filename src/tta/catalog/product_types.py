@@ -35,6 +35,11 @@ class ProductType(Contract):
     )
     claims: tuple[str, ...] = Field(default=(), description="Every one of these nutritionalClaim codes is present")
     products: int = Field(gt=0, description="Products of this type in the catalog when the entry was written")
+    raw: bool = Field(
+        default=False,
+        description="Raw meat, fish, vegetables or fruit, sold as it is: it has no recipe (formula) of its own, "
+        "so nothing is learned about keeping one (`tta.customers.learned`)",
+    )
     note: str | None = Field(
         default=None, min_length=1,
         description="A sentence for the buyer whenever a request asks for this type: what the type leaves out "

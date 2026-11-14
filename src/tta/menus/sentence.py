@@ -30,6 +30,7 @@ from tta.contracts.ports import GatewayService
 from tta.menus.planner import plan_menu
 from tta.menus.recipes import dish_names
 from tta.menus.wording import joined
+from tta.offers.recorded import later_recorded_note as offer_later_recorded_note
 from tta.valio.replay import ReplayGateway, recording_instant
 
 THE_DISHES = "The dishes are: {dishes}."
@@ -140,25 +141,16 @@ def resolve(ask: MenuAsk, recipes: Mapping[str, Recipe], today: date) -> Resolve
     )
 
 
-LATER_RECORDED = (
-    "{count} of the {total} products of this offer have their price and stock from the later recording "
-    "({products}). {join}"
-)
-MAX_PRODUCTS_NAMED = 12
-
-
 def later_recorded_note(replay: ReplayGateway, offer: Offer | None) -> str | None:
     """Which products of the plan's offer were answered from a recording made after the first one, with both
     instants and why reading them together is honest (`ReplayGateway.join_sentence`). None when the offer is not
-    a replay, or holds no such product: no answer is silently taken from another time."""
-    if offer is None or offer.source is not DataSource.REPLAY or replay.join_sentence is None:
+    a replay, or holds no such product: no answer is silently taken from another time. The sentence is the
+    offer's own (`tta.offers.recorded`), worded in one place, so a plan and its offer say the same words and a
+    page that shows both can say them once."""
+    if offer is None or offer.source is not DataSource.REPLAY:
         return None
     offered = tuple(dict.fromkeys(line.product_id for option in offer.options for line in option.lines))
-    later = replay.recorded_later(offered)
-    if not later:
-        return None
-    named = joined(list(later[:MAX_PRODUCTS_NAMED])) + (" and more" if len(later) > MAX_PRODUCTS_NAMED else "")
-    return LATER_RECORDED.format(count=len(later), total=len(offered), products=named, join=replay.join_sentence)
+    return offer_later_recorded_note(replay, offered)
 
 
 def with_notes(plan: MenuPlan, *, read_as: str | None, later: str | None) -> MenuPlan:

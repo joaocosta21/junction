@@ -197,8 +197,10 @@ def test_the_schools_oat_drink_has_a_trend_and_the_others_have_none(shop: TestCl
     trend = school["trend"]
     assert set(trend) == {"product_id", "sentence", "suggested_quantity", "unit", "accept_request"}
     assert (trend["product_id"], trend["suggested_quantity"], trend["unit"]) == ("470863", 84.0, "L")
-    assert "a median of 84 L against 70 L for the 3 before (+20%)" in trend["sentence"]
-    assert "The standing order still says 60 L." in trend["sentence"]
+    assert trend["sentence"] == (
+        "Your orders of Oatly Oat Drink Semi (470863) are growing: about 84 L in your last 3 orders, 70 L in the 3 "
+        "before. Your standing order still says 60 L. Renew once at 84 L? From a synthetic order history."
+    )
     assert [line["quantity"] for line in trend["accept_request"]["lines"]] == [120.0, 84.0, 20.0]
     for kitchen in ("ward", "hotel", "bakery"):
         orders = _call(shop, "GET", "/standing-orders", kitchen).json()["standing_orders"]

@@ -42,7 +42,8 @@ SUPPLIER_REQUEST_CODE_KEYS = ("required_claims", "required_labels")
 # The roles are shown; the approver's id, name and note are not (`tta.audit.readers`).
 SUPPLIER_APPROVAL_KEYS = ("approval_id", "status", "required_roles", "created_at", "valid_until")
 SUPPLIER_APPROVAL_DECISION_KEYS = ("decision", "roles", "option_id", "decided_at")
-SUPPLIER_EVIDENCE_KEYS = ("product_id", "found")
+# Not the product: evidence is attached for a product P-04 fired on, which Valio Aimo is not shown.
+SUPPLIER_EVIDENCE_KEYS = ("found",)
 # Facts a caller may add that describe a lookup in Valio Aimo's own data. Every other caller fact is buyer-only.
 SUPPLIER_CALLER_KEYS = ("products_looked_up", "product_ids", "source", "time_now", "time_basis")
 # A caller fact that is a whole view written for Valio Aimo: its keys become the supplier's facts as given, and it

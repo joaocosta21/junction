@@ -9,6 +9,7 @@ import { restore, confirm, dismiss } from "../learning.js";
 import { active, mine, resetKitchen, save } from "../store.js";
 import { ended, plain } from "../words.js";
 import { customerPending, personFor } from "./parts.js";
+import { otherPeople } from "./question.js";
 
 let draft = null;
 let message = null;
@@ -218,12 +219,15 @@ function customerDetails() {
   const c = customerOf();
   const me = contact();
   const usual = usualProducts();
+  // One person confirms: a role is a line of its own only where somebody else holds it (the dietitian).
+  const others = otherPeople(Object.keys(ROLES));
   return html`
     <div class="kv"><span>Customer</span><b>${[c.name, c.customer_number].filter(Boolean).join(" · ")}</b></div>
     ${c.address ? html`<div class="kv"><span>Delivery address</span><b>${c.address}</b></div>` : ""}
     ${c.delivery_days ? html`<div class="kv"><span>Delivery days</span><b>${c.delivery_days}</b></div>` : ""}
-    <div class="kv"><span>Signed in as</span><b>${me.name} · ${me.title}</b></div>
-    ${Object.entries(ROLES).map(([role, label]) => html`<div class="kv"><span>${label}</span><b>${personFor(role)}${myRoles().includes(role) ? " (you)" : ""}</b></div>`)}
+    <div class="kv"><span>Signed in as</span><b>${me.name}</b></div>
+    ${myRoles().length ? html`<div class="kv"><span>Confirms orders</span><b>${me.name} (you)</b></div>` : ""}
+    ${others.map(({ name, role }) => html`<div class="kv"><span>${ROLES[role] || role}</span><b>${name}</b></div>`)}
     ${usual.length ? html`<h3 class="sub-title">Usual products</h3><ul class="side-list">${usual.map((u) => html`<li><span><b>${u.label}</b><br><span class="small muted">ordered in ${unitWord(u.unit)} · ${USE[u.use] || plain(u.use)}</span></span></li>`)}</ul>` : ""}
     <p class="small muted">${plain(customerNote())}</p>`;
 }
@@ -259,7 +263,7 @@ export function view() {
           <div class="card-title"><h2>What the agent may do alone</h2></div>
           <div class="field"><div><label for="f-auto_order_enabled">Let the agent place orders alone</label><div class="help">Off: nothing is ordered until ${personFor("purchasing_manager")} confirms it. On: the agent orders alone only when every statement is confirmed and no rule asks for a person.</div></div>${toggle("auto_order_enabled", s.auto_order_enabled, "set", "Let the agent place orders alone")}</div>
           <div class="field" id="s-limits"><div><label for="f-max_order_net_eur">Limit per order</label><div class="help">Above this, ${personFor("purchasing_manager")} approves. Before tax.</div></div>${moneyField("max_order_net_eur", s.max_order_net_eur)}</div>
-          <div class="field"><div><label for="f-max_daily_net_eur">Limit per day</label><div class="help">Everything ordered or waiting today counts. Above it, ${personFor("finance")} (finance) approves.</div></div>${moneyField("max_daily_net_eur", s.max_daily_net_eur)}</div>
+          <div class="field"><div><label for="f-max_daily_net_eur">Limit per day</label><div class="help">Everything ordered or waiting today counts. Above it, ${personFor("finance")} approves.</div></div>${moneyField("max_daily_net_eur", s.max_daily_net_eur)}</div>
           <div class="field"><div><label for="f-min_fill_ratio">Partial deliveries</label><div class="help">Smallest share of the quantity the agent accepts alone.</div></div>
             <select id="f-min_fill_ratio" data-change="set" data-key="min_fill_ratio" data-type="percent">${[100, 90, 75, 50].map((v) => html`<option value="${v}" ${Math.round(s.min_fill_ratio * 100) === v ? "selected" : ""}>${v === 100 ? "Only the full quantity" : `At least ${v}%`}</option>`)}</select></div>
           <div class="field"><div><label for="f-require_confirmed">Confirmed data only</label><div class="help">Leave out anything whose stock, delivery date or allergens Valio Aimo does not confirm.</div></div>${toggle("require_confirmed", s.require_confirmed, "set", "Confirmed data only")}</div>
@@ -277,7 +281,7 @@ export function view() {
           <div class="field"><div><label for="f-variable_weight">Sold by weight</label><div class="help">Meat and cheese by the kilo: the total is an estimate, because Valio Aimo invoices the weight delivered.</div></div>
             <select id="f-variable_weight" data-change="set" data-key="variable_weight"><option value="APPROVAL" ${s.variable_weight === "APPROVAL" ? "selected" : ""}>Ask a person</option><option value="AUTO_WITH_CEILING" ${s.variable_weight === "AUTO_WITH_CEILING" ? "selected" : ""}>Agent may order</option></select></div>
           <div class="field"><div><label for="f-deposits">Deposits</label><div class="help">Bottles and crates with a deposit that has no published price.</div></div>
-            <select id="f-deposits" data-change="set" data-key="deposits"><option value="APPROVAL" ${s.deposits === "APPROVAL" ? "selected" : ""}>Ask finance</option><option value="NOTE" ${s.deposits === "NOTE" ? "selected" : ""}>Agent may order, noted</option></select></div>
+            <select id="f-deposits" data-change="set" data-key="deposits"><option value="APPROVAL" ${s.deposits === "APPROVAL" ? "selected" : ""}>Ask a person</option><option value="NOTE" ${s.deposits === "NOTE" ? "selected" : ""}>Agent may order, noted</option></select></div>
         </section>
 
         <section class="card" id="s-answers">

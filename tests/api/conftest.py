@@ -31,16 +31,12 @@ TOKENS = {
     "agent_hotel": "demo-agent-hotel-kitchen",
     "agent_ward": "demo-agent-allergy-ward",
     "hotel_purchasing": "demo-approver-hotel-purchasing",
-    "hotel_finance": "demo-approver-hotel-finance",
-    "hotel_dietitian": "demo-approver-hotel-dietitian",
     "ward_dietitian": "demo-approver-ward-dietitian",
     "ward_purchasing": "demo-approver-ward-purchasing",
-    "ward_finance": "demo-approver-ward-finance",
     "supplier": "demo-supplier-valio-aimo",
 }
-HOTEL_APPROVER_BY_ROLE = {
-    "purchasing_manager": "hotel_purchasing", "finance": "hotel_finance", "dietitian": "hotel_dietitian",
-}
+# One person confirms (decision SIMP): the hotel's buyer holds every role, so each role is decided by her token.
+HOTEL_APPROVER_BY_ROLE = dict.fromkeys(("purchasing_manager", "finance", "dietitian"), "hotel_purchasing")
 SCENARIO_1 = {
     "needed_by": MONDAY,
     "lines": [{

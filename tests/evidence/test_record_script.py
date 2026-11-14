@@ -7,7 +7,7 @@ import importlib.util
 import json
 import sys
 from collections.abc import Callable, Iterator
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -27,11 +27,20 @@ from tta.evidence.finder import COUNT_FILE
 
 Make = Callable[..., Any]
 ALMOND_DRINK = "465793"
-# Measured in replay at the recording's instant (Sat 14 Nov 2026 02:52 +02:00): the demo's products that rule P-04
-# sends to a person. 469512 has a recorded page; the other eight have none.
-DEMO_SET = ("462775", "463047", "463975", "464401", "464517", "464608", "465793", "469162", "469512")
+# Measured in replay: the demo's products that rule P-04 sends to a person, at the recording's instant (Sat 14 Nov
+# 2026 02:52 +02:00) and at the demo clock (Thu 12 Nov 2026 14:15 +02:00). Measured again in the night of 14 to 15
+# Nov, after the offers changed: 464401 left the list; 469363 (the school's milk 462775 is short, and this is its
+# substitute) and 473609 (an alternative to 469512) joined it. At the demo clock 469162 is not on it and 469386 is.
+DEMO_SET = ("462775", "463047", "463975", "464517", "464608", "465793", "469162", "469363", "469512", "473609")
+DEMO_SET_AT_THE_DEMO_CLOCK = (
+    "462775", "463047", "463975", "464517", "464608", "465793", "469363", "469386", "469512", "473609",
+)
+DEMO_CLOCK = datetime.fromisoformat("2026-11-12T14:15:00+02:00")
 RECORDED = "469512"
-# All nine are recorded since 14 Nov 17:58 UTC (fixtures/evidence/), so a dry run of the demo set asks nothing.
+# A gap, not a goal. The pages were recorded on 14 Nov at 17:58 UTC (fixtures/evidence/), before these two joined
+# the list: they have no recorded page, so a run of the demo set would ask Context.dev for each of them once, and
+# until then a card about them says that no page is stored. Recording one is a paid request, which no test sends.
+NOT_YET_RECORDED = ("469363", "469386")
 USED_IN_AN_EMPTY_FOLDER = (
     "Requests to Context.dev: 12 used of 60 (0 recordings that carry a paid answer, 12 requests of the team's log "
     "that left no recording; the count file holds 0). 48 left."
@@ -106,11 +115,18 @@ def test_a_dry_run_prints_bodies_that_hold_the_two_names_and_the_brand_and_sends
     )
 
 
+@pytest.mark.parametrize(
+    ("demo_clock", "demo_set"), [(None, DEMO_SET), (DEMO_CLOCK, DEMO_SET_AT_THE_DEMO_CLOCK)],
+    ids=["default-clock", "demo-clock"],
+)
 def test_the_demo_set_is_measured_in_replay_and_no_product_with_a_recorded_page_would_be_asked(
-    script: ModuleType, catalog: ProductCatalog, tmp_path: Path
+    script: ModuleType, catalog: ProductCatalog, tmp_path: Path, demo_clock: datetime | None,
+    demo_set: tuple[str, ...],
 ) -> None:
     lines: list[str] = []
-    settings = Settings.for_tests()
+    settings = Settings.for_tests(tta_demo_clock=demo_clock)
+    recorded = [product_id for product_id in demo_set if product_id not in NOT_YET_RECORDED]
+    asked = [product_id for product_id in demo_set if product_id in NOT_YET_RECORDED]
 
     code = script.main(["--demo-set", "--dry-run"], settings=settings, catalog=catalog,
                        counter=tmp_path / COUNT_FILE, out=lines.append)
@@ -121,10 +137,16 @@ def test_the_demo_set_is_measured_in_replay_and_no_product_with_a_recorded_page_
         "Requests to Context.dev: 25 used of 60 (13 recordings that carry a paid answer, 12 requests of the team's "
         "log that left no recording; the count file holds 0). 35 left."
     )
-    assert f"Products with an allergen doubt on the list: {', '.join(DEMO_SET)}." in lines
-    assert f"Already recorded, not asked again: {', '.join(DEMO_SET)}." in lines
-    assert not [line for line in lines if line.endswith("would be sent (100 credits):")]
-    assert lines[-1].startswith("Dry run: 0 request(s) would be sent to Context.dev, 100 credits each, 0 credits")
+    assert f"Products with an allergen doubt on the list: {', '.join(demo_set)}." in lines
+    assert f"Already recorded, not asked again: {', '.join(recorded)}." in lines
+    # Only a product with no recorded page would be asked for: one at the recording's clock, two at the demo clock.
+    assert [line for line in lines if line.endswith("would be sent (100 credits):")] == [
+        f"{product_id} would be sent (100 credits):" for product_id in asked
+    ]
+    assert len(asked) == (1 if demo_clock is None else 2)
+    assert lines[-1].startswith(
+        f"Dry run: {len(asked)} request(s) would be sent to Context.dev, 100 credits each, {100 * len(asked)} credits"
+    )
 
 
 def test_the_demo_requests_are_each_customers_usual_products_and_the_named_cases() -> None:
@@ -151,7 +173,8 @@ def test_the_run_never_goes_past_the_limit_it_is_given(run: Make, stand_in: Stan
 
 
 def test_the_default_limit_is_ten(run: Make, stand_in: StandIn, script: ModuleType) -> None:
-    eleven = [product_id for product_id in DEMO_SET if product_id != RECORDED] + ["464013", "470863", "473424"]
+    eleven = [product_id for product_id in DEMO_SET if product_id != RECORDED] + ["464013", "473424"]
+    assert len(eleven) == 11
 
     done = run("--ids", *eleven, sender=stand_in)
 

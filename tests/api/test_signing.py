@@ -128,13 +128,11 @@ def test_an_order_record_is_signed_when_placed_read_listed_and_decided(
     forged = {**placed, "status": "ORDERED"}
     assert placed["status"] == "PENDING_APPROVAL" and not verifies(forged, keys)
 
-    order = placed
-    for who in ("hotel_purchasing", "hotel_finance", "hotel_dietitian"):
-        if order["status"] != "PENDING_APPROVAL":
-            break
-        order = client.post(
-            f"/v1/approvals/{placed['approval_id']}/decision", json={"decision": "APPROVE"}, headers=auth(who)
-        ).json()
+    # One person confirms: the hotel's buyer holds every role, so her one confirmation completes the approval.
+    order = client.post(
+        f"/v1/approvals/{placed['approval_id']}/decision", json={"decision": "APPROVE"},
+        headers=auth("hotel_purchasing"),
+    ).json()
     # P16 PAY-3: the person's confirmation is inside the signed record (who and role in the sentence, the time,
     # the option and its total).
     assert order["status"] == "ORDERED" and verifies(order, keys)

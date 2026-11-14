@@ -12,7 +12,13 @@ As for the buyer, a sentence states only what its context holds and says what is
 from __future__ import annotations
 
 from tta.audit.phrases import NOTHING_ORDERED, actor_text, capital, joined, label, option_text, request_text
-from tta.audit.readers import ROLE_SEPARATOR, SUPPLIER_READER, is_supplier_reader, supplier_role
+from tta.audit.readers import (
+    EVIDENCE_PRODUCT_NOT_SHOWN,
+    ROLE_SEPARATOR,
+    SUPPLIER_READER,
+    is_supplier_reader,
+    supplier_role,
+)
 from tta.audit.scope import (
     Scope,
     approvals_given,
@@ -179,11 +185,9 @@ def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> 
 
 
 def evidence_attached(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    product = f" for product {label(context.evidence.product_id)}" if context.evidence else ""
-    return (
-        f"Evidence from outside Valio Aimo's data was attached to an approval{product}. "
-        "It changes no status and no verdict."
-    )
+    # Evidence is attached for a product rule P-04 sent to a person: Valio Aimo is not shown that product, here as
+    # in the rule's own line (`tta.audit.readers.MASKED_BY_RULE`).
+    return f"Evidence from outside Valio Aimo's data was {EVIDENCE_PRODUCT_NOT_SHOWN} and no verdict."
 
 
 SUPPLIER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {

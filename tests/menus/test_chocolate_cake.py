@@ -33,15 +33,19 @@ CLOCKS = {"default": None, "demo": DEMO_CLOCK}
 BAKERY = Identity(kind=IdentityKind.AGENT, id="agent:bakery-cafe", display_name="Kallio Bakery agent",
                   profile_id="bakery-cafe")
 FLOUR, COCOA, MILK, BAKING_POWDER = "460856", "475703", "463047", "466228"
-SUGAR, EGGS = "460460", "475201"
-# Net totals before tax: (the best confirmed option, the alternative whose quantity is not confirmed).
+# The sugar and the whole egg of the alternative, by servings. Since lane FC2 the offer takes the lowest total for a
+# small need: the 500 g sugar and the 1 kg egg for 2 and 20 servings (0.04 and 0.4 kg of each), and the 10 x 1 kg
+# sugar and the 5 kg egg for 200 (4 kg of each). Before, it took the 25 kg sugar sack (460460) for 40 g.
+SUGAR_AND_EGGS = {2: ("461329", "468269"), 20: ("461329", "468269"), 200: ("460334", "475201")}
+# Net totals before tax: (the best confirmed option, the alternative whose quantity is not confirmed). Measured at
+# both clocks on 15 Nov 2026; the alternative was 61.02 / 99.73 (default) and 104.65 / 129.12 (demo) before FC2.
 TOTALS = {
-    ("default", 2): ("15.19", "61.02"), ("default", 20): ("15.19", "61.02"), ("default", 200): ("39.66", "99.73"),
-    ("demo", 2): ("15.19", "104.65"), ("demo", 20): ("15.19", "104.65"), ("demo", 200): ("39.66", "129.12"),
+    ("default", 2): ("15.19", "22.50"), ("default", 20): ("15.19", "22.50"), ("default", 200): ("39.66", "84.32"),
+    ("demo", 2): ("15.19", "22.50"), ("demo", 20): ("15.19", "22.50"), ("demo", 200): ("39.66", "84.32"),
 }
-# The unsalted butter of the alternative: the 500 g block at the default clock; at the demo clock the offer takes
-# the 4x5 kg laminating butter, whose cut-off has not passed on Thursday (the offer builder's choice, not the plan's).
-BUTTER = {"default": "464411", "demo": "464761"}
+# The unsalted butter of the alternative: the 500 g block at both clocks. Before FC2 the demo clock took the 4x5 kg
+# laminating butter (464761), whose cut-off has not passed on Thursday: the lowest total now wins there too.
+BUTTER = {"default": "464411", "demo": "464411"}
 
 
 @pytest.fixture(params=sorted(CLOCKS))
@@ -208,10 +212,11 @@ def test_the_cake_is_one_offer_of_seven_lines_with_two_options_and_a_person_conf
     assert best.fill_ratio == 0 and best.decision.rule_ids == ("F-07", "P-03")
     # The alternative covers every line; what Valio Aimo does not confirm goes to a person (F-01), per product.
     assert alternative.fill_ratio == 1 and set(alternative.decision.rule_ids) == {"F-01"}
-    assert [line.product_id for line in alternative.lines][:5] == [FLOUR, SUGAR, EGGS, BUTTER[clock], COCOA]
+    sugar, eggs = SUGAR_AND_EGGS[servings]
+    assert [line.product_id for line in alternative.lines][:5] == [FLOUR, sugar, eggs, BUTTER[clock], COCOA]
     unconfirmed = [line.product_id for line in alternative.lines
                    if line.availability.state is AvailabilityState.QUANTITY_NOT_CONFIRMED]
-    assert unconfirmed[:3] == [SUGAR, EGGS, BUTTER[clock]]
+    assert unconfirmed[:3] == [sugar, eggs, BUTTER[clock]]
     assert {best.decision.verdict, alternative.decision.verdict} == {Verdict.APPROVAL}
     assert Decimal(alternative_net) < 300  # the bakery's limit per order (P-01) is not reached, at 200 servings too
 
@@ -233,8 +238,8 @@ def test_for_two_servings_each_sentence_says_the_pack_and_what_is_left_over(
     sugar = _sentence(plan, "sugar")
     assert "option 2 (Alternative: quantity not confirmed) covers 100%" in sugar
     assert sugar.endswith(
-        "Option 2 offers 1 × Nordic Sugar Granulated Sugar 530 25kg (460460) for €24.27 before tax, quantity not "
-        "confirmed. 0.04 kg is needed and the pack holds 25 kg, so 24.96 kg is left over."
+        "Option 2 offers 1 × Dansukker Rawsugar Granulated 500g (461329) for €1.98 before tax, quantity not "
+        "confirmed. 0.04 kg is needed and the pack holds 0.5 kg, so 0.46 kg is left over."
     )
     assert _sentence(plan, "milk").endswith("0.03 L is needed and the pack holds 1 L, so 0.97 L is left over.")
 

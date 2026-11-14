@@ -296,10 +296,13 @@ def test_with_no_key_an_unrecorded_sentence_runs_the_whole_flow_by_the_rules(
 def test_a_rules_run_whose_offer_has_no_option_orders_nothing_and_says_so(
     parts: Parts, agent_hotel: Identity
 ) -> None:
-    run = parts.service.run_agent(agent_hotel, "10 kg of butter by Monday")  # not in tonight's capture
+    # Pork: 106 products in the catalog, none in tonight's recording. Butter no longer serves here: the baking
+    # recording joined to the demo recording holds it, and a run for butter prepares an order.
+    run = parts.service.run_agent(agent_hotel, "10 kg of pork by Monday")
 
     assert [step.tool for step in run.steps] == ["get_authority", "create_offer"] and run.order_id is None
     assert "The agent stopped after 2 steps without an order." in run.report and "No order was placed." in run.report
+    assert "106 candidates checked: 106 not in recording." in run.report  # it says why, with the count
 
 
 # --- through the gateway with no key ----------------------------------------------------------------------

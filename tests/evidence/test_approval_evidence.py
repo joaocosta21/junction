@@ -68,7 +68,10 @@ def test_an_approval_for_an_unstated_allergen_carries_the_evidence_and_names_it(
     assert approval.required_roles == (ApproverRole.DIETITIAN,)
     (evidence,) = approval.evidence
     assert (evidence.product_id, evidence.found, evidence.source_url) == (ids.elovena, True, bodies.elovena_url)
-    assert approval.reasons[0].startswith("Elovena 1l oat drink barista (469512) does not rule out")  # P-04, as before
+    assert approval.reasons[0] == (  # rule P-04's own sentence, first as before
+        "Elovena 1l oat drink barista (469512) says nothing about milk, which is excluded for Harbourside Hotel: "
+        "Valio Aimo's data does not rule it out."
+    )
     assert approval.reasons[1] == (
         "Web evidence for product 469512 is attached for the dietitian, and it is not Valio Aimo's data: "
         "The manufacturer's page “Elovena Kaurajuoma kahviin” on elovena.fi says: contains “KAURA”; free from "
@@ -93,7 +96,7 @@ def test_the_api_list_of_approvals_returns_the_evidence(
 
 def test_one_audit_event_records_the_link_and_the_hash_and_the_supplier_sees_neither(
     make_stack: Make, make_finder: Make, fake_answers: Make, requests: SimpleNamespace, agent_hotel: Identity,
-    bodies: SimpleNamespace, supplier_reader: Identity,
+    bodies: SimpleNamespace, supplier_reader: Identity, ids: SimpleNamespace,
 ) -> None:
     stack = make_stack(make_finder(fake_answers(bodies.elovena)))
     order = _place_not_ruled_out(stack, agent_hotel, requests.elovena())
@@ -114,6 +117,10 @@ def test_one_audit_event_records_the_link_and_the_hash_and_the_supplier_sees_nei
     (seen,) = supplier
     assert bodies.elovena_url not in str(seen.model_dump())
     assert "Maidoton" not in str(seen.model_dump())
+    # Nor the product: evidence is attached for the product rule P-04 fired on, which Valio Aimo is not shown.
+    assert event.facts["evidence"]["product_id"] == ids.elovena and f"product {ids.elovena}" in event.sentence
+    assert seen.facts["evidence"] == {"found": True}
+    assert ids.elovena not in seen.sentence and "(which product is not shown)" in seen.sentence
     assert stack.audit.verify_chain().ok
 
 

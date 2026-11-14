@@ -59,6 +59,13 @@ def type_terms_of(product: Product, table: Mapping[str, ProductType] | None = No
     )
 
 
+def is_raw_type(key: str | None, table: Mapping[str, ProductType] | None = None) -> bool:
+    """The product type is marked raw in `product_types.yaml`: raw meat or fish, which has no recipe of its own.
+    A key the table does not have is not raw: nothing is known about it."""
+    entry = (table if table is not None else _table()).get(key) if key is not None else None
+    return entry is not None and entry.raw
+
+
 def is_same_type(original: tuple[str, ...], other: tuple[str, ...]) -> bool:
     """`other` is of every type the original is of. A chuck steak stands in for beef; beef does not stand in
     for a chuck steak (`beef_chuck` is inside `beef`)."""

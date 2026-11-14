@@ -8,6 +8,8 @@ import { icon } from "../icons.js";
 import { ROLES } from "../kitchens.js";
 import { plain } from "../words.js";
 import { REASONS } from "./answer-parts.js";
+import { isMine } from "./question.js";
+import { hasPerson } from "./parts.js";
 
 const EVENT_NAMES = {
   "request.received": "Request received",
@@ -41,11 +43,14 @@ function eventName(type) {
 
 const list = (value) => (Array.isArray(value) ? value.filter((x) => x && typeof x === "object") : []);
 const roleWord = (role) => (ROLES[role] || "person").toLowerCase();
+// One person confirms: a role is named only where a second person of the buyer holds it (the dietitian of the ward
+// and the school). Where the person who orders holds every role, "a person of the buyer" says all there is.
+const secondPerson = (role) => Boolean(ROLES[role]) && hasPerson(role) && !isMine(role);
 
-// The outcome of one rule, with the role that must sign: the words of `tta.audit.supplier_decisions`.
+// The outcome of one rule, with who must sign: never a name, which Valio Aimo does not see.
 function outcome(rule) {
   if (rule.verdict === "BLOCK") return "the order cannot be placed";
-  if (rule.verdict === "APPROVAL") return `approval by the buyer's ${roleWord(rule.approver_role)}`;
+  if (rule.verdict === "APPROVAL") return secondPerson(rule.approver_role) ? `approval by the buyer's ${roleWord(rule.approver_role)}` : "a person of the buyer confirms";
   return "no approval needed";
 }
 

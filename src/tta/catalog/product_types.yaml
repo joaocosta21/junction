@@ -16,6 +16,8 @@
 # `products` is how many products that selects and `derived_from` says how the entry was derived.
 # `note` (optional) is a sentence for the buyer whenever a request asks for the type: what the type
 # leaves out and how to ask for it. The offer carries it as a note.
+# `raw` (optional, ours) marks raw meat and fish sold as it is: a cut has no recipe of its own, so the agent
+# does not learn "a substitute must keep its recipe" for it from how a customer uses it.
 #
 # A type names one kind of product. A kind a buyer would send back is not in it: it has a type of its
 # own (milk for coffee is `coffee_milk`, not `milk`).
@@ -165,6 +167,7 @@ ham:
 fresh_fish:
   categories: ["18701"]
   products: 81
+  raw: true
   derived_from: >-
     Category 18701 holds 81 products: fresh fish, whole and as fillets (salmon, rainbow trout,
     perch, cod). "fillet" starts a word in 48 of their English names.
@@ -172,12 +175,14 @@ fresh_fish:
 pork:
   categories: ["18710"]
   products: 106
+  raw: true
   derived_from: >-
     Category 18710 holds 106 products; "pork" starts a word in 99 of their English names.
 
 beef:
   categories: ["18720"]
   products: 149
+  raw: true
   derived_from: >-
     Category 18720 holds 149 products; "beef" starts a word in 131 of their English names.
 
@@ -185,6 +190,7 @@ beef_chuck:
   categories: ["18720"]
   name_terms: ["chuck", "etuselkä"]
   products: 7
+  raw: true
   derived_from: >-
     The 7 products of category 18720 (fresh beef, 149 products) whose English name has a word
     starting with "chuck" or whose Finnish name contains "etuselkä", the Finnish word for the cut.

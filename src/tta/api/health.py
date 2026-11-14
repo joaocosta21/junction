@@ -18,6 +18,7 @@ from tta.api import docs
 from tta.api.clock_info import HealthClock, describe_clock
 from tta.api.limits import UNKNOWN_CLIENT, current_client_key, forwarded_for_entries
 from tta.api.signing import JWKS_PATH
+from tta.config import Settings
 from tta.contracts.common import DataSource
 from tta.contracts.offer import PROOF_ALGORITHM
 
@@ -101,6 +102,52 @@ def _rate_limit_caller(request: Request, trusted_proxy_hops: int) -> RateLimitCa
     )
 
 
+ReaderKind = Literal["none", "fixed_rules", "gemini", "openai_compatible"]
+READER_SENTENCES: dict[ReaderKind, str] = {
+    "none": "No reader of sentences is installed: a request is sent in structured form.",
+    "fixed_rules": (
+        "No language model is asked. A sentence is read from a recording when it has one, otherwise by the "
+        "fixed-rules reader, and the answer says which."
+    ),
+    "gemini": (
+        "Gemini is asked first, because a Gemini key is set (so also when the provider setting says none). When "
+        "it does not answer, a recording or the fixed-rules reader reads the sentence, and the answer says so."
+    ),
+    "openai_compatible": (
+        "The model behind the OpenAI-compatible endpoint is asked first. When it does not answer, or its reading "
+        "fails the checks against the buyer's words, a recording or the fixed-rules reader reads the sentence, and "
+        "the answer says so."
+    ),
+}
+
+
+class ReaderInUse(BaseModel):
+    """What reads a buyer's sentence in this process, told from the settings alone: no model is asked to find out."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: ReaderKind  # what is asked first
+    model: str | None  # the model the settings name; null when they name none (the fixed rules, Gemini's default)
+    sentence: str
+
+
+def _agent_reader(settings: Settings, *, installed: bool) -> ReaderInUse:
+    """As `tta.agent` chooses (`build_request_parser`, `build_agent_runner`): the OpenAI-compatible endpoint when
+    that provider is chosen with its address and model; otherwise Gemini when its key is set, whatever the provider
+    setting says; otherwise no model. `installed`: the gateway has a reader of sentences at all."""
+    if not installed:
+        return _reader_of("none")
+    if settings.has_agent_endpoint:
+        return _reader_of("openai_compatible", settings.tta_agent_model)
+    if settings.has_gemini_key:
+        return _reader_of("gemini", settings.tta_gemini_model)
+    return _reader_of("fixed_rules")
+
+
+def _reader_of(kind: ReaderKind, model: str | None = None) -> ReaderInUse:
+    return ReaderInUse(kind=kind, model=model, sentence=READER_SENTENCES[kind])
+
+
 class Health(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -115,7 +162,8 @@ class Health(BaseModel):
     clock: HealthClock  # the instant order deadlines are judged against, what it rests on, whether it was set
     audit_head: AuditHead
     settings: dict[str, Any]  # secrets appear only as true or false
-    agent: dict[str, bool]
+    agent: dict[str, bool]  # whether the reader of sentences and the buyer agent's runner are installed
+    agent_reader: ReaderInUse  # what reads a sentence: the fixed rules, or the model that is asked first
     surfaces: dict[str, bool]
     store: StoreInUse  # which database holds the shared order book and the audit trail, and why
     signing: SigningKey  # the key offers and order records are signed with, and whether it is a demo key
@@ -148,7 +196,9 @@ def get_health(request: Request, response: Response) -> Health:
     (the recording's instant, the supplier's time, or a demo clock that was set), whether the gateway
     is `ok` or `degraded` and why, the head of the audit chain, and which database holds the shared order book
     (`store`: PostgreSQL or SQLite, and why) and the key offers and orders are signed with (`signing`, saying when
-    it is a demo key). No token needed; no secret, no path, no host name and no budget
+    it is a demo key).
+    `agent_reader` says what reads a buyer's sentence: the fixed rules, or the language model that is asked first;
+    it is told from the settings and no model is called. No token needed; no secret, no path, no host name and no budget
     figure is shown. In dev and demo `rate_limit_caller` says how many proxy hops the rate limiter trusts and which
     address family it counted this call for, with a short label instead of the address: two networks that read
     the same label share one rate-limit window. Nothing is asked of the supplier and the audit trail is not read
@@ -180,6 +230,10 @@ def get_health(request: Request, response: Response) -> Health:
         agent={
             "request_parser": parts.service.has_request_parser, "agent_runner": parts.service.has_agent_runner,
         },
+        # The buyer agent's runner reads a pasted sentence with a parser of its own, so either part is a reader.
+        agent_reader=_agent_reader(
+            parts.settings, installed=parts.service.has_request_parser or parts.service.has_agent_runner
+        ),
         surfaces=dict(state.surfaces),
         store=StoreInUse(kind=parts.store_kind, reason=parts.store_reason),
         signing=SigningKey(

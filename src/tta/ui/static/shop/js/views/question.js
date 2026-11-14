@@ -7,6 +7,7 @@ import { customerKnown, myRoles } from "../customer.js";
 import { html } from "../dom.js";
 import { icon } from "../icons.js";
 import { ended, plain } from "../words.js";
+import { evidenceFor } from "./evidence.js";
 import { customerPending, hasPerson, netTotal, nobodyHolds, personFor, roleWord } from "./parts.js";
 
 export const DIETITIAN = "dietitian";
@@ -135,6 +136,7 @@ export function ownQuestion(turn, option, off) {
   return html`<section class="question" aria-label="Needs your decision">
     <h4>${icon("alert")}Needs your decision: the agent is not sure about ${doubtful}</h4>
     <p>${askedOf(option.decision, option.decision?.required_roles || []).join(" ")}</p>
+    ${evidenceFor(turn, option)}
     <ol class="choices">
       ${safe
         ? html`<li class="first"><div><b>Take the safe product</b> · ${netTotal(safe.totals)}<p class="small">${plain(safe.summary)}</p></div>

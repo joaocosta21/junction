@@ -100,7 +100,7 @@ def test_the_sql_view_names_a_human_by_the_same_roles_and_words_as_the_reader() 
         readers.ROLE_SEPARATOR, readers.BUYERS_ROLE.format(roles=""),
         readers.SUPPLIER_ROLE, readers.SUPPLIER_READER_ID, readers.SUPPLIER_READER,
         *(text for mask in readers.STORED_SENTENCE_MASKS for text in mask),
-        *("{" + ",".join(path) + "}" for path in readers.STORED_COUNT_PATHS),
+        *("{" + ",".join(path) + "}" for path in readers.STORED_MASKED_PATHS),
         "g",  # the flag of regexp_replace: everywhere in the sentence, as `re.sub` does
     }
     # A JSON key, a kind of actor, what `replace` turns a role's "_" into, or a path into the stored event.
@@ -116,7 +116,8 @@ def test_the_sql_view_names_a_human_by_the_same_roles_and_words_as_the_reader() 
 
 def test_the_sql_view_masks_what_an_older_event_holds_exactly_as_the_reader_does() -> None:
     """Review finding M1: the counts of products left out for an allergen, in the sentence and in the facts of
-    events stored before the fix. The same patterns, replacements and paths, applied in the same order."""
+    events stored before the fix; and the product web evidence was attached for (a product rule P-04 fired on).
+    The same patterns, replacements and paths, applied in the same order."""
     columns = _columns("audit_supplier")
     sentence = [text.replace("''", "'") for text in STRING_LITERAL.findall(columns["sentence"])]
     facts = STRING_LITERAL.findall(columns["facts"])
@@ -124,9 +125,9 @@ def test_the_sql_view_masks_what_an_older_event_holds_exactly_as_the_reader_does
     in_order = [text for mask in readers.STORED_SENTENCE_MASKS for text in (*mask, "g")]
     assert sentence == ["{data,supplier_sentence}", *in_order]
     assert columns["sentence"].count("regexp_replace(") == len(readers.STORED_SENTENCE_MASKS)
-    paths = ["{" + ",".join(path) + "}" for path in readers.STORED_COUNT_PATHS]
+    paths = ["{" + ",".join(path) + "}" for path in readers.STORED_MASKED_PATHS]
     assert facts == ["{data,supplier_facts}", "{}", *paths]
-    assert columns["facts"].count("#-") == len(readers.STORED_COUNT_PATHS)
+    assert columns["facts"].count("#-") == len(readers.STORED_MASKED_PATHS)
     assert ";" not in "".join(in_order)  # the file is one statement per semicolon to whoever reads it by eye
 
 

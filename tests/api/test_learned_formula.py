@@ -249,11 +249,17 @@ def test_the_learned_view_names_each_usual_product_its_source_and_the_mode(parts
     view = parts.service.get_learned(HOTEL_AGENT)
 
     assert (view.mode, view.applied) == (FormulaMode.LEARN, True)
-    assert {each.product_id: (each.matters, each.source) for each in view.findings} == {
+    found = {each.product_id: each for each in view.findings}
+    # The beef chuck (466988) is used as an ingredient too, and nothing is learned for it: a raw cut has no recipe
+    # of its own to keep (`raw` in product_types.yaml), so only the cooking cream is learned.
+    assert {product_id: (each.matters, each.source) for product_id, each in found.items()} == {
         "469363": (False, LearnedSource.USE), "463797": (True, LearnedSource.USE), "464615": (False, LearnedSource.USE),
-        "463203": (False, LearnedSource.USE), "466988": (True, LearnedSource.USE)}
-    assert view.summary.startswith("Learned so far: Arla Pro Cooking cream 10% 1 L UHT lactose free, ")
-    assert view.summary.endswith("(you use them as ingredients). From your customer file, which is synthetic.")
+        "463203": (False, LearnedSource.USE), "466988": (None, LearnedSource.USE)}
+    assert "is raw beef chuck, which has no recipe of its own: nothing is learned for it" in found["466988"].sentence
+    assert view.summary == (
+        "Learned so far: Arla Pro Cooking cream 10% 1 L UHT lactose free (you use it as an ingredient). "
+        "From your customer file, which is synthetic."
+    )
 
 
 def test_the_view_shows_what_is_learned_without_applying_it_when_the_mode_is_when_asked(parts: Parts) -> None:

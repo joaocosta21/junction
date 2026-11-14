@@ -12,7 +12,8 @@
 --   Valio Aimo's own token as "Valio Aimo's reader". An event stored before review finding M1 was fixed holds,
 --   in the supplier's sentence and facts, how many products were left out for an allergen the buyer excludes:
 --   both are masked here as the reader masks them (tta.audit.readers.shown_sentence, shown_facts), with the
---   same texts in the same order.
+--   same texts in the same order. So is the product evidence was attached for, in an event stored before it was
+--   masked: evidence is attached only for a product rule P-04 fired on, which Valio Aimo is not shown.
 --   tests/audit/test_sql_view.py compares this file with the reader offline: the columns, the roles, the words.
 --
 -- audit_supplier is dropped and created again at every start. CREATE OR REPLACE VIEW refuses a change of a
@@ -70,7 +71,7 @@ SELECT
             'kind', 'agent', 'id', event.body #> '{data,actor,id}', 'role', NULL, 'display_name', NULL)
         ELSE event.body #> '{data,actor}'
     END AS actor,
-    regexp_replace(regexp_replace(regexp_replace(
+    regexp_replace(regexp_replace(regexp_replace(regexp_replace(
         event.body #>> '{data,supplier_sentence}',
         '[0-9][0-9,]* products? (was|were) considered and left out: ',
         'Left out for a reason in Valio Aimo''s own data (products left out for a requirement of the buyer''s, if any, are not shown or counted): ',
@@ -80,6 +81,9 @@ SELECT
         'g'),
         'are not shown or counted\): \.',
         'are not shown or counted): none.',
+        'g'),
+        'attached to an approval for product .*\. It changes no status',
+        'attached to an approval (which product is not shown). It changes no status',
         'g') AS sentence,
     ARRAY(
         SELECT rule.id
@@ -89,7 +93,8 @@ SELECT
     ) AS rule_ids,
     coalesce(event.body #> '{data,supplier_facts}', '{}'::jsonb)
         #- '{offer,excluded_by_reason,ALLERGEN_DECLARED}'
-        #- '{offer,excluded_by_reason,ALLERGEN_NOT_STATED}' AS facts,
+        #- '{offer,excluded_by_reason,ALLERGEN_NOT_STATED}'
+        #- '{evidence,product_id}' AS facts,
     e.hash
 FROM audit_events AS e
 CROSS JOIN LATERAL (SELECT e.body::jsonb AS body) AS event

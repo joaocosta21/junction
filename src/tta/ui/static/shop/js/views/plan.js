@@ -5,12 +5,11 @@
 // figure is the gateway's; the page only multiplies packs by their size to say what is left over.
 import { html, money, num, unit } from "../dom.js";
 import { icon } from "../icons.js";
-import { ROLES } from "../kitchens.js";
 import { plain } from "../words.js";
-import { hasPerson, personFor, stockLine } from "./parts.js";
+import { peopleFor, stockLine } from "./parts.js";
 
 const READ_AS = /^Read as: /;
-// The planner's note that some products were answered from a later recording (tta.menus.sentence.LATER_RECORDED).
+// The planner's note that some products were answered from a later recording (tta.offers.recorded.LATER_RECORDED).
 const LATER = /^\d+ of the \d+ products of this offer have their price and stock from the later recording/;
 const ILLUSTRATIVE = /illustrative/;
 const PER_OPTION = /^Option \d+, /; // the planner's sentence per option: the option cards below say the same
@@ -28,8 +27,8 @@ const capital = (text) => (text ? text[0].toUpperCase() + text.slice(1) : "");
 const GRAMS = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 3 });
 const amount = (n, u) => `${GRAMS.format(Math.round(Number(n) * 1000) / 1000)} ${unit(u)}`;
 const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
-const roleWord = (role) => (ROLES[role] || role).toLowerCase();
-const who = (roles) => listed(roles.map((r) => (hasPerson(r) ? `${personFor(r)} (${roleWord(r)})` : `the ${roleWord(r)}`)));
+// Who confirms, each person once and by name; what they are only for somebody else than the person signed in.
+const who = (roles) => listed(peopleFor(roles));
 
 // ---- the plan's notes ---------------------------------------------------------------------------------------
 
@@ -43,13 +42,20 @@ function otherNotes(plan) {
   return (plan.notes || []).filter((n, i) => !shown(n, i));
 }
 
-// The products of a later recording, said once and folded: its first sentence, then the whole note.
+// The products of a later recording, said once: how many as the fold's line, and under it only what that line
+// does not say (which products, and why the two recordings are read together), never the same sentence again.
+export function laterParts(note) {
+  const first = note.split(" (")[0];
+  const rest = note.slice(first.length).trim().replace(/^\(([^)]*)\)\.\s*/, "They are $1. ");
+  return [first, rest];
+}
+
 function laterFold(plan) {
   const note = laterNote(plan);
   if (!note) return "";
-  const first = note.split(" (")[0];
-  return html`<details class="why fold"><summary>${icon("right")}${first}…</summary>
-    <div class="why-body"><p class="small muted">${plain(note)}</p></div></details>`;
+  const [first, rest] = laterParts(note);
+  return html`<details class="why fold"><summary>${icon("right")}${first}</summary>
+    ${rest ? html`<div class="why-body"><p class="small muted">${plain(rest)}</p></div>` : ""}</details>`;
 }
 
 // ---- one ingredient: needed, offered, what is left over --------------------------------------------------

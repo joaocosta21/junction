@@ -172,7 +172,7 @@ def test_the_dietitians_example_offers_the_safe_product_first_and_the_doubtful_o
     offer = book(client).service.get_offer(_hotel_agent(client), order.offer_id)
     doubtful = next(option for option in offer.options if option.lines[0].product_id == "469512")
 
-    assert "Reserve · Harbourside Hotel · The dietitian" in client.get("/").text
+    assert "4 · Harbourside Hotel · An allergen doubt" in client.get("/").text  # step 4 of the demo set
     assert "Prepared: confirm to order" in page and order.status is OrderStatus.PENDING_APPROVAL
     assert order.option.lines[0].product_id != "469512"  # the page orders the first option: the safe one
     assert doubtful.title == "Alternative: allergen not ruled out"

@@ -35,6 +35,8 @@ def test_health_needs_no_token_and_says_what_is_running(client: TestClient) -> N
     assert body["audit_head"] == {"events": 0, "last_hash": GENESIS_HASH}
     assert body["settings"]["replay_capture"] == "2026-11-14-demo"
     assert body["agent"] == {"request_parser": False, "agent_runner": False}
+    # No agent package in these tests, so nothing reads a sentence.
+    assert (body["agent_reader"]["kind"], body["agent_reader"]["model"]) == ("none", None)
     assert body["surfaces"] == {"mcp": False, "pages": False}
 
 
@@ -57,7 +59,10 @@ def test_health_reads_the_whole_trail_once_and_then_only_its_last_hash(
     genuine = parts.store.list_audit_events
 
     def counted(*args: Any, **kwargs: Any) -> Any:
-        whole_trail_reads.append(1)
+        # A read of one offer's or one buyer's events (the suggestions do both when an offer is made) is not a
+        # read of the whole trail.
+        if not args and not kwargs:
+            whole_trail_reads.append(1)
         return genuine(*args, **kwargs)
 
     monkeypatch.setattr(parts.store, "list_audit_events", counted)
@@ -71,6 +76,32 @@ def test_health_reads_the_whole_trail_once_and_then_only_its_last_hash(
     assert len(whole_trail_reads) == 1
 
 
+@pytest.mark.parametrize(
+    ("given", "installed", "kind", "model"),
+    [
+        ({}, True, "fixed_rules", None),
+        ({}, False, "none", None),
+        # `TTA_AGENT_PROVIDER=none` with a Gemini key: Gemini is asked first, as `tta.agent` builds it.
+        ({"gemini_api_key": SECRET}, True, "gemini", None),
+        ({"gemini_api_key": SECRET, "tta_gemini_model": "gemini-x"}, True, "gemini", "gemini-x"),
+        ({"gemini_api_key": SECRET, "tta_agent_provider": "openai_compatible",
+          "tta_agent_base_url": "https://example.invalid/v1", "tta_agent_model": "qwen"}, True,
+         "openai_compatible", "qwen"),
+        # The provider is chosen and its address is missing: no endpoint is asked, and no key means no Gemini.
+        ({"tta_agent_provider": "openai_compatible", "tta_agent_model": "qwen"}, True, "fixed_rules", None),
+    ],
+)
+def test_health_says_which_reader_of_sentences_is_in_use_from_the_settings_alone(
+    tmp_path: Any, given: dict[str, Any], installed: bool, kind: str, model: str | None
+) -> None:
+    from tta.api.health import READER_SENTENCES, _agent_reader
+
+    reader = _agent_reader(Settings.for_tests(tta_data_dir=tmp_path / "var", **given), installed=installed)
+
+    assert (reader.kind, reader.model, reader.sentence) == (kind, model, READER_SENTENCES[kind])
+    assert SECRET not in reader.model_dump_json() and "example.invalid" not in reader.model_dump_json()
+
+
 def test_health_does_not_show_the_supplier_call_budget(tmp_path: Any, catalog: ProductCatalog) -> None:
     settings = Settings.for_tests(tta_data_dir=tmp_path / "var", tta_valio_call_budget=137)
     with TestClient(create_app(settings, parts=build_parts(settings, catalog=catalog))) as client:
@@ -81,7 +112,8 @@ def test_health_does_not_show_the_supplier_call_budget(tmp_path: Any, catalog: P
     # What is configured is still shown, each secret as true or false only.
     assert response.json()["settings"] == {
         "env": "dev", "mode": "replay", "replay_capture": "2026-11-14-demo", "valio_key_set": False,
-        "gemini_key_set": False, "database_url_set": False, "context_dev_key_set": False, "tokens_set": False,
+        "gemini_key_set": False, "agent_provider": "none", "agent_model": None, "agent_base_url_set": False,
+        "agent_key_set": False, "database_url_set": False, "context_dev_key_set": False, "tokens_set": False,
         "signing_key_set": False, "supplier_suggestions": True, "customer_standing_orders": False,
     }
 

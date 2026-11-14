@@ -21,7 +21,8 @@ Each book also holds one custom buyer profile, "My kitchen" (task FEAT-1): what 
 "My kitchen agent", decide alone. It starts as a copy of `hotel-kitchen`, is checked exactly as a profile file is,
 and is in force only in the calls made on this book's service (`tta.policy.custom`): the shared book of the
 tokens, the policy files and every other book never see it. Its approvals are decided by three approvers bound to
-it, who carry the names of the hotel's demo approvers. "Start again" drops it with the book.
+it, one per role, who carry the name of the hotel's one person (one person confirms). "Start again" drops it with
+the book.
 """
 
 from __future__ import annotations
@@ -83,17 +84,21 @@ KITCHEN_SOURCE = "Your kitchen"
 KITCHEN_AGENT = Identity(
     kind=IdentityKind.AGENT, id="agent:my-kitchen", display_name="My kitchen agent", profile_id=KITCHEN_PROFILE_ID
 )
-# An identity is bound to one buyer profile (tta.contracts.common), so the hotel's demo approvers decide for My
-# kitchen as approvers of their own, with the same names.
+# An identity is bound to one buyer profile (tta.contracts.common), so My kitchen has approvers of its own. One
+# person confirms, as at the hotel it starts from: the three are the hotel's one person, Hanna, once per role.
+# A book keeps one approver per role, each holding that role only, because the shop signs role by role under the
+# name of the customer's person (`tta.ui.shop_api`): where a kitchen has a dietitian of its own (the ward, the
+# school), the person who orders must not sign the dietitian's role. One approver holding every role would.
+KITCHEN_APPROVER_NAME = "Demo approver Hanna, My kitchen"
 KITCHEN_APPROVERS = tuple(
     Identity(
-        kind=IdentityKind.APPROVER, id=f"human:my-kitchen-{suffix}", display_name=f"Demo approver {name}, My kitchen",
+        kind=IdentityKind.APPROVER, id=f"human:my-kitchen-{suffix}", display_name=KITCHEN_APPROVER_NAME,
         profile_id=KITCHEN_PROFILE_ID, roles=(role,),
     )
-    for suffix, name, role in (
-        ("purchasing", "Hanna", ApproverRole.PURCHASING_MANAGER),
-        ("finance", "Mikko", ApproverRole.FINANCE),
-        ("dietitian", "Leena", ApproverRole.DIETITIAN),
+    for suffix, role in (
+        ("purchasing", ApproverRole.PURCHASING_MANAGER),
+        ("finance", ApproverRole.FINANCE),
+        ("dietitian", ApproverRole.DIETITIAN),
     )
 )
 KITCHEN_IDENTITIES = (KITCHEN_AGENT, *KITCHEN_APPROVERS)

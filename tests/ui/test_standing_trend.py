@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from tta.customers import shipped_customers
 
 CSRF = re.compile(r'name="csrf" value="([A-Za-z0-9_-]+)"')
-TREND = "a median of 84 L against 70 L for the 3 before (+20%)"
+TREND = "are growing: about 84 L in your last 3 orders, 70 L in the 3 before."
 SCHOOL_FORM = re.compile(
     r'<form method="post" action="/standing-orders/so_school_weekly/renew" class="inline-form">(.*?)</form>', re.DOTALL
 )
@@ -53,9 +53,10 @@ def test_loading_sets_up_every_demo_customers_standing_orders_once(client: TestC
 def test_the_schools_standing_order_shows_the_trend_labelled_synthetic(client: TestClient) -> None:
     page = _loaded(client)
 
-    assert TREND in page and "The standing order still says 60 L." in page
-    assert page.count("From a synthetic order history</span>") == page.count("Renew once at")
-    assert "Renew once at 84 L" in page
+    assert TREND in page and "Your standing order still says 60 L. Renew once at 84 L?" in page
+    # One label per button: the sentence now asks "Renew once at 84 L?" itself, so the words are there twice.
+    assert page.count("From a synthetic order history</span>") == page.count('<button type="submit">Renew once at') == 1
+    assert '<button type="submit">Renew once at 84 L</button>' in page
 
 
 def test_the_button_renews_once_at_the_suggested_quantity_and_the_renewal_meets_the_rules(

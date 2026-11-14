@@ -112,20 +112,17 @@ def test_the_sentence_and_the_typed_dishes_give_the_same_plan(cake_api: TestClie
     assert [option["net"] for option in _comparable(said, cake_api)["options"]][0] == 15.19
 
 
-def test_the_plan_says_which_products_were_recorded_later_and_when(
-    cake_api: TestClient, cake_settings: Settings
-) -> None:
-    """Flour, sugar, eggs, butter, cocoa powder and baking powder are of the later recording; the milk is of the
-    first (two milks at the recording's clock, one at the demo clock)."""
+def test_the_plan_says_which_products_were_recorded_later_and_when(cake_api: TestClient) -> None:
+    """Flour, sugar, eggs, butter, cocoa powder and two baking powders (the confirmed option's and the unconfirmed
+    alternative's) are of the later recording; the two milks (463047, 469477) are of the first. The same nine
+    products at the recording's clock and at the demo clock."""
     plan = _plan(cake_api, {"text": "chocolate cake for 20"})
 
     later = plan["notes"][-1]
-    offered = 8 if cake_settings.tta_demo_clock is None else 7
-    assert later.startswith(
-        f"6 of the {offered} products of this offer have their price and stock from the later recording ("
-    )
+    assert later.startswith("7 of the 9 products of this offer have their price and stock from the later recording (")
     assert later.endswith(LATER)
-    assert "463047" not in later.split(")")[0] and "460856" in later.split(")")[0]
+    named = later.split(")")[0]
+    assert "463047" not in named and "469477" not in named and "460856" in named
 
 
 def test_a_plan_of_the_first_recording_alone_carries_no_such_note(cake_api: TestClient) -> None:

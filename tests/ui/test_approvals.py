@@ -128,20 +128,22 @@ def test_the_approver_is_chosen_on_the_page_and_kept_in_a_cookie(
 
 
 def test_an_approver_without_the_role_is_refused_and_the_page_says_who_can_decide(
-    client: TestClient, run_example: Post, act_as: Post, decide: Post, identities: Identities,
+    client: TestClient, act_as: Post, decide: Post, identities: Identities, own_book: Callable[..., Any],
     only_order: Callable[..., Any],
 ) -> None:
-    run_example(client, "scenario-1")
-    approval = _pending(client, identities)
-    queue = act_as(client, "human:hotel-finance").text
+    # Since SIMP the hotel's one person holds every role, so the buyer with two people is the ward: its substitute
+    # asks the purchasing manager (Jussi), and the dietitian (Sari) does not hold that role.
+    _order_as(client, identities, own_book, "agent:allergy-ward", WARD_SUBSTITUTE)
+    approval = _pending(client, identities, "human:ward-purchasing")
+    queue = act_as(client, "human:ward-dietitian").text
 
     response = decide(client, approval.approval_id, "APPROVE", option=approval.option_id)
 
-    assert "Switch to Demo approver Hanna (purchasing manager)" in queue  # who holds the role that is missing
+    assert "Switch to Demo approver Jussi (purchasing manager, finance)" in queue  # who holds the role that is missing
     assert 'value="APPROVE"' not in queue  # no decision is offered to an approver the gateway would refuse
     assert response.status_code == 403
     assert "still needs the purchasing manager" in response.text
-    assert only_order(client).status is OrderStatus.PENDING_APPROVAL
+    assert only_order(client, "agent:allergy-ward").status is OrderStatus.PENDING_APPROVAL
 
 
 def test_a_decision_without_the_form_token_is_refused_and_nothing_changes(
@@ -199,10 +201,11 @@ def test_a_card_decided_after_the_approver_was_changed_in_another_tab_is_refused
     client: TestClient, run_example: Post, decide: Post, identities: Identities, act_as: Post,
     only_order: Callable[..., Any],
 ) -> None:
-    # Task FIX-10, finding 6: the card was shown to Hanna; another tab then switched this browser to Mikko.
+    # Task FIX-10, finding 6: the card was shown to Hanna; another tab then switched this browser to Sari. (The
+    # hotel has one person since SIMP, so the other approver is another buyer's.)
     run_example(client, "scenario-1")
     approval = _pending(client, identities)
-    act_as(client, "human:hotel-finance")
+    act_as(client, "human:ward-dietitian")
 
     switched = decide(client, approval.approval_id, "APPROVE", option=approval.option_id, shown_to=HANNA)
     without = decide(client, approval.approval_id, "APPROVE", option=approval.option_id, shown_to="")
@@ -272,7 +275,7 @@ def test_a_card_sent_to_the_dietitian_shows_the_allergen_findings_above_the_butt
     assert check is not None
     to_human = [finding.sentence for finding in check.findings if finding.outcome is AllergenOutcome.TO_HUMAN]
 
-    page = act_as(client, "human:hotel-dietitian").text
+    page = act_as(client, HANNA).text  # one person confirms at the hotel: Hanna holds the dietitian's role too
 
     assert len(to_human) == 2
     assert all(_before_the_buttons(page, str(escape(sentence))) for sentence in to_human)
@@ -295,7 +298,7 @@ def test_the_trade_off_is_escaped(
 ) -> None:
     request = WARD_SUBSTITUTE if field != "finding" else HOTEL_NO_MILK_NO_GLUTEN
     agent = "agent:allergy-ward" if field != "finding" else "agent:hotel-kitchen"
-    approver = "human:ward-purchasing" if field != "finding" else "human:hotel-dietitian"
+    approver = "human:ward-purchasing" if field != "finding" else HANNA
     offer = _order_as(client, identities, own_book, agent, request, DOUBTFUL if field == "finding" else None)
     service = own_book(client).service
     monkeypatch.setattr(service, "get_offer", lambda _identity, _offer_id: _hostile(offer, field))

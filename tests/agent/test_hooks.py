@@ -111,6 +111,8 @@ def test_the_routes_of_the_buyer_agent_answer_from_a_pasted_sentence_without_a_k
         ran = client.post("/v1/agent/run", json={"text": texts["scenario_2"]}, headers=WARD_TOKEN)
 
     assert health["agent"] == {"request_parser": True, "agent_runner": True}
+    # No key and no endpoint: no model is asked, and /healthz says so.
+    assert (health["agent_reader"]["kind"], health["agent_reader"]["model"]) == ("fixed_rules", None)
     assert parsed.status_code == 200 and parsed.json()["lines"][0]["required_claims"] == ["FREE_FROM_LACTOSE"]
     assert missing.status_code == 422 and missing.json()["type"].endswith("invalid-request")
     assert missing.json()["missing"] == ["lines[0].quantity"]

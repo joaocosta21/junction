@@ -13,6 +13,7 @@ import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
+import { loadEvidence } from "./evidence.js";
 import { hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
 import { planCard, planReadAs } from "./plan.js";
 import { DIETITIAN, askedOf, dietitianRules, isMine, otherPeople, ownQuestion, personWords, reasonOf, said } from "./question.js";
@@ -138,6 +139,15 @@ async function planInstead(turn, text, readerError) {
   return true;
 }
 
+// The manufacturer's page for each option that asks the person signed in an allergen question on the result itself
+// (question.js, `ownQuestion`): no approval exists yet to carry it, so it is read here, from the recordings.
+function loadOwnEvidence(turn) {
+  if (!isMine(DIETITIAN)) return;
+  for (const option of turn.offer?.options || []) {
+    if (dietitianRules(option.decision).length) loadEvidence(turn, option);
+  }
+}
+
 // The plan's offer, read from this book as it was made, then what it suggests and the one order placed without a
 // click (`act`). No brand question: the plan's lines are the recipe's, not a product the buyer named.
 async function answerWithPlan(turn) {
@@ -149,6 +159,7 @@ async function answerWithPlan(turn) {
   update(turn);
   if (!turn.offer) return;
   loadWhyNot(turn);
+  loadOwnEvidence(turn);
   await act(turn);
 }
 
@@ -161,6 +172,7 @@ async function answerWith(turn, request) {
   turn.phase = "done";
   update(turn);
   loadWhyNot(turn);
+  loadOwnEvidence(turn);
   await act(turn);
 }
 

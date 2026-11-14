@@ -259,6 +259,7 @@ def test_an_agent_package_with_one_factory_starts_and_the_missing_one_is_logged(
         health = client.get("/healthz").json()
 
     assert health["agent"] == expected
+    assert health["agent_reader"]["kind"] == "fixed_rules"  # either part reads a sentence; no key, so no model
     warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
     assert len(warnings) == 1
     assert missing in warnings[0] and defined not in warnings[0]

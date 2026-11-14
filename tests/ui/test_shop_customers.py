@@ -207,9 +207,14 @@ def test_the_shop_says_what_the_agent_learned_for_the_customer_and_in_which_mode
     learned = client.get("/shop/api/learned", headers=_hotel(client, shop_profile_settings, "LEARN")).json()
 
     assert (learned["mode"], learned["applied"]) == ("LEARN", True)
-    assert learned["summary"].startswith("Learned so far: Arla Pro Cooking cream 10% 1 L UHT lactose free, ")
-    assert learned["summary"].endswith("(you use them as ingredients). From your customer file, which is synthetic.")
-    assert [each["product_id"] for each in learned["findings"] if each["matters"]] == ["463797", "466988"]
+    # The beef chuck (466988) is an ingredient too, and raw meat: no recipe is learned for it.
+    assert learned["summary"] == (
+        "Learned so far: Arla Pro Cooking cream 10% 1 L UHT lactose free (you use it as an ingredient). From your "
+        "customer file, which is synthetic."
+    )
+    assert [each["product_id"] for each in learned["findings"] if each["matters"]] == ["463797"]
+    beef = next(each for each in learned["findings"] if each["product_id"] == "466988")
+    assert beef["matters"] is None and "raw beef chuck, which has no recipe of its own" in beef["sentence"]
     assert all(each["source"] == "USE" and each["synthetic"] for each in learned["findings"])
 
     asked = client.get("/shop/api/learned", headers=_hotel(client, shop_profile_settings, "WHEN_ASKED")).json()

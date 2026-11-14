@@ -156,8 +156,10 @@ def empty_cache(tmp_path: Path) -> EvidenceCache:
 
 @pytest.fixture(scope="session")
 def hotel_dietitian() -> Identity:
-    return Identity(kind=IdentityKind.APPROVER, id="human:hotel-dietitian", display_name="Demo dietitian",
-                    profile_id="hotel-kitchen", roles=(ApproverRole.DIETITIAN,))
+    """Who decides a dietitian's question at the hotel. One person confirms (decision SIMP): the hotel names no
+    dietitian of its own, and the person who orders holds that role with the two others."""
+    return Identity(kind=IdentityKind.APPROVER, id="human:hotel-purchasing", display_name="Demo approver Hanna",
+                    profile_id="hotel-kitchen", roles=tuple(ApproverRole))
 
 
 @pytest.fixture(scope="session")

@@ -29,6 +29,15 @@ from tta.contracts.request import PurchaseRequest
 from tta.policy import PolicyLoadError, RulePolicyEngine
 
 KITCHEN_PURCHASING = next(one for one in KITCHEN_APPROVERS if ApproverRole.PURCHASING_MANAGER in one.roles)
+# The hotel's own example: Valio Aimo's data states nothing about milk for 469512, so rule P-04 asks the dietitian.
+OAT_WITHOUT_MILK = {
+    "needed_by": "2026-11-16",
+    "lines": [{
+        "text": "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk",
+        "product_ids": ["469512"], "quantity": 100, "unit": "L", "exclude_allergens": ["AM"],
+        "allergen_strictness": "STRICT",
+    }],
+}
 
 
 @pytest.fixture
@@ -132,6 +141,39 @@ def test_the_kitchens_approval_is_decided_by_its_own_approvers_and_by_no_hotel_a
     assert stored and {event.data.profile_id for event in stored} == {KITCHEN_PROFILE_ID}
     assert {event.data.policy_hash for event in stored if event.data.policy_hash} == {waiting.decision.policy_hash}
     assert book.service.get_audit(KITCHEN_AGENT, order_id=waiting.order_id).events  # the buyer's own view
+
+
+def test_the_kitchens_approvers_are_one_person_and_each_holds_one_role_only() -> None:
+    """One person confirms (decision SIMP): no separate finance signer and no dietitian of the kitchen's own is
+    named. There is still one approver per role, because the shop signs role by role under the name of the
+    customer's person (`tta.ui.shop_api`)."""
+    assert {approver.display_name for approver in KITCHEN_APPROVERS} == {"Demo approver Hanna, My kitchen"}
+    assert sorted(approver.roles for approver in KITCHEN_APPROVERS) == sorted((role,) for role in ApproverRole)
+    assert len({approver.id for approver in KITCHEN_APPROVERS}) == len(ApproverRole)
+
+
+def test_the_dietitians_question_is_not_decided_by_the_kitchens_other_approvers(parts: Parts) -> None:
+    """Where a kitchen has a dietitian of its own (the ward, the school), the shop signs as the book's approver of
+    the role signed. An approver of a book who held every role would let the person who orders decide the
+    dietitian's question: rule P-04 asks the dietitian, and only the dietitian's approver completes it."""
+    book = parts.sandboxes.open("visitor-one")
+    offer = book.service.create_offer(KITCHEN_AGENT, PurchaseRequest.model_validate(OAT_WITHOUT_MILK))
+    doubtful = next(option for option in offer.options if [line.product_id for line in option.lines] == ["469512"])
+    waiting = book.service.place_order(KITCHEN_AGENT, offer.offer_id, doubtful.option_id, "k-oat")
+    approval = book.store.get_approval(str(waiting.approval_id))
+    assert approval is not None and approval.required_roles == (ApproverRole.DIETITIAN,)
+    approve = DecisionRequest(decision=DecisionKind.APPROVE)
+    others = [approver for approver in KITCHEN_APPROVERS if ApproverRole.DIETITIAN not in approver.roles]
+    (dietitian,) = [approver for approver in KITCHEN_APPROVERS if ApproverRole.DIETITIAN in approver.roles]
+    assert len(others) == 2
+
+    for approver in others:
+        with pytest.raises(NotAuthorised):
+            book.service.decide_approval(approver, approval.approval_id, approve)
+    still = book.store.get_approval(approval.approval_id)
+    assert still is not None and still.decisions == () and still.roles_missing == (ApproverRole.DIETITIAN,)
+
+    assert book.service.decide_approval(dietitian, approval.approval_id, approve).status is OrderStatus.ORDERED
 
 
 def test_starting_again_brings_back_the_copy_of_the_hotel_kitchen(parts: Parts) -> None:

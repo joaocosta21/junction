@@ -72,19 +72,27 @@ def _kinds(offer: Offer) -> list[tuple[str, str]]:
     return [(each["kind"], each["product_id"]) for each in offer["suggestions"]]
 
 
+def _dropped(client: TestClient, who: str, offer: Offer) -> dict[str, str]:
+    """Product id -> why it was not shown, from the buyer's log of the offer."""
+    shown, = _events(client, who, offer["offer_id"], SHOWN)
+    return {each["product_id"]: each["reason"] for each in shown["facts"]["suggestions"]["dropped"]}
+
+
 # --- on the offer -----------------------------------------------------------------------------------------
 
 
-def test_the_hotels_usual_milk_gets_the_forgotten_cream_and_valio_aimos_own_suggestion_last(
+def test_the_hotels_usual_milk_gets_the_forgotten_cream_and_valio_aimos_own_suggestion_stays_silent(
     client: TestClient,
 ) -> None:
     offer = _offer(client, "hotel", HOTEL_MILK)
 
     assert offer["options"][0]["totals"]["net"] == 248.0  # the option is what it was without suggestions
-    assert _kinds(offer) == [("FORGOTTEN_ITEM", CREAM), ("FROM_SUPPLIER", "462775")]
-    forgotten, own = offer["suggestions"]
+    assert _kinds(offer) == [("FORGOTTEN_ITEM", CREAM)]
+    forgotten, = offer["suggestions"]
     assert forgotten["effect"]["net_change_eur"] == 33.1 and forgotten["stock_confirmed"] is True
-    assert own["serves"] == "SUPPLIER"
+    assert forgotten["serves"] == "BUYER"
+    # Silence beats a weak suggestion (SG): Valio Aimo's own candidates are logged with why they were not shown.
+    assert _dropped(client, "hotel", offer) == {"462775": "STOCK_TOO_LOW", "463047": "DIETARY_CLAIM_MISSING"}
     assert all(line["product_id"] != CREAM for option in offer["options"] for line in option["lines"])
     stored = client.get(f"/v1/offers/{offer['offer_id']}", headers=_auth("hotel")).json()
     assert stored["suggestions"] == offer["suggestions"]
@@ -114,7 +122,8 @@ def test_an_offer_that_shows_or_drops_a_suggestion_writes_one_event_and_the_chai
     _offer(client, "hotel", offer["suggestions"][0]["accept_request"])
 
     shown, = _events(client, "hotel", offer["offer_id"], SHOWN)
-    assert "2 suggestions were shown" in shown["sentence"] and CREAM in shown["sentence"]
+    assert "1 suggestion was shown" in shown["sentence"] and CREAM in shown["sentence"]
+    assert "2 were not shown" in shown["sentence"] and "462775" in shown["sentence"]
     verified = parts.audit.verify_chain()
     assert verified.ok, verified
 
@@ -137,7 +146,9 @@ def test_valio_aimos_view_never_says_which_requirement_of_the_buyers_dropped_a_s
 def test_without_its_standing_order_the_school_gets_no_trend(client: TestClient) -> None:
     offer = _offer(client, "school", SCHOOL_WEEK)  # `Settings.for_tests` starts with an empty order book
 
-    assert _kinds(offer) == [("FROM_SUPPLIER", "470889")]
+    assert _kinds(offer) == []
+    # Valio Aimo's own oat drink 470889 fits the school's allergens and stays silent: no benefit it can state.
+    assert _dropped(client, "school", offer)["470889"] == "NO_STATED_BENEFIT"
 
 
 def test_the_schools_oat_drink_trend_comes_from_the_standing_order_loaded_at_start(
@@ -145,10 +156,10 @@ def test_the_schools_oat_drink_trend_comes_from_the_standing_order_loaded_at_sta
 ) -> None:
     offer = _offer(with_standing_orders, "school", SCHOOL_WEEK)
 
-    assert _kinds(offer) == [("QUANTITY_TREND", "470863"), ("FROM_SUPPLIER", "470889")]
+    assert _kinds(offer) == [("QUANTITY_TREND", "470863")]
     trend = offer["suggestions"][0]
-    assert "a median of 84 L against 70 L for the 3 before (+20%)" in trend["sentence"]
-    assert "The standing order still says 60 L." in trend["sentence"]
+    assert "about 84 L in your last 3 orders, 70 L in the 3 before." in trend["sentence"]
+    assert "Your standing order still says 60 L. Renew once at 84 L? For 84 L: €117.60." in trend["sentence"]
     assert trend["accept_request"]["standing_order_id"] == "so_school_weekly"
 
 
@@ -336,7 +347,7 @@ def test_an_offer_made_inside_an_agent_run_carries_the_same_suggestions(
     with TestClient(create_app(settings, parts=built), raise_server_exceptions=False) as client:
         client.post("/v1/agent/run", json={"text": "100 L of milk 469363 by Monday"}, headers=_auth("hotel"))
 
-    assert [each.product_id for each in runner.offers[0].suggestions] == [CREAM, "462775"]
+    assert [each.product_id for each in runner.offers[0].suggestions] == [CREAM]
 
 
 # --- the customers' standing orders at start ----------------------------------------------------------------

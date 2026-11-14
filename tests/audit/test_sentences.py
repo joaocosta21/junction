@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from tta.audit import AuditTrail
+from tta.audit.chain import event_hash, seal
+from tta.audit.views import project
 from tta.contracts.audit import AuditContext, AuditEventType
 from tta.contracts.common import (
     ApprovalStatus,
@@ -289,9 +291,35 @@ def test_evidence_is_described_as_outside_valio_data(trail: AuditTrail, samples)
         "The manufacturer's page lists oats and no milk. It changes no status and no verdict."
     )
     assert event.data.supplier_sentence == (
-        "Evidence from outside Valio Aimo's data was attached to an approval for product 473609. "
+        "Evidence from outside Valio Aimo's data was attached to an approval (which product is not shown). "
         "It changes no status and no verdict."
     )
+    # Evidence is attached for a product rule P-04 fired on: Valio Aimo reads that it was found, not for which.
+    assert event.data.supplier_facts["evidence"] == {"found": True}
+    assert "473609" not in event.data.supplier_sentence + str(event.data.supplier_facts)
+    assert event.data.facts["evidence"]["product_id"] == "473609"  # the buyer keeps it
+
+
+def test_an_older_evidence_event_that_names_its_product_is_masked_for_valio_aimo_when_read(
+    trail: AuditTrail, samples
+) -> None:
+    """Events stored before the fix hold the product in the supplier's sentence and facts. They are read masked;
+    the stored event, and so its hash, stays as it was."""
+    recorded = trail.record(AuditEventType.EVIDENCE_ATTACHED, samples.gateway,
+                            AuditContext(approval=samples.approval(), evidence=samples.evidence()))
+    older = seal(recorded.model_copy(update={"data": recorded.data.model_copy(update={
+        "supplier_sentence": "Evidence from outside Valio Aimo's data was attached to an approval for product "
+                             "473609. It changes no status and no verdict.",
+        "supplier_facts": {**recorded.data.supplier_facts, "evidence": {"product_id": "473609", "found": True}},
+    })}))
+
+    shown = project(older, AuditReader.SUPPLIER)
+
+    assert shown.sentence == recorded.data.supplier_sentence
+    assert shown.facts["evidence"] == {"found": True}
+    assert shown.hash == older.data.hash == event_hash(older)
+    assert older.data.supplier_facts["evidence"]["product_id"] == "473609"  # not changed where it is stored
+    assert project(older, AuditReader.BUYER).facts["evidence"]["product_id"] == "473609"
 
 
 def test_an_offer_with_no_option_says_so(trail: AuditTrail, samples) -> None:

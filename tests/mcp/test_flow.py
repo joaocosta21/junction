@@ -197,8 +197,8 @@ async def test_get_offer_carries_the_suggestions_rest_shows_and_accepting_is_ano
     over_rest = await rest.get(f"/v1/offers/{offer['offer_id']}", headers=auth("agent_hotel"))
     trail = await rest.get("/v1/audit", params={"offer_id": offer["offer_id"]}, headers=auth("agent_hotel"))
 
-    assert [(each["kind"], each["product_id"]) for each in offer["suggestions"]] == [
-        ("FORGOTTEN_ITEM", "463797"), ("FROM_SUPPLIER", "462775")]
+    # Valio Aimo's own suggestion 462775 stays silent: 51 packs confirmed where 100 are needed (lane SG).
+    assert [(each["kind"], each["product_id"]) for each in offer["suggestions"]] == [("FORGOTTEN_ITEM", "463797")]
     assert over_rest.json()["suggestions"] == offer["suggestions"]
     assert accepted["options"][0]["totals"]["net"] == 281.1  # €248.00 + €33.10; a new offer, nothing ordered
     kinds = [event["type"] for event in trail.json()["events"]]

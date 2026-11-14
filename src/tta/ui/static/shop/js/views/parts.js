@@ -2,14 +2,18 @@
 // words of Valio Aimo's webshop: "available in storage", "Delivery date", "Closing time", "Deliverable".
 import { cutoff, html, initials, money, num, shortDate, tile, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
-import { customerKnown, customerProblem, people } from "../customer.js";
+import { contact, customerKnown, customerProblem, people } from "../customer.js";
 import { ROLES } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
 
+// Stock is counted in sales units, whatever the pack is (a bag, a box, a carton): "976 pcs", never "976 bag".
+// Only a product sold by weight or volume keeps its measure.
+export const stockUnit = (code) => (code === "KG" || code === "L" ? unit(code) : "pcs");
+
 export function stockLine(a) {
   if (!a) return html`<div class="stock"><span class="dot"></span>No availability data</div>`;
-  const u = unit(a.sales_unit);
+  const u = stockUnit(a.sales_unit);
   switch (a.state) {
     case "CONFIRMED":
       return html`<div class="stock"><span class="dot ok"></span>${num(a.usable_amount)} ${u} available in storage${a.available_date ? html` · Delivery date ${shortDate(a.available_date)}` : ""}${a.closing_time ? html` · Closing time ${cutoff(a.closing_time)}` : ""}</div>`;
@@ -214,19 +218,44 @@ export function confirmedBy(approval) {
   return [...byName];
 }
 
-// One line under the signers: who has confirmed, and who is still awaited, in names and roles.
+// One person confirms: a person is shown by name, once. What they are (the dietitian) is said only for somebody
+// other than the person signed in: where one person holds every role, a role label tells nobody apart.
+const isMe = (name) => name === contact()?.name;
+// The people who hold these roles, each once: [name, the roles they hold that are worth saying].
+function holders(roles) {
+  const byName = new Map();
+  for (const role of roles.filter(hasPerson)) {
+    const name = personFor(role);
+    byName.set(name, [...(byName.get(name) || []), ...(isMe(name) ? [] : [role])]);
+  }
+  return [...byName];
+}
+// "Hanna Laine", or "Sari Lehto, the dietitian"; a role nobody is named for is said as "the dietitian".
+export function peopleFor(roles) {
+  const named = holders(roles).map(([name, theirs]) => (theirs.length ? `${name}, the ${listed(theirs.map(roleWord))}` : name));
+  return [...named, ...roles.filter((r) => !hasPerson(r)).map((r) => `the ${roleWord(r)}`)];
+}
+
+// One line under the signers: who has confirmed, and who is still awaited.
 export function progress(approval) {
-  const done = confirmedBy(approval).map(([name, roles]) => `${name} (${roles.join(", ")})`);
-  const awaited = rolesStillNeeded(approval).map((r) => (hasPerson(r) ? `${personFor(r)} (${roleWord(r)})` : !customerKnown() ? `the ${roleWord(r)}` : `a ${roleWord(r)}, and none is named for ${active().name}`));
+  const done = confirmedBy(approval).map(([name, roles]) => (isMe(name) ? name : `${name}, the ${listed(roles)}`));
+  const still = rolesStillNeeded(approval);
+  const awaited = [
+    ...peopleFor(still.filter(hasPerson)),
+    ...still.filter((r) => !hasPerson(r)).map((r) => (!customerKnown() ? `the ${roleWord(r)}` : `a ${roleWord(r)}, and none is named for ${active().name}`)),
+  ];
   return html`<p class="progress small">${done.length ? html`<b>Confirmed by</b> ${listed(done)}.` : "Nobody has confirmed yet."} ${awaited.length ? html`<b>Still awaited:</b> ${listed(awaited)}.` : "Nobody else is awaited."}</p>`;
 }
 
+// One chip per person, ticked once every role they hold here is signed; a role nobody is named for keeps its word.
 export function signers(approval) {
+  const required = approval.required_roles || [];
   const needed = new Set(rolesStillNeeded(approval));
-  return html`<div class="signers">${(approval.required_roles || []).map((role) => {
-    const name = personFor(role);
-    return html`<span class="signer ${needed.has(role) ? "" : "done"}"><span class="avatar ${active().id}">${initials(name)}</span>${name} · ${ROLES[role] || role}${needed.has(role) ? "" : html` ${icon("check")}`}</span>`;
-  })}</div>`;
+  const chip = (name, label, done) =>
+    html`<span class="signer ${done ? "done" : ""}"><span class="avatar ${active().id}">${initials(name)}</span>${label}${done ? html` ${icon("check")}` : ""}</span>`;
+  return html`<div class="signers">${holders(required).map(([name, theirs]) =>
+    chip(name, theirs.length ? `${name} · ${theirs.map((r) => ROLES[r] || r).join(", ")}` : name, required.filter((r) => personFor(r) === name).every((r) => !needed.has(r)))
+  )}${required.filter((r) => !hasPerson(r)).map((r) => chip(ROLES[r] || r, ROLES[r] || r, !needed.has(r)))}</div>`;
 }
 
 export function ruleList(fired) {

@@ -22,7 +22,7 @@ from tta.evidence.reading import read_answer
 CSRF_FIELD = re.compile(r'name="csrf" value="([A-Za-z0-9_-]+)"')
 BOOK_COOKIES = ("tta_book", "__Host-tta_book")
 HEADING = "Found on the manufacturer's page — not Valio data"
-DIETITIAN = "human:hotel-dietitian"
+DIETITIAN = "human:hotel-purchasing"  # one person confirms: the hotel's buyer holds the dietitian's role
 
 
 @pytest.fixture(autouse=True)

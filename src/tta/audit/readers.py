@@ -7,7 +7,8 @@ Masked: limit amounts, allergen codes and the products a rule about an excluded 
 stands for the approver's name. Notes and the buyer's own words stay out. Products left out for a requirement of
 the buyer's are neither listed nor counted: Valio Aimo has the catalog, so a count per product type would give
 the allergen away (review finding M1). Events stored before that still hold the two counts; they are masked when
-read (`shown_facts`, `shown_sentence`), here and in the SQL view alike.
+read (`shown_facts`, `shown_sentence`), here and in the SQL view alike. The product web evidence was attached for
+is masked the same way: it is a product a rule about an excluded allergen fired on.
 
 Of whoever acted Valio Aimo sees the kind, for an agent its id ("the agent's identity"), and for a human the
 approver roles the gateway knows. The buyer sees everything about its own requests, so the buyer's side needs
@@ -64,10 +65,22 @@ REASONS_OF_THE_BUYER = (ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.ALLER
 NOT_SHOWN_OR_COUNTED = "Products left out for a requirement of the buyer's, if any, are not shown or counted."
 # Where an event stored before the fix holds those counts in the supplier's facts.
 OFFER_FACT, COUNTS_FACT = "offer", "excluded_by_reason"
-STORED_COUNT_PATHS = tuple((OFFER_FACT, COUNTS_FACT, reason.value) for reason in REASONS_OF_THE_BUYER)
+# Web evidence is attached only for a product P-04 sent to a person (`tta.evidence.finder`), so its product is one
+# a rule about an excluded allergen fired on. A new event does not name it for Valio Aimo
+# (`tta.audit.supplier_sentences.evidence_attached`, `tta.audit.facts.SUPPLIER_EVIDENCE_KEYS`); an event stored
+# before that holds it in the supplier's sentence and facts and is masked when read, as the counts are. The stored
+# event, and so its hash, stays as it was written.
+EVIDENCE_FACT, EVIDENCE_PRODUCT_FACT = "evidence", "product_id"
+EVIDENCE_PRODUCT_NOT_SHOWN = "attached to an approval (which product is not shown). It changes no status"
+# What is taken out of the supplier's facts of a stored event when it is read. The SQL view removes the same paths.
+STORED_MASKED_PATHS = (
+    *((OFFER_FACT, COUNTS_FACT, reason.value) for reason in REASONS_OF_THE_BUYER),
+    (EVIDENCE_FACT, EVIDENCE_PRODUCT_FACT),
+)
 # What an event stored before the fix says of them in the supplier's sentence, and what is read instead: the
 # total goes (it gives the masked number by subtraction), then each masked count, then the list they emptied.
-# Applied in this order, everywhere in the sentence. The SQL view holds the same texts, in the same order.
+# Then the product of an evidence event. Applied in this order, everywhere in the sentence. The SQL view holds the
+# same texts, in the same order.
 # \x3B is the semicolon between two reasons: written so because the SQL file is cut at semicolons when it is read
 # by `tests/audit/test_sql_view.py`, and one pattern must serve Python and PostgreSQL alike.
 STORED_SENTENCE_MASKS = (
@@ -82,6 +95,7 @@ STORED_SENTENCE_MASKS = (
         "",
     ),
     (r"are not shown or counted\): \.", "are not shown or counted): none."),
+    (r"attached to an approval for product .*\. It changes no status", EVIDENCE_PRODUCT_NOT_SHOWN),
 )
 
 
@@ -102,15 +116,26 @@ def is_supplier_reader(actor: Actor) -> bool:
     return actor.kind is ActorKind.HUMAN and actor.role == SUPPLIER_ROLE
 
 
-def shown_facts(facts: JsonDict) -> JsonDict:
-    """The supplier's facts as stored, without the counts of products left out for a requirement of the buyer's."""
-    offer = facts.get(OFFER_FACT)
-    counts = offer.get(COUNTS_FACT) if isinstance(offer, dict) else None
-    masked = {reason.value for reason in REASONS_OF_THE_BUYER}
-    if not isinstance(counts, dict) or masked.isdisjoint(counts):
+def _without(facts: JsonDict, path: Sequence[str]) -> JsonDict:
+    """A copy of the facts without the value at the path; the facts themselves when nothing is there."""
+    key, rest = path[0], path[1:]
+    if key not in facts:
         return facts
-    kept = {reason: number for reason, number in counts.items() if reason not in masked}
-    return {**facts, OFFER_FACT: {**offer, COUNTS_FACT: kept}}
+    if not rest:
+        return {name: value for name, value in facts.items() if name != key}
+    inner = facts[key]
+    if not isinstance(inner, dict):
+        return facts
+    kept = _without(inner, rest)
+    return facts if kept is inner else {**facts, key: kept}
+
+
+def shown_facts(facts: JsonDict) -> JsonDict:
+    """The supplier's facts as stored, without the counts of products left out for a requirement of the buyer's
+    and without the product evidence was attached for (`STORED_MASKED_PATHS`)."""
+    for path in STORED_MASKED_PATHS:
+        facts = _without(facts, path)
+    return facts
 
 
 def shown_sentence(sentence: str) -> str:

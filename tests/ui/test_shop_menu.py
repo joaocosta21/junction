@@ -84,11 +84,11 @@ def test_the_bakerys_chocolate_cake_for_20_is_planned_from_the_sentence(
     # the products of the baking recording are said once, as the plan's last note
     assert LATER.match(plan["notes"][-1]), plan["notes"][-1]
     offer = _call(client, "GET", f"/offers/{plan['offer_id']}").json()
-    assert _totals(offer) == [Decimal("15.19"), Decimal("61.02")]
+    assert _totals(offer) == [Decimal("15.19"), Decimal("22.50")]  # the lowest total for a small need (FC2)
     assert [option["decision"]["required_roles"] for option in offer["options"]] == [["purchasing_manager"]] * 2
 
 
-def test_at_the_demo_clock_the_second_option_of_the_cake_for_20_costs_104_65(
+def test_at_the_demo_clock_the_cake_for_20_costs_what_it_costs_at_the_recordings_clock(
     tmp_path: Path, catalog: ProductCatalog, bakery_settings: dict[str, Any]
 ) -> None:
     from tta.api.app import create_app
@@ -100,7 +100,9 @@ def test_at_the_demo_clock_the_second_option_of_the_cake_for_20_costs_104_65(
         plan = _plan(client, CAKE_20).json()
         offer = _call(client, "GET", f"/offers/{plan['offer_id']}").json()
 
-    assert _totals(offer) == [Decimal("15.19"), Decimal("104.65")]
+    # Before lane FC2 the demo clock's alternative took a 4x5 kg butter and cost 104.65: the lowest total for a
+    # small need now wins at both clocks.
+    assert _totals(offer) == [Decimal("15.19"), Decimal("22.50")]
 
 
 @pytest.mark.parametrize("servings", [2, 200])

@@ -245,3 +245,24 @@ def test_a_standing_order_takes_the_demonstrations_five_lines_at_most(shop: Test
     refused = _call(shop, "POST", "/standing-orders", json=body)
 
     assert refused.status_code == 422 and "at most 5 lines" in refused.json()["detail"]
+
+
+def test_a_standing_order_set_up_from_the_alert_is_listed_with_the_customers_own(shop: TestClient) -> None:
+    """Lane G3: what "Make it a standing order" set up is in the Standing orders view, after the customer file's."""
+    alert = _alert(shop, _offer(shop, _line("468319", 30)))
+    before = [one["standing_order_id"] for one in _call(shop, "GET", "/standing-orders").json()["standing_orders"]]
+    made = _call(shop, "POST", "/standing-orders", json=alert["standing_order_request"]).json()["standing_order"]
+
+    listed = _call(shop, "GET", "/standing-orders").json()["standing_orders"]
+
+    assert before and [one["standing_order_id"] for one in listed] == [*before, made["standing_order_id"]]
+    mine = listed[-1]
+    assert (mine["name"], mine["cadence_days"]) == ("Weekly Oatly iKaffe", 7)
+    (line,) = mine["lines"]
+    assert (line["product_id"], float(line["quantity"]), line["unit"]) == ("468319", 30, "L")
+    assert line["name"].startswith("Oatly iKaffe")
+    assert mine["synthetic"] is False and mine["past_orders"] == [] and mine["trend"] is None
+    # The other customers' books do not see it.
+    assert _call(shop, "PUT", "/kitchen", "school", json=SCHOOL).status_code == 200
+    others = _call(shop, "GET", "/standing-orders", "school").json()["standing_orders"]
+    assert made["standing_order_id"] not in [one["standing_order_id"] for one in others]

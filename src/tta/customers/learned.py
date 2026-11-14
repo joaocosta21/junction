@@ -28,6 +28,7 @@ from typing import Any
 
 from pydantic import Field
 
+from tta.catalog.kinds import is_raw_type
 from tta.contracts.audit import EVENT_TYPE_PREFIX, AuditEventType
 from tta.contracts.common import ApprovalStatus, Contract, JsonDict, OrderStatus
 from tta.contracts.customer import Customer, ProductUse, UsualProduct
@@ -57,10 +58,20 @@ NOTHING_LEARNED = (
     "Nothing learned yet for {label}: no decision on a substitute for it, too few requests that said the recipe "
     "matters, and no usual product of yours tells how you use it."
 )
+RAW_HAS_NO_RECIPE = (
+    "{label} is raw {kind}, which has no recipe of its own: nothing is learned for it from how you use it, and a "
+    "substitute is judged as for any product."
+)
+ONE_INGREDIENT = "you use it as an ingredient"
 NOTHING_AT_ALL = "Nothing learned yet: no decision, request or customer file says where the recipe matters."
 APPLIED_NOTE = (
     "Request line {line}: {sentence} The gateway applied this; your request did not say it. Change this in Settings."
 )
+# Who says the formula matters, as the offer words it (`tta.offers.candidates.REQUEST_SAYS_FORMULA`). The offer is
+# built from the request with the check added, so it reads "the request says"; on a line the gateway added the
+# check to, the request did not say it: what was learned did (`said_on`).
+REQUEST_SAYS = "the request says the formula matters"
+LEARNED_SAYS = "what the agent learned about your orders says the formula matters"
 
 
 class LearnedSource(StrEnum):
@@ -214,8 +225,11 @@ def _from_words(product_id: str, product_type: str | None, label: str, past: Pas
 
 def _from_use(
     customer: Customer, product_id: str, product_type: str | None, label: str, names: Mapping[str, str]
-) -> tuple[bool, str, JsonDict] | None:
+) -> tuple[bool | None, str, JsonDict] | None:
     usual = customer.usual_product(product_id)
+    raw = _raw(customer, usual, product_type, label)
+    if raw is not None:
+        return raw
     if usual is not None:
         evidence = _use_evidence(customer, (usual,), "PRODUCT", usual.product_type)
         if usual.use is ProductUse.INGREDIENT:
@@ -236,6 +250,21 @@ def _from_use(
     return False, (
         f"You serve {kind} as it is, so a substitute for {label} need not keep its recipe. {FROM_THE_FILE}"
     ), _use_evidence(customer, same_type, "PRODUCT_TYPE", product_type)
+
+
+def _raw(
+    customer: Customer, usual: UsualProduct | None, product_type: str | None, label: str
+) -> tuple[None, str, JsonDict] | None:
+    """A learned recipe is for composed products (a cream, a blend): raw meat or fish has none to keep, so the
+    use mark teaches nothing for it, whatever the customer does with it. None: the product is not raw."""
+    kind = usual.product_type if usual is not None else product_type
+    if not is_raw_type(kind):
+        return None
+    same = (usual,) if usual is not None else tuple(each for each in customer.usual if each.product_type == kind)
+    if not same:
+        return None
+    evidence = {**_use_evidence(customer, same, "PRODUCT" if usual is not None else "PRODUCT_TYPE", kind), "raw": True}
+    return None, RAW_HAS_NO_RECIPE.format(label=label, kind=str(kind).replace("_", " ")), evidence
 
 
 def _use_evidence(customer: Customer, usual: Sequence[UsualProduct], basis: str, product_type: str | None) -> JsonDict:
@@ -294,7 +323,8 @@ def summary_of(findings: Sequence[Finding]) -> str:
         LearnedSource.DECISION: "you decided so on a substitute",
     }
     parts = [
-        f"{', '.join(plain_name(each.name) if each.name else f'product {each.product_id}' for each in group)} ({why})"
+        f"{', '.join(plain_name(each.name) if each.name else f'product {each.product_id}' for each in group)} "
+        f"({ONE_INGREDIENT if source is LearnedSource.USE and len(group) == 1 else why})"
         for source, why in reasons.items() if (group := [each for each in kept if each.source is source])
     ]
     synthetic = f" {SUMMARY_FROM_THE_FILE}" if any(each.synthetic for each in kept) else ""
@@ -476,10 +506,33 @@ def prepare(
 
 def said_on(offer: Offer, prepared: Prepared) -> Offer:
     """The offer with the request as the buyer sent it and one note per line the gateway added the check to. The
-    offer's lines keep `keep_formula`, which rule F-11 reads; the request is the buyer's own and is not rewritten."""
+    offer's lines keep `keep_formula`, which rule F-11 reads; the request is the buyer's own and is not rewritten.
+    Where the offer's own sentences name who says the formula matters, a line the gateway added the check to names
+    what was learned, never the request, which did not say it."""
     if not prepared.applied:
         return offer
-    return offer.model_copy(update={"request": prepared.original, "notes": (*offer.notes, *prepared.notes)})
+    learned = {each.line for each in prepared.applied}
+    notes = tuple(_who_said(note, learned) for note in offer.notes)
+    # An option's headline names who said it for its first formula-changing line: reworded only when no line of
+    # the request said so itself, so a request's own word is never taken from it.
+    only_learned = not any(line.keep_formula is True for line in prepared.original.lines)
+    options = tuple(
+        option.model_copy(update={"summary": _learned_says(option.summary)}) if only_learned else option
+        for option in offer.options
+    )
+    return offer.model_copy(
+        update={"request": prepared.original, "options": options, "notes": (*notes, *prepared.notes)}
+    )
+
+
+def _learned_says(text: str) -> str:
+    capital = REQUEST_SAYS[0].upper() + REQUEST_SAYS[1:]
+    return text.replace(REQUEST_SAYS, LEARNED_SAYS).replace(capital, LEARNED_SAYS[0].upper() + LEARNED_SAYS[1:])
+
+
+def _who_said(note: str, learned: set[int]) -> str:
+    """A note of the offer about one request line ("Request line 2: ..."): reworded when the line is a learned one."""
+    return _learned_says(note) if any(note.startswith(f"Request line {line}: ") for line in learned) else note
 
 
 def learned_view(

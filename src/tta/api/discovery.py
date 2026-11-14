@@ -97,7 +97,7 @@ DEMO_TOKENS = (
     "- In this environment the demonstration tokens work. They are public by design: start with "
     "`demo-agent-allergy-ward` (the agent of a hospital ward) or `demo-agent-hotel-kitchen`; "
     "`demo-agent-school-kitchen` and `demo-agent-bakery-cafe` are the two other customers. Each customer has its "
-    "people's tokens too (15 identities in all); the OpenAPI document's security scheme lists every one, and "
+    "people's tokens too (11 identities in all); the OpenAPI document's security scheme lists every one, and "
     "`GET /v1/customers` says who the token's customer is."
 )
 MCP_LINK = (

@@ -48,10 +48,27 @@ on("suggest-show", (el) => {
 
 // ---- one suggestion --------------------------------------------------------------------------------------------
 
-// "33,10 € more" or "42,00 € less", before tax: what accepting changes in money.
+// What accepting changes in money, before tax, in the gateway's own figures. A suggestion that takes the place of a
+// line of the request changes the order by the difference: "33,10 € more" or "42,00 € less". One that adds a line
+// adds its whole cost, which is never "more" than anything: "Adds 44,40 € to this order". Where the gateway
+// compared it with the usual product (a lower price for the same formula), the two prices a litre or kilogram are
+// the benefit its sentence states, so the tag beside it says the same thing as the sentence.
+const addsALine = (s) => s.request_line_index === null || s.request_line_index === undefined;
+const MEASURE = { L: "a litre", KG: "a kilogram" };
+
+function cheaperTag(e) {
+  const before = Number(e?.unit_price_before_eur);
+  const after = Number(e?.unit_price_after_eur);
+  if (!(Number(e?.saving_ratio) > 0) || !MEASURE[e.measure] || !Number.isFinite(before) || !Number.isFinite(after)) return "";
+  return html`<span class="tag ok">${money(after)} ${MEASURE[e.measure]} instead of ${money(before)}</span>`;
+}
+
 function effect(s) {
   const n = Number(s.effect?.net_change_eur);
   if (s.effect?.net_change_eur === null || s.effect?.net_change_eur === undefined || !Number.isFinite(n)) return "";
+  if (addsALine(s) && !isTrend(s)) {
+    return html`${cheaperTag(s.effect)}<span class="tag">Adds ${money(n)} to this order, before tax</span>`;
+  }
   if (n === 0) return html`<span class="tag">Same price</span>`;
   return n > 0
     ? html`<span class="tag wait">${money(n)} more, before tax</span>`

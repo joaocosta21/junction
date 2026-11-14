@@ -211,9 +211,9 @@ def test_from_the_files_alone_everything_learned_rests_on_the_use_mark() -> None
     use = LearnedSource.USE
     assert learned["hotel-kitchen"] == {
         "469363": (False, use), "463797": (True, use), "464615": (False, use), "463203": (False, use),
-        "466988": (True, use)}
+        "466988": (None, use)}  # raw beef has no recipe of its own: the use mark teaches nothing for it
     assert learned["school-kitchen"] == {
-        "462775": (False, use), "470863": (False, use), "464517": (False, use), "466988": (True, use),
+        "462775": (False, use), "470863": (False, use), "464517": (False, use), "466988": (None, use),
         "463254": (True, use)}
     assert learned["allergy-ward"] == {"464013": (False, use), "473424": (False, use)}
     assert learned["bakery-cafe"] == {
@@ -224,9 +224,9 @@ def test_the_summary_names_what_was_learned_and_from_what(hotel: Customer) -> No
     findings = learned_for_usual(hotel, names={COOKING: "Arla Pro Cooking cream", "466988": "Beef chuck"})
 
     assert summary_of(findings) == (
-        "Learned so far: Arla Pro Cooking cream, Beef chuck (you use them as ingredients). From your customer file, "
-        "which is synthetic."
-    )
+        "Learned so far: Arla Pro Cooking cream (you use it as an ingredient). From your customer file, which is "
+        "synthetic."
+    )  # the beef chuck is raw meat: it is an ingredient, and it has no recipe to keep
     assert summary_of(()) == "Nothing learned yet: no decision, request or customer file says where the recipe matters."
 
 
@@ -293,3 +293,47 @@ def test_the_facts_for_the_audit_trail_say_the_gateway_applied_it_with_its_sourc
     assert fact["line"] == 1 and fact["product_id"] == COOKING and fact["keep_formula"] is True
     assert fact["applied_by"] == "gateway" and fact["source"] == "USE" and fact["synthetic"] is True
     assert fact["evidence"]["use"] == "INGREDIENT" and fact["sentence"].startswith("You use Arla Pro Cooking cream")
+
+
+# --- a learned recipe is for composed products, never for raw meat or fish (lane G3) ----------------------------
+
+BEEF = "466988"  # Well Beef beef chuck, a usual product of the hotel and the school, marked INGREDIENT
+
+
+def test_raw_beef_used_as_an_ingredient_has_no_recipe_to_keep(hotel: Customer) -> None:
+    finding = learn(hotel, BEEF, name="Well Beef Beef Chuck")
+
+    assert finding.matters is None and finding.source is LearnedSource.USE and finding.synthetic is True
+    assert finding.sentence == (
+        "Well Beef Beef Chuck (466988) is raw beef chuck, which has no recipe of its own: nothing is learned for it "
+        "from how you use it, and a substitute is judged as for any product."
+    )
+    assert finding.evidence["raw"] is True and finding.evidence["use"] == "INGREDIENT"
+    assert summary_of([finding]).startswith("Nothing learned yet")  # it is not among "recipe must be kept"
+
+
+def test_a_request_for_raw_beef_is_not_given_the_recipe_check_and_a_cream_still_is(hotel: Customer) -> None:
+    request = PurchaseRequest.model_validate({"lines": [
+        {"text": "9 kg beef chuck", "product_ids": [BEEF], "quantity": 9, "unit": "KG"},
+        {"text": "10 L cooking cream", "product_ids": [COOKING], "quantity": 10, "unit": "L"},
+        {"text": "9 kg of beef", "product_type": "beef_chuck", "quantity": 9, "unit": "KG"},
+    ]})
+
+    prepared = apply_learned(request, hotel, Past(), type_of=lambda _: None, names=NAMES)
+
+    assert [line.keep_formula for line in prepared.request.lines] == [None, True, None]
+    assert [each.line for each in prepared.applied] == [2]
+
+
+def test_a_persons_own_decision_still_counts_for_raw_beef(hotel: Customer) -> None:
+    """Only the use mark is silent for a raw product: a rejection is the person's own word and outranks it."""
+    past = Past(decisions=(_decision(SubstituteDecision.REJECTED, THIRD, BEEF),))
+
+    assert learn(hotel, BEEF, past).matters is True
+    assert learn(hotel, BEEF, past).source is LearnedSource.DECISION
+
+
+def test_another_raw_product_of_a_type_the_customer_uses_teaches_nothing_either(hotel: Customer) -> None:
+    finding = learn(hotel, "999001", product_type="beef_chuck", name="Another chuck")
+
+    assert finding.matters is None and "raw beef chuck" in finding.sentence

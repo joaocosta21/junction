@@ -90,7 +90,8 @@ def test_the_supplier_view_shows_no_limit_value_no_approver_and_no_note(
     assert "human:hotel-purchasing" not in supplier and "Hanna" not in supplier
     # Valio reads every rule that fired and its reason (P9b B13), the buyer's amounts masked and a role for a name
     assert "P-01" in supplier and "the amount is not shown" in supplier
-    assert "The buyer's purchasing manager approved order" in supplier
+    # One person confirms at the hotel (SIMP): Hanna holds the three roles, and the roles stand for her name.
+    assert "The buyer's purchasing manager, finance and dietitian approved order" in supplier
     assert "What Valio Aimo sees" in supplier
     assert "469363" in supplier and "€1,083.39" in supplier  # what was ordered, and the statements relied on
     assert "384" in supplier[supplier.index('id="reliance"'):supplier.index('id="trail"')]
@@ -207,8 +208,10 @@ def test_after_a_first_signature_the_record_says_who_signed_and_offers_only_a_ro
     assert signed.status_code == 200
     for page in (record, result):
         assert "Approved by the purchasing manager; waiting for finance" in page
-        assert "Decide as Demo approver Mikko, My kitchen (finance)" in page
-        assert "Decide as Demo approver Hanna, My kitchen" not in page
+        # My kitchen's approvers carry the hotel's one person's name, one per role (`tta.api.sandbox`): the
+        # role still needed is offered, and the one already signed is not offered again.
+        assert "Decide as Demo approver Hanna, My kitchen (finance)" in page
+        assert "Decide as Demo approver Hanna, My kitchen (purchasing manager)" not in page
 
 
 def test_a_waiting_order_that_nobody_has_signed_still_offers_the_first_role(

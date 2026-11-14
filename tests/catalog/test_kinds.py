@@ -193,3 +193,18 @@ def test_a_drink_is_read_from_the_weight_of_a_litre_and_else_from_the_product_ty
     assert is_drink(catalog.get_product("469148")) is False  # milk powder
     assert is_drink(catalog.get_product("465655")) is False  # a juice concentrate 1+7: no type, no weight for a volume
     assert sum(is_drink(product) for product in catalog.products) == 855
+
+
+# --- raw meat and fish: a product type with no recipe of its own (lane G3) --------------------------------------
+
+
+def test_fresh_meat_and_fish_are_raw_and_composed_products_are_not() -> None:
+    from tta.catalog.kinds import is_raw_type
+    from tta.catalog.product_types import load_product_types
+
+    raw = sorted(key for key, entry in load_product_types().items() if entry.raw)
+
+    assert raw == ["beef", "beef_chuck", "fresh_fish", "pork"]
+    assert all(is_raw_type(key) for key in raw)
+    assert not any(is_raw_type(key) for key in ("cream", "vegetable_cream", "milk", "butter", "sausage", "bread"))
+    assert not is_raw_type(None) and not is_raw_type("no_such_type")  # nothing known is not "raw"

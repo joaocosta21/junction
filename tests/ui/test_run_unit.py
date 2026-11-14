@@ -249,14 +249,17 @@ def test_what_the_agent_refuses_for_free_text_is_the_callers_error() -> None:
 
 
 def test_the_examples_are_the_demo_set_in_order_then_the_reserve_each_with_a_typed_request() -> None:
-    """PLAN section 5 (P2 W2): 1 to 5 in demo order, each with its customer's agent, then the reserve."""
+    """The demo set (docs/DEMO.md, `tta.ui.examples`): 1 to 6 in demo order, each with its customer's agent, then
+    the reserve. Steps 4 and 6 have two examples each: the allergen doubt (the hotel's oat drink, the school's
+    almond drink) and the formula (the bakery's crème fraîche, then its whipping cream)."""
     assert [(example.key, example.step) for example in EXAMPLES] == [
-        ("scenario-1", 1), ("scenario-2", 2), ("scenario-3", 3), ("pattern", 4), ("formula", 5),
-        ("scenario-5", None), ("scenario-4", None),
+        ("scenario-1", 1), ("scenario-2", 2), ("scenario-3", 3), ("scenario-4", 4), ("almond", 4), ("pattern", 5),
+        ("formula-changed", 6), ("formula", 6), ("scenario-5", None),
     ]
     assert [example.agent_id for example in EXAMPLES] == [
         "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen", "agent:hotel-kitchen",
-        "agent:bakery-cafe", "agent:hotel-kitchen", "agent:hotel-kitchen",
+        "agent:school-kitchen", "agent:hotel-kitchen", "agent:bakery-cafe", "agent:bakery-cafe",
+        "agent:hotel-kitchen",
     ]
     for example in EXAMPLES:
         assert example.request.lines[0].text == example.text

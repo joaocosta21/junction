@@ -238,15 +238,16 @@ reader disagree. Do not edit it by hand.
   column is empty because the run called no model.
 - A sentence the rules cannot read is asked about, not guessed: the person gets a question (HTTP 422 with
   `question`).
-- "Read wrong" is a judgement of each row, made by the build agent on 14 Nov 2026 and not yet checked by the
-  team (`tests/agent/reading_table_sentences.json`, `read_wrong`); for an example of a page it is also any
-  difference in effect from the typed request the example carries. A row that changes fails the test until it is
-  judged again.
+- "Read wrong" is a judgement of each row, made by the build agent in the night of 14 to 15 Nov 2026 and not yet
+  checked by the team (`tests/agent/reading_table_sentences.json`, `read_wrong`); for an example of a page it is
+  also any difference in effect from the typed request the example carries. A row that changes fails the test
+  until it is judged again.
 - **{examples} of the rows are examples a page offers** (the first page's and the shop's): {examples_read} are
   read, {examples_same} exactly as the typed request the example carries, {examples_differ} with a difference
-  named in the row. In each of those the example's typed request says less than its sentence: the sentence says
-  "oat drink" beside the product number, or "for cakes". Measured offline at the same clock: the offer for the
-  reading holds the same products, quantities and decision as the offer for the example's typed request.
+  named in the row. There the example's typed request says less than its sentence: the sentence says "oat drink"
+  beside the product number. Measured offline at the same clock for every one of the {examples} rows: the offer
+  for the reading holds the same options, products, quantities, totals and decisions, and leaves out the same
+  products, as the offer for the example's typed request.
 
 How to read a row: product type, the words that narrow it in quotes, quantity and unit; then claims, labels, the
 allergens left out with the rule in force, `keep_formula`; then the day, the preference and "confirmed data only".
@@ -321,7 +322,7 @@ def test_every_sentence_a_page_offers_as_an_example_is_read_not_asked_about(outc
     examples = [item for item in outcomes if item.row.expected is not None]
     asked = [item.row.text for item in examples if item.read is None]
 
-    assert len(examples) >= 14  # 7 of the first page and 9 of the shop, two of them the same sentence and customer
+    assert len(examples) >= 16  # 9 of the first page and 9 of the shop, two of them the same sentence and customer
     assert asked == []
 
 
@@ -352,14 +353,14 @@ def test_no_row_is_judged_read_wrong(outcomes: list[Outcome]) -> None:
     assert arla.says == 'The brand "Arla" is required.'
 
 
-# Each is the example's typed request saying less than its sentence, not the reader reading it wrong. Measured
-# offline on 14 Nov 2026 at the recording's clock: the offer for the reading holds the same products, quantities
-# and decision as the offer for the example's typed request (with `keep_formula`, the offer lines carry the mark).
+# The example's typed request saying less than its sentence, not the reader reading it wrong: the shop's example
+# (`kitchens.js`) gives the product number without the type its sentence names. The first page's examples
+# (`tta.ui.examples`) carried three more such differences until lane E1 gave them the type and `keep_formula`;
+# they now read "same". The document's head describes what is listed here: change the two together.
+# Measured offline in the night of 14 to 15 Nov 2026 at the recording's clock (Sat 14 Nov 2026 02:52 Helsinki), for
+# each of the 16 example rows: the offer for the reading holds the same options (kind, products, quantities, net
+# total, verdict, rules, roles) and the same products left out as the offer for the example's typed request.
 _TYPE_WITH_A_NUMBER = "line 1 product_type: read 'plant_drink', the example has None"  # the sentence says "oat drink"
 KNOWN_DIFFERENCES: dict[str, str] = {
-    "100 litres of Oddlygood Barista oat drink, product 473609, by Monday": _TYPE_WITH_A_NUMBER,
-    "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk, strict rule": _TYPE_WITH_A_NUMBER,
     "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk": _TYPE_WITH_A_NUMBER,
-    # The sentence says "for cakes"; the example's typed request does not carry `keep_formula`.
-    "100 litres of whipping cream by Monday, for cakes": "line 1 keep_formula: read True, the example has None",
 }
