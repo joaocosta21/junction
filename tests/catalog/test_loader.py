@@ -171,7 +171,7 @@ def test_unknown_id_returns_nothing_without_an_exception(catalog: ProductCatalog
     assert catalog.get_product("459999") is None
     assert catalog.get_product("") is None
     assert catalog.listed_substitutes("459999") == ()
-    assert catalog.same_category("459999", 5) == ()
+    assert catalog.same_category("459999") == ()
 
 
 def test_a_deleted_product_is_not_returned_by_any_lookup(tmp_path: Path) -> None:
@@ -189,8 +189,8 @@ def test_a_deleted_product_is_not_returned_by_any_lookup(tmp_path: Path) -> None
     assert catalog.get_product("460001") is not None
     assert catalog.listed_substitutes("460001") == ("460003",)
     assert catalog.listed_substitutes("460002") == ()
-    assert [product.id for product in catalog.same_category("460001", 5)] == ["460003"]
-    assert catalog.same_category("460002", 5) == ()
+    assert [product.id for product in catalog.same_category("460001")] == ["460003"]
+    assert catalog.same_category("460002") == ()
     assert [product.id for product in by_ids.products] == ["460001", "460003"]
     assert by_ids.note is not None and "460002" in by_ids.note
 

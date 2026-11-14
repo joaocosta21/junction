@@ -63,12 +63,19 @@ sour_milk:
 
 cream:
   categories: ["10401"]
-  exclude_terms: ["vegetable", "kasvirasva", "alternative", "rama professional"]
-  products: 44
+  exclude_terms: ["vegetable", "kasvirasva", "alternative", "rama professional", "quark", "mousse"]
+  products: 42
   derived_from: >-
     Category 10401 holds 53 products; "cream" starts a word in 46 of their English names
     (cooking and whipping cream). The exclude terms leave out the 9 vegetable-fat blends, which are
     type vegetable_cream: 4 say "vegetable" in the English name and "kasvirasva" (vegetable fat) in
+    the Finnish one (462703, 463254, 463299, 463975), 2 say "cooking cream alternative" (469160,
+    469162), and 3 are Rama Professional (467142, 467173, 467297), whose Finnish ingredient lists
+    name vegetable oils or fats (their English lists read "-"). "quark" and "mousse" leave out the
+    2 products of the category that are not cream: a layered quark (473205) and a protein mousse
+    (473461). 42 stay.
+
+vegetable_cream: 4 say "vegetable" in the English name and "kasvirasva" (vegetable fat) in
     the Finnish one (462703, 463254, 463299, 463975), 2 say "cooking cream alternative" (469160,
     469162), and 3 are Rama Professional (467142, 467173, 467297), whose Finnish ingredient lists
     name vegetable oils or fats (their English lists read "-"). Of the 44 that stay, 1 is a quark
@@ -109,10 +116,13 @@ quark:
 
 butter:
   categories: ["10500"]
-  products: 20
+  exclude_terms: ["plant"]
+  products: 19
   derived_from: >-
-    Category 10500 holds 20 products; "butter" starts a word in 19 of their English names.
-    Spreads and margarine (10515 to 10518) are not included.
+    Category 10500 holds 20 products; "butter" starts a word in 19 of their English names. The
+    exclude term "plant" leaves out the one that is not butter: 471792 Eleplant "plant power", a
+    block of coconut, rapeseed and shea fat with the claim VEGAN. 19 stay. Spreads and margarine
+    (10515 to 10518) are not included.
 
 cheese:
   categories: ["10600", "10602", "10603"]

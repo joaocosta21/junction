@@ -80,25 +80,23 @@ class ProductCatalog:
             )
         )
 
-    def same_category(self, product_id: str, digits: int) -> tuple[Product, ...]:
-        """Other products sharing the first `digits` digits of the category, in id order.
+    def same_category(self, product_id: str, digits: int = CATEGORY_DIGITS) -> tuple[Product, ...]:
+        """Other products of the same 5-digit category, in id order.
 
-        Deleted products are left out, and a deleted product has no such list.
+        A category number is opaque: all five digits or nothing. Valio did not confirm that its digits are
+        levels (answer V7, 14 Nov 2026), and a shared prefix is a neighbouring shelf, not the same kind of
+        product (AIMO/build/replan/P7-categories.md section 2b). `digits` is kept for a caller that still
+        passes it, and only 5 is accepted. Deleted products are left out, and a deleted product has no list.
         """
-        if not 1 <= digits <= CATEGORY_DIGITS:
-            raise InvalidRequest(f"A category is compared on 1 to {CATEGORY_DIGITS} digits, not {digits}.")
+        if digits != CATEGORY_DIGITS:
+            raise InvalidRequest(
+                f"A category is compared on all {CATEGORY_DIGITS} digits, not {digits}: the digits of a category "
+                "number are not levels."
+            )
         product = self._by_id.get(product_id)
         if product is None:
             return ()
-        prefix = product.category[:digits]
-        others = [
-            other
-            for category, members in self._by_category.items()
-            if category.startswith(prefix)
-            for other in members
-            if other.id != product_id
-        ]
-        return tuple(sorted(others, key=lambda other: other.id))
+        return tuple(other for other in self._by_category.get(product.category, ()) if other.id != product_id)
 
     def pack_size(self, product: Product, price: PriceLine | None, unit: Unit) -> PackSize:
         return pack.pack_size(product, price, unit)

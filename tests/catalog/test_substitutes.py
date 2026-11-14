@@ -29,23 +29,19 @@ def test_every_listed_substitute_is_a_catalog_product(catalog: ProductCatalog) -
             assert catalog.get_product(substitute_id) is not None
 
 
-def test_same_category_by_five_four_and_three_digits(catalog: ProductCatalog) -> None:
-    five = catalog.same_category(OAT_DRINK, 5)
-    four = catalog.same_category(OAT_DRINK, 4)
-    three = catalog.same_category(OAT_DRINK, 3)
+def test_same_category_is_the_whole_five_digit_code(catalog: ProductCatalog) -> None:
+    same = catalog.same_category(OAT_DRINK)
 
-    assert len(five) == 65  # the 66 products of category 10402 without the product itself
-    assert all(product.category == "10402" for product in five)
-    assert all(product.category.startswith("1040") for product in four)
-    assert all(product.category.startswith("104") for product in three)
-    assert {p.id for p in five} < {p.id for p in four} < {p.id for p in three}
-    for products in (five, four, three):
-        ids = [product.id for product in products]
-        assert OAT_DRINK not in ids
-        assert ids == sorted(ids)
+    assert len(same) == 65  # the 66 products of category 10402 without the product itself
+    assert all(product.category == "10402" for product in same)
+    ids = [product.id for product in same]
+    assert OAT_DRINK not in ids
+    assert ids == sorted(ids)
+    assert catalog.same_category(OAT_DRINK, 5) == same  # a caller that still names all five digits
 
 
-@pytest.mark.parametrize("digits", [0, 6, -1])
-def test_same_category_needs_one_to_five_digits(catalog: ProductCatalog, digits: int) -> None:
+@pytest.mark.parametrize("digits", [4, 3, 1, 0, 6, -1])
+def test_a_category_is_never_compared_on_fewer_digits(catalog: ProductCatalog, digits: int) -> None:
+    # Valio did not confirm that the digits are levels (answer V7): a prefix is not a product relation.
     with pytest.raises(InvalidRequest):
         catalog.same_category(OAT_DRINK, digits)

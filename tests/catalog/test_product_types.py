@@ -12,7 +12,7 @@ from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.request import ProductQuery
 
 REQUIRED_KEYS = {"milk", "plant_drink", "beef_chuck"}
-CREAM_EXCLUDE_TERMS = ("vegetable", "kasvirasva", "alternative", "rama professional")
+CREAM_EXCLUDE_TERMS = ("vegetable", "kasvirasva", "alternative", "rama professional", "quark", "mousse")
 # Category 10401: the vegetable-fat blends. Each ingredient list (in Finnish for the three Rama products,
 # whose English list reads "-") names a vegetable oil or fat.
 VEGETABLE_FAT_WORDS = ("vegetable", "rapeseed", "kasvirasv", "kasviöljy", "palmuöljy")
@@ -99,7 +99,8 @@ def test_cream_leaves_out_the_vegetable_fat_blends(catalog: ProductCatalog) -> N
 
     assert not VEGETABLE_FAT_BLENDS & {product.id for product in cream.products}
     assert {product.id for product in blends.products} == VEGETABLE_FAT_BLENDS
-    assert cream.total + blends.total == 53  # category 10401, whole catalog
+    # Category 10401, whole catalog: 53 products, of which a quark and a protein mousse are of neither type.
+    assert cream.total + blends.total == 53 - 2
 
 
 def test_every_vegetable_fat_blend_names_a_vegetable_fat_in_its_ingredient_list(catalog: ProductCatalog) -> None:
@@ -108,3 +109,21 @@ def test_every_vegetable_fat_blend_names_a_vegetable_fat_in_its_ingredient_list(
         assert product is not None and product.key_ingredients is not None
         text = product.key_ingredients.casefold()
         assert any(word in text for word in VEGETABLE_FAT_WORDS), product_id
+
+
+def _of_type(catalog: ProductCatalog, key: str) -> set[str]:
+    return {product.id for product in catalog.search(ProductQuery(product_type=key, limit=MAX_PRODUCT_IDS)).products}
+
+
+def test_butter_holds_no_plant_based_block_and_cream_no_quark_or_mousse(catalog: ProductCatalog) -> None:
+    # Whole catalog. 471792 Eleplant "plant power" is filed in the butter category 10500 and carries VEGAN;
+    # 473205 is a layered quark and 473461 a protein mousse, both filed in the cream category 10401.
+    butter, cream = _of_type(catalog, "butter"), _of_type(catalog, "cream")
+
+    assert "471792" not in butter
+    assert len(butter) == 19
+    assert all("VEGAN" not in catalog.get_product(product_id).nutritional_claims for product_id in butter)
+    assert not {"473205", "473461"} & cream
+    assert len(cream) == 42
+    assert {"464194", "464249", "469346"} <= cream  # whipping and cooking creams stay
+    assert {"464411", "464761", "472127"} <= butter  # butter, butter for laminating, clarified butter stay

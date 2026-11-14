@@ -53,6 +53,16 @@ _LABEL_CODE = re.compile(r"[A-Z][A-Z0-9_]{0,59}")
 # English values and 53 Finnish ones are a placeholder such as "-" or ".", which is not an ingredient list.
 INGREDIENT_LANGUAGES = ("en", "fi")
 _LETTER = re.compile(r"[^\W\d_]")
+# The six nutrients the formula measure compares (AIMO/docs/SCHEMA-AND-CODES.md section 2.6), by `Nutrition` field.
+NUTRIENT_FIELDS = {
+    "FAT": "fat", "FASAT": "saturated_fat", "PRO-": "protein", "CHOAVL": "carbohydrate", "SUGAR-": "sugars",
+    "SALTEQ": "salt",
+}
+# A figure is read only when it is stated in grams per 100 g or per 100 ml: 113,093 of the 114,754 nutrient rows
+# are per 100, the others per portion or per another quantity (AIMO/docs/PRODUCT-DATA.md section 2.2).
+NUTRITION_BASIS_QUANTITY = Decimal(100)
+NUTRITION_BASIS_UNITS = {"GRM": "G", "MLT": "ML"}
+NUTRIENT_VALUE_UNIT = "GRM"
 # The schema documents CONTAINS only; the file also has these two (AIMO/FINDINGS.md section 3).
 DECLARED_RELATIONS = frozenset(
     {AllergenRelation.CONTAINS, AllergenRelation.MAY_CONTAIN, AllergenRelation.UNDECLARED}
@@ -167,6 +177,7 @@ def _product_fields(
         "has_allergen_groups": ALLERGEN_GROUP in groups or NON_ALLERGEN_GROUP in groups,
         "listed_substitutes": tuple(pair["substituteProduct"] for pair in record.get("substitutions", ())),
         "key_ingredients": _key_ingredients(synkka.get("keyIngredients", ())),
+        "nutrition": _nutrition(synkka.get("nutritionalContent", ())),
         "country_of_origin": _origin(record.get("countryOfOrigin")),
         "countries_of_origin": tuple(synkka.get("countriesOfOrigin", ())),
         "deleted": record["deleted"],
@@ -190,6 +201,33 @@ def _key_ingredients(entries: Any) -> str | None:
             raise TypeError(f"a keyIngredients value must be text, got {type(value).__name__}")
         texts.setdefault(entry["language"], value.strip())
     return next((texts[language] for language in INGREDIENT_LANGUAGES if _LETTER.search(texts.get(language, ""))), None)
+
+
+def _nutrition(rows: Any) -> dict[str, Any] | None:
+    """The six nutrients in grams per 100 g or ml; `None` when the file states none of them on that basis.
+
+    Nothing is imputed: a row per portion, a value that is not in grams and a nutrient stated twice with two
+    values are left unknown, and figures on both bases (per 100 g and per 100 ml) are not mixed. A value that
+    is not a number from zero up rejects the file.
+    """
+    stated: dict[str, set[Decimal]] = {}
+    bases: set[str] = set()
+    for row in rows:
+        field = NUTRIENT_FIELDS.get(row["id"])
+        basis = NUTRITION_BASIS_UNITS.get(row["basisQuantityUnit"])
+        if field is None or basis is None or _decimal(row["basisQuantity"]) != NUTRITION_BASIS_QUANTITY:
+            continue
+        value = _decimal(row["value"])
+        if value < 0:
+            raise ValueError(f"the nutrient {row['id']} has a value below zero")
+        if row["unit"] != NUTRIENT_VALUE_UNIT:
+            continue
+        stated.setdefault(field, set()).add(value)
+        bases.add(basis)
+    if len(bases) != 1:
+        return None
+    values = {field: next(iter(found)) for field, found in stated.items() if len(found) == 1}
+    return {**values, "basis": bases.pop()}
 
 
 def _labels(values: Any) -> tuple[str, ...]:

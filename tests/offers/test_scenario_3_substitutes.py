@@ -74,8 +74,18 @@ def test_candidates_are_ranked_passing_first_with_a_sentence_each(result: Substi
     assert ORIGINAL not in {candidate.product_id for candidate in candidates}
 
 
-def test_the_listed_substitute_that_passes_ranks_first(result: SubstituteResult) -> None:
-    assert result.candidates[0].product_id == PASSES
+def test_the_listed_substitute_that_passes_is_ranked_by_its_formula_like_any_other(
+    result: SubstituteResult, by_id: dict[str, SubstituteCandidate]
+) -> None:
+    # 471690 is listed by Valio and its figures are per 100 g against the original's per 100 ml: the formula
+    # cannot be compared, so it comes after every candidate whose formula can (it was rank 1 while the category
+    # number and the listing decided). A listed pair gets no exemption from the formula.
+    passing = [candidate.product_id for candidate in result.candidates if candidate.passes]
+
+    assert passing[-1] == PASSES
+    assert "The formula cannot be compared" in by_id[PASSES].gives_up
+    # First: the same brand's barista drinks within tolerance (flavoured ones: the nutrition panel cannot tell).
+    assert passing[:3] == ["472879", "474957", "474724"]
     assert result.original_id == ORIGINAL
     assert result.original_name
     assert result.source is DataSource.REPLAY
@@ -106,14 +116,14 @@ def test_the_search_widens_to_the_category_when_no_listed_substitute_can_be_orde
     assert result.notes
 
 
-def test_among_those_that_pass_one_that_keeps_every_claim_comes_before_one_that_loses_a_claim(
+def test_among_those_that_pass_none_loses_a_dietary_claim_while_a_keeper_can_be_ordered(
     result: SubstituteResult,
 ) -> None:
     passing = [candidate for candidate in result.candidates if candidate.passes]
-    loses = [bool(candidate.claims_lost) for candidate in passing]
 
-    assert loses == sorted(loses)
-    assert True in loses and False in loses
+    assert passing
+    assert not any(candidate.claims_lost for candidate in passing)
+    assert any("held back as a last resort" in note for note in result.notes)
 
 
 def test_tonight_the_best_orderable_substitute_is_the_barista_oat_drink_that_keeps_every_dietary_claim(
@@ -176,7 +186,8 @@ def test_losing_a_claim_does_not_reorder_the_candidates_that_fail_the_allergen_r
 ) -> None:
     failing = [candidate.product_id for candidate in result.candidates if not candidate.passes]
 
-    # 464320 (1 L, like the original) loses two claims; 471881 (a 5 L case) keeps them all. The pack size
-    # still decides between them: claims only order the candidates that pass.
+    # Claims only order the candidates that pass. Between the two that fail the formula decides: 471881 is the
+    # same product in a 0.5 l pack, 464320 another brand that also loses a claim. Neither can be ordered.
     assert by_id["464320"].claims_lost and not by_id["471881"].claims_lost
-    assert failing == ["464320", "471881"]
+    assert failing == ["471881", "464320"]
+    assert not by_id["471881"].orderable and not by_id["464320"].orderable

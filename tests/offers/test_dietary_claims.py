@@ -43,16 +43,16 @@ def test_a_claim_that_is_not_dietary_is_named_and_changes_neither_rank_nor_verdi
     offer = OfferService(deps).build_offer(make_request(100, Unit.L, product_ids=(ORIGINAL,)), agent_hotel)
 
     orderable = [candidate for candidate in result.candidates if candidate.orderable]
-    # The almond drink is the cheapest and comes last: it loses a dietary claim.
+    # The almond drink is the cheapest and is held back: it loses a dietary claim and two keepers can be ordered
+    # (answer B7: a last resort). The list says so in a note.
     assert [(candidate.product_id, candidate.claims_lost) for candidate in orderable] == [
-        (BARISTA_OAT, ()), (RICE, ()), (ALMOND, ("VEGAN",)),
+        (BARISTA_OAT, ()), (RICE, ()),
     ]
+    assert ALMOND not in {candidate.product_id for candidate in result.candidates}
+    assert any("held back as a last resort: 2 that keep every dietary claim can be ordered" in note
+               for note in result.notes)
     assert "FREE_FROM_PRESERVATIVES" in orderable[0].gives_up
     assert "FREE_FROM_PRESERVATIVES" not in orderable[0].sentence
-    almond = orderable[2]
-    assert "claims FREE_FROM_PRESERVATIVES, VEGAN" in almond.gives_up  # everything given up is named
-    assert "claim VEGAN" in almond.sentence  # the sentence names what changes the rank and the verdict
-    assert "FREE_FROM_PRESERVATIVES" not in almond.sentence
     option = next(each for each in offer.options if each.kind is OptionKind.SUBSTITUTE)
     assert [(line.product_id, line.substitute.claims_lost) for line in option.lines] == [(BARISTA_OAT, ())]
     assert "FREE_FROM_PRESERVATIVES" in option.lines[0].substitute.gives_up

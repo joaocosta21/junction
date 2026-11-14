@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from tta.contracts.allergen import AllergenStatement
 from tta.contracts.common import Contract, Number, PackSizeSource, Quantity, Unit
 
@@ -26,6 +28,72 @@ class Deposit(Contract):
     material: str
     unit: str
     quantity: Number
+
+
+class NutritionBasis(StrEnum):
+    """What the nutrition figures are stated for: 100 grams or 100 millilitres."""
+
+    G = "G"
+    ML = "ML"
+
+
+class Nutrition(Contract):
+    """The six nutrients the formula measure compares, in grams per 100 g or per 100 ml.
+
+    Read from `synkkaData.nutritionalContent`. A nutrient the file does not state per 100 g or ml in grams
+    stays `None`: nothing is imputed. Energy is left out on purpose (AIMO/build/replan/P10-formula.md 4.2).
+    """
+
+    fat: Number | None = None
+    saturated_fat: Number | None = None
+    protein: Number | None = None
+    carbohydrate: Number | None = None
+    sugars: Number | None = None
+    salt: Number | None = None
+    basis: NutritionBasis
+
+    @property
+    def is_complete(self) -> bool:
+        """All six nutrients are stated."""
+        values = (self.fat, self.saturated_fat, self.protein, self.carbohydrate, self.sugars, self.salt)
+        return all(value is not None for value in values)
+
+
+class FormulaOutcome(StrEnum):
+    """How a product's formula compares with another's, best first. The measure and its tolerances are ours."""
+
+    SAME_PRODUCT_OTHER_PACK = "SAME_PRODUCT_OTHER_PACK"  # same brand, the six figures equal, same fat source
+    SAME_BRAND = "SAME_BRAND"  # same brand, every figure within tolerance, same fat source
+    OTHER_BRAND = "OTHER_BRAND"  # another brand (or one not stated), within tolerance, same fat source
+    DIFFERENT = "DIFFERENT"  # a figure outside tolerance, or another fat source
+    NOT_KNOWN = "NOT_KNOWN"  # the data cannot tell; never read as the same
+
+
+class NutrientDifference(Contract):
+    """One nutrient on which two products differ, in grams per 100 g or ml."""
+
+    nutrient: str  # a field name of `Nutrition`, for example "saturated_fat"
+    original: Number
+    other: Number
+    within_tolerance: bool
+
+
+class FormulaCheck(Contract):
+    """The formula of one product measured against an original's (new `tta.offers.formula`)."""
+
+    outcome: FormulaOutcome
+    basis: NutritionBasis | None = None  # of both products; None when it is not the same or not known
+    differences: tuple[NutrientDifference, ...] = ()  # every nutrient whose two figures are not equal
+    # True: one ingredient list names a vegetable oil or fat and the other does not. None: a list is missing.
+    fat_source_differs: bool | None = None
+    sentence: str  # for a person: the outcome and the reason, in numbers
+
+    @property
+    def keeps_formula(self) -> bool:
+        """The data shows the same formula within tolerance. `NOT_KNOWN` is not the same."""
+        return self.outcome in (
+            FormulaOutcome.SAME_PRODUCT_OTHER_PACK, FormulaOutcome.SAME_BRAND, FormulaOutcome.OTHER_BRAND
+        )
 
 
 class Product(Contract):
@@ -60,6 +128,8 @@ class Product(Contract):
     # Certificate labels of packagingMarkedLabel, in file order; its three storage temperatures are not labels
     # (AIMO/docs/SCHEMA-AND-CODES.md section 2.5). Empty: the file states none.
     labels: tuple[str, ...] = ()
+    # Nutrients per 100 g or ml; None when the file states none of the six on that basis.
+    nutrition: Nutrition | None = None
 
     @property
     def display_name(self) -> str:

@@ -1,14 +1,24 @@
 """Substitutes for one product: candidates, re-check, ranking, and what the buyer gives up (SPEC section 5).
 
-Candidates: the pairs Valio lists, then the same 5-digit category, then the same first 4 digits, then
-the same first 3. Every candidate is re-checked for price and availability in one call each. A candidate
-that fails the allergen rules is shown with its reason and can never be ordered.
+Candidates: the pairs Valio lists, then the products of the same 5-digit category, and nothing wider. A
+category number is opaque: Valio did not confirm that its digits are levels (answer V7, 14 Nov 2026), and a
+shared prefix is a neighbouring shelf, not the same kind of product (AIMO/build/replan/P7-categories.md).
+Every candidate is re-checked for price and availability in one call each.
+
+The order of the gates (AIMO/build/replan/P10-formula.md section 4.4), first decides first:
+
+0. The allergen rule. A candidate that fails it is shown with its reason and can never be ordered.
+1. The dietary claims. A candidate that loses one is a last resort (Valio, answer B7): it is held back while
+   a candidate that keeps them all can be ordered, and when shown it still goes to a human (rule F-08).
+2. The formula (`tta.offers.formula`): same product in another pack, same brand, other brand, different,
+   not known. It only orders the candidates; nothing is hidden by it.
+3. Listed by Valio, pack size closest, verification, price.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from tta.allergens import check_substitute
@@ -18,7 +28,7 @@ from tta.contracts.common import ExclusionReason, PackPreference
 from tta.contracts.offer import SubstituteCandidate, SubstituteQuery, SubstituteResult
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
-from tta.contracts.product import PackSize, Product
+from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, Product
 from tta.contracts.request import MAX_PRODUCT_IDS
 from tta.offers.candidates import (
     Candidate,
@@ -33,19 +43,18 @@ from tta.offers.candidates import (
     units_needed,
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
+from tta.offers.formula import compare_formula
 from tta.offers.substitute_wording import gives_up, why
 from tta.offers.wording import counted
 
 # One price call and one availability call hold 1,000 ids (SPEC section 5), the original included.
 MAX_POOL = MAX_PRODUCT_IDS - 1
-# Good, better, best: the search widens to the next category tier until three candidates can be ordered.
-ENOUGH_ORDERABLE = 3
 # Our limit on candidates Valio does not list, so an agent reads a short ranked list. Listed ones are all shown.
 MAX_UNLISTED_SHOWN = 10
-# (digits of the category shared, category distance): 0 same 5-digit category, 1 same first 4, 2 same first 3.
-CATEGORY_TIERS = ((5, 0), (4, 1), (3, 2))
-# A substitute Valio lists from a category that shares fewer than three digits (4 of the 249 listed pairs).
-DISTANCE_OUTSIDE = 3
+# Category distance takes two values: the same 5-digit category, or another one. Another category is only ever
+# a pair Valio lists (20 of the 249 listed pairs, whole catalog): no unlisted candidate comes from one.
+DISTANCE_SAME_CATEGORY = 0
+DISTANCE_OTHER_CATEGORY = 1
 ALLERGEN_REASONS = (ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN, ExclusionReason.ALLERGEN_DECLARED)
 # The claims a buyer relies on for a diet or an intolerance. The list is ours: picked from the 21 claim
 # codes of the catalog (AIMO/docs/PRODUCT-DATA.md section 3.4). Only these count as a claim lost: they
@@ -63,6 +72,21 @@ DIETARY_CLAIMS = frozenset(
         "VEGETARIAN",
     }
 )
+# A claim that another claim covers: a product that carries the stronger one has not lost the weaker one. A
+# lactose-free product is also low in lactose, and a vegan product is also vegetarian. Nothing else is covered:
+# gluten-free does not cover wheat-free (decision D4 of AIMO/build/replan/P9b-booth-answers.md; the list is ours).
+COVERED_BY: Mapping[str, frozenset[str]] = {
+    "LOW_LACTOSE": frozenset({"FREE_FROM_LACTOSE"}),
+    "VEGETARIAN": frozenset({"VEGAN"}),
+}
+# Best first: where the formula stands in the ranking key, after the dietary claims.
+FORMULA_ORDER = {
+    FormulaOutcome.SAME_PRODUCT_OTHER_PACK: 0,
+    FormulaOutcome.SAME_BRAND: 1,
+    FormulaOutcome.OTHER_BRAND: 2,
+    FormulaOutcome.DIFFERENT: 3,
+    FormulaOutcome.NOT_KNOWN: 4,
+}
 _UNKNOWN_LAST = (1, Decimal(0))
 
 RankKey = Callable[["Judged"], tuple[object, ...]]
@@ -82,6 +106,9 @@ class Judged:
     claims: tuple[ClaimCheck, ...]
     claims_lost: tuple[str, ...]  # dietary claims of the original that this product does not carry
     claims_not_carried: tuple[str, ...]  # every claim of the original it does not carry, dietary or not
+    formula: FormulaCheck  # its composition measured against the original's
+    # It loses a dietary claim and is shown only because no candidate that keeps them all can be ordered.
+    last_resort: bool = False
 
     @property
     def passes(self) -> bool:
@@ -142,33 +169,31 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
     judged = [_judge(product, is_listed, distance, original, need, lookup, deps.catalog)
               for product, is_listed, distance in pool]
     key = _rank_key(original_seen, need)
-    shown, notes = _shown(judged, key)
+    kept, held_back = _hold_back_claim_losers(judged)
+    shown, notes = _shown(kept, key, checked=len(judged))
     return Ranking(
         original=original,
         original_price=original_seen.price if price_problem(original_seen.price, lookup.now) is None else None,
         original_pack=original_seen.pack,
         ranked=tuple(sorted(shown, key=key)),
         lookup=lookup,
-        notes=(*notes, *_pool_notes(pool)),
+        notes=(*notes, *held_back, *_pool_notes(pool)),
     )
 
 
 def substitute_distance(original: Product, other: Product) -> int:
-    for digits, distance in CATEGORY_TIERS:
-        if original.category[:digits] == other.category[:digits]:
-            return distance
-    return DISTANCE_OUTSIDE
+    """0 for the same 5-digit category, 1 for any other. The digits are never read as levels."""
+    return DISTANCE_SAME_CATEGORY if original.category == other.category else DISTANCE_OTHER_CATEGORY
 
 
 def _pool(original: Product, catalog: Catalog, skip: frozenset[str]) -> list[tuple[Product, bool, int]]:
-    """(product, listed by Valio, category distance): the listed pairs first, then the category tiers."""
+    """(product, listed by Valio, category distance): the listed pairs first, then the same 5-digit category."""
     seen = {original.id, *skip}
     pool: list[tuple[Product, bool, int]] = []
     listed = [catalog.get_product(product_id) for product_id in catalog.listed_substitutes(original.id)]
-    tiers = [(product, True, substitute_distance(original, product)) for product in listed if product is not None]
-    for digits, distance in CATEGORY_TIERS:
-        tiers.extend((product, False, distance) for product in catalog.same_category(original.id, digits))
-    for product, is_listed, distance in tiers:
+    found = [(product, True, substitute_distance(original, product)) for product in listed if product is not None]
+    found.extend((product, False, DISTANCE_SAME_CATEGORY) for product in catalog.same_category(original.id, 5))
+    for product, is_listed, distance in found:
         if product.id in seen or product.deleted:
             continue
         if len(pool) >= MAX_POOL:
@@ -208,16 +233,27 @@ def _judge(
         claims=claims_of(candidate, need, units, lookup.now),
         claims_lost=claims_lost(original, product),
         claims_not_carried=claims_not_carried(original, product),
+        formula=compare_formula(original, product),
     )
 
 
 def claims_not_carried(original: Product, other: Product) -> tuple[str, ...]:
-    """Every nutritional claim of the original that `other` does not carry, in the original's order."""
-    return tuple(dict.fromkeys(claim for claim in original.nutritional_claims if claim not in other.nutritional_claims))
+    """Every nutritional claim of the original that `other` neither carries nor covers, in the original's order.
+
+    `COVERED_BY`: a lactose-free product has not lost LOW_LACTOSE, a vegan one has not lost VEGETARIAN.
+    """
+    carried = frozenset(other.nutritional_claims)
+    return tuple(
+        dict.fromkeys(
+            claim
+            for claim in original.nutritional_claims
+            if claim not in carried and not COVERED_BY.get(claim, frozenset()) & carried
+        )
+    )
 
 
 def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
-    """The original's dietary claims (`DIETARY_CLAIMS`) that `other` does not carry, in the original's order.
+    """The original's dietary claims (`DIETARY_CLAIMS`) that `other` neither carries nor covers, in order.
 
     A claim is not an allergen statement, so the allergen rule does not see one that is lost: a
     lactose-free milk and a regular milk both declare milk (AIMO/docs/SCHEMA-AND-CODES.md section 4).
@@ -225,31 +261,55 @@ def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
     return tuple(claim for claim in claims_not_carried(original, other) if claim in DIETARY_CLAIMS)
 
 
-def _shown(judged: Sequence[Judged], rank_key: RankKey) -> tuple[list[Judged], tuple[str, ...]]:
-    """Every listed candidate, and the category tiers needed to reach three that can be ordered."""
+def _hold_back_claim_losers(judged: Sequence[Judged]) -> tuple[list[Judged], tuple[str, ...]]:
+    """A candidate that loses a dietary claim is a last resort (Valio, answer B7, clarified 14 Nov 2026).
+
+    While at least one candidate that keeps every dietary claim can be ordered, those that lose one leave the
+    list, and a note says how many. The offer reads the same list, so it cannot take one either. When no
+    keeper can be ordered they stay, marked `last_resort`, and rule F-08 still sends them to a human. A
+    candidate that fails the allergen rule is not held back: it is shown with its reason and cannot be ordered.
+    """
+    losers = [each for each in judged if each.passes and each.claims_lost]
+    if not losers:
+        return list(judged), ()
+    keepers = sum(each.orderable and not each.claims_lost for each in judged)
+    if keepers == 0:
+        return [replace(each, last_resort=True) if each.passes and each.claims_lost else each for each in judged], ()
+    held = {id(each) for each in losers}
+    lack = "lacks" if len(losers) == 1 else "lack"
+    are = "is" if len(losers) == 1 else "are"
+    keep = "keeps" if keepers == 1 else "keep"
+    note = (
+        f"{counted(len(losers), 'candidate')} that {lack} a dietary claim of the original {are} held back as a "
+        f"last resort: {keepers} that {keep} every dietary claim can be ordered."
+    )
+    return [each for each in judged if id(each) not in held], (note,)
+
+
+def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[list[Judged], tuple[str, ...]]:
+    """Every listed candidate, and the best of the same 5-digit category, `MAX_UNLISTED_SHOWN` at most."""
     shown = [each for each in judged if each.listed]
-    unlisted: list[Judged] = []
-    for _, distance in CATEGORY_TIERS:
-        if sum(each.orderable for each in (*shown, *unlisted)) >= ENOUGH_ORDERABLE:
-            break
-        unlisted.extend(each for each in judged if not each.listed and each.distance == distance)
+    unlisted = [each for each in judged if not each.listed]
     # Those that can be ordered first, so the limit never hides one behind candidates that cannot.
     kept = sorted(unlisted, key=lambda each: (not each.orderable, rank_key(each)))[:MAX_UNLISTED_SHOWN]
-    notes = [f"{counted(len(judged), 'candidate')} checked for price, availability and allergens."]
+    notes = [f"{counted(checked, 'candidate')} checked for price, availability and allergens."]
     if len(unlisted) > len(kept):
         notes.append(
-            f"{len(unlisted) - len(kept)} more from the same category tiers are not shown: "
+            f"{len(unlisted) - len(kept)} more of the same category are not shown: "
             "they cannot be ordered or rank lower."
         )
     return [*shown, *kept], tuple(notes)
 
 
 def _rank_key(original: Candidate, need: Need) -> RankKey:
-    """Passes the allergen rules, keeps every dietary claim of the original, category distance, listed by
-    Valio, pack size closest to the original, verification status, price difference (SPEC section 5, "Ranking").
+    """Passes the allergen rules, keeps every dietary claim of the original, formula outcome, listed by Valio,
+    pack size closest to the original, verification status, price difference.
 
     Losing a dietary claim only orders the candidates that pass the allergen rules; it fails none of them.
-    A claim that is not dietary does not order them at all.
+    A claim that is not dietary does not order them at all. The formula comes after the dietary claims and
+    can never lift a candidate over them: 469050 has the six figures of 469126 and is not lactose-free. The
+    formula took the place of the category distance, which no longer orders anything: a pair Valio lists
+    from another category is judged by what it is made of.
     """
 
     def key(each: Judged) -> tuple[object, ...]:
@@ -259,7 +319,7 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         return (
             not each.passes,
             each.passes and bool(each.claims_lost),
-            each.distance,
+            FORMULA_ORDER[each.formula.outcome],
             not each.listed,
             _pack_gap(original.pack, candidate.pack),
             verification,

@@ -7,9 +7,12 @@ from typing import TYPE_CHECKING
 
 from tta.availability.wording import format_amount
 from tta.contracts.common import AllergenOutcome, AvailabilityState, ExclusionReason
-from tta.contracts.product import PackSize
+from tta.contracts.product import FormulaOutcome, PackSize
 from tta.offers.candidates import price_problem
 from tta.offers.wording import UNIT_WORDS, eur, plain_name
+
+# The formula outcomes under which "nothing the data shows is given up" may still be said.
+_NO_DIFFERENCE_SHOWN = frozenset({FormulaOutcome.SAME_PRODUCT_OTHER_PACK, FormulaOutcome.SAME_BRAND})
 
 if TYPE_CHECKING:
     from tta.offers.substitutes import Judged, Ranking
@@ -29,6 +32,12 @@ NOTHING_GIVEN_UP = (
 )
 
 
+LAST_RESORT = (
+    "Last resort: no candidate that keeps every dietary claim of the original can be ordered, so a person "
+    "decides whether this one will do."
+)
+
+
 def why(judged: Judged) -> str:
     """Why the candidate passes or fails, and whether it can be ordered."""
     if judged.reason is ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN:
@@ -38,6 +47,8 @@ def why(judged: Judged) -> str:
     lacks = ""
     if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict
         lacks = f" It does not carry the original's nutritional {_claims(judged.claims_lost)}."
+    if judged.last_resort:
+        lacks += f" {LAST_RESORT}"
     if judged.reason in BUYER_RULE_REASONS:
         return f"It adds no allergen, but this buyer's rules exclude it. {judged.reason_sentence}{lacks}"
     if judged.reason is not None:
@@ -55,7 +66,7 @@ def _to_a_human(judged: Judged) -> str:
 
 
 def gives_up(judged: Judged, ranking: Ranking) -> str:
-    """One sentence on what changes for the buyer who takes this product in place of the original."""
+    """What changes for the buyer who takes this product in place of the original, the formula in numbers."""
     original, product = ranking.original, judged.candidate.product
     parts: list[str] = []
     if judged.claims_not_carried:  # every claim, dietary or not: all of them are given up
@@ -71,9 +82,13 @@ def gives_up(judged: Judged, ranking: Ranking) -> str:
     parts.extend(_price_part(judged, ranking))
     if judged.candidate.state is AvailabilityState.QUANTITY_NOT_CONFIRMED:
         parts.append("Valio does not confirm the quantity in stock")
-    if not parts:
-        return NOTHING_GIVEN_UP
-    return f"Compared with {plain_name(original.display_name)}: {'; '.join(parts)}."
+    # The formula sentence is built from numbers and fixed words only (`tta.offers.formula`).
+    formula = judged.formula.sentence
+    if parts:
+        return f"Compared with {plain_name(original.display_name)}: {'; '.join(parts)}. {formula}"
+    if judged.formula.outcome in _NO_DIFFERENCE_SHOWN:
+        return f"{NOTHING_GIVEN_UP} {formula}"
+    return f"Compared with {plain_name(original.display_name)}: {formula}"
 
 
 def _claims(codes: Sequence[str]) -> str:

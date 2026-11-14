@@ -94,6 +94,13 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 | `question` for milk for coffee | `200 litres of milk for coffee` | 'Is it milk for coffee? Then write "coffee milk". For both, write each with its own quantity.' |
 | `Reading.sentence` when STRICT was assumed | `50 litres of gluten-free oat drink by Monday` | "… No allergen rule was given for cereals containing gluten (AW): read as strict, the safe reading. A product with no allergen statement goes to a person." |
 
+### L2a — substitutes and formula
+- `candidates[].gives_up` and `line.substitute.gives_up` now end with the formula in numbers: "… Different formula: fat 15 g, not 38 g; saturated fat 8.8 g, not 22 g; carbohydrate 5.3 g, not 2.8 g per 100 g." · another fat source: "… Its ingredient list names a vegetable oil or fat; the original's does not." · kept: "… Same formula within our tolerance of 15% or 1 g per nutrient (salt 0.25 g): fat 38 g against 36 g; …" · cannot be compared: "… the figures of the product asked for are per 100 ml and this product's are per 100 g."
+- `candidates[].sentence`, last resort: "… It does not carry the original's nutritional claim VEGAN. Last resort: no candidate that keeps every dietary claim of the original can be ordered, so a person decides whether this one will do."
+- `SubstituteResult.notes[]`: "13 candidates that lack a dietary claim of the original are held back as a last resort: 4 that keep every dietary claim can be ordered."
+- `category_distance`: 0 (same category) or 1 (another, only a pair Valio lists). The heading "Other products of the same category" is now true for every unlisted candidate.
+- `product.nutrition`: `{"fat": 38.0, "saturated_fat": 22.0, "protein": 2.0, "carbohydrate": 2.8, "sugars": 2.8, "salt": 0.07, "basis": "G"}` — two columns of numbers for the substitute comparison.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |
