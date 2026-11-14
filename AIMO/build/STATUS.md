@@ -23,7 +23,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T14 | Deployment on Modal | T13 | done | **deployed** https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` all 7 checks passed; a redeploy at the end is approved |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
-| T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | running | added Saturday for the Gemini award; starts after FIX-10 |
+| T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | done | 421 agent tests; **live check blocked**: Gemini 503/504 to all 6 requests; recordings hand-written. Run `.venv/bin/python -m tta.agent.record --only finnish-1 --only finnish-2 --only photo --max-calls 10 --timeout 60` |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
@@ -91,6 +91,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 10:25 Use-case check report in `AIMO/USE-CASES.md`: our own scenarios all hold; Valio's six examples: allergen-safe substitution, stock-out, last-minute and recipe partly, proactive selling and standing-order drift not at all. Its top fixes started as FIX-12a and FIX-12b. Booth questions ALMOND-1 (`465793` declared free from tree nuts, ingredients say almond) and DATA-1 (the product file and the API) added.
 - 10:33 Walkthrough rewritten and committed (17 sections; 25 open questions with examples; decisions split into Valio's and the team's). The human has about 1h30 and 40% of the weekly limit: FEAT-1 (profile page) and DOCS-2 (documents) started on Opus.
 - 10:38 S1 done and committed (67f3b00). The orchestrator wired S2's evidence into every order book (f3286e1) and added `DATABASE_URL` and `CONTEXT_DEV_API_KEY` to the deploy secret and the evidence recordings to the image (cf6681f), both approved by the human. Left for after T18: S1's one-line `/healthz` reason in `routes.py`.
+- 10:39 T18 done and committed (812de0f); S1's `/healthz` reason added. Gemini requests tonight: 17 + 1 (07:13 re-read) + 6 (T18) = 24.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
