@@ -183,7 +183,7 @@ def test_the_ward_may_not_take_a_substitute_without_a_human(
 
 # --- ranking of substitutes with hand-built availability ---------------------------------------------------
 
-def test_substitutes_rank_by_pack_size_then_verification_then_price(
+def test_substitutes_rank_by_formula_then_pack_size_then_verification_then_price(
     fake_gateway: Any, deps_for: Any, policy: Any, price: Any, stock: Any
 ) -> None:
     gateway = fake_gateway(
@@ -195,9 +195,10 @@ def test_substitutes_rank_by_pack_size_then_verification_then_price(
     result = find_substitutes(A, policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
 
     orderable = [candidate.product_id for candidate in result.candidates if candidate.orderable]
-    # Same category and none listed: the 1-litre cartons first (confirmed and cheapest before dearer,
-    # then the one whose quantity is not confirmed), the 10-litre box last.
-    assert orderable == [B, C, "464306", "464179"]
+    # Same category and none listed. Lane L2a (P10 F3): the formula ranks before the pack size, so the two with
+    # the original's formula come first (the 10-litre box, then the carton whose quantity is not confirmed),
+    # then the other 1-litre cartons, the cheaper before the dearer.
+    assert orderable == ["464179", "464306", B, C]
     by_id = {candidate.product_id: candidate for candidate in result.candidates}
     assert by_id[B].price_difference == Decimal("0.09")
     assert by_id["464306"].price_difference == Decimal("-1.47")

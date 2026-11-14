@@ -15,6 +15,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from tta.allergens import check_exclusions
+from tta.allergens.exclusion import rule_or_strict
 from tta.availability import classify, is_late, late_sentence, verify
 from tta.availability.wording import format_amount, format_validity
 from tta.contracts.allergen import AllergenCheck
@@ -86,6 +87,8 @@ class Need:
     stands_in_role: str | None = None
     # The rule of each excluded allergen: the profile's rule for it, made stricter by the request line's.
     strictness_by_code: Mapping[str, AllergenStrictness] = field(default_factory=dict)
+    # The excluded allergens nobody gave a rule for: read as STRICT, and the offer says so (review P4, item M3).
+    read_as_strict: tuple[str, ...] = ()
 
     @property
     def dated(self) -> bool:
@@ -137,11 +140,12 @@ class Found:
 
 
 def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: BuyerProfile) -> Need:
-    """Raises `InvalidRequest` for an unknown allergen code and for an exclusion with no strictness."""
+    """Raises `InvalidRequest` for an unknown allergen code. An exclusion with no rule is read as STRICT."""
     excluded = tuple(dict.fromkeys((*profile.excluded_allergens, *line.exclude_allergens)))
-    by_code = allergen_rules(profile, excluded, line.allergen_strictness)
+    given = allergen_rules(profile, excluded, line.allergen_strictness)
+    by_code = {code: rule_or_strict(given.get(code)) for code in excluded}
     strictness = _strictest(*by_code.values())
-    check_exclusions((), excluded, strictness, by_code=by_code)  # validates the codes and rules once
+    check_exclusions((), excluded, strictness, by_code=by_code)  # validates the codes once
     return Need(
         index=index,
         quantity=line.quantity,
@@ -155,6 +159,7 @@ def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: B
         stands_in_for=line.stands_in_for,
         stands_in_role=line.stands_in_role,
         strictness_by_code=by_code,
+        read_as_strict=tuple(code for code in excluded if code not in given),
     )
 
 

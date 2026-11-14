@@ -30,7 +30,7 @@ from tta.offers import OfferService
 NOT_IN_RECORDING_SENTENCE = (
     "Not in the recorded copy of Valio's data used for this demo; a live lookup would answer."
 )
-BUTTERS = 20  # category 10500, the `butter` product type; none is in tonight's capture
+BUTTERS = 19  # the `butter` product type (lane L2a took the plant-based block 471792 out); none is in the capture
 BUTTER = "464205"  # Valio butter 4x5 kg unsalted
 Build = Callable[..., object]
 

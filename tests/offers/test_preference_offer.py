@@ -128,7 +128,10 @@ def test_a_key_no_product_has_falls_back_to_price_and_says_how_many_lines_had_no
 
     assert first.totals.net == Decimal("1083.39")
     assert first.title == "Best confirmed option, ranked by delivery reliability (partial fill)"
-    assert "No delivery reliability in Valio Aimo's data for 2 of the 2 lines" in first.summary
+    assert (
+        "No delivery reliability of 90% or more in Valio Aimo's data for 2 of the 2 lines; a lower figure ranks "
+        "with an unknown one (our threshold)."
+    ) in first.summary
     assert OptionKind.CHEAPEST_CONFIRMED not in kinds(offer)
 
 

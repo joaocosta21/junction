@@ -81,24 +81,21 @@ def check_exclusions(
     declaration alone to decide. `by_code` gives one excluded allergen a rule of its own (an allergy STRICT,
     another allergen DECLARED_ONLY); `strictness` is the rule of every allergen it does not name.
 
-    Raises `InvalidRequest` for an excluded code outside the code table, for `X99`, and for an
-    exclusion without a strictness (there is no default, SPEC section 3). Raises `SupplierUnavailable`
-    for a statement whose code is outside the code table: such a statement matches no exclusion, so
-    the product would pass under `DECLARED_ONLY` on data nobody can read.
+    An excluded allergen with no rule at all (`strictness` is `None` and `by_code` does not name it) is read as
+    STRICT: the safe reading, where a refusal stood before (review P4, item M3; Valio Aimo, 14 Nov 2026: "if you
+    are not sure you need to flag it to the user"). `rule_or_strict` is that default; the offer says when it was
+    used (`tta.offers.candidates.need_for`).
+
+    Raises `InvalidRequest` for an excluded code outside the code table and for `X99`. Raises
+    `SupplierUnavailable` for a statement whose code is outside the code table: such a statement matches no
+    exclusion, so the product would pass under `DECLARED_ONLY` on data nobody can read.
     """
     codes = tuple(dict.fromkeys(excluded))
     _require_valid_exclusions(codes)
     checked = _with_table_codes(statements)
     if not codes:
         return AllergenCheck(outcome=AllergenOutcome.PASS, strictness=strictness, all_explicit=True)
-    rules: dict[str, AllergenStrictness] = {}
-    for code in codes:
-        rule = (by_code or {}).get(code, strictness)
-        if rule is None:
-            raise InvalidRequest(
-                "allergen_strictness is required when an allergen is excluded: STRICT or DECLARED_ONLY."
-            )
-        rules[code] = rule
+    rules = {code: rule_or_strict((by_code or {}).get(code, strictness)) for code in codes}
     mentions = ingredient_mentions(ingredients)
     findings = tuple(_finding(checked, code, rules[code], mentions) for code in codes)
     return AllergenCheck(
@@ -107,6 +104,11 @@ def check_exclusions(
         findings=findings,
         all_explicit=all(finding.relation in _EXPLICIT_RELATIONS for finding in findings),
     )
+
+
+def rule_or_strict(rule: AllergenStrictness | None) -> AllergenStrictness:
+    """The rule of an excluded allergen; STRICT when none was given (review P4, item M3)."""
+    return STRICT if rule is None else rule
 
 
 def _require_valid_exclusions(codes: Sequence[str]) -> None:

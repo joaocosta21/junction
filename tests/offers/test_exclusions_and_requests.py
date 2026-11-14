@@ -157,9 +157,11 @@ def test_an_unknown_product_id_is_an_unknown_product_error(build: Build, make_re
         build([], [], make_request(5, Unit.UNIT, product_ids=("000000",)))
 
 
-def test_an_exclusion_without_a_strictness_is_an_invalid_request(build: Build, make_request: Any) -> None:
-    with pytest.raises(InvalidRequest):
-        build([], [], make_request(100, exclude_allergens=("AM",)))
+def test_an_exclusion_without_a_strictness_is_read_as_strict_and_not_refused(build: Build, make_request: Any) -> None:
+    """Review P4, item M3 (`test_exclusion_read_as_strict.py` holds the sentence)."""
+    offer = build([], [], make_request(100, exclude_allergens=("AM",)))
+
+    assert any("read as strict" in note for note in offer.notes)
 
 
 def test_an_unknown_allergen_code_is_an_invalid_request(build: Build, make_request: Any) -> None:
@@ -180,11 +182,14 @@ def test_a_request_can_add_an_exclusion_and_every_line_then_carries_the_check(
     request = make_request(100, exclude_allergens=("AY",), allergen_strictness=AllergenStrictness.DECLARED_ONLY)
     offer = build([price(A, "2.48")], [stock(A, 5000)], request)
 
-    line = best(offer).lines[0]
+    # No statement about soya: the product is no "best confirmed" option, it is the labelled alternative (P4 M1).
+    (only,) = offer.options
+    assert only.title == "Alternative: allergen not ruled out"
+    line = only.lines[0]
     assert line.allergen_check is not None
     assert line.allergen_check.strictness is AllergenStrictness.DECLARED_ONLY
     assert [finding.excluded_code for finding in line.allergen_check.findings] == ["AY"]
-    soya = next(check for check in best(offer).constraint_checks if check.kind is ConstraintKind.ALLERGEN)
+    soya = next(check for check in only.constraint_checks if check.kind is ConstraintKind.ALLERGEN)
     # The milk makes no statement about soya: under DECLARED_ONLY it passes, shown as unverified.
     assert (soya.subject, soya.result) == ("AY", CheckResult.UNVERIFIED)
 

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
 
+from tta.allergens.codes import describe
 from tta.availability.wording import format_day
 from tta.contracts.common import ExclusionReason, Preference
 from tta.contracts.offer import Exclusion, Offer, OfferOption
@@ -22,10 +23,12 @@ from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
 from tta.offers.preference import KEY_WORDS
-from tta.offers.wording import counted, line_label, listed, reason_words
+from tta.offers.variants import regular_words, variant_claims_for, variant_word
+from tta.offers.wording import counted, joined, line_label, line_words, listed, reason_words
 
 OFFER_ID_PREFIX = "off_"
 OFFER_ID_HEX_DIGITS = 12
+SENTENCE_END = ". "
 NO_OPTION_NOTE = "No option can be offered for this request. Each product that dropped out is listed with its reason."
 
 
@@ -45,7 +48,10 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
     outcomes = tuple(outcome for outcome, _ in judged)
     late = tuple(candidates for _, candidates in judged)
     plan = plan_options(outcomes, lookup.now, deps, request.prefer)
-    options = finish_options(plan.drafts, request, needs, profile, deps, lookup.now)
+    type_notes = _type_notes(request.lines, deps.catalog)
+    options = finish_options(
+        plan.drafts, request, needs, profile, deps, lookup.now, headline=_headline(type_notes, len(request.lines))
+    )
     return Offer(
         offer_id=OFFER_ID_PREFIX + uuid.uuid4().hex[:OFFER_ID_HEX_DIGITS],
         created_at=deps.clock.now(),
@@ -59,7 +65,8 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         time_now=lookup.now,
         time_basis=lookup.time_basis,
         notes=(
-            *_type_notes(request.lines, deps.catalog),
+            *(f"{line_label(index)}: {note}" for index, note in type_notes),
+            *_strict_notes(needs), *_variant_notes(request.lines, options, deps.catalog),
             *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options, request.prefer),
             *_empty_notes(outcomes, late, options, lookup.now),
         ),
@@ -95,14 +102,60 @@ def _judge_line(
     return outcome, tuple(late)
 
 
-def _type_notes(lines: Sequence[RequestLine], catalog: Catalog) -> tuple[str, ...]:
-    """What the product type a line asks for leaves out, said on the offer: a buyer who asks for milk gets no
+def _type_notes(lines: Sequence[RequestLine], catalog: Catalog) -> tuple[tuple[int, str], ...]:
+    """What the product type a line asks for leaves out, by request line: a buyer who asks for milk gets no
     milk for coffee, and is told so and how to ask for it (Valio Aimo, 14 Nov 2026: "no be explicit")."""
     notes = []
     for index, line in enumerate(lines):
         note = catalog.product_type_note(line.product_type) if line.product_type is not None else None
         if note:
-            notes.append(f"{line_label(index)}: {note}")
+            notes.append((index, note))
+    return tuple(notes)
+
+
+def _headline(type_notes: Sequence[tuple[int, str]], request_lines: int) -> str:
+    """The first sentence of each type note, for the summary of the first option: what was left out. How to
+    ask for it stays in `offer.notes`. A request of several lines says which line."""
+    sentences = []
+    for index, note in type_notes:
+        first = note.split(SENTENCE_END, 1)[0].rstrip(".") + "."
+        sentences.append(first if request_lines == 1 else f"{line_label(index)}: {first}")
+    return " ".join(dict.fromkeys(sentences))
+
+
+def _strict_notes(needs: Sequence[Need]) -> tuple[str, ...]:
+    """An exclusion nobody gave an allergen rule for was read as STRICT (review P4, item M3)."""
+    return tuple(
+        f"{line_label(need.index)}: no allergen rule was given for "
+        f"{joined([describe(code) for code in need.read_as_strict])}, so it was read as strict: a product is offered "
+        "as safe only when its data states it is free from it."
+        for need in needs if need.read_as_strict
+    )
+
+
+def _variant_notes(
+    lines: Sequence[RequestLine], options: Sequence[OfferOption], catalog: Catalog
+) -> tuple[str, ...]:
+    """A variant nobody asked for is in an option: the rule, and the products it applies to
+    (`tta.offers.variants`). Each option that holds one names it in its own summary too."""
+    notes = []
+    for index, asked in enumerate(lines):
+        offered = dict.fromkeys(
+            line.product_id for option in options for line in option.lines if line.request_line_index == index
+        )
+        variants = [
+            product_id for product_id in offered
+            if (product := catalog.get_product(product_id)) is not None
+            and variant_word(asked, product.nutritional_claims) is not None
+        ]
+        if not variants:
+            continue
+        kinds = " or ".join(variant_claims_for(asked).values())
+        what = line_words(asked)
+        notes.append(
+            f"{line_label(index)}: a request for {what} is filled with {regular_words(asked)} first. "
+            f"{kinds.capitalize()} {what} is offered only as a named alternative: {listed(variants)}."
+        )
     return tuple(notes)
 
 

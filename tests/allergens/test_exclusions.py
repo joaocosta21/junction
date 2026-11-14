@@ -291,9 +291,12 @@ def test_nothing_excluded_passes_with_no_finding(statements: Build) -> None:
 # --- bad input ------------------------------------------------------------------------------------
 
 
-def test_an_exclusion_without_a_strictness_is_an_invalid_request(statements: Build) -> None:
-    with pytest.raises(InvalidRequest, match="allergen_strictness"):
-        check_exclusions(statements(("AM", "CONTAINS")), ["AM"], None)
+def test_an_exclusion_with_no_rule_at_all_reads_strict(statements: Build) -> None:
+    """Review P4, item M3: the safe reading, not a refusal. No statement about milk goes to the dietitian."""
+    check = check_exclusions(statements(), ["AM"], None)
+
+    assert check.strictness is STRICT
+    assert [(finding.outcome, finding.strictness) for finding in check.findings] == [(AllergenOutcome.TO_HUMAN, STRICT)]
 
 
 def test_an_unknown_excluded_code_is_an_invalid_request(statements: Build) -> None:

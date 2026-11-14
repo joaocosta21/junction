@@ -38,6 +38,9 @@ Last updated: Sat 14 Nov, about 19:00.
 | B18 | No push, although fetch and outside calls are now approved | You approved fetch, deployment and the award services; a push was never mentioned | Orchestrator |
 | B19 | The bakery's limit becomes €300 per order and €1,000 per day (was €50 and €400, the shop page's values) | €50 is below any wholesale order: its usual 40 L of whipping cream is about €230, so every order would cite the spend limit | L3-2, wave 2 |
 | B20 | Q16: a total with a product sold by weight is called an estimate ("Valio Aimo invoices the weight delivered"); the hotel still sends such an order to a person | Valio's answer of 14 Nov; wording only | L3a, L3b |
+| B21 | Plain "milk" with no regular milk in confirmed stock gets a named low-lactose or lactose-free product as the first option, and the offer says it is an alternative to regular milk | A confirmed product a person can accept beats no suggestion; in the recording no regular milk has confirmed stock | L2b |
+| B22 | A preference (most reliable, lowest carbon) may cost up to 25% more than the cheapest confirmed option before the cheapest comes first; a known delivery reliability under 90% ranks with an unknown one. Both are named "our threshold" in the sentence | A preference must not buy the tenderloin (€931) for a stew (€247) | L2b |
+| B23 | Under "declared only", a product with no allergen statement is still never the first option; it is the labelled alternative | The safe product wins | L2b |
 
 ## C. Questions for the team (domain)
 

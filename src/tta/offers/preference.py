@@ -4,6 +4,12 @@ The keys are earliest `availableDate`, highest delivery reliability and lowest c
 with no value for the key ranks after every product with one: a missing value is unknown, never good or bad
 (AIMO/FINDINGS.md section 6). Reliability is known for 4,425 products and carbon for 11,033 of 17,546; carbon
 is close to category-level, so `LOWER_CARBON` mostly separates products of different categories.
+
+A preference has a floor and a price (review A2b, finding H2; review P2, item W6). A delivery reliability below
+`RELIABILITY_FLOOR` ranks with an unknown one: a product delivered in full about half the time is not "the most
+reliable" because the file has a figure for it. And a preferred option that costs more than
+`MAX_PREFERENCE_PREMIUM` above the cheapest confirmed one comes second (`tta.offers.options`). Both values are
+ours, not Valio Aimo's.
 """
 
 from __future__ import annotations
@@ -18,6 +24,12 @@ from tta.offers.candidates import Candidate
 from tta.offers.wording import counted
 
 PRICE_TIER = 0
+# Ours: below this share a known delivery reliability gives a product no rank over one with no figure.
+RELIABILITY_FLOOR = Decimal("0.9")
+# Ours: the share of the cheapest confirmed option's net total a preference may add and still come first.
+MAX_PREFERENCE_PREMIUM = Decimal("0.25")
+PERCENT = Decimal(100)
+ONE_DECIMAL = Decimal("0.1")
 TITLE_SUFFIXES: Mapping[Preference, str] = {
     Preference.EARLIEST: ", ranked by earliest delivery",
     Preference.RELIABILITY: ", ranked by delivery reliability",
@@ -44,11 +56,17 @@ def candidate_value(candidate: Candidate, prefer: Preference) -> Value | None:
     if prefer is Preference.EARLIEST:
         return candidate.assessment.available_date
     if prefer is Preference.RELIABILITY:
-        reliability = candidate.product.delivery_reliability
-        return None if reliability is None else -reliability
+        return _reliability_value(candidate.product.delivery_reliability)
     if prefer is Preference.LOWER_CARBON:
         return candidate.product.carbon_kg_co2e_per_kg
     return None
+
+
+def _reliability_value(reliability: Decimal | None) -> Decimal | None:
+    """Higher is better, so the value is the negative share; none below the floor, as for no figure."""
+    if reliability is None or reliability < RELIABILITY_FLOOR:
+        return None
+    return -reliability
 
 
 def line_value(line: OfferLine, prefer: Preference) -> Value | None:
@@ -56,7 +74,7 @@ def line_value(line: OfferLine, prefer: Preference) -> Value | None:
     if prefer is Preference.EARLIEST:
         return line.availability.available_date
     if prefer is Preference.RELIABILITY:
-        return None if line.delivery_reliability is None else -line.delivery_reliability
+        return _reliability_value(line.delivery_reliability)
     if prefer is Preference.LOWER_CARBON:
         return line.carbon_kg_co2e_per_kg
     return None
@@ -91,10 +109,31 @@ def missing_sentence(lines: Sequence[OfferLine], prefer: Preference) -> str:
     if not missing:
         return ""
     what = MISSING_WORDS[prefer]
+    after = "after every product that has one"
+    if prefer is Preference.RELIABILITY:
+        what = f"delivery reliability of {share(RELIABILITY_FLOOR)} or more"
+        after = "with an unknown one (our threshold)"
+        if len(lines) == 1:
+            return f" No {what} in Valio Aimo's data for this product; a lower figure ranks {after}."
+        return (
+            f" No {what} in Valio Aimo's data for {missing} of the {counted(len(lines), 'line')}; a lower figure "
+            f"ranks {after}."
+        )
     if len(lines) == 1:
-        return f" No {what} in Valio Aimo's data for this product; it ranks after every product that has one."
+        return f" No {what} in Valio Aimo's data for this product; it ranks {after}."
     those = "it ranks" if missing == 1 else "they rank"
-    return (
-        f" No {what} in Valio Aimo's data for {missing} of the {counted(len(lines), 'line')}; {those} after every "
-        f"product that has one."
-    )
+    return f" No {what} in Valio Aimo's data for {missing} of the {counted(len(lines), 'line')}; {those} {after}."
+
+
+def share(ratio: Decimal) -> str:
+    """`122.7%`, `25%`: a ratio as a percentage with at most one decimal."""
+    percent = (ratio * PERCENT).quantize(ONE_DECIMAL)
+    return f"{percent.normalize():f}%" if percent == percent.to_integral_value() else f"{percent}%"
+
+
+def premium(preferred_net: Decimal, cheapest_net: Decimal) -> Decimal | None:
+    """What the preferred option costs over the cheapest confirmed one, as a share of the cheapest; `None` when
+    the cheapest costs nothing."""
+    if cheapest_net <= 0:
+        return None
+    return (preferred_net - cheapest_net) / cheapest_net

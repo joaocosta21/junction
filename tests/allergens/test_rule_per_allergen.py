@@ -19,7 +19,6 @@ from pydantic import ValidationError
 from tta.allergens import check_exclusions
 from tta.contracts.allergen import AllergenStatement
 from tta.contracts.common import AllergenOutcome, AllergenStrictness, Unit
-from tta.contracts.errors import InvalidRequest
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers.candidates import allergen_rules, need_for
@@ -66,9 +65,13 @@ def test_with_a_rule_for_every_allergen_no_general_rule_is_needed(statements: Bu
     assert check.outcome is AllergenOutcome.PASS
 
 
-def test_an_allergen_with_no_rule_at_all_is_refused(statements: Build) -> None:
-    with pytest.raises(InvalidRequest):
-        check_exclusions(statements(), ["AP", "AS"], None, by_code={"AP": STRICT})
+def test_an_allergen_with_no_rule_at_all_reads_strict(statements: Build) -> None:
+    """Review P4, item M3: an exclusion nobody gave a rule for gets the safe one."""
+    check = check_exclusions(statements(), ["AP", "AS"], None, by_code={"AP": DECLARED_ONLY})
+
+    by_code = {finding.excluded_code: finding for finding in check.findings}
+    assert (by_code["AP"].outcome, by_code["AP"].strictness) == (AllergenOutcome.PASS, DECLARED_ONLY)
+    assert (by_code["AS"].outcome, by_code["AS"].strictness) == (AllergenOutcome.TO_HUMAN, STRICT)
 
 
 def test_a_declared_allergen_is_rejected_under_either_rule(statements: Build) -> None:

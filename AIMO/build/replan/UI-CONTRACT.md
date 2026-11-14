@@ -114,6 +114,19 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 | `authority.rules[]` P-06 | "A product sold by variable weight goes to the purchasing manager: its total is an estimate, because Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered." |
 | Profiles `school-kitchen`, `bakery-cafe` | school: `excluded_allergens: [AN, AP, AS]`, STRICT; bakery: `substitution_without_approval: NONE`. `kitchens.js` still says DECLARED_ONLY for the school and SAME_CATEGORY for the bakery: to change with the customers route (wave 2) |
 
+### L2b — options and safety
+| Field | What a person reads |
+|---|---|
+| `options[].title` | "Alternative: allergen not ruled out" · "Alternative: quantity not confirmed, allergen not ruled out" · "Confirmed option ranked by delivery reliability" |
+| `options[0].summary`, safe first | "1 confirmed product covers the 10 L asked for, for €20.10 before tax. Its data rules out every excluded allergen; the alternative whose data does not costs €2.70 less." |
+| `options[].summary`, doubtful alternative | "Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT (475224) for the 10 L asked for, €17.40 before tax. The product data does not rule out cereals containing gluten (AW), so a dietitian must decide." |
+| `options[0].summary`, coffee milk | "… for €1,083.39 before tax. Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk." |
+| `options[].summary`, preference | "… €40.60 more than the cheapest confirmed option, for a delivery reliability of at least 100% instead of unknown, a premium of 122.7%." |
+| `options[].net_above_cheapest` | `"40.60"`: what the preference costs |
+| `offer.notes[]` | "Request line 1: no allergen rule was given for milk (AM), so it was read as strict: …" · "… no product whose data rules out cereals containing gluten (AW) can be offered, so no option is suggested as safe: a dietitian must decide on each alternative." · "… 467014, whose quantity Valio does not confirm, would cost €382.20, not less than the €246.96 of confirmed stock that covers the whole quantity, so it is not offered as an alternative." · "… a request for milk is filled with regular milk first. Lactose-free or low-lactose milk is offered only as a named alternative: 463047." |
+| `offer.suggestions` | `[]` until wave 2 |
+| `lines[].substitute.formula`, `.last_resort` | filled on an offer's stand-in line |
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

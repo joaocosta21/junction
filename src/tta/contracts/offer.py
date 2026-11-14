@@ -28,8 +28,9 @@ from tta.contracts.common import (
     UnitPrice,
 )
 from tta.contracts.policy import PolicyDecision
-from tta.contracts.product import PackSize
+from tta.contracts.product import FormulaCheck, PackSize
 from tta.contracts.request import MAX_QUANTITY, PurchaseRequest
+from tta.contracts.suggestion import Suggestion
 
 
 class SubstituteInfo(Contract):
@@ -40,11 +41,14 @@ class SubstituteInfo(Contract):
     listed_by_supplier: bool
     category_distance: int = Field(
         ge=0,
-        description="0 same 5-digit category, 1 same first 4, 2 same first 3, 3 listed from further away",
+        description="0 same 5-digit category, 1 another category, which only a pair Valio lists can be",
     )
     allergen_check: SubstituteAllergenCheck
     claims_lost: tuple[str, ...] = ()  # nutritional claims of the original that the substitute does not carry
     gives_up: str  # one sentence: what the buyer gives up
+    formula: FormulaCheck | None = None  # its composition measured against the original's (`tta.offers.formula`)
+    # It loses a dietary claim and stands in only because no product that keeps them all can be ordered.
+    last_resort: bool = False
 
 
 class OfferLine(Contract):
@@ -164,6 +168,11 @@ class OfferOption(Contract):
     constraint_checks: tuple[ConstraintCheck, ...] = ()
     decision: PolicyDecision | None = None  # filled in by the offer builder before the offer leaves it
     comparison: OptionComparison | None = None  # filled in by the offer builder (task SUST-1)
+    # On the option ranked by the buyer's preference, when a cheaper confirmed option is offered next to it: what
+    # the preference costs (review A2b, finding H2). None: no preference, or it costs nothing.
+    net_above_cheapest: Money | None = Field(
+        default=None, description="Net total minus the net total of the cheapest confirmed option of the offer"
+    )
 
     @property
     def is_partial(self) -> bool:
@@ -199,6 +208,9 @@ class Offer(Contract):
     # (TTA_DEMO_CLOCK, replay only). None on an offer stored before the field existed.
     time_basis: ClockBasis | None = None
     notes: tuple[str, ...] = ()  # for example why there is no option
+    # Computed from the customer's past orders or the catalog (`tta.suggestions`). A suggestion is in no option
+    # and in no total, and never adds itself to an order. Empty on an offer stored before the field existed.
+    suggestions: tuple[Suggestion, ...] = ()
 
     def option(self, option_id: str) -> OfferOption | None:
         return next((option for option in self.options if option.option_id == option_id), None)
@@ -232,6 +244,14 @@ class SubstituteCandidate(Contract):
     allergen_check: SubstituteAllergenCheck
     unit_net_price: UnitPrice | None = None
     price_difference: UnitPrice | None = None  # substitute minus original, per sales unit
+    formula: FormulaCheck | None = None  # its composition measured against the original's (`tta.offers.formula`)
+    # It loses a dietary claim and is shown only because no candidate that keeps them all can be ordered.
+    last_resort: bool = False
+    # The same difference per litre, kilogram or sales unit of the query, so a case is never compared with a
+    # carton (review P2, item W7). None: no quantity unit was asked for, or a pack size is not known.
+    price_difference_per_requested_unit: UnitPrice | None = Field(
+        default=None, description="Substitute minus original, per unit of the query (L, KG or sales unit)"
+    )
 
 
 class SubstituteResult(Contract):

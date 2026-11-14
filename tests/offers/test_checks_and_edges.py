@@ -103,6 +103,8 @@ def test_a_request_line_with_no_product_is_reported_in_the_option_and_in_the_not
     assert "covers 1 of the 2 request lines in full" in option.summary
     assert option.summary.endswith(
         "Covered: 0 of 30 kg of beef chuck, request line 2; 100 of 100 L of milk, request line 1."
+        " Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured "
+        "coffee milk."
     )
     assert any(note.startswith("Request line 2: no product can be offered") for note in offer.notes)
     assert "P-03" in option.decision.rule_ids
@@ -225,7 +227,7 @@ def test_what_the_buyer_gives_up_names_a_claim_the_substitute_does_not_carry(
     assert "FREE_FROM_LACTOSE" in regular.sentence
 
 
-def test_a_substitute_that_keeps_every_claim_ranks_before_a_cheaper_one_that_loses_a_claim(
+def test_a_substitute_that_loses_a_claim_is_held_back_while_one_that_keeps_every_claim_can_be_ordered(
     fake_gateway: Any, deps_for: Any, policy: Any, price: Any, stock: Any
 ) -> None:
     gateway = fake_gateway(
@@ -236,9 +238,8 @@ def test_a_substitute_that_keeps_every_claim_ranks_before_a_cheaper_one_that_los
     result = find_substitutes(A, policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
 
     orderable = [candidate for candidate in result.candidates if candidate.orderable]
-    assert [(candidate.product_id, candidate.claims_lost) for candidate in orderable] == [
-        (B, ()), (REGULAR_MILK, ("FREE_FROM_LACTOSE",)),
-    ]
+    # Lane L2a (P9b B7-1): the cheaper regular milk loses FREE_FROM_LACTOSE, so it is held back as a last resort.
+    assert [(candidate.product_id, candidate.claims_lost) for candidate in orderable] == [(B, ())]
 
 
 def test_the_stand_in_of_an_offer_keeps_the_claims_of_the_original_when_one_can(
@@ -308,17 +309,23 @@ def test_a_stand_in_carries_a_required_claim_even_when_the_original_does_not(
     assert results(option)[(0, ConstraintKind.CLAIM, "FREE_FROM_FAT")] is CheckResult.MET
 
 
+SAME_CATEGORY_CALL = 49  # the original and the 48 other products of its 5-digit category
+
+
 def test_the_candidates_of_a_large_category_group_stop_at_one_call(
     catalog: ProductCatalog, fake_gateway: Any, deps_for: Any, policy: Any
 ) -> None:
-    original = next(product for product in catalog.products if product.category.startswith("417"))  # 2,851 products
+    # Lane L2a (P7-1): unlisted candidates come from the same 5-digit category only, so the pool of this
+    # product is 48 and the original, far below the cap. The cap itself is proven in
+    # `test_substitutes_category.py::test_the_pool_still_stops_at_what_one_call_holds`.
+    original = next(product for product in catalog.products if product.category.startswith("417"))
     gateway = fake_gateway()
 
     result = find_substitutes(original.id, policy.get_profile("hotel-kitchen"), deps_for(gateway), SubstituteQuery())
 
     calls = [(endpoint, len(ids)) for endpoint, ids, _ in gateway.calls]
-    assert calls == [("price", MAX_POOL + 1), ("availability", MAX_POOL + 1)]
-    assert any(str(MAX_POOL) in note for note in result.notes)
+    assert calls == [("price", SAME_CATEGORY_CALL), ("availability", SAME_CATEGORY_CALL)]
+    assert SAME_CATEGORY_CALL <= MAX_POOL + 1
     assert all(not candidate.orderable for candidate in result.candidates)
 
 
@@ -358,7 +365,8 @@ def test_the_checks_name_what_a_line_does_not_meet(
 def test_confirmed_only_keeps_only_options_whose_every_line_is_confirmed_for_order(
     serve: Any, price: Any, stock: Any, make_request: Any, agent_hotel: Identity
 ) -> None:
-    service = serve([price(A, "2.48"), price(B, "2.57")], [stock(A, 500), stock(B, 999_999)])
+    # The unconfirmed product is the cheaper one: a dearer one would be no alternative (P2 W4).
+    service = serve([price(A, "2.48"), price(B, "2.17")], [stock(A, 500), stock(B, 999_999)])
     request = make_request(100)
     offer = service.build_offer(request, agent_hotel)
     drafts = [Draft(option.kind, option.lines) for option in offer.options]

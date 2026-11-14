@@ -55,6 +55,10 @@ def milk_and_butter(service: OfferService, agent_hotel: Identity) -> Offer:
     """Replay: the milk is in tonight's capture, no butter is."""
     return service.build_offer(MILK_AND_BUTTER, agent_hotel)
 
+# The headline (the first option's summary) says what the product type milk left out (B0's leftover, lane L2b).
+COFFEE = " Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
+COFFEE_LINE_1 = " Request line 1:" + COFFEE
+
 
 # --- coverage per line ----------------------------------------------------------------------------------------
 
@@ -65,7 +69,7 @@ def test_a_two_line_offer_says_how_many_lines_it_covers_in_full_and_what_each_li
 
     assert option.summary == (
         "1 confirmed product covers 1 of the 2 request lines in full, for €248.00 before tax. "
-        "Covered: 0 of 10 kg of butter, request line 2; 100 of 100 L of milk, request line 1."
+        "Covered: 0 of 10 kg of butter, request line 2; 100 of 100 L of milk, request line 1." + COFFEE_LINE_1
     )
     assert "least covered" not in option.summary
 
@@ -101,6 +105,7 @@ def test_a_one_line_partial_fill_keeps_its_wording_and_gains_the_amounts(
 
     assert option.summary == (
         "2 confirmed products cover 435 L of the 1,500 L asked for (1,065 L missing), for €1,083.39 before tax."
+        + COFFEE
     )
     assert p03(option).sentence == (
         "Only 29% of the requested quantity is covered, below the 90% minimum (covered: 435 of 1,500 L)."
@@ -125,7 +130,7 @@ def test_each_line_is_named_by_type_by_product_or_by_name_term_with_the_short_li
     assert option.summary == (
         "2 confirmed products cover 1 of the 3 request lines in full, for €160.80 before tax. "
         "Covered: 0 of 5 L of 'oat drink', request line 3; 60 of 100 L of milk, request line 1; "
-        "10 of 10 L of product 463149, request line 2."
+        "10 of 10 L of product 463149, request line 2." + COFFEE_LINE_1
     )
     assert p03(option).sentence.startswith("Only 0% of the quantity of request line 3 is covered")
 
@@ -140,7 +145,9 @@ def test_an_option_that_covers_every_line_in_full_reads_as_before(
     prices = [price(A, "2.48"), price(REGULAR, "1.20")]
     offer = serve(prices, [stock(A, 500), stock(REGULAR, 100)]).build_offer(request, agent_hotel)
 
-    assert offer.options[0].summary == "2 confirmed products cover all 2 request lines in full, for €260.00 before tax."
+    assert offer.options[0].summary == (
+        "2 confirmed products cover all 2 request lines in full, for €260.00 before tax." + COFFEE_LINE_1
+    )
 
 
 def test_no_line_in_full_reads_none(

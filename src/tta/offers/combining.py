@@ -11,7 +11,7 @@ rule above holds with the tier before the price. Under price every supply has ti
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 
@@ -102,3 +102,9 @@ def _combine(requested: Decimal, supplies: Sequence[Supply]) -> Fill:
         picks.append(Pick(supply.product_id, units, covers))
         remaining -= covers
     return Fill(requested, tuple(picks))
+
+
+def with_picks(used: Mapping[str, Decimal], picked: Fill) -> Mapping[str, Decimal]:
+    """Sales units taken per product, with the picks of one more fill added."""
+    added = {pick.product_id: used.get(pick.product_id, Decimal(0)) + pick.units for pick in picked.picks}
+    return {**used, **added}
