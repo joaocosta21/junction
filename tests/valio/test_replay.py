@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from tta.contracts.availability import AvailabilityLine, PriceLine
 from tta.contracts.common import DataSource
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Clock, ValioGateway
@@ -15,6 +16,8 @@ from tta.valio import ReplayGateway
 
 UNKNOWN_ID = "000000"  # in no capture and not in the catalog
 TIME_NOW = "2026-11-14T02:52:45+0200"
+# Two Valio butters of category 10500. Tonight's capture holds categories 104xx and 18720 and five ids.
+BUTTER_IDS = ("464205", "476731")
 
 
 def write_capture(folder: Path, manifest: Any, files: dict[str, str] | None = None) -> Path:
@@ -62,28 +65,63 @@ def test_replay_equals_parsing_the_same_bodies_live(load_capture, make_api, make
     replayed_price = replay.price(ids)
     replayed_availability = replay.availability(ids)
 
-    assert replayed_price.lines == live_price.lines
-    assert replayed_availability.lines == live_availability.lines
+    # The id outside the capture is the one difference: replay marks it as not in the recording.
+    expected_price = _marked_not_in_recording(live_price.lines, UNKNOWN_ID)
+    expected_availability = _marked_not_in_recording(live_availability.lines, UNKNOWN_ID)
+    assert replayed_price.lines == expected_price
+    assert replayed_availability.lines == expected_availability
     # Apart from the stated source (and when the price was fetched) the answers are the same objects.
-    assert replayed_availability == live_availability.model_copy(update={"source": DataSource.REPLAY})
+    assert replayed_availability == live_availability.model_copy(
+        update={"source": DataSource.REPLAY, "lines": expected_availability}
+    )
     assert replayed_price == live_price.model_copy(
-        update={"source": DataSource.REPLAY, "retrieved_at": replayed_price.retrieved_at}
+        update={"source": DataSource.REPLAY, "retrieved_at": replayed_price.retrieved_at, "lines": expected_price}
     )
 
 
-def test_an_id_the_capture_does_not_hold_reads_like_an_unknown_id_on_the_live_api(capture_sample) -> None:
+def _marked_not_in_recording[Line: (PriceLine, AvailabilityLine)](lines: tuple[Line, ...], product_id: str) -> tuple:
+    return tuple(
+        line.model_copy(update={"not_in_recording": True}) if line.product_id == product_id else line for line in lines
+    )
+
+
+def test_an_id_the_capture_does_not_hold_is_marked_not_in_the_recording(capture_sample) -> None:
     replay = ReplayGateway(capture_sample.path)
 
     price = replay.price([UNKNOWN_ID]).lines[0]
     availability = replay.availability([UNKNOWN_ID]).lines[0]
 
-    # 459999 is the made-up id the live API was asked for on Friday (AIMO/docs/API.md section 8.5).
+    # 459999 is the made-up id the live API was asked for on Friday (AIMO/docs/API.md section 8.5): that
+    # answer is in the recording, so it is Valio's and is not marked.
     recorded_price = replay.price(["459999"]).lines[0]
     recorded_availability = replay.availability(["459999"]).lines[0]
-    assert price == recorded_price.model_copy(update={"product_id": UNKNOWN_ID})
-    assert availability == recorded_availability.model_copy(update={"product_id": UNKNOWN_ID})
+    assert not recorded_price.not_in_recording and not recorded_availability.not_in_recording
+    # The made-up line has the shape of the API's answer for an unknown id, and says it was made up.
+    assert price == recorded_price.model_copy(update={"product_id": UNKNOWN_ID, "not_in_recording": True})
+    assert availability == recorded_availability.model_copy(
+        update={"product_id": UNKNOWN_ID, "not_in_recording": True}
+    )
     assert price.error is True and not price.has_price
     assert availability.schedule_line is None and availability.sales_block is False
+
+
+@pytest.mark.parametrize("capture_name", ["2026-11-14-demo", "2026-11-13-sample", "2026-11-13-extras"])
+def test_no_recorded_line_is_marked_not_in_the_recording(load_capture, capture_name: str) -> None:
+    capture = load_capture(capture_name)
+    replay = ReplayGateway(capture.path)
+
+    prices = replay.price(capture.ids).lines
+    lines = replay.availability(capture.ids).lines
+
+    assert len(prices) == len(lines) == len(set(capture.ids))
+    assert not any(line.not_in_recording for line in (*prices, *lines))
+
+
+def test_butter_is_not_in_tonights_capture(capture_demo) -> None:
+    replay = ReplayGateway(capture_demo.path)
+
+    assert all(line.not_in_recording for line in replay.availability(BUTTER_IDS).lines)
+    assert all(line.not_in_recording for line in replay.price(BUTTER_IDS).lines)
 
 
 def test_replay_answers_in_the_order_asked_and_once_per_id(capture_demo) -> None:
@@ -163,5 +201,7 @@ def test_a_capture_with_availability_only_still_answers_prices_as_unknown(tmp_pa
 
     replay = ReplayGateway(folder)
 
-    assert replay.price(["1"]).lines[0].error is True
-    assert replay.availability(["1"]).lines[0].product_id == "1"
+    price = replay.price(["1"]).lines[0]
+    availability = replay.availability(["1"]).lines[0]
+    assert price.error is True and price.not_in_recording is True
+    assert availability.product_id == "1" and availability.not_in_recording is False

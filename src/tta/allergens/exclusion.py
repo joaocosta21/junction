@@ -2,13 +2,26 @@
 
 A nutritional claim is never an input here: `FREE_FROM_LACTOSE` is not a statement about milk
 (AIMO/docs/SCHEMA-AND-CODES.md section 4).
+
+The product's own ingredient list counts as a statement: when it names an excluded allergen that the
+declaration states FREE_FROM, marks UNDECLARED or does not state, the finding is MAY_CONTAIN and goes to a
+dietitian, with a sentence quoting both. A declared CONTAINS stays a rejection.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
-from tta.allergens.codes import GENERAL_STATEMENT_CODE, describe, gs1_name, is_known_code, normalise_code
+from tta.allergens.codes import (
+    GENERAL_STATEMENT_CODE,
+    describe,
+    gs1_name,
+    is_known_code,
+    members_of,
+    normalise_code,
+    parent_of,
+)
+from tta.allergens.ingredients import IngredientMention, ingredient_mentions
 from tta.allergens.statements import Basis, Resolution, resolve
 from tta.contracts.allergen import AllergenCheck, AllergenFinding, AllergenStatement
 from tta.contracts.common import AllergenOutcome, AllergenRelation, AllergenStrictness
@@ -49,13 +62,22 @@ _DIRECT_FACT = {
 _TO_HUMAN_ENDING = ": a dietitian must decide."
 _UNVERIFIED_ENDING = ": it passes as unverified."
 
+# The declarations an ingredient list can contradict; CONTAINS and MAY_CONTAIN already say as much.
+_OPEN_RELATIONS = frozenset({AllergenRelation.FREE_FROM, AllergenRelation.UNDECLARED, AllergenRelation.NOT_STATED})
+MAX_QUOTES = 3  # our limit: words quoted from the ingredient list in one sentence
+
 
 def check_exclusions(
     statements: Sequence[AllergenStatement],
     excluded: Sequence[str],
     strictness: AllergenStrictness | None,
+    *,
+    ingredients: str | None = None,
 ) -> AllergenCheck:
     """Apply the buyer exclusion rule to the allergen statements of one product.
+
+    `ingredients` is the product's own ingredient list (`Product.key_ingredients`); `None` leaves the
+    declaration alone to decide.
 
     Raises `InvalidRequest` for an excluded code outside the code table, for `X99`, and for an
     exclusion without a strictness (there is no default, SPEC section 3). Raises `SupplierUnavailable`
@@ -69,7 +91,8 @@ def check_exclusions(
         return AllergenCheck(outcome=AllergenOutcome.PASS, strictness=strictness, all_explicit=True)
     if strictness is None:
         raise InvalidRequest("allergen_strictness is required when an allergen is excluded: STRICT or DECLARED_ONLY.")
-    findings = tuple(_finding(checked, code, strictness) for code in codes)
+    mentions = ingredient_mentions(ingredients)
+    findings = tuple(_finding(checked, code, strictness, mentions) for code in codes)
     return AllergenCheck(
         outcome=max((finding.outcome for finding in findings), key=_SEVERITY.__getitem__),
         strictness=strictness,
@@ -110,8 +133,16 @@ def _with_table_code(statement: AllergenStatement) -> AllergenStatement:
     return statement if code == statement.code else AllergenStatement(code=code, relation=statement.relation)
 
 
-def _finding(statements: Sequence[AllergenStatement], code: str, strictness: AllergenStrictness) -> AllergenFinding:
+def _finding(
+    statements: Sequence[AllergenStatement],
+    code: str,
+    strictness: AllergenStrictness,
+    mentions: Sequence[IngredientMention],
+) -> AllergenFinding:
     resolution = resolve(statements, code)
+    named = _named_in_ingredients(mentions, code, resolution)
+    if named:
+        return _ingredient_finding(code, resolution, named, strictness)
     outcome = _OUTCOME_TABLE[(resolution.relation, strictness)]
     is_about_another_code = resolution.basis in (Basis.MEMBER, Basis.OATS, Basis.FAMILY)
     return AllergenFinding(
@@ -155,3 +186,62 @@ def _fact(code: str, resolution: Resolution) -> str:
             f"('{gs1_name(GENERAL_STATEMENT_CODE)}'), which is not a statement about {allergen}"
         )
     return f"The product makes no statement about {allergen}"
+
+
+def _named_in_ingredients(
+    mentions: Sequence[IngredientMention], code: str, resolution: Resolution
+) -> tuple[IngredientMention, ...]:
+    """The mentions of the ingredient list that contradict an open declaration about `code`.
+
+    Read like the declarations (`tta.allergens.statements`): a member of the excluded family counts ("ALMOND"
+    for tree nuts), and the family counts for an excluded member ("nuts" for almonds) unless the member itself
+    is stated FREE_FROM (lactose-free milk names MILK and states lactose FREE_FROM).
+    """
+    if resolution.relation not in _OPEN_RELATIONS:
+        return ()
+    codes = {code, *members_of(code)}
+    family = parent_of(code)
+    if family is not None and resolution.own_relation is not AllergenRelation.FREE_FROM:
+        codes.add(family)
+    return tuple(mention for mention in mentions if mention.code in codes)
+
+
+def _ingredient_finding(
+    code: str, resolution: Resolution, named: Sequence[IngredientMention], strictness: AllergenStrictness
+) -> AllergenFinding:
+    """The ingredient list names what the declaration leaves open: MAY_CONTAIN, so a dietitian decides."""
+    first = named[0].code
+    return AllergenFinding(
+        excluded_code=code,
+        relation=AllergenRelation.MAY_CONTAIN,
+        matched_code=first if first != code else None,
+        outcome=_OUTCOME_TABLE[(AllergenRelation.MAY_CONTAIN, strictness)],
+        sentence=_ingredient_sentence(code, resolution, named),
+    )
+
+
+def _ingredient_sentence(code: str, resolution: Resolution, named: Sequence[IngredientMention]) -> str:
+    names = _quoted(mention.words for mention in named if not mention.may_contain)
+    phrases = _quoted(mention.words for mention in named if mention.may_contain)
+    parts = (f"names {names}" if names else "", f"says {phrases}" if phrases else "")
+    said = " and ".join(part for part in parts if part)
+    return f"The ingredient list {said}, while {_declaration(code, resolution)}{_TO_HUMAN_ENDING}"
+
+
+def _quoted(words: Iterable[str]) -> str:
+    """`"ALMOND", "almond"`: each distinct wording once, at most `MAX_QUOTES`."""
+    return ", ".join(f'"{each}"' for each in list(dict.fromkeys(words))[:MAX_QUOTES])
+
+
+def _declaration(code: str, resolution: Resolution) -> str:
+    allergen = describe(code)
+    if resolution.relation is AllergenRelation.FREE_FROM:
+        return f"the product states it is free from {allergen}"
+    if resolution.relation is AllergenRelation.UNDECLARED:
+        return f"the product marks {allergen} as UNDECLARED"
+    if resolution.basis is Basis.GENERAL:
+        return (
+            f"the product carries only the general statement {GENERAL_STATEMENT_CODE} "
+            f"('{gs1_name(GENERAL_STATEMENT_CODE)}')"
+        )
+    return f"the product makes no statement about {allergen}"

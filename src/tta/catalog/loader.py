@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from functools import cache
@@ -42,6 +43,10 @@ ORIGIN_PLACEHOLDERS = frozenset({"zy", "xs", "zz"})
 ALLERGEN_GROUP = "allergen"
 NON_ALLERGEN_GROUP = "nonAllergen"
 CLAIM_GROUP = "nutritionalClaim"
+# keyIngredients is in English on 11,562 products and in Finnish only on 2,427 more (whole catalog). 28
+# English values and 53 Finnish ones are a placeholder such as "-" or ".", which is not an ingredient list.
+INGREDIENT_LANGUAGES = ("en", "fi")
+_LETTER = re.compile(r"[^\W\d_]")
 # The schema documents CONTAINS only; the file also has these two (AIMO/FINDINGS.md section 3).
 DECLARED_RELATIONS = frozenset(
     {AllergenRelation.CONTAINS, AllergenRelation.MAY_CONTAIN, AllergenRelation.UNDECLARED}
@@ -154,12 +159,30 @@ def _product_fields(
         "allergen_statements": _statements(groups),
         "has_allergen_groups": ALLERGEN_GROUP in groups or NON_ALLERGEN_GROUP in groups,
         "listed_substitutes": tuple(pair["substituteProduct"] for pair in record.get("substitutions", ())),
+        "key_ingredients": _key_ingredients(synkka.get("keyIngredients", ())),
         "country_of_origin": _origin(record.get("countryOfOrigin")),
         "countries_of_origin": tuple(synkka.get("countriesOfOrigin", ())),
         "deleted": record["deleted"],
         "delivery_reliability": reliability.get(product_id),
         "carbon_kg_co2e_per_kg": carbon.get(product_id),
     }
+
+
+def _key_ingredients(entries: Any) -> str | None:
+    """The ingredient list in English, else in Finnish; `None` when neither has a letter in it.
+
+    Every entry must carry a language and a text: an entry that does not rejects the file. The list is shown
+    in sentences and read by the allergen rule (SPEC section 6), so it stays data and is never interpreted.
+    """
+    if not isinstance(entries, list | tuple):
+        raise TypeError(f"keyIngredients must be a list, got {type(entries).__name__}")
+    texts: dict[str, str] = {}
+    for entry in entries:
+        value = entry["value"]
+        if not isinstance(value, str):
+            raise TypeError(f"a keyIngredients value must be text, got {type(value).__name__}")
+        texts.setdefault(entry["language"], value.strip())
+    return next((texts[language] for language in INGREDIENT_LANGUAGES if _LETTER.search(texts.get(language, ""))), None)
 
 
 def _unit(unit: dict[str, Any]) -> dict[str, Any]:

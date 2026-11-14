@@ -12,14 +12,19 @@ from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.request import ProductQuery
 
 REQUIRED_KEYS = {"milk", "plant_drink", "beef_chuck"}
+CREAM_EXCLUDE_TERMS = ("vegetable", "kasvirasva", "alternative", "rama professional")
+# Category 10401: the vegetable-fat blends. Each ingredient list (in Finnish for the three Rama products,
+# whose English list reads "-") names a vegetable oil or fat.
+VEGETABLE_FAT_WORDS = ("vegetable", "rapeseed", "kasvirasv", "kasviöljy", "palmuöljy")
+VEGETABLE_FAT_BLENDS = {"462703", "463254", "463299", "463975", "469160", "469162", "467142", "467173", "467297"}
 MAX_PRODUCT_IDS = 1000
 
 
-def test_table_has_the_demo_types_and_twenty_to_thirty_entries(catalog: ProductCatalog) -> None:
+def test_table_has_the_demo_types_and_twenty_to_thirty_one_entries(catalog: ProductCatalog) -> None:
     keys = catalog.product_type_keys()
 
     assert set(keys) >= REQUIRED_KEYS
-    assert 20 <= len(keys) <= 30
+    assert 20 <= len(keys) <= 31
     assert list(keys) == sorted(keys)
 
 
@@ -80,9 +85,26 @@ def test_exclude_terms_are_read_from_the_table(tmp_path: Path) -> None:
     )
 
     assert load_product_types(path)["milk"].exclude_terms == ("sour", "piimä")
-    assert load_product_types(PRODUCT_TYPES_FILE)["cream"].exclude_terms == ()
+    assert load_product_types(PRODUCT_TYPES_FILE)["cream"].exclude_terms == CREAM_EXCLUDE_TERMS
 
 
 def test_missing_table_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SupplierUnavailable):
         load_product_types(tmp_path / "absent.yaml")
+
+
+def test_cream_leaves_out_the_vegetable_fat_blends(catalog: ProductCatalog) -> None:
+    cream = catalog.search(ProductQuery(product_type="cream", limit=MAX_PRODUCT_IDS))
+    blends = catalog.search(ProductQuery(product_type="vegetable_cream", limit=MAX_PRODUCT_IDS))
+
+    assert not VEGETABLE_FAT_BLENDS & {product.id for product in cream.products}
+    assert {product.id for product in blends.products} == VEGETABLE_FAT_BLENDS
+    assert cream.total + blends.total == 53  # category 10401, whole catalog
+
+
+def test_every_vegetable_fat_blend_names_a_vegetable_fat_in_its_ingredient_list(catalog: ProductCatalog) -> None:
+    for product_id in VEGETABLE_FAT_BLENDS:
+        product = catalog.get_product(product_id)
+        assert product is not None and product.key_ingredients is not None
+        text = product.key_ingredients.casefold()
+        assert any(word in text for word in VEGETABLE_FAT_WORDS), product_id

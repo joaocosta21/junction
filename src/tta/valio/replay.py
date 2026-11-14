@@ -38,8 +38,21 @@ def unknown_availability_line(product_id: str) -> AvailabilityLine:
     return AvailabilityLine(product_id=product_id, sales_block=False)
 
 
+def not_recorded_price_line(product_id: str) -> PriceLine:
+    """A price line for an id the capture holds no answer for. It has the shape of the API's answer for an
+    unknown id and is marked `not_in_recording`, so nobody reads it as something Valio said."""
+    return unknown_price_line(product_id).model_copy(update={"not_in_recording": True})
+
+
+def not_recorded_availability_line(product_id: str) -> AvailabilityLine:
+    """An availability line for an id the capture holds no answer for, marked `not_in_recording`: without the
+    mark it would read as "cannot be delivered on any date", which Valio never said about it."""
+    return unknown_availability_line(product_id).model_copy(update={"not_in_recording": True})
+
+
 class ReplayGateway:
-    """Price and availability as one capture recorded them. An id outside the capture reads as unknown."""
+    """Price and availability as one capture recorded them. An id outside the capture reads as unknown and is
+    marked `not_in_recording` (SPEC section 5, `NOT_IN_RECORDING`)."""
 
     def __init__(self, capture_dir: Path) -> None:
         self._name = capture_dir.name
@@ -74,7 +87,7 @@ class ReplayGateway:
 
     def price(self, product_ids: Sequence[str], *, fresh: bool = False) -> PriceResponse:  # noqa: ARG002
         lines = tuple(
-            self._prices[product_id] if product_id in self._prices else unknown_price_line(product_id)
+            self._prices[product_id] if product_id in self._prices else not_recorded_price_line(product_id)
             for product_id in distinct_ids(product_ids)
         )
         return PriceResponse(
@@ -89,7 +102,7 @@ class ReplayGateway:
         lines = tuple(
             self._availability[product_id]
             if product_id in self._availability
-            else unknown_availability_line(product_id)
+            else not_recorded_availability_line(product_id)
             for product_id in distinct_ids(product_ids)
         )
         return AvailabilityResponse(

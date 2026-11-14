@@ -150,3 +150,55 @@ def test_the_rules_run_over_every_product_without_an_error(products: dict[str, P
     }
 
     assert outcomes == set(AllergenOutcome)
+
+
+ALMOND_DRINK = "465793"  # Alpro Barista Almond drink: AN FREE_FROM, its list names ALMOND (AIMO/USE-CASES.md)
+SUGAR_ROSES = "461449"  # Dr. Oetker Pink Roses: AN FREE_FROM, its list says "May contain traces of ALMONDS"
+
+
+def _with_and_without_the_list(product: Product, excluded: list[str], strictness: AllergenStrictness) -> tuple:
+    before = check_exclusions(product.allergen_statements, excluded, strictness).outcome
+    after = check_exclusions(product.allergen_statements, excluded, strictness, ingredients=product.key_ingredients)
+    return before, after.outcome
+
+
+@pytest.mark.parametrize("strictness", list(AllergenStrictness))
+def test_the_almond_drink_goes_to_a_dietitian_when_tree_nuts_are_excluded(
+    products: dict[str, Product], strictness: AllergenStrictness
+) -> None:
+    almond_drink = products[ALMOND_DRINK]
+
+    before, after = _with_and_without_the_list(almond_drink, ["AN"], strictness)
+
+    assert before is AllergenOutcome.PASS  # the declaration alone: FREE_FROM
+    assert after is AllergenOutcome.TO_HUMAN
+
+
+@pytest.mark.parametrize("excluded", [["AM", "AW"], ["AN"]], ids=["milk-and-gluten", "tree-nuts"])
+@pytest.mark.parametrize("strictness", list(AllergenStrictness))
+def test_the_ingredient_list_only_ever_sends_a_passing_product_to_a_dietitian(
+    products: dict[str, Product], excluded: list[str], strictness: AllergenStrictness
+) -> None:
+    # Whole catalog. The counts of changed products are reported in AIMO/build/handback/FIX-12a.md; this
+    # test checks the direction of every change, not how many there are.
+    changes = {
+        (before, after)
+        for product in products.values()
+        for before, after in [_with_and_without_the_list(product, excluded, strictness)]
+        if before is not after
+    }
+
+    assert changes <= {(AllergenOutcome.PASS, AllergenOutcome.TO_HUMAN)}
+
+
+def test_both_tree_nut_conflicts_found_by_the_use_case_check_are_sent_to_a_dietitian(
+    products: dict[str, Product],
+) -> None:
+    changed = {
+        product.id
+        for product in products.values()
+        if _with_and_without_the_list(product, ["AN"], AllergenStrictness.STRICT)
+        == (AllergenOutcome.PASS, AllergenOutcome.TO_HUMAN)
+    }
+
+    assert {ALMOND_DRINK, SUGAR_ROSES} <= changed

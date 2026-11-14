@@ -338,3 +338,66 @@ def test_invalid_metric_file_is_rejected(tmp_path: Path, content: str) -> None:
 def test_missing_metric_file_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(SupplierUnavailable):
         load_metric(tmp_path / "absent.csv", "deliveryReliability", maximum=Decimal(1))
+
+
+def _ingredients(*pairs: tuple[str, Any]) -> dict[str, Any]:
+    """A `synkkaData` object with `keyIngredients` in the given languages, and nothing else."""
+    return {"keyIngredients": [{"language": language, "value": value} for language, value in pairs]}
+
+
+@pytest.mark.parametrize(
+    ("synkka", "expected"),
+    [
+        (_ingredients(("fi", "Vesi, MANTELI"), ("en", "Water, ALMOND"), ("sv", "Vatten, MANDEL")), "Water, ALMOND"),
+        (_ingredients(("sv", "Vatten, MANDEL"), ("fi", "Vesi, MANTELI")), "Vesi, MANTELI"),
+        (_ingredients(("en", "   "), ("fi", " Vesi, MANTELI ")), "Vesi, MANTELI"),
+        (_ingredients(("en", "-"), ("fi", "Vesi, KIRNUMAITO")), "Vesi, KIRNUMAITO"),  # as on 467297
+        (_ingredients(("en", "."), ("fi", "-")), None),
+        (_ingredients(("sv", "Vatten, MANDEL")), None),
+        (_ingredients(), None),
+        ({}, None),
+    ],
+    ids=[
+        "english-first", "finnish-when-no-english", "blank-english", "placeholder-english", "placeholders-only",
+        "swedish-only", "empty-list", "absent",
+    ],
+)
+def test_key_ingredients_are_kept_in_english_else_finnish(
+    tmp_path: Path, synkka: dict[str, Any], expected: str | None
+) -> None:
+    path = _write_products(tmp_path, [_record(synkkaData=synkka)])
+
+    (product,) = load_products(path)
+
+    assert product.key_ingredients == expected
+
+
+@pytest.mark.parametrize(
+    "synkka",
+    [_ingredients(("en", 7)), {"keyIngredients": [{"language": "en"}]}, {"keyIngredients": "Water, ALMOND"}],
+    ids=["value-not-text", "value-missing", "not-a-list"],
+)
+def test_malformed_key_ingredients_reject_the_file_and_name_the_product(
+    tmp_path: Path, synkka: dict[str, Any]
+) -> None:
+    path = _write_products(tmp_path, [_record(synkkaData=synkka)])
+
+    with pytest.raises(SupplierUnavailable) as raised:
+        load_products(path)
+
+    assert "460001" in raised.value.detail
+
+
+def test_the_almond_drink_keeps_its_english_ingredient_list(catalog: ProductCatalog) -> None:
+    almond_drink = catalog.get_product("465793")
+
+    assert almond_drink is not None and almond_drink.key_ingredients is not None
+    assert almond_drink.key_ingredients.startswith("Water, ALMOND (2.5%)")
+    assert "MAY CONTAIN REMAINS FROM NUTS" in almond_drink.key_ingredients
+
+
+def test_key_ingredients_are_kept_for_every_product_that_has_them_in_english_or_finnish(
+    catalog: ProductCatalog,
+) -> None:
+    # Whole catalog: 11,562 products have an English list and 2,427 more a Finnish one only.
+    assert sum(product.key_ingredients is not None for product in catalog.products) == 11_562 + 2_427

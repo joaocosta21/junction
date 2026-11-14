@@ -1,9 +1,10 @@
 """From a request line to judged candidates (SPEC section 3, and section 5 steps 1 and 2).
 
 A candidate either fits or drops out with one reason code and one sentence. The checks run in a fixed
-order: first what does not match the request (allergens, pack), then what Valio cannot supply now
-(availability state, delivery date, price), so the reason a buyer reads is the most lasting one. Last
-come the checks that apply only when confirmed data only was asked for.
+order: first what does not match the request (allergens, pack), then, in replay, a product the recorded
+copy holds no answer for, then what Valio cannot supply now (availability state, delivery date, price), so
+the reason a buyer reads is the most lasting one. Last come the checks that apply only when confirmed data
+only was asked for.
 """
 
 from __future__ import annotations
@@ -55,6 +56,8 @@ _STATE_REASONS = {
     AvailabilityState.CUTOFF_PASSED: ExclusionReason.CUTOFF_PASSED,
 }
 CONFIRMED_ONLY_ASKED = "Confirmed data only was asked for."
+# Replay only: the recorded copy has no answer for the product. Never worded as something Valio said (SPEC 5).
+NOT_IN_RECORDING_SENTENCE = "Not in the recorded copy of Valio's data used for this demo; a live lookup would answer."
 # Under confirmed-only, the reason for a claim an order depends on that Valio's data does not confirm
 # (SPEC section 5, "Exclusion reason codes").
 _UNCONFIRMED_REASONS = {
@@ -102,6 +105,11 @@ class Candidate:
     @property
     def state(self) -> AvailabilityState:
         return self.assessment.state
+
+    @property
+    def not_in_recording(self) -> bool:
+        """Replay only: the recorded copy holds no price or no availability answer for this product."""
+        return self.line.not_in_recording or (self.price is not None and self.price.not_in_recording)
 
     @property
     def unit_price(self) -> Decimal:
@@ -178,8 +186,16 @@ def evaluate(product: Product, need: Need, lookup: Lookup, catalog: Catalog) -> 
     price = lookup.price(product.id)
     line = lookup.line(product.id)
     assessment = classify(line, lookup.now)
+    if line.not_in_recording:
+        # The made-up line has the shape of "cannot be delivered on any date", which Valio never said here.
+        assessment = assessment.model_copy(update={"sentence": NOT_IN_RECORDING_SENTENCE})
     pack = _pack_size(product, price, assessment.sales_unit, need.unit, catalog)
-    check = check_exclusions(product.allergen_statements, need.excluded, need.strictness) if need.excluded else None
+    check = None
+    if need.excluded:
+        # The product's own ingredient list counts as a statement (SPEC section 6).
+        check = check_exclusions(
+            product.allergen_statements, need.excluded, need.strictness, ingredients=product.key_ingredients
+        )
     return Candidate(
         product=product,
         price=price,
@@ -226,11 +242,29 @@ def units_needed(candidate: Candidate, quantity: Decimal) -> Decimal:
 
 
 def claims_of(candidate: Candidate, need: Need, units: Decimal | None, now: datetime) -> tuple[ClaimCheck, ...]:
-    """The five claims of SPEC section 4, in order, for `units` sales units of the candidate."""
-    return verify(
+    """The five claims of SPEC section 4, in order, for `units` sales units; one the recording cannot answer is
+    unknown, with the sentence that says so."""
+    claims = verify(
         candidate.line, candidate.price, candidate.product, quantity=units, needed_by=need.needed_by,
         allergen_outcome=candidate.allergen_check, now=now,
     )
+    unrecorded = _unrecorded_claims(candidate)
+    return tuple(
+        ClaimCheck(claim=check.claim, status=ClaimStatus.UNKNOWN, sentence=NOT_IN_RECORDING_SENTENCE)
+        if check.claim in unrecorded else check
+        for check in claims
+    )
+
+
+def _unrecorded_claims(candidate: Candidate) -> frozenset[ClaimName]:
+    """The claims the recorded copy cannot answer: price without a recorded price, quantity and delivery date
+    without a recorded availability. Allergens and origin come from the product file."""
+    claims: set[ClaimName] = set()
+    if candidate.price is not None and candidate.price.not_in_recording:
+        claims.add(ClaimName.PRICE)
+    if candidate.line.not_in_recording:
+        claims.update((ClaimName.QUANTITY, ClaimName.DELIVERY_DATE))
+    return frozenset(claims)
 
 
 def unconfirmed_gating(claims: tuple[ClaimCheck, ...], *, dated: bool) -> tuple[ClaimName, ...]:
@@ -288,6 +322,12 @@ def _portion_fact(pack: PackSize) -> str:
         return "This is a pack of single-serve portions."
     size = f"{format_amount(pack.inner_unit_size)} {UNIT_WORDS[pack.unit]}"
     return f"This is a pack of single-serve portions: one sales unit holds {pack.inner_units} portions of {size}."
+
+
+def _not_in_recording(candidate: Candidate, _need: Need, _now: datetime) -> Dropped | None:
+    """Replay only. After the facts of the product file (allergens, pack) and before everything that needs
+    Valio's answer: the pack size can rest on the price, and the state on the availability line."""
+    return (ExclusionReason.NOT_IN_RECORDING, NOT_IN_RECORDING_SENTENCE) if candidate.not_in_recording else None
 
 
 def _pack_size_unknown(candidate: Candidate, need: Need, _now: datetime) -> Dropped | None:
@@ -349,6 +389,7 @@ def _not_confirmed(candidate: Candidate, need: Need, now: datetime) -> Dropped |
 _CHECKS: tuple[Callable[[Candidate, Need, datetime], Dropped | None], ...] = (
     _allergen_declared,
     _pack_preference,
+    _not_in_recording,
     _pack_size_unknown,
     _state,
     _late,
