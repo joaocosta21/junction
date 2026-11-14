@@ -31,6 +31,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | done | 378 policy tests; the orders boundary change is committed with FIX-7 |
 | FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | done | 185 offers tests; 7 of 8 findings fixed, one as a note (question FIX6-1) |
 | FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
+| FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | running | |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -57,6 +58,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 04:48 FIX-6 and FIX-7 done and committed, with the lock-order change in the audit trail that FIX-7 asked for. Whole suite: 1,693 tests pass (T09's tests included, still being written). Scenario 3's best orderable substitute is `475224` again.
 - 04:57 T09 done and committed. Scenario 1 run over HTTP by the orchestrator: offer → `PENDING_APPROVAL` → agent refused on the approval route (403) → approved by the purchasing manager → `ORDERED`; 9 audit events, chain intact, supplier view redacted. Contracts: every stated decimal is now a JSON number; record ids bounded; `list_orders` on the port. Whole suite: 1,695 tests.
 - 04:57 T10, T11, T12 started. T16 round 3 started on the API (three reviewers), base commit 89e4263.
+- 05:02 T16 round 3 back (API): no critical finding; the authorisation matrix held under probing. High: an offer could mix a live price with replayed stock; live mode with a bad base URL started on the capture; `TTA_ENV` unset meant demo tokens (fixed by the orchestrator: the default is now `prod`, which fails closed); one visitor could lock out the others and spend the supplier budget through the shared demo tokens. FIX-8 started.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)

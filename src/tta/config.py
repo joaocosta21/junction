@@ -34,7 +34,9 @@ class Settings(BaseSettings):
         env_file=REPO_ROOT / ".env", env_file_encoding="utf-8", extra="ignore", frozen=True
     )
 
-    tta_env: Literal["dev", "demo", "prod"] = "dev"
+    # Fails closed: with TTA_ENV unset the app is in `prod`, where no demo token exists and the app refuses to
+    # start without TTA_TOKENS. Set TTA_ENV=dev locally and TTA_ENV=demo for the public demo.
+    tta_env: Literal["dev", "demo", "prod"] = "prod"
     tta_mode: DataSource = DataSource.REPLAY
     tta_data_dir: Path = REPO_ROOT / "var"
     tta_db_path: Path | None = None  # default: <data dir>/tta.sqlite3

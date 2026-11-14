@@ -59,3 +59,13 @@ def test_demo_capture_holds_the_scenario_products(capture_demo) -> None:
     for product_id in ("464306", "463203", "464056", "468319", "473609", "471690", "471881", "464320",
                        "464744", "466988"):
         assert product_id in lines, product_id
+
+
+def test_an_unset_environment_is_production_and_has_no_demo_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TTA_ENV", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.tta_env == "prod"
+    assert not settings.is_demo_environment
+
