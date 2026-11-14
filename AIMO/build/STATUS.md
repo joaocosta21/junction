@@ -16,12 +16,12 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T09 | API: routes, identity, errors, schemas | T07 T08 | done | 149 tests, 99% coverage; the flow runs over HTTP in replay |
 | T10 | Buyer agent (Gemini) | T09 | done | 120 tests, 97% coverage; **live check blocked**: Gemini answers 503 (05:35 and 07:45); demo runs on hand-written recordings. Run `.venv/bin/python -m tta.agent.record` when Gemini answers |
 | T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
-| T12 | Pages: demo, approvals, order and audit | T09 | running | restarted on Opus at 07:45 from the work in the tree |
-| T13 | Scenarios end to end, demo script | T09 T10 T12 | todo | |
+| T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
+| T13 | Scenarios end to end, demo script | T09 T10 T12 | running | |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30 (usage limit 05:40–07:40). Task file ready for the day |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30. Task file ready for the day |
-| T14 | Deployment on Modal | T13 | todo | needs a Modal token |
-| T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | todo | |
+| T14 | Deployment on Modal | T13 | running | files only; the orchestrator deploys once after the final review |
+| T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | running | | started before T13 ends, to recover time; reads `docs/DEMO.md` last
 | T16 | Review and fixes | each wave | running | rounds 1 and 2 done (FIX-1 to FIX-7 in); round 3 (API) running; final round to come |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
@@ -66,6 +66,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 07:42 the human switched the session to Opus 5.5. T10 checked and committed as done with its live check blocked: Gemini answered 503 again at 07:45 (2 more requests; 4 of 20 used in all). T12 and FIX-8 restarted on Opus from the work in the tree. S1 and S2 skipped by the 06:30 rule.
 - 07:50 Gemini probe: `generateContent` answers for `gemini-3.8-flash` and `gemini-3.6-flash` with the same key; only the Interactions endpoint answers 503. T10 follow-up started (switch endpoint, fall back to recordings, live check with at most 14 more model requests; 6 used tonight).
 - 08:00 FIX-8 done and committed (the first agent had built every finding; the restarted one checked them and added one test). Importers green: ui 159, mcp 54, agent 120, offers 194, orders 157, audit 144.
+- 08:03 T12 done and committed (restarted agent found every item built; fixed one spacing defect, added 6 tests, ran the app in replay). T13, T14 (files only) and T15 started in parallel.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
