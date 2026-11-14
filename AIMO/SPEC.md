@@ -148,6 +148,8 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 | `allergens` | every excluded allergen has an explicit statement | any excluded allergen has `MAY_CONTAIN`, `UNDECLARED` or no statement | an excluded allergen is declared `CONTAINS` |
 | `origin` | the product file states it | absent | — |
 
+**Which claims gate an order without a human** (decided 14 Nov, from the availability hand-back): `price`, `quantity` and `allergens` always; `delivery_date` only when the request gives `needed_by`; `origin` never (it is shown, the buyer did not ask for it). A request with no date is not sent to a human for that reason alone. `require_confirmed` filters on the same set. `OfferLine.confirmed_for_order(dated=...)` implements it. A missing gating claim counts as not confirmed.
+
 ---
 
 ## 5. Building the offer

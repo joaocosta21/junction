@@ -241,6 +241,14 @@ The build agents add questions here in the same shape as above. Empty until the 
 
 ### For the team
 
+**T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
+- **Context:** every offer line states five claims (price, quantity, delivery date, allergens, origin), each confirmed, unknown or ruled out. The plan says the agent orders alone only when "every claim is confirmed".
+- **We did:** ran the rule on tonight's capture.
+- **We got:** read over all five claims, a request with no date can never be ordered by the agent (the delivery-date claim is "unknown" because nothing was asked), and neither can any of the 80 catalog products with no country of origin.
+- **Example to show:** `469363`, 384 units confirmed, cut-off Sunday 17:00 — with "by Monday" all five are confirmed; with no date the delivery-date claim is unknown.
+- **Ask:** "Should the agent be held back by a claim the buyer did not ask about?"
+- **Built overnight (change it if you disagree):** price, quantity and allergens always count; the delivery date counts only when the request gives a date; origin is shown and never holds an order back (SPEC §4).
+
 ---
 
 ## Claims we no longer make

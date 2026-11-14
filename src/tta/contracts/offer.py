@@ -13,6 +13,7 @@ from tta.contracts.common import (
     CURRENCY_EUR,
     AvailabilityState,
     CheckResult,
+    ClaimName,
     ClaimStatus,
     ConstraintKind,
     Contract,
@@ -71,9 +72,17 @@ class OfferLine(Contract):
     def quantity_confirmed(self) -> bool:
         return self.availability.state is AvailabilityState.CONFIRMED
 
-    @property
-    def all_claims_confirmed(self) -> bool:
-        return all(check.status is ClaimStatus.CONFIRMED for check in self.claims)
+    def confirmed_for_order(self, *, dated: bool) -> bool:
+        """True when every claim the order depends on is confirmed (SPEC section 4, "Which claims gate").
+
+        Price, quantity and allergens always; the delivery date only when the request gave a date.
+        Origin is shown to the buyer and never gates an order.
+        """
+        gating = {ClaimName.PRICE, ClaimName.QUANTITY, ClaimName.ALLERGENS}
+        if dated:
+            gating.add(ClaimName.DELIVERY_DATE)
+        found = {check.claim: check.status for check in self.claims}
+        return all(found.get(claim) is ClaimStatus.CONFIRMED for claim in gating)
 
 
 class Totals(Contract):
