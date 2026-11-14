@@ -38,11 +38,17 @@ from tta.offers import OfferDeps, OfferService
 from tta.orders import OrderBookService, day_committed_net_eur
 from tta.policy import RulePolicyEngine
 from tta.store import SqliteStore, open_store
+from tta.store.postgres import open_postgres_store
 from tta.valio import ReplayGateway, ValioClient
 
 logger = logging.getLogger(__name__)
 
 
+# A reason of `/healthz`: no path, no address, no secret.
+STORE_FALLBACK = (
+    "the PostgreSQL database could not be reached at start-up, so orders and the audit trail are kept in the local "
+    "database of this process"
+)
 LIVE_CLIENT_NOT_BUILT = (
     "TTA_MODE=live was asked for, but the live supplier client cannot be built: {why} "
     "Correct VALIO_AIMO_BASE_URL, or start with TTA_MODE=replay."
@@ -92,6 +98,7 @@ class Parts:
     service: Gateway
     tokens: TokenRegistry
     sandboxes: Sandboxes | None = None  # the pages' private order books: in dev and demo only
+    start_reasons: tuple[str, ...] = ()  # what the start had to do without, until a restart: for `/healthz`
 
     @property
     def opened(self) -> tuple[object, ...]:
@@ -105,6 +112,19 @@ class Parts:
         failures = close_each(self.opened)
         if failures:
             raise failures[0]
+
+
+def _order_book(settings: Settings) -> tuple[Store, tuple[str, ...]]:
+    """The store of the shared order book and what to report about it: PostgreSQL when `DATABASE_URL` is set
+    (task S1), the SQLite file otherwise. A database that cannot be reached or prepared at start-up does not stop
+    the gateway: it starts on SQLite and says why. The URL is not repeated."""
+    if not settings.has_database_url:
+        return open_store(settings), ()
+    try:
+        return open_postgres_store(settings), ()
+    except SupplierUnavailable:
+        logger.warning("DATABASE_URL is set, but the database could not be reached at start-up: using SQLite.")
+        return open_store(settings), (STORE_FALLBACK,)
 
 
 def _gateway(settings: Settings, replay: ReplayGateway) -> ValioGateway:
@@ -209,7 +229,7 @@ def build_parts(
             limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
             max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None,
         )
-        store = open_store(settings)
+        store, start_reasons = _order_book(settings)
         opened.insert(0, store)
         service, audit = wire(
             catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
@@ -221,5 +241,5 @@ def build_parts(
     return Parts(
         settings=settings, catalog=catalog, gateway=gateway, replay=replay, clock=clock, policy=policy,
         store=store, audit=audit, service=service, tokens=tokens,
-        sandboxes=Sandboxes(shared.sandbox) if demo else None,
+        sandboxes=Sandboxes(shared.sandbox) if demo else None, start_reasons=start_reasons,
     )

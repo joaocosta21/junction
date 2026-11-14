@@ -50,7 +50,8 @@ def test_no_fixture_file_holds_a_key_or_a_request_header(settings: Settings) -> 
 
     assert files
     for path in files:
-        assert not SECRET_LOOKING.search(path.read_text(encoding="utf-8")), path.name
+        # Images (the photo fixtures of the agent) are bytes; their text, where any, is scanned the same way.
+        assert not SECRET_LOOKING.search(path.read_bytes().decode("utf-8", errors="ignore")), path.name
 
 
 def test_demo_capture_holds_the_scenario_products(capture_demo) -> None:
