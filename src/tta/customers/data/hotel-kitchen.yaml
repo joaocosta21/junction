@@ -1,0 +1,54 @@
+# Customer "hotel-kitchen". SYNTHETIC: every name, number and past order below is made up for the demonstration.
+# The Valio Aimo mock has no customer model; Valio's mentors told us to generate customer data (BRIEF section 2, V1).
+# The people's names are the shop page's (src/tta/ui/static/shop/js/kitchens.js). Every product id is real and has
+# confirmed stock in tonight's recording (tests/customers/test_against_catalog.py).
+#
+# Limits, the allergen rule, the substitution scope and who may approve are the buyer profile's
+# (src/tta/policy/profiles/hotel-kitchen.yaml), never this file's.
+#
+# What the history is written to show (P15 section 4.6): a weekly milk order on Mondays whose median is 100 L
+# (the standing order of src/tta/standing/demo.py); cooking cream in 7 of the 8 weeks, so asking for the milk is
+# reminded of the cream; greek yoghurt in 3 of 8 and beef in 4 of 8, which stay silent.
+
+customer_id: hotel-kitchen
+synthetic: true
+name: Harbourside Hotel
+kind: Hotel kitchen
+detail: "Helsinki · breakfast and à la carte"
+customer_number: "610 245"
+address: "Satamakatu 4, 00160 Helsinki"
+delivery_days: "Mon–Sat"
+contact: {name: Hanna Laine, title: Purchasing manager}
+people:
+  purchasing_manager: Hanna Laine
+  finance: Mikko Saari
+  dietitian: Leena Koski
+prefer: PRICE
+
+usual:
+  - {product_id: "469363", product_type: milk, unit: L, use: SERVED}          # Arla semi-skimmed lactose-free 1 L
+  - {product_id: "463797", product_type: cream, unit: L, use: INGREDIENT}     # Arla Pro cooking cream 10% 1 L
+  - {product_id: "464615", product_type: yoghurt, unit: KG, use: SERVED}      # Valio greek yoghurt 1 kg
+  - {product_id: "463203", product_type: milk, unit: UNIT, use: SERVED}       # Arla portion milk 100 x 2 cl, boxes
+  - {product_id: "466988", product_type: beef_chuck, unit: KG, use: INGREDIENT}  # beef chuck, lots of 3 kg
+
+history:  # oldest first; quantities in each usual product's unit
+  - {delivered_on: 2026-09-21, quantities: {"469363": 100, "463797": 10, "466988": 9}}
+  - {delivered_on: 2026-09-28, quantities: {"469363": 96, "463797": 10, "464615": 5}}
+  - {delivered_on: 2026-10-05, quantities: {"469363": 104, "463797": 10, "463203": 2, "466988": 9}}
+  - {delivered_on: 2026-10-12, quantities: {"469363": 100}}
+  - {delivered_on: 2026-10-19, quantities: {"469363": 98, "463797": 10, "464615": 5, "466988": 9}}
+  - {delivered_on: 2026-10-26, quantities: {"469363": 102, "463797": 10}}
+  - {delivered_on: 2026-11-02, quantities: {"469363": 100, "463797": 10, "463203": 2, "466988": 9}}
+  - {delivered_on: 2026-11-09, quantities: {"469363": 100, "463797": 10, "464615": 5}}
+
+standing_orders:
+  - standing_order_id: so_demo_hotel_milk
+    name: "Weekly lactose-free milk, hotel kitchen"
+    cadence_days: 7
+    lines: [{product_id: "469363", quantity: 100}]
+
+stock_on_hand:
+  - {product_type: milk, quantity: 40, unit: L}
+  - {product_type: cream, quantity: 4, unit: L}
+  - {product_type: yoghurt, quantity: 2, unit: KG}

@@ -49,6 +49,17 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 |---|---|---|---|
 | — | — | — | — |
 
+### L5 — customers and suggestions (pure functions; the routes come with L4-2)
+- **Customers, from `tta.customers.shipped_customers()`** (the list route is L4-2's). Each: `customer_id`, `name` ("Harbourside Hotel"), `kind`, `detail`, `customer_number`, `address`, `delivery_days`, `contact {name: "Hanna Laine", title: "Purchasing manager"}`, `people {"purchasing_manager": "Hanna Laine", "finance": "Mikko Saari", "dietitian": "Leena Koski"}`, `usual[] {product_id, product_type, unit, use}`, `history[] {delivered_on, quantities, prices}`, `standing_orders[]`, `synthetic: true`. Every history row is shown with "Synthetic: made up for the demonstration". The page's typed-in history should be replaced by this: its hotel row dated 13 Nov is after the demo clock.
+- **A suggestion** (`tta.contracts.suggestion.Suggestion`; reaches a page as `offer.suggestions[]` and `GET /shop/api/suggestions` once L4-2 wires it): `kind`, `sentence`, `product_id`, `name`, `quantity`, `unit`, `evidence.orders_matching` / `orders_considered` / `synthetic` (show under "Why?"), `effect.net_change_eur` (larger pack), `accept_request` (post to `/v1/offers` for "Add to the request" or "Switch"; a suggestion never adds itself), `standing_order_id` (the trend's "Store 84 L?").
+- **Sentences a person reads** (catalog names, measured offline):
+  - FORGOTTEN_ITEM: "In 7 of your last 8 orders with Arla Semi skimmed milkdrink 1 L UHT lactose free Suomesta (469363) you also ordered Arla Pro Cooking cream 10% 1 L UHT lactose free (463797), usually 10 L. It is not in this request. From a synthetic order history."
+  - USUAL_PRODUCT: "Your usual milk is … (469363): it is in 8 of your last 8 orders of milk. Confirm it before it is ordered. From a synthetic order history."
+  - USUAL_QUANTITY: "You usually order 100 L of … (469363): the median of your last 6 orders, which ranged from 98 to 104 L. Confirm the quantity before it is ordered."
+  - QUANTITY_TREND: "Your last 3 orders of Oatly Oat Drink Semi 1L (470863) have a median of 84 L against 70 L for the 3 before (+20%), each higher than the last. The standing order still says 60 L. Store 84 L? From a synthetic order history."
+  - LARGER_PACK: "Oatly iKaffe Oat drink 1,5L (473278) is the same product in a larger pack: €1.48 per litre against €1.78. 40 × 1.5 L cover the 60 L for €88.80, €18.00 less. 156 are confirmed in stock for delivery on Monday 16 November."
+  - The usual-product question: "Your last 8 orders of milk hold A (id) 4 times and B (id) 4 times. Which one do you mean?"
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

@@ -1,0 +1,59 @@
+# Customer "school-kitchen". SYNTHETIC: every name, number and past order below is made up for the demonstration.
+# The Valio Aimo mock has no customer model; Valio's mentors told us to generate customer data (BRIEF section 2, V1).
+# The people's names are the shop page's (src/tta/ui/static/shop/js/kitchens.js). Every product id is real and has
+# confirmed stock in tonight's recording.
+#
+# Limits, the allergen rule, the substitution scope and who may approve are the buyer profile's
+# (src/tta/policy/profiles/school-kitchen.yaml, written by another lane), never this file's. The runbook keeps tree
+# nuts, peanuts and sesame out for the whole school under the strict rule: the milk 462775 and the yoghurt 464517
+# state nothing about them, so that rule sends them to a person (pinned in tests/customers/test_against_catalog.py).
+#
+# What the history is written to show (P1 section 4.2, P15 section 4.6): steady weekly orders on Mondays; 120 L of
+# milk a week against 51 confirmed in the recording, by design (partial availability); oat drink rising from 60 to
+# 90 L while the standing order still stores 60 L (the trend: a median of 84 L against 70 L, +20%).
+
+customer_id: school-kitchen
+synthetic: true
+name: Kilo School
+kind: School kitchen
+detail: "Espoo · lunch for 420 pupils"
+customer_number: "554 812"
+address: "Kilonkartanontie 6, 02610 Espoo"
+delivery_days: "Mon–Fri"
+contact: {name: Päivi Korhonen, title: Kitchen manager}
+people:
+  purchasing_manager: Päivi Korhonen
+  finance: Tuomas Aho
+  dietitian: Riikka Mäkelä
+prefer: PRICE
+
+usual:
+  - {product_id: "462775", product_type: milk, unit: L, use: SERVED}              # Arla fat-free lactose-free 1 L
+  - {product_id: "470863", product_type: plant_drink, unit: L, use: SERVED}       # Oatly oat drink semi 1 L
+  - {product_id: "464517", product_type: yoghurt, unit: KG, use: SERVED}          # AIMO natural yoghurt 5 kg pail
+  - {product_id: "466988", product_type: beef_chuck, unit: KG, use: INGREDIENT}   # beef chuck for the stew, lots of 3 kg
+  - {product_id: "463254", product_type: vegetable_cream, unit: L, use: INGREDIENT}  # Millac cooking 15 1 L
+
+history:  # oldest first; quantities in each usual product's unit
+  - {delivered_on: 2026-09-21, quantities: {"462775": 120, "470863": 60, "464517": 20, "466988": 30}}
+  - {delivered_on: 2026-09-28, quantities: {"462775": 118, "470863": 62, "464517": 20, "463254": 10}}
+  - {delivered_on: 2026-10-05, quantities: {"462775": 122, "470863": 66, "464517": 20, "466988": 30}}
+  - {delivered_on: 2026-10-12, quantities: {"462775": 120, "470863": 70, "464517": 20, "463254": 10}}
+  - {delivered_on: 2026-10-19, quantities: {"462775": 120, "470863": 74, "464517": 20, "466988": 30}}
+  - {delivered_on: 2026-10-26, quantities: {"462775": 124, "470863": 80, "464517": 20, "463254": 10}}
+  - {delivered_on: 2026-11-02, quantities: {"462775": 116, "470863": 84, "464517": 20, "466988": 30}}
+  - {delivered_on: 2026-11-09, quantities: {"462775": 120, "470863": 90, "464517": 20, "463254": 10}}
+
+standing_orders:
+  - standing_order_id: so_school_weekly
+    name: "Weekly milk, oat drink and yoghurt, school kitchen"
+    cadence_days: 7
+    lines:
+      - {product_id: "462775", quantity: 120}
+      - {product_id: "470863", quantity: 60}   # on purpose under the rising series: the trend's demo
+      - {product_id: "464517", quantity: 20}
+
+stock_on_hand:
+  - {product_type: milk, quantity: 30, unit: L}
+  - {product_type: plant_drink, quantity: 12, unit: L}
+  - {product_type: yoghurt, quantity: 5, unit: KG}

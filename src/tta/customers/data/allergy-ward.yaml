@@ -1,0 +1,53 @@
+# Customer "allergy-ward". SYNTHETIC: every name, number and past order below is made up for the demonstration.
+# The Valio Aimo mock has no customer model; Valio's mentors told us to generate customer data (BRIEF section 2, V1).
+# The people's names are the shop page's (src/tta/ui/static/shop/js/kitchens.js). Every product id is real and has
+# confirmed stock in tonight's recording; both state "free from" milk and gluten, which the ward's profile excludes.
+#
+# Limits, the allergen rule, the substitution scope and who may approve are the buyer profile's
+# (src/tta/policy/profiles/allergy-ward.yaml), never this file's.
+#
+# What the history is written to show (P15 section 4.6): deliveries on Mondays and Thursdays; 200 L of soya drink
+# every time; rice drink in 14 of the 16 orders (7 of the last 8), so asking for the soya drink is reminded of it.
+
+customer_id: allergy-ward
+synthetic: true
+name: "City Hospital, Ward 4"
+kind: Hospital allergy ward
+detail: "Espoo · 36 beds"
+customer_number: "554 097"
+address: "Turuntie 150, 02740 Espoo"
+delivery_days: "Mon–Sat"
+contact: {name: Jussi Nieminen, title: Ward purchasing}
+people:
+  purchasing_manager: Jussi Nieminen
+  finance: Anna Virta
+  dietitian: Sari Lehto
+prefer: RELIABILITY   # P1 section 4.2: a ward weighs delivery reliability
+
+usual:
+  - {product_id: "464013", product_type: plant_drink, unit: L, use: SERVED}   # Alpro no sugars soya drink 1 L
+  - {product_id: "473424", product_type: plant_drink, unit: L, use: SERVED}   # Alpro rice drink 1 L
+
+history:  # oldest first; quantities in litres
+  - {delivered_on: 2026-09-17, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-09-21, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-09-24, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-09-28, quantities: {"464013": 200}}
+  - {delivered_on: 2026-10-01, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-05, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-08, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-12, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-15, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-19, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-22, quantities: {"464013": 200}}
+  - {delivered_on: 2026-10-26, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-10-29, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-11-02, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-11-05, quantities: {"464013": 200, "473424": 20}}
+  - {delivered_on: 2026-11-09, quantities: {"464013": 200, "473424": 20}}
+
+standing_orders:
+  - standing_order_id: so_ward_plant_drinks
+    name: "Soya and rice drink, allergy ward"
+    cadence_days: 3   # twice a week, Monday and Thursday: 3 and 4 days apart
+    lines: [{product_id: "464013", quantity: 200}, {product_id: "473424", quantity: 20}]

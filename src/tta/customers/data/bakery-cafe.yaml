@@ -1,0 +1,49 @@
+# Customer "bakery-cafe". SYNTHETIC: every name, number and past order below is made up for the demonstration.
+# The Valio Aimo mock has no customer model; Valio's mentors told us to generate customer data (BRIEF section 2, V1).
+# The people's names are the shop page's (src/tta/ui/static/shop/js/kitchens.js). Every product id is real and has
+# confirmed stock in tonight's recording.
+#
+# Limits, the allergen rule, the substitution scope and who may approve are the buyer profile's
+# (src/tta/policy/profiles/bakery-cafe.yaml, written by another lane), never this file's.
+#
+# The runbook's choice: the bakery's dairy is the Arla products that have confirmed stock in the recording (P1
+# section 4.2), and the formula matters (Valio, V10): the creams are INGREDIENT. Coffee milk is its own product type
+# since the baseline's R2. What the history is written to show (P15 section 4.6): 40 L of Arla Pro whipping cream
+# a week (48 confirmed); the ESL whipping cream at an older, lower price in four weeks (€6.90 against the
+# recording's €7.37); the 0.5 L Oatly iKaffe, sold cheaper per litre in the 1.5 L carton 473278 (the larger pack).
+
+customer_id: bakery-cafe
+synthetic: true
+name: Kallio Bakery
+kind: Bakery and café
+detail: "Helsinki · 2 shops"
+customer_number: "611 530"
+address: "Fleminginkatu 12, 00530 Helsinki"
+delivery_days: "Mon–Sat"
+contact: {name: Marko Heikkinen, title: Owner}
+people:   # the owner holds both roles; no dietitian is named
+  purchasing_manager: Marko Heikkinen
+  finance: Marko Heikkinen
+prefer: RELIABILITY   # P1 section 4.2
+
+usual:
+  - {product_id: "469346", product_type: cream, unit: L, use: INGREDIENT}        # Arla Pro whipping cream 1 L
+  - {product_id: "464727", product_type: cream, unit: L, use: INGREDIENT}        # Arla whipping cream ESL 1 L
+  - {product_id: "463380", product_type: coffee_milk, unit: L, use: SERVED}      # Arla Café milk 1 L
+  - {product_id: "468319", product_type: plant_drink, unit: L, use: SERVED}      # Oatly iKaffe 0.5 L
+
+history:  # oldest first, on Tuesdays; quantities in litres; a price only where it differs from the recording's
+  - {delivered_on: 2026-09-22, quantities: {"469346": 38, "464727": 10, "463380": 60, "468319": 30}, prices: {"464727": 6.90}}
+  - {delivered_on: 2026-09-29, quantities: {"469346": 40, "464727": 10, "463380": 55, "468319": 30}, prices: {"464727": 6.90}}
+  - {delivered_on: 2026-10-06, quantities: {"469346": 42, "464727": 10, "463380": 60, "468319": 30}, prices: {"464727": 6.90}}
+  - {delivered_on: 2026-10-13, quantities: {"469346": 40, "463380": 65, "468319": 30}}
+  - {delivered_on: 2026-10-20, quantities: {"469346": 40, "464727": 10, "463380": 60, "468319": 30}, prices: {"464727": 6.90}}
+  - {delivered_on: 2026-10-27, quantities: {"469346": 38, "463380": 60, "468319": 30}}
+  - {delivered_on: 2026-11-03, quantities: {"469346": 42, "464727": 10, "463380": 55, "468319": 30}}
+  - {delivered_on: 2026-11-10, quantities: {"469346": 40, "464727": 10, "463380": 60, "468319": 30}}
+
+standing_orders:
+  - standing_order_id: so_bakery_weekly
+    name: "Weekly whipping cream and coffee milk, bakery"
+    cadence_days: 7
+    lines: [{product_id: "469346", quantity: 40}, {product_id: "463380", quantity: 60}]
