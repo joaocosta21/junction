@@ -29,6 +29,7 @@ ALMOND_DRINK = "465793"
 # sends to a person. 469512 has a recorded page; the other eight have none.
 DEMO_SET = ("462775", "463047", "463975", "464401", "464517", "464608", "465793", "469162", "469512")
 RECORDED = "469512"
+# All nine are recorded since 14 Nov 17:58 UTC (fixtures/evidence/), so a dry run of the demo set asks nothing.
 
 
 class StandIn:
@@ -97,7 +98,7 @@ def test_a_dry_run_prints_bodies_that_hold_the_two_names_and_the_brand_and_sends
     )
 
 
-def test_the_demo_set_is_measured_in_replay_and_only_products_without_a_recorded_page_would_be_asked(
+def test_the_demo_set_is_measured_in_replay_and_no_product_with_a_recorded_page_would_be_asked(
     script: ModuleType, catalog: ProductCatalog, tmp_path: Path
 ) -> None:
     lines: list[str] = []
@@ -107,10 +108,9 @@ def test_the_demo_set_is_measured_in_replay_and_only_products_without_a_recorded
 
     assert code == 0  # against the repository's own fixtures/evidence/, read only
     assert f"Products with an allergen doubt on the list: {', '.join(DEMO_SET)}." in lines
-    assert f"Already recorded, not asked again: {RECORDED}." in lines
-    would_send = [line.split()[0] for line in lines if line.endswith("would be sent (100 credits):")]
-    assert would_send == [product_id for product_id in DEMO_SET if product_id != RECORDED]
-    assert lines[-1].startswith("Dry run: 8 request(s) would be sent to Context.dev, 100 credits each, 800 credits")
+    assert f"Already recorded, not asked again: {', '.join(DEMO_SET)}." in lines
+    assert not [line for line in lines if line.endswith("would be sent (100 credits):")]
+    assert lines[-1].startswith("Dry run: 0 request(s) would be sent to Context.dev, 100 credits each, 0 credits")
 
 
 def test_the_demo_requests_are_each_customers_usual_products_and_the_named_cases() -> None:

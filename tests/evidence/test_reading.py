@@ -51,8 +51,9 @@ def test_a_page_for_a_different_product_is_dropped(
     assert not evidence.found
     assert (evidence.source_url, evidence.contains, evidence.content_hash) == (None, (), None)
     assert evidence.sentence == (
-        "No evidence was found on the web for product 468465: the page found is for another product "
-        "(“Oddlygood® Barista oat drink 1 l UHT gluten free”), so it was dropped."
+        "No evidence was found on the web for product 468465: the page found (“Oddlygood® Barista oat drink 1 l "
+        "UHT gluten free”) is not shown to be this product and was dropped: the page's product name says “Barista”, "
+        "which the product asked for does not."
     )
 
 

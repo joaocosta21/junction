@@ -56,6 +56,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | B35 | The bakery's profile ("the formula matters") labels and ranks substitutes the same way as a request that says so | Otherwise the bakery sees the formula-changing product first unless every request repeats the word | L4-2d |
 | B36 | Valio's token cannot read a customer's people, history or limits (403) | The same line as Valio's view of the log | L4-2b |
 | B37 | Offers and orders are signed by the gateway with a demo key that changes at every start unless `TTA_SIGNING_KEY` is set; every proof says "demo key" and nothing says "signed by Valio" | An honest trust layer without claiming Valio's signature | L4-2b |
+| B38 | A manufacturer's page is shown as evidence only when its variant marks agree with the product (fat percentage, lactose-free, UHT, flavour, pack). The chilled version's page is not shown for the UHT product | A page for a sibling can state different allergens; a false match in front of the person who signs is worse than no page | EV |
 
 ## C. Questions for the team (domain)
 
@@ -76,4 +77,5 @@ Last updated: Sat 14 Nov, about 19:00.
 | D1 | Of your 249 listed substitute pairs in the product file, our formula comparison finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (figures from the whole catalog, before the per-100-ml change). Are listed substitutes meant to keep the formula, or only to be "close enough to offer"? |
 | D3 | Is "Delight" (`471690`, fat 1.5 g against 3 g) meant as the like-for-like replacement for the barista oat drink `473609`? Our formula check calls it a different formula; it ranks first only because you list it |
 | D4 | Your brief names a selling agent for new or seasonal products. We looked for a launch or season mark in the product file and found only `synkkaData.lastUpdated`. Is there such a mark, or did we miss it? Meanwhile we suggest a related product and label it as yours |
+| D5 | Who makes your own-label products "AIMO TURKISH YOGURT 5KG 10%" (`464608`) and "AIMO MAUSTAMATON JOGURTTI 5KG" (`464517`)? We found a Saare page and a Valio A+ page and did not show either, because nothing says they are the same product |
 | D2 | Your view of the buyer's log now shows every rule that fired, with the buyer's limit amounts and allergens masked. Is the decision without the buyer's private values what you meant by "all the steps and decisions"? |

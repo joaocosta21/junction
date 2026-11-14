@@ -19,7 +19,7 @@ from tta.contracts.order import Evidence
 from tta.contracts.product import Product
 from tta.evidence import wording
 from tta.evidence.answers import AnswerRecord
-from tta.evidence.matching import is_brand_owner_page, names_match
+from tta.evidence.matching import is_brand_owner_page, why_not_this_product
 
 MAX_TEXT_LENGTH = 200  # a page title or a product name
 MAX_TERM_LENGTH = 80  # one allergen term; a longer one is dropped, not cut, so its meaning is not changed
@@ -103,10 +103,11 @@ def read_answer(record: AnswerRecord, product: Product) -> Evidence:
     name, title = _bounded(content.get("product_name_on_page")), _bounded(content.get("page_title"))
     if name is None:
         return _missing(record, wording.NO_NAME_ON_PAGE)
-    if not names_match(name, title, url, product):
-        return _missing(record, wording.OTHER_PRODUCT.format(name=name))
     contains, may_contain = _terms(content.get("contains")), _terms(content.get("may_contain"))
     free_from = _terms(content.get("free_from"))
+    why_not = why_not_this_product(name, title, url, product, free_from)
+    if why_not is not None:
+        return _missing(record, wording.OTHER_PRODUCT.format(name=name, why=why_not))
     return Evidence(
         product_id=record.product_id, found=True, source_url=url, page_title=title, product_name_on_page=name,
         contains=contains, may_contain=may_contain, free_from=free_from, retrieved_at=record.retrieved_at,

@@ -16,7 +16,7 @@ import pytest
 
 from tta.catalog import ProductCatalog
 from tta.config import Settings
-from tta.contracts.common import AllergenRelation, Identity, Unit
+from tta.contracts.common import AllergenRelation, Identity, OrderStatus, Unit
 from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.evidence import build_evidence_finder, wording
 from tta.evidence.answers import COUNT_KEY, AnswersClient, EvidenceUnavailable
@@ -26,6 +26,7 @@ from tta.evidence.reading import read_answer
 
 Make = Callable[..., Any]
 ALMOND_DRINK = "465793"  # Alpro Barista almond drink: declares "free from tree nuts", its ingredients name ALMOND
+NOT_RECORDED = "464013"  # no page of this product is in fixtures/evidence/
 NOT_RULED_OUT = "Alternative: allergen not ruled out"
 KEY = "ctx-test-key-not-real"
 
@@ -37,10 +38,12 @@ def _almond_request() -> PurchaseRequest:
     ),))
 
 
-def test_a_contradiction_gets_one_evidence_entry_that_says_no_page_is_recorded(
+def test_a_contradiction_gets_the_recorded_page_with_an_answer_for_the_excluded_allergen(
     make_stack: Make, catalog: ProductCatalog, agent_hotel: Identity, hotel_dietitian: Identity, tmp_path: Path,
 ) -> None:
-    """P13 section 2.4: this product had 0 evidence entries, because its finding is "may contain"."""
+    """P13 section 2.4: this product had 0 evidence entries, because its finding is "may contain". Its page was
+    recorded on 14 Nov (fixtures/evidence/465793.json): Alpro's own page names almond and other nuts, so the
+    person who signs reads that the page names the excluded allergen. Nothing here makes the product safe."""
     finder = build_evidence_finder(Settings.for_tests(), tmp_path, catalog)  # no key: recorded pages only
     stack = make_stack(finder)
     offer = stack.service.create_offer(agent_hotel, _almond_request())
@@ -55,12 +58,30 @@ def test_a_contradiction_gets_one_evidence_entry_that_says_no_page_is_recorded(
     approval = stack.orders.get_approval(order.approval_id, hotel_dietitian)
 
     (evidence,) = approval.evidence
-    assert (evidence.product_id, evidence.found) == (ALMOND_DRINK, False)
+    assert (evidence.product_id, evidence.found) == (ALMOND_DRINK, True)
     assert evidence.sentence == (
-        "No evidence was found on the web for product 465793: no recorded page of this product is stored and no "
-        "Context.dev key is set, so nothing was looked up."
+        "The manufacturer's page “Barista Mantelijuoma” on alpro.com says: contains manteli; may contain "
+        "pähkinöistä (ei maapähkinästä); free from laktoositon, Maidoton, Gluteeniton. "
+        "Asked about tree nuts (AN): Valio Aimo's data does not rule it out; the page says it contains it, in its "
+        "words “manteli”. "
+        "The page names tree nuts (AN), which this order excludes: check the product before approving. "
+        "What a page says can add a doubt and never removes one."
     )
+    assert order.status is OrderStatus.PENDING_APPROVAL  # the page changed no status: a person still decides
     assert not list(tmp_path.rglob("*.json"))  # nothing was asked, counted or stored
+
+
+def test_a_product_with_no_recorded_page_says_so(catalog: ProductCatalog, tmp_path: Path) -> None:
+    finder = build_evidence_finder(Settings.for_tests(), tmp_path, catalog)  # no key: recorded pages only
+
+    evidence = finder.find_evidence(catalog.get_product(NOT_RECORDED))
+
+    assert not evidence.found
+    assert evidence.sentence == (
+        f"No evidence was found on the web for product {NOT_RECORDED}: no recorded page of this product is stored "
+        "and no Context.dev key is set, so nothing was looked up."
+    )
+    assert not list(tmp_path.rglob("*.json"))
 
 
 def test_the_recorded_elovena_page_is_attached_to_the_option_whose_allergen_is_not_ruled_out(
@@ -182,6 +203,6 @@ def test_the_gateways_finder_keeps_its_count_beside_the_stored_answers_and_the_c
     (tmp_path / "evidence" / COUNT_FILE).write_text('{"requests_sent": 40}', encoding="utf-8")
     # The recorded demo product is still answered, and the spent budget is said for a product with no page.
     assert finder.find_evidence(catalog.get_product(ids.elovena)).found
-    spent = finder.find_evidence(catalog.get_product(ALMOND_DRINK))
+    spent = finder.find_evidence(catalog.get_product(NOT_RECORDED))
     assert spent.sentence.endswith(": this gateway's limit of 40 web lookups is spent.")
     finder.close()
