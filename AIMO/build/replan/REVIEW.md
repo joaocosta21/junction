@@ -2,7 +2,7 @@
 
 Three reviewers read `overnight-build..HEAD` at high effort with the question "what is wrong with this". The orchestrator keeps this list: each finding, the lane that got it, and its state. "Confirmed" = the reviewer ran code; "read" = read from code.
 
-## Silent failures (`silent-failure-hunter`, in at Sat 14 Nov about 20:25)
+## Silent failures (`silent-failure-hunter`, in at Sat 14 Nov about 20:05)
 
 | # | Sev | Where | What | Basis | Sent to | State |
 |---|---|---|---|---|---|---|
@@ -28,7 +28,7 @@ Three reviewers read `overnight-build..HEAD` at high effort with the question "w
 
 Found sound by this reviewer: the suggestion guard, the formula measure, the stand-in and safe-first code, F-10, F-11 and F-12's missing-fact paths, the demo-clock and signing-key checks at start, the MCP origin check, the evidence finder's failure paths, the witness's cut or rewritten trail.
 
-## Python (`python-reviewer`, in at Sat 14 Nov about 20:50)
+## Python (`python-reviewer`, in at Sat 14 Nov about 20:20)
 
 Its overall reading: nothing in the code read breaks the audit hash chain or the rule that no order is placed alone with the buyer's setting off.
 
@@ -49,7 +49,7 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 | P13 | LOW | several | `sandbox.KITCHEN_SETTINGS` lacks the two new settings; `shop_api._body` parses before the guard; Valio's reader is rendered "A human at the buyer"; `_claim_note` can overstate; more than 1,000 ids in one lookup; three field words missing in `audit/phrases.py` | read | L4-2d, FX-K, FX-O | open |
 | P14 | LOW | `audit/supplier_decisions.py` | Valio's view shows the product id for F-03 fired by an allergen outcome, which hints that the buyer excludes an allergen (the same information is masked for P-04) | read | wave 4 (audit) | open |
 
-## Security (`security-reviewer`, in at Sat 14 Nov about 21:10)
+## Security (`security-reviewer`, in at Sat 14 Nov about 20:35)
 
 0 critical, 2 high, 4 medium, 4 low. It called every route with no token and with the supplier's, an approver's and an agent's token.
 

@@ -2,7 +2,7 @@
 
 Kept by the build session while you are away. Read top to bottom when you come back; answer in the session or write under "Your answer". Nothing here stops the build: each item says what the run did in the meantime.
 
-Last updated: Sat 14 Nov, about 19:00.
+Last updated: Sat 14 Nov, 20:50.
 
 ## A. Needs your answer (the run cannot decide these for you)
 
