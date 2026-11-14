@@ -4,6 +4,8 @@ who the agent was, and whether it acted within its authority or with human appro
 No sentence here reads a limit value, an allergen exclusion, an approver's name or role, or a note.
 A rule's own sentence is never quoted, because it can carry a limit; a fixed rule that does not come from
 the buyer's limits or exclusions is named with the meaning of SPEC section 7.
+
+As for the buyer, a sentence states only what its context holds and says what is not recorded.
 """
 
 from __future__ import annotations
@@ -11,22 +13,27 @@ from __future__ import annotations
 from tta.audit.phrases import (
     HUMAN_AT_BUYER,
     NOTHING_ORDERED,
-    RECHECKED,
-    RECORDED,
     actor_text,
     capital,
     joined,
+    label,
     option_text,
     request_text,
 )
 from tta.audit.readers import SUPPLIER_RULE_MEANINGS, supplier_rule_ids
-from tta.audit.scope import Scope, option_change
+from tta.audit.scope import Scope, confirmed_by, option_change, placed_within_authority
 from tta.audit.sentences import (
+    BY_THE_AGENT,
+    DECISION_BEHIND_NOT_RECORDED,
+    DECISION_NOT_RECORDED,
     SentenceBuilder,
     agent_refused,
+    checked_for,
+    confirmed_text,
     lookup_performed,
     offer_text,
     order_not_placed,
+    recorded_note,
 )
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DecisionKind, PlacedBy, Verdict
@@ -71,15 +78,21 @@ def offer_created(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if scope.decision is None:
-        return "The buyer's rules were checked."
+        return f"The buyer's rules were checked{checked_for(scope)}. {DECISION_NOT_RECORDED}"
     outcome = VERDICT_OUTCOMES[scope.decision.verdict]
     return f"The buyer's rules were checked for {scope.option_label}: {outcome}{_fixed_rules(scope)}"
 
 
 def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    """ "Within its authority" is said only under a recorded AUTO decision. Raises `ValueError` for any other."""
+    if not placed_within_authority(scope):
+        return (
+            f"The agent placed {scope.order_label} without human approval{_what(scope)}. "
+            f"{DECISION_BEHIND_NOT_RECORDED}{recorded_note(context)}"
+        )
     return (
-        f"The agent placed {scope.order_label} within its authority, without human approval{_what(scope)}. "
-        f"{RECORDED}"
+        f"The agent placed {scope.order_label} within its authority, without human approval{_what(scope)}."
+        f"{recorded_note(context)}"
     )
 
 
@@ -109,10 +122,12 @@ def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 
 def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    by_agent = context.order is not None and context.order.placed_by is PlacedBy.AGENT
-    how = "placed by the agent within its authority" if by_agent else f"with approval by {HUMAN_AT_BUYER}"
-    checked = f" {RECHECKED}" if context.revalidation is not None and context.revalidation.ok else ""
-    return f"{capital(scope.order_label)} is ordered, {how}{_what(scope)}.{checked} {RECORDED}"
+    by = confirmed_by(context)
+    if by is PlacedBy.AGENT:
+        return confirmed_text(context, scope, BY_THE_AGENT)
+    if by is PlacedBy.HUMAN_APPROVAL:
+        return confirmed_text(context, scope, f"with approval by {HUMAN_AT_BUYER}")
+    return confirmed_text(context, scope, None)
 
 
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -140,7 +155,7 @@ def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> 
 
 
 def evidence_attached(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    product = f" for product {context.evidence.product_id}" if context.evidence else ""
+    product = f" for product {label(context.evidence.product_id)}" if context.evidence else ""
     return (
         f"Evidence from outside Valio Aimo's data was attached to an approval{product}. "
         "It changes no status and no verdict."

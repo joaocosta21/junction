@@ -175,6 +175,10 @@ class AuditSink(Protocol):
 
     def verify_chain(self) -> ChainVerification: ...
 
+    def head(self) -> tuple[int, str]:
+        """The number of events and the hash of the last one. Publishing it lets another party notice a trail cut short."""
+        ...
+
 
 @runtime_checkable
 class OrderService(Protocol):

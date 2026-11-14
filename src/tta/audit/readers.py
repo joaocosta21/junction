@@ -1,5 +1,6 @@
 """What the supplier may see (SPEC section 9): never a limit value, an allergen exclusion, an approver's name or note.
 
+Of whoever acted it sees the kind, and for an agent its id ("the agent's identity"): no role and no display name.
 The buyer sees everything about its own requests, so the buyer's side needs no rule here.
 """
 
@@ -27,5 +28,9 @@ def supplier_rule_ids(rule_ids: Sequence[str]) -> tuple[str, ...]:
 
 
 def supplier_actor(actor: Actor) -> Actor:
-    """The agent and the gateway as they are; a human only as "a human at the buyer"."""
-    return REDACTED_HUMAN if actor.kind is ActorKind.HUMAN else actor
+    """An agent by its id and kind only; a human only as "a human at the buyer"; the gateway as it is."""
+    if actor.kind is ActorKind.HUMAN:
+        return REDACTED_HUMAN
+    if actor.kind is ActorKind.AGENT:
+        return Actor(kind=ActorKind.AGENT, id=actor.id)
+    return actor

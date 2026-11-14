@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from tta.contracts.audit import AuditContext
-from tta.contracts.common import DecisionKind, Verdict
+from tta.contracts.common import DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import OfferOption
 from tta.contracts.order import ApprovalDecision
 from tta.contracts.policy import FiredRule, PolicyDecision
@@ -131,3 +131,27 @@ def rejection(context: AuditContext) -> ApprovalDecision | None:
 def approvals_given(context: AuditContext) -> tuple[ApprovalDecision, ...]:
     recorded = context.approval.decisions if context.approval else ()
     return tuple(entry for entry in recorded if entry.decision is DecisionKind.APPROVE)
+
+
+def placed_within_authority(scope: Scope) -> bool:
+    """True when a recorded decision lets the agent act alone; False when no decision is recorded.
+
+    A decision that asks for a human or blocks cannot stand behind an order the agent placed alone:
+    recording one is a fault in the caller, and no event is written.
+    """
+    decision = scope.decision
+    if decision is None:
+        return False
+    if decision.verdict is not Verdict.AUTO:
+        raise ValueError(
+            f"An order.placed_by_agent event was given a policy decision whose verdict is {decision.verdict.value}: "
+            "the agent places an order alone only under the verdict AUTO. No event was recorded."
+        )
+    return True
+
+
+def confirmed_by(context: AuditContext) -> PlacedBy | None:
+    """Who the context shows confirmed the order: approvals given, else what the order record says, else nothing."""
+    if approvals_given(context):
+        return PlacedBy.HUMAN_APPROVAL
+    return context.order.placed_by if context.order else None

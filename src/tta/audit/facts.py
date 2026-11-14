@@ -34,9 +34,9 @@ ORDER_KEYS = (
 )
 BUYER_ORDER_KEYS = (*ORDER_KEYS, "approval_id", "status_sentence")
 SUPPLIER_REQUEST_KEYS = ("needed_by", "require_confirmed")
-SUPPLIER_REQUEST_LINE_KEYS = (
-    "product_type", "product_ids", "name_terms", "required_claims", "quantity", "unit", "pack",
-)
+# Product ids and product types only. A name term or a required claim is the buyer's own wording and can
+# reveal an exclusion ("without peanuts"), so neither is listed.
+SUPPLIER_REQUEST_LINE_KEYS = ("product_type", "product_ids", "quantity", "unit", "pack")
 SUPPLIER_APPROVAL_KEYS = ("approval_id", "status", "created_at", "valid_until")
 SUPPLIER_APPROVAL_DECISION_KEYS = ("decision", "option_id", "decided_at")
 SUPPLIER_EVIDENCE_KEYS = ("product_id", "found")
@@ -107,7 +107,7 @@ def _order(order: Order | None, for_buyer: bool) -> JsonDict | None:
 
 
 def _supplier_request(request: PurchaseRequest | None) -> JsonDict | None:
-    """What was asked of Valio Aimo's data: no buyer's words and no allergen exclusion."""
+    """What was asked of Valio Aimo's data: no buyer's words, name terms or claims, and no allergen exclusion."""
     if request is None:
         return None
     dumped = request.model_dump(mode="json")

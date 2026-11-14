@@ -127,3 +127,13 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - An option is expired when its `valid_until` is at or before now.
 - A ratio is printed rounded down to one decimal, so a partial fill never reads as 100%.
 - A profile whose excluded allergens hold an unknown code, or `X99`, is rejected at load.
+
+## Audit trail and store after review (FIX-2)
+- A sentence states only what its event holds; where something is not recorded the sentence says so. Recording "placed by the agent" with a decision that is not `AUTO` is refused as a programming fault.
+- Text from outside (the pasted request, an approver's note, names) is cleaned before it is quoted in a sentence: quotation marks become apostrophes, control and bidirectional characters are removed, and it is cut at 200 characters. The facts keep the text unchanged. Product names inside the policy's own rule sentences are not cleaned yet.
+- The supplier sees product ids and product types only, never the buyer's own search terms or claims; of an agent it sees the id and that it is an agent.
+- In a reader's view the chain state counts only the events shown; a break elsewhere is reported without the other event's id.
+- SQLite refuses `UPDATE`, `DELETE` and a replacing `INSERT` on audit events through triggers, and two events cannot claim the same previous hash. Whoever can write the database file can drop the triggers.
+- Two writers on one database are safe: an append checks the head inside one transaction and the trail retries (5 attempts).
+- What verification does not show: the end of the trail cut off, a rewrite of every hash to the end, and who wrote an event. `AuditTrail.head()` gives the event count and last hash so another party can hold them; nothing publishes or compares it yet.
+- A database file made before this change must be deleted; there is no migration.

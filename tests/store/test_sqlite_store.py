@@ -15,7 +15,7 @@ from tta.config import Settings
 from tta.contracts.common import ApprovalStatus, OrderStatus
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Store
-from tta.store import SqliteStore, open_store
+from tta.store import AuditChainConflict, SqliteStore, open_store
 
 
 @pytest.fixture
@@ -147,9 +147,10 @@ def test_audit_events_come_back_in_the_order_they_were_appended(store: SqliteSto
 
 
 def test_audit_events_are_filtered_by_order_offer_and_profile(store: SqliteStore, samples) -> None:
-    store.append_audit_event(samples.event("evt_1", order_id=None))
-    store.append_audit_event(samples.event("evt_2"))
-    store.append_audit_event(samples.event("evt_3", order_id="ord_2", offer_id="off_2", profile_id="allergy-ward"))
+    store.append_audit_event(samples.event("evt_1", event_hash="1" * 64, order_id=None))
+    store.append_audit_event(samples.event("evt_2", previous_hash="1" * 64, event_hash="2" * 64))
+    store.append_audit_event(samples.event("evt_3", previous_hash="2" * 64, event_hash="3" * 64, order_id="ord_2",
+                                           offer_id="off_2", profile_id="allergy-ward"))
 
     assert [e.id for e in store.list_audit_events(order_id="ord_1")] == ["evt_2"]
     assert [e.id for e in store.list_audit_events(offer_id="off_1")] == ["evt_1", "evt_2"]
@@ -166,6 +167,95 @@ def test_an_audit_event_cannot_be_appended_twice(store: SqliteStore, samples) ->
         store.append_audit_event(changed)
 
     assert store.list_audit_events() == (original,)
+
+
+def test_the_first_audit_event_must_follow_the_genesis_hash(store: SqliteStore, samples) -> None:
+    with pytest.raises(AuditChainConflict):
+        store.append_audit_event(samples.event("evt_1", previous_hash="9" * 64))
+
+    assert store.list_audit_events() == ()
+
+
+def test_an_audit_event_that_does_not_follow_the_last_one_is_refused(store: SqliteStore, samples) -> None:
+    first = samples.event("evt_1", event_hash="1" * 64)
+    store.append_audit_event(first)
+    fork = samples.event("evt_2", event_hash="2" * 64)  # names the genesis hash again, as evt_1 did
+
+    with pytest.raises(AuditChainConflict, match="another writer") as raised:
+        store.append_audit_event(fork)
+
+    assert isinstance(raised.value, SupplierUnavailable) and raised.value.status_code == 503
+    assert store.list_audit_events() == (first,)
+    assert store.last_audit_hash() == "1" * 64
+
+
+def test_two_stores_on_one_file_cannot_fork_the_chain(tmp_path: Path, samples) -> None:
+    path = tmp_path / "tta.sqlite3"
+    one, other = SqliteStore(path), SqliteStore(path)
+    one.append_audit_event(samples.event("evt_1", event_hash="1" * 64))
+
+    with pytest.raises(AuditChainConflict):
+        other.append_audit_event(samples.event("evt_2", event_hash="2" * 64))  # read the head before evt_1 landed
+    other.append_audit_event(samples.event("evt_3", previous_hash="1" * 64, event_hash="3" * 64))
+
+    assert [event.id for event in one.list_audit_events()] == ["evt_1", "evt_3"]
+    assert one.last_audit_hash() == other.last_audit_hash() == "3" * 64
+    one.close()
+    other.close()
+
+
+# A copy of the stored row under its own id or under another one. With OR REPLACE, SQLite would remove the stored
+# row to make room for it, without running the trigger on DELETE.
+REPLACE_SAME_ID = (
+    "INSERT OR REPLACE INTO audit_events (event_id, type, time, previous_hash, hash, body) "
+    "SELECT event_id, type, time, previous_hash, hash, '{}' FROM audit_events"
+)
+REPLACE_SAME_PREVIOUS_HASH = (
+    "INSERT OR REPLACE INTO audit_events (event_id, type, time, previous_hash, hash, body) "
+    "SELECT 'evt_other', type, time, previous_hash, hash, '{}' FROM audit_events"
+)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ["UPDATE audit_events SET body = '{}', hash = 'x' WHERE event_id = 'evt_1'",
+     "DELETE FROM audit_events WHERE event_id = 'evt_1'",
+     REPLACE_SAME_ID,
+     REPLACE_SAME_PREVIOUS_HASH],
+)
+def test_the_database_itself_refuses_to_change_or_remove_an_audit_event(
+    tmp_path: Path, samples, statement: str
+) -> None:
+    path = tmp_path / "tta.sqlite3"
+    store = SqliteStore(path)
+    original = samples.event("evt_1")
+    store.append_audit_event(original)
+    store.close()
+
+    with closing(sqlite3.connect(path)) as raw, pytest.raises(sqlite3.IntegrityError, match="append-only"):
+        raw.execute(statement)  # another program with the file open, not this class
+
+    reopened = SqliteStore(path)
+    assert reopened.list_audit_events() == (original,)
+    reopened.close()
+
+
+def test_the_database_itself_refuses_two_events_with_the_same_previous_hash(tmp_path: Path, samples) -> None:
+    path = tmp_path / "tta.sqlite3"
+    store = SqliteStore(path)
+    store.append_audit_event(samples.event("evt_1"))
+    store.close()
+    copy_with_another_id = (
+        "INSERT INTO audit_events (event_id, type, time, previous_hash, hash, body) "
+        "SELECT 'evt_fork', type, time, previous_hash, hash, body FROM audit_events"
+    )
+
+    with closing(sqlite3.connect(path)) as raw:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            raw.execute(copy_with_another_id)
+        raw.execute("DROP TRIGGER audit_events_no_replace")  # the column refuses it even without the trigger
+        with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed: audit_events.previous_hash"):
+            raw.execute(copy_with_another_id)
 
 
 def test_the_store_offers_no_way_to_change_or_remove_an_audit_event(store: SqliteStore) -> None:

@@ -2,6 +2,9 @@
 
 Every sentence is for a person who was not there: it says who acted, on what, the numbers and the reason.
 Rule sentences are quoted from the policy decision, so the audit trail and the policy cannot disagree.
+
+A sentence states only what its context holds. Where the object a clause needs is absent, the clause is left
+out and the sentence says what is not recorded; it never fills the gap with the usual case.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from tta.audit.phrases import (
     coverage_text,
     ended,
     joined,
+    label,
     moment,
     option_text,
     person,
@@ -28,13 +32,28 @@ from tta.audit.phrases import (
     rule_lines,
     source_text,
 )
-from tta.audit.scope import Scope, approvals_given, distinct_rule_ids, option_change, rejection, rules_with
+from tta.audit.scope import (
+    Scope,
+    approvals_given,
+    confirmed_by,
+    distinct_rule_ids,
+    option_change,
+    placed_within_authority,
+    rejection,
+    rules_with,
+)
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
 from tta.contracts.common import DataSource, DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import Offer
 from tta.contracts.order import ApprovalDecision
 
 SentenceBuilder = Callable[[Actor, AuditContext, Scope], str]
+
+DECISION_NOT_RECORDED = "The decision is not recorded."
+DECISION_BEHIND_NOT_RECORDED = "The policy decision behind it is not recorded."
+HOW_CONFIRMED_NOT_RECORDED = "How it was confirmed is not recorded."
+APPROVER_NOT_RECORDED = "Who approved is not recorded."
+BY_THE_AGENT = "placed by the agent within its authority"
 
 
 def _note(decided: ApprovalDecision | None) -> str:
@@ -43,6 +62,15 @@ def _note(decided: ApprovalDecision | None) -> str:
 
 def _what(scope: Scope) -> str:
     return f": {option_text(scope.option)}" if scope.option else ""
+
+
+def recorded_note(context: AuditContext) -> str:
+    """ "The order is recorded in the gateway's order book", said only of an order record the event carries."""
+    return f" {RECORDED}" if context.order is not None else ""
+
+
+def checked_for(scope: Scope) -> str:
+    return f" for {scope.option_label}" if scope.option else ""
 
 
 def request_received(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -105,16 +133,23 @@ def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
     with the totals and limits it read, so it is quoted, not rebuilt."""
     decision = scope.decision
     if decision is None:
-        return "The rules were checked."
+        return f"The rules were checked{checked_for(scope)}. {DECISION_NOT_RECORDED}"
     checked = f"The rules of profile {decision.profile_id} were checked for {scope.option_label}."
     return f"{checked} {ended(decision.sentence)}"
 
 
 def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    """ "Within its authority" and "no rule asked for a human" are said only under a recorded AUTO decision.
+    Raises `ValueError` for a decision with any other verdict."""
+    if not placed_within_authority(scope):
+        return (
+            f"The agent placed {scope.order_label} alone{_what(scope)}. {DECISION_BEHIND_NOT_RECORDED}"
+            f"{recorded_note(context)}"
+        )
     profile = f" under profile {scope.profile_id}" if scope.profile_id else ""
     return (
         f"The agent placed {scope.order_label} alone, within its authority{profile}{_what(scope)}. "
-        f"No rule asked for a human. {RECORDED}"
+        f"No rule asked for a human.{recorded_note(context)}"
     )
 
 
@@ -159,16 +194,28 @@ def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
     return f"{who} approved {scope.order_label}{chose}.{_accepted(scope)}{still}{_note(decided)}"
 
 
+def confirmed_text(context: AuditContext, scope: Scope, how: str | None, not_recorded: str | None = None) -> str:
+    """Order ord_1 is ordered, <how>: <what>. <what is not recorded> <the re-check> <the order book>.
+
+    `how` is None when the context does not show how the order was confirmed; the sentence then says so.
+    """
+    manner = f", {how}" if how else ""
+    gap = not_recorded if how else HOW_CONFIRMED_NOT_RECORDED
+    missing = f" {gap}" if gap else ""
+    checked = f" {RECHECKED}" if context.revalidation is not None and context.revalidation.ok else ""
+    return f"{capital(scope.order_label)} is ordered{manner}{_what(scope)}.{missing}{checked}{recorded_note(context)}"
+
+
 def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    by = confirmed_by(context)
+    if by is PlacedBy.AGENT:
+        return confirmed_text(context, scope, BY_THE_AGENT)
+    if by is None:
+        return confirmed_text(context, scope, None)
     approvers = joined(person(entry.approver_name, entry.roles) for entry in approvals_given(context))
     if approvers:
-        how = f"with approval by {approvers}"
-    elif context.order is not None and context.order.placed_by is PlacedBy.AGENT:
-        how = "placed by the agent within its authority"
-    else:
-        how = "with human approval"
-    checked = f" {RECHECKED}" if context.revalidation is not None and context.revalidation.ok else ""
-    return f"{capital(scope.order_label)} is ordered, {how}{_what(scope)}.{checked} {RECORDED}"
+        return confirmed_text(context, scope, f"with approval by {approvers}")
+    return confirmed_text(context, scope, "with human approval", APPROVER_NOT_RECORDED)
 
 
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -231,7 +278,7 @@ def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> 
 
 def evidence_attached(actor: Actor, context: AuditContext, scope: Scope) -> str:
     evidence = context.evidence
-    found = f" for product {evidence.product_id}: {ended(evidence.sentence)}" if evidence else "."
+    found = f" for product {label(evidence.product_id)}: {ended(evidence.sentence)}" if evidence else "."
     return (
         f"Evidence from outside Valio Aimo's data was attached to {scope.approval_label}{found} "
         "It changes no status and no verdict."

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 
 import pytest
 
 from tta.audit import AuditTrail
 from tta.contracts.audit import ActorKind, AuditContext, AuditEventType, AuditView
-from tta.contracts.common import AuditReader, OrderStatus, PlacedBy
+from tta.contracts.common import AuditReader, OrderStatus, PlacedBy, Unit
 from tta.contracts.errors import InvalidRequest
+from tta.contracts.request import PurchaseRequest, RequestLine
 
 LIMIT_VALUES = ("750", "3000", "3,000", "90%", "min_fill_ratio", "max_order_net_eur", "max_daily_net_eur")
 ALLERGEN_EXCLUSIONS = re.compile(r"\b(AM|AW|STRICT)\b|exclude_allergens|excluded_allergens|allergen_strictness")
@@ -99,7 +101,7 @@ def test_the_supplier_sees_the_agent_and_only_the_rules_about_its_own_data(hotel
     assert buyer.rule_ids == ("F-01", "P-01")
     assert supplier[6].rule_ids == ("F-01",)
     assert requested.rule_ids == ()
-    assert requested.actor.id == "agent:hotel-kitchen" and requested.actor.display_name == "Hotel kitchen agent"
+    assert requested.actor.model_dump(exclude_none=True) == {"kind": ActorKind.AGENT, "id": "agent:hotel-kitchen"}
     assert supplier[4].facts["decision"] == {
         "verdict": "APPROVAL", "rule_ids": [], "evaluated_at": "2026-11-14T02:52:00+02:00",
     }
@@ -129,8 +131,9 @@ def test_the_trail_of_an_order_includes_the_steps_before_the_order_existed(
 
 
 def test_the_trail_of_an_order_leaves_out_other_orders_of_the_same_offer(hotel_flow: AuditTrail, samples) -> None:
-    other = samples.order(samples.partial_option(), OrderStatus.ORDERED, order_id="ord_9",
-                          placed_by=PlacedBy.AGENT, approval_id=None)
+    within_authority = samples.option("opt_3", (samples.line("464056", "200", "2.14"),), samples.decision(), "200")
+    other = samples.order(within_authority, OrderStatus.ORDERED, order_id="ord_9", placed_by=PlacedBy.AGENT,
+                          approval_id=None)
     hotel_flow.record(AuditEventType.ORDER_PLACED_BY_AGENT, samples.agent_hotel, AuditContext(order=other))
 
     first = hotel_flow.view(AuditReader.BUYER, order_id="ord_1")
@@ -160,11 +163,18 @@ def test_events_can_be_read_by_offer(hotel_flow: AuditTrail, ward_flow: AuditTra
     ]
 
 
-def test_a_view_says_whether_the_whole_chain_verifies(hotel_flow: AuditTrail) -> None:
+def test_a_view_says_whether_the_chain_verifies_and_counts_only_its_own_events(
+    hotel_flow: AuditTrail, ward_flow: AuditTrail
+) -> None:
     view = hotel_flow.view(AuditReader.BUYER, order_id="ord_1")
+    everything = hotel_flow.view(AuditReader.SUPPLIER)
 
     assert (view.chain.ok, view.chain.checked, view.chain.first_bad_event_id) == (True, 8, None)
-    assert view.chain.sentence == hotel_flow.verify_chain().sentence
+    assert view.chain.sentence == (
+        "The audit trail is intact: each of the 8 events shown here matches its hash, and the chain they belong "
+        "to verifies."
+    )
+    assert everything.chain.checked == len(everything.events) == hotel_flow.verify_chain().checked == 12
 
 
 def test_a_buyer_view_over_every_buyer_is_refused(hotel_flow: AuditTrail) -> None:
@@ -179,3 +189,63 @@ def test_a_reader_given_as_text_gets_its_own_view_and_an_unknown_reader_gets_non
     assert as_text.events == hotel_flow.view(AuditReader.SUPPLIER, order_id="ord_1").events
     with pytest.raises(InvalidRequest, match="two readers"):
         hotel_flow.view("auditor", order_id="ord_1")
+
+
+def test_the_supplier_never_reads_the_buyer_s_own_terms_or_claims(trail: AuditTrail, samples) -> None:
+    by_name = RequestLine(text="20 kg of biscuits without peanuts", name_terms=("biscuits", "without", "peanuts"),
+                          required_claims=("FREE_FROM_PEANUTS",), quantity=Decimal("20"), unit=Unit.KG)
+    by_type = RequestLine(text="5 l of oat drink, gluten free", product_type="oat_drink", product_ids=("468319",),
+                          required_claims=("FREE_FROM_GLUTEN",), quantity=Decimal("5"), unit=Unit.L)
+    context = AuditContext(profile_id="allergy-ward", offer_id="off_3",
+                           request=PurchaseRequest(lines=(by_name, by_type)))
+
+    trail.record(AuditEventType.REQUEST_RECEIVED, samples.agent_ward, context)
+    trail.record(AuditEventType.REQUEST_PARSED, samples.gateway, context)
+    buyer = trail.view(AuditReader.BUYER, offer_id="off_3")
+    supplier = trail.view(AuditReader.SUPPLIER, offer_id="off_3")
+
+    assert supplier.events[1].sentence == (
+        "The request was read as: 20 kg of a product described in free text; 5 litres of product 468319."
+    )
+    assert supplier.events[1].facts["request"]["lines"] == [
+        {"product_type": None, "product_ids": [], "quantity": 20.0, "unit": "KG", "pack": "BULK"},
+        {"product_type": "oat_drink", "product_ids": ["468319"], "quantity": 5.0, "unit": "L", "pack": "BULK"},
+    ]
+    shown = _readable(supplier)
+    assert [word for word in ("peanut", "PEANUT", "biscuit", "GLUTEN", "gluten", "claim") if word in shown] == []
+    assert 'products named "biscuits without peanuts" with claim FREE_FROM_PEANUTS' in buyer.events[1].sentence
+    assert buyer.events[1].facts["request"]["lines"][0]["name_terms"] == ["biscuits", "without", "peanuts"]
+
+
+def test_the_supplier_sees_an_agent_by_id_and_kind_only_and_no_name_of_a_human(hotel_flow: AuditTrail) -> None:
+    actors = [event.actor.model_dump(exclude_none=True) for event in hotel_flow.view(AuditReader.SUPPLIER).events]
+
+    assert {"kind": ActorKind.AGENT, "id": "agent:hotel-kitchen"} in actors
+    assert {"kind": ActorKind.HUMAN, "id": "buyer-human", "display_name": "A human at the buyer"} in actors
+    assert [actor for actor in actors if actor.get("role") or "Hotel kitchen agent" in actor.values()] == []
+
+
+def test_an_event_recorded_with_only_an_id_is_found_by_the_profile_view_when_what_it_names_is_stored(
+    trail: AuditTrail, store, samples
+) -> None:
+    store.save_order(samples.order(samples.ward_option(), OrderStatus.ORDERED, order_id="ord_2",
+                                   profile_id="allergy-ward", offer_id="off_2", placed_by=PlacedBy.AGENT,
+                                   approval_id=None))
+    store.save_offer(samples.hotel_offer())
+    store.save_approval(samples.approval())
+
+    by_order = trail.record(AuditEventType.ORDER_CONFIRMED, samples.gateway, AuditContext(order_id="ord_2"))
+    by_offer = trail.record(AuditEventType.LOOKUP_PERFORMED, samples.gateway, AuditContext(offer_id="off_1"))
+    by_approval = trail.record(AuditEventType.EVIDENCE_ATTACHED, samples.gateway, AuditContext(approval_id="apr_1"))
+    unknown = trail.record(AuditEventType.ORDER_CONFIRMED, samples.gateway, AuditContext(order_id="ord_unknown"))
+    stated = trail.record(AuditEventType.ORDER_CONFIRMED, samples.gateway,
+                          AuditContext(order_id="ord_2", profile_id="hotel-kitchen"))
+
+    assert [event.data.profile_id for event in (by_order, by_offer, by_approval, unknown, stated)] == [
+        "allergy-ward", "hotel-kitchen", "hotel-kitchen", None, "hotel-kitchen",
+    ]
+    assert [event.id for event in trail.view(AuditReader.BUYER, profile_id="allergy-ward").events] == [by_order.id]
+    assert [event.id for event in trail.view(AuditReader.BUYER, profile_id="hotel-kitchen").events] == [
+        by_offer.id, by_approval.id, stated.id,
+    ]
+    assert [event.id for event in trail.view(AuditReader.BUYER, order_id="ord_unknown").events] == [unknown.id]

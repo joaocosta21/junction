@@ -6,17 +6,23 @@ CloudEvents 1.0, there is one chain for the whole trail instead of one per order
 sentence for the buyer and one for the supplier instead of a visibility flag, and nothing is reported back
 to the supplier as a fault in its data.
 
-    trail = AuditTrail(store, clock)    # one per store and process: it lets one writer in at a time
+    trail = AuditTrail(store, clock)
     trail.record(AuditEventType.APPROVAL_REQUESTED, actor, AuditContext(order=order, approval=approval))
+    trail.head()                        # (number of events, hash of the last one): for another party to keep
 
-What each event type reads from the context. A missing object only makes the sentence shorter.
+Several trails, in one process or in several, can write to one database: the store accepts an event only when
+it follows the last one, and a trail that was overtaken reads the head again (`trail.py`). What the chain
+shows and what it does not is in `chain.py`.
+
+What each event type reads from the context. A sentence states only what its context holds: a missing object
+leaves its clause out, and where that would mislead the sentence says what is not recorded.
 
     request.received        facts["text"] (the pasted words) or request · profile_id
     request.parsed          request
     lookup.performed        facts["products_looked_up"] and facts["source"], or offer
     offer.created           offer
     policy.evaluated        decision, or option with its decision
-    order.placed_by_agent   order
+    order.placed_by_agent   order (its decision must have the verdict AUTO; any other is a `ValueError`)
     approval.requested      order · approval
     approval.decided        order · approval · approval_decision · option and decision when another option is chosen
     order.confirmed         order · approval · revalidation
@@ -28,6 +34,8 @@ What each event type reads from the context. A missing object only makes the sen
     evidence.attached       approval · evidence
 
 Give `offer_id` on the request and lookup events as well: the trail of an order is found through its offer.
+An event given ids only takes its buyer profile from the stored order, approval or offer, so the buyer's view
+finds it; when the id names nothing stored, the event has no profile and no view by buyer profile shows it.
 """
 
 from tta.audit.trail import AuditTrail

@@ -9,7 +9,7 @@ import pytest
 
 from tta.audit import AuditTrail
 from tta.contracts.audit import GENESIS_HASH, AuditContext, AuditEventType
-from tta.contracts.common import OrderStatus
+from tta.contracts.common import OrderStatus, PlacedBy
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import AuditSink
 from tta.store import SqliteStore
@@ -20,7 +20,11 @@ ATTRIBUTE_NAME = re.compile(r"^[a-z0-9]{1,20}$")
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _context(samples) -> AuditContext:
+def _context(samples, event_type: AuditEventType | None = None) -> AuditContext:
+    if event_type is AuditEventType.ORDER_PLACED_BY_AGENT:
+        # The agent places an order alone only under a decision that asks for nobody.
+        placed = samples.order(samples.ward_option(), OrderStatus.ORDERED, placed_by=PlacedBy.AGENT, approval_id=None)
+        return AuditContext(order=placed)
     option = samples.partial_option()
     return AuditContext(order=samples.order(option, OrderStatus.PENDING_APPROVAL), approval=samples.approval())
 
@@ -29,7 +33,7 @@ def _context(samples) -> AuditContext:
 def test_every_envelope_has_the_attributes_cloudevents_requires(
     trail: AuditTrail, samples, event_type: AuditEventType
 ) -> None:
-    event = trail.record(event_type, samples.agent_hotel, _context(samples))
+    event = trail.record(event_type, samples.agent_hotel, _context(samples, event_type))
 
     envelope = event.model_dump(mode="json")
 
@@ -146,4 +150,4 @@ def test_the_trail_implements_the_audit_port_and_can_only_append(trail: AuditTra
     public = sorted(name for name in dir(trail) if not name.startswith("_"))
 
     assert isinstance(trail, AuditSink)
-    assert public == ["record", "verify_chain", "view"]
+    assert public == ["head", "record", "verify_chain", "view"]

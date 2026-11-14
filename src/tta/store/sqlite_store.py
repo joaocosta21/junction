@@ -1,7 +1,8 @@
 """The `Store` port on SQLite from the standard library: no ORM, one JSON document per row.
 
 Scores on the 20% "how decisions are logged and auditable": orders, approvals and the audit trail
-survive a restart, and the audit table can only be appended to through this class.
+survive a restart, the audit table can only be appended to, and an event is stored only when it follows
+the last one, whichever process or connection writes it.
 """
 
 from __future__ import annotations
@@ -16,15 +17,20 @@ from pathlib import Path
 from pydantic_core import to_json
 
 from tta.config import Settings
-from tta.contracts.audit import AuditEvent
+from tta.contracts.audit import GENESIS_HASH, AuditEvent
 from tta.contracts.common import ApprovalStatus, Contract, OrderStatus
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.offer import Offer
 from tta.contracts.order import Approval, Order
 from tta.store import schema
+from tta.store.errors import AuditChainConflict
 
 IN_MEMORY = ":memory:"
 STORE_UNAVAILABLE_DETAIL = "The gateway's own database could not be read or written. Nothing was changed."
+CHAIN_MOVED_DETAIL = (
+    "The audit event does not follow the last event of the trail: another writer added an event first. "
+    "Nothing was recorded."
+)
 
 
 def _encode(model: Contract) -> str:
@@ -36,7 +42,8 @@ class SqliteStore:
     """Offers, orders, approvals, idempotency keys and audit events in one SQLite database.
 
     One connection, guarded by a lock, so the FastAPI thread pool can share it. Audit events have
-    an append and two reads; there is no method that changes or removes one.
+    an append and two reads; there is no method that changes or removes one, and the database refuses
+    an `UPDATE`, a `DELETE` or a replacing `INSERT` on them (`schema.py`).
     """
 
     def __init__(self, path: Path | str = IN_MEMORY) -> None:
@@ -58,11 +65,16 @@ class SqliteStore:
             self._connection.close()
 
     @contextmanager
-    def _session(self) -> Iterator[sqlite3.Connection]:
-        """One unit of work: committed at the end, rolled back on any error."""
+    def _session(self, begin: str | None = None) -> Iterator[sqlite3.Connection]:
+        """One unit of work: committed at the end, rolled back on any error.
+
+        `begin` opens the transaction at once with that statement; without it SQLite opens one at the first write.
+        """
         with self._lock:
             try:
                 with self._connection:
+                    if begin is not None:
+                        self._connection.execute(begin)
                     yield self._connection
             except sqlite3.Error as error:
                 raise SupplierUnavailable(STORE_UNAVAILABLE_DETAIL) from error
@@ -135,15 +147,24 @@ class SqliteStore:
         return None if row is None else row[0]
 
     def append_audit_event(self, event: AuditEvent) -> None:
-        """Add one event at the end. An id that is already stored is refused: nothing is replaced."""
+        """Add one event at the end, in one transaction that holds the write lock from the first read.
+
+        An id that is already stored is refused (`ValueError`): nothing is replaced. An event whose
+        `previous_hash` is not the hash of the last stored event (the genesis hash in an empty trail) is
+        refused with `AuditChainConflict`: another writer appended first, and storing it would fork the chain.
+        """
         data = event.data
-        with self._session() as connection:
+        with self._session(schema.BEGIN_WRITE) as connection:
             if connection.execute(schema.AUDIT_EVENT_EXISTS, (event.id,)).fetchone() is not None:
                 raise ValueError(f"Audit event {event.id} is already stored; the audit trail is append-only.")
+            last = connection.execute(schema.LAST_AUDIT_HASH).fetchone()
+            head = GENESIS_HASH if last is None else last[0]
+            if data.previous_hash != head:
+                raise AuditChainConflict(CHAIN_MOVED_DETAIL)
             connection.execute(
                 schema.APPEND_AUDIT_EVENT,
                 (event.id, event.type, event.time.isoformat(), data.profile_id, data.offer_id, data.order_id,
-                 data.approval_id, data.hash, _encode(event)),
+                 data.approval_id, data.previous_hash, data.hash, _encode(event)),
             )
 
     def list_audit_events(

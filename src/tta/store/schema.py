@@ -2,6 +2,13 @@
 
 Each row keeps the whole contract object as JSON in `body`; the other columns exist only to find rows.
 `seq` keeps the order in which rows were first written.
+
+The audit table is guarded by the database as well as by the code. Three triggers refuse, from any connection,
+an `UPDATE`, a `DELETE`, and an `INSERT` that names a stored event's id or previous hash (with `OR REPLACE`
+such an insert would remove the stored row without running the trigger on `DELETE`). `previous_hash` is also
+unique, so two events can never follow the same event.
+Limit: whoever can write the database file can drop a trigger first. What the hash chain still shows then,
+and what it does not, is stated in `tta.audit.chain`.
 """
 
 from __future__ import annotations
@@ -36,20 +43,36 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     PRIMARY KEY (scope, key)
 );
 CREATE TABLE IF NOT EXISTS audit_events (
-    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id    TEXT NOT NULL UNIQUE,
-    type        TEXT NOT NULL,
-    time        TEXT NOT NULL,
-    profile_id  TEXT,
-    offer_id    TEXT,
-    order_id    TEXT,
-    approval_id TEXT,
-    hash        TEXT NOT NULL,
-    body        TEXT NOT NULL CHECK (json_valid(body))
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id      TEXT NOT NULL UNIQUE,
+    type          TEXT NOT NULL,
+    time          TEXT NOT NULL,
+    profile_id    TEXT,
+    offer_id      TEXT,
+    order_id      TEXT,
+    approval_id   TEXT,
+    previous_hash TEXT NOT NULL UNIQUE,
+    hash          TEXT NOT NULL,
+    body          TEXT NOT NULL CHECK (json_valid(body))
 );
 CREATE INDEX IF NOT EXISTS audit_events_by_order ON audit_events (order_id);
 CREATE INDEX IF NOT EXISTS audit_events_by_offer ON audit_events (offer_id);
 CREATE INDEX IF NOT EXISTS audit_events_by_profile ON audit_events (profile_id);
+CREATE TRIGGER IF NOT EXISTS audit_events_no_update BEFORE UPDATE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only: an event cannot be changed');
+END;
+CREATE TRIGGER IF NOT EXISTS audit_events_no_delete BEFORE DELETE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only: an event cannot be removed');
+END;
+CREATE TRIGGER IF NOT EXISTS audit_events_no_replace BEFORE INSERT ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only: an event cannot be replaced')
+    WHERE EXISTS (
+        SELECT 1 FROM audit_events WHERE event_id = NEW.event_id OR previous_hash = NEW.previous_hash
+    );
+END;
 """
 
 SAVE_OFFER = """
@@ -88,10 +111,13 @@ ORDER BY seq
 REMEMBER_KEY = "INSERT OR IGNORE INTO idempotency_keys (scope, key, order_id) VALUES (?, ?, ?)"
 ORDER_ID_FOR_KEY = "SELECT order_id FROM idempotency_keys WHERE scope = ? AND key = ?"
 
+# Takes the write lock before the head is read, so no other connection can append between the check and the insert.
+BEGIN_WRITE = "BEGIN IMMEDIATE"
 AUDIT_EVENT_EXISTS = "SELECT 1 FROM audit_events WHERE event_id = ?"
 APPEND_AUDIT_EVENT = """
-INSERT INTO audit_events (event_id, type, time, profile_id, offer_id, order_id, approval_id, hash, body)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO audit_events
+    (event_id, type, time, profile_id, offer_id, order_id, approval_id, previous_hash, hash, body)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 LIST_AUDIT_EVENTS = """
 SELECT body FROM audit_events
