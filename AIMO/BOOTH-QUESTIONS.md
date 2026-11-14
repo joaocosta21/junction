@@ -354,6 +354,12 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Built overnight:** the outcome event (placed by agent, approval requested, blocked, not placed) carries the policy decision, the facts it read and the policy hash. A separate "policy evaluated" event is written when the offer is built.
 - **Ask:** "Is one event per outcome what we want on the timeline?"
 
+**FIX3-1 · Is a milk for coffee what a buyer who asks for "milk" expects?** (answers T02-4 in part)
+- **Built overnight:** the `milk` type now leaves out the 13 products of category 10400 that are not milk (11 sour milks, a coffee drink, a soy yoghurt): 78 of 91 stay, and lactose-free milk is 30 products instead of 35. A new type `sour_milk` holds the 11 (the table has 30 types).
+- **Still in `milk`:** four milks sold for coffee — `462626`, `464237` "Valio coffee milk", `473142` "coffee milk drink vanilla" and `463380` "Arla Cafè milk 1 L UHT lactose free".
+- **Why it matters tonight:** `463380` supplies 565 of the 1,000 litres in scenario 1's best option. Without it the confirmed lactose-free milks cover 435 litres and option 1 becomes a partial fill.
+- **Ask:** "Keep the coffee milks in `milk`? Drop the vanilla one?" Leaving one out is one term in `exclude_terms` of `milk` in `src/tta/catalog/product_types.yaml`.
+
 ---
 
 ## Claims we no longer make

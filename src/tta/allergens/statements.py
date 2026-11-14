@@ -6,8 +6,10 @@ How the family is read (SPEC section 6; the choices are listed in the T03 hand-b
   of the family. A member stated FREE_FROM or UNDECLARED says nothing about the family as a whole.
 - Declared oats (GO) count as MAY_CONTAIN for the gluten cereals (AW): gluten-free oats exist, so
   the product is neither rejected nor passed on that statement alone.
-- Asked about a member with no statement of its own: a declared family means the member may be
-  contained. A family stated FREE_FROM or UNDECLARED is not read as a statement about the member.
+- Asked about a member: a declared family means the member may be contained, unless the member
+  itself is stated FREE_FROM (lactose-free milk declares milk and states lactose FREE_FROM). A member
+  marked UNDECLARED, or not stated at all, does not outrank its declared family. A family stated
+  FREE_FROM or UNDECLARED is not read as a statement about the member.
 - On conflicting statements the least safe one counts.
 - X99 is a general statement and never a statement about one allergen.
 """
@@ -15,7 +17,7 @@ How the family is read (SPEC section 6; the choices are listed in the T03 hand-b
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from tta.allergens.codes import (
@@ -57,11 +59,16 @@ _BASIS_RANK = {Basis.DIRECT: 3, Basis.MEMBER: 2, Basis.OATS: 1, Basis.FAMILY: 0}
 
 @dataclass(frozen=True)
 class Resolution:
-    """The relation that counts for one code, the code the statement was made about, and the basis."""
+    """The relation that counts for one code, the code the statement was made about, and the basis.
+
+    `own_relation` is what the statements on the code itself say, least safe first. It differs from
+    `relation` when the statement about another code counts.
+    """
 
     relation: AllergenRelation
     source_code: str | None
     basis: Basis
+    own_relation: AllergenRelation = AllergenRelation.NOT_STATED
 
 
 def least_safe(relations: Iterable[AllergenRelation]) -> AllergenRelation:
@@ -72,11 +79,13 @@ def least_safe(relations: Iterable[AllergenRelation]) -> AllergenRelation:
 
 def resolve(statements: Sequence[AllergenStatement], code: str) -> Resolution:
     """What the statements say about `code`, family-aware, least safe first."""
-    candidates = [*_direct(statements, code), *_from_members(statements, code)]
-    if not candidates:
-        candidates = _from_family(statements, code)
+    direct = _direct(statements, code)
+    own_relation = least_safe(resolution.relation for resolution in direct)
+    # Only FREE_FROM on the member itself settles the question against its declared family.
+    family = [] if own_relation is AllergenRelation.FREE_FROM else _from_family(statements, code)
+    candidates = [*direct, *_from_members(statements, code), *family]
     if candidates:
-        return max(candidates, key=_preference)
+        return replace(max(candidates, key=_preference), own_relation=own_relation)
     if any(statement.code == GENERAL_STATEMENT_CODE for statement in statements):
         return Resolution(AllergenRelation.NOT_STATED, GENERAL_STATEMENT_CODE, Basis.GENERAL)
     return Resolution(AllergenRelation.NOT_STATED, None, Basis.NONE)

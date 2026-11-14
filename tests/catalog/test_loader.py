@@ -10,12 +10,15 @@ from typing import Any
 
 import pytest
 
+from tta.allergens import is_known_code
 from tta.catalog import ProductCatalog
 from tta.catalog.loader import load_metric, load_products
+from tta.catalog.product_types import load_product_types
 from tta.config import Settings
 from tta.contracts.common import AllergenRelation
 from tta.contracts.errors import SupplierUnavailable
 from tta.contracts.ports import Catalog
+from tta.contracts.request import ProductQuery
 
 CATALOG_SIZE = 17_546
 LOAD_BUDGET_SECONDS = 3.0
@@ -37,6 +40,16 @@ def _record(product_id: str = "460001", **overrides: Any) -> dict[str, Any]:
     }
     record.update(overrides)
     return record
+
+
+def _allergen_groups(allergen: Any = (), non_allergen: Any = ()) -> dict[str, Any]:
+    """A `synkkaData` object with the two allergen groups and nothing else."""
+    return {
+        "classifications": [
+            {"name": "allergen", "values": list(allergen)},
+            {"name": "nonAllergen", "values": list(non_allergen)},
+        ]
+    }
 
 
 def _write_products(tmp_path: Path, records: Any) -> Path:
@@ -161,6 +174,31 @@ def test_unknown_id_returns_nothing_without_an_exception(catalog: ProductCatalog
     assert catalog.same_category("459999", 5) == ()
 
 
+def test_a_deleted_product_is_not_returned_by_any_lookup(tmp_path: Path) -> None:
+    # The catalog has no deleted product today (0 of 17,546), so the file is hand-built.
+    records = [
+        _record("460001", substitutions=[{"substituteProduct": "460002"}, {"substituteProduct": "460003"}]),
+        _record("460002", deleted=True, substitutions=[{"substituteProduct": "460001"}]),
+        _record("460003"),
+    ]
+    catalog = ProductCatalog(load_products(_write_products(tmp_path, records)), load_product_types())
+
+    by_ids = catalog.search(ProductQuery(product_ids=("460001", "460002", "460003")))
+
+    assert catalog.get_product("460002") is None
+    assert catalog.get_product("460001") is not None
+    assert catalog.listed_substitutes("460001") == ("460003",)
+    assert catalog.listed_substitutes("460002") == ()
+    assert [product.id for product in catalog.same_category("460001", 5)] == ["460003"]
+    assert catalog.same_category("460002", 5) == ()
+    assert [product.id for product in by_ids.products] == ["460001", "460003"]
+    assert by_ids.note is not None and "460002" in by_ids.note
+
+
+def test_the_catalog_has_no_deleted_product(catalog: ProductCatalog) -> None:
+    assert sum(product.deleted for product in catalog.products) == 0
+
+
 def test_loader_without_csv_files_leaves_both_metrics_unknown(tmp_path: Path) -> None:
     path = _write_products(tmp_path, [_record()])
 
@@ -210,10 +248,15 @@ def test_malformed_product_file_is_rejected(tmp_path: Path, content: str) -> Non
         [_record(category=10400)],
         [_record(allowedLotSize=float("nan"))],
         [_record(allowedLotSize=True)],
+        [_record(synkkaData=_allergen_groups(allergen=[{"id": "QQ", "unit": "CONTAINS"}]))],
+        [_record(synkkaData=_allergen_groups(non_allergen=[{"id": "MILK", "unit": "FREE_FROM"}]))],
+        [_record(synkkaData=_allergen_groups(allergen=[{"id": "  ", "unit": "MAY_CONTAIN"}]))],
+        [_record(synkkaData=_allergen_groups(allergen=[{"id": 7, "unit": "CONTAINS"}]))],
     ],
     ids=[
         "missing-key", "zero-lot", "text-lot", "duplicate-id", "unknown-relation", "non-allergen-not-free-from",
         "allergen-group-free-from", "category-not-text", "lot-not-finite", "lot-boolean",
+        "unknown-allergen-code", "unknown-non-allergen-code", "blank-allergen-code", "allergen-code-not-text",
     ],
 )
 def test_invalid_record_is_rejected_and_names_the_product(tmp_path: Path, records: list[dict[str, Any]]) -> None:
@@ -223,6 +266,43 @@ def test_invalid_record_is_rejected_and_names_the_product(tmp_path: Path, record
         load_products(path)
 
     assert "460001" in raised.value.detail
+
+
+def test_allergen_codes_are_loaded_as_the_code_table_spells_them(tmp_path: Path) -> None:
+    # Unnormalised, "am" matches no excluded code and the product passes under DECLARED_ONLY.
+    groups = _allergen_groups(
+        allergen=[{"id": "am", "unit": "CONTAINS"}, {"id": " GO ", "unit": "MAY_CONTAIN"}],
+        non_allergen=[{"id": "aw\n", "unit": "FREE_FROM"}],
+    )
+    path = _write_products(tmp_path, [_record(synkkaData=groups)])
+
+    (product,) = load_products(path)
+
+    assert [(statement.code, statement.relation) for statement in product.allergen_statements] == [
+        ("AM", AllergenRelation.CONTAINS),
+        ("GO", AllergenRelation.MAY_CONTAIN),
+        ("AW", AllergenRelation.FREE_FROM),
+    ]
+
+
+def test_an_allergen_code_outside_the_code_table_rejects_the_file_and_is_named(tmp_path: Path) -> None:
+    groups = _allergen_groups(allergen=[{"id": "AM", "unit": "CONTAINS"}, {"id": "QQ", "unit": "CONTAINS"}])
+    path = _write_products(tmp_path, [_record("460001"), _record("460002", synkkaData=groups)])
+
+    with pytest.raises(SupplierUnavailable) as raised:
+        load_products(path)
+
+    assert "460002" in raised.value.detail
+    assert "'QQ'" in raised.value.detail
+    assert "460001" not in raised.value.detail
+
+
+def test_every_allergen_code_of_the_catalog_is_in_the_code_table(catalog: ProductCatalog) -> None:
+    codes = {statement.code for product in catalog.products for statement in product.allergen_statements}
+
+    # Catalog: 44 codes in `allergen` plus `UN`, only in `nonAllergen` (AIMO/docs/SCHEMA-AND-CODES.md section 2).
+    assert len(codes) == 45
+    assert all(is_known_code(code) for code in codes)
 
 
 def test_metric_file_is_validated(tmp_path: Path) -> None:

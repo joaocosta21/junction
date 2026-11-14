@@ -20,6 +20,7 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 
+from tta.allergens import is_known_code, normalise_code
 from tta.catalog.data_errors import data_file_error
 from tta.contracts.allergen import AllergenStatement
 from tta.contracts.common import AllergenRelation
@@ -201,12 +202,27 @@ def _statements(groups: Mapping[str, Any]) -> list[AllergenStatement]:
         relation = AllergenRelation(value["unit"])
         if relation not in DECLARED_RELATIONS:
             raise ValueError(f"the allergen group states {relation.value} for {value['id']}")
-        statements.append(_statement(value["id"], relation))
+        statements.append(_statement(_allergen_code(value["id"]), relation))
     for value in groups.get(NON_ALLERGEN_GROUP, ()):
         if value["unit"] != AllergenRelation.FREE_FROM.value:
             raise ValueError(f"the nonAllergen group states {value['unit']} for {value['id']}")
-        statements.append(_statement(value["id"], AllergenRelation.FREE_FROM))
+        statements.append(_statement(_allergen_code(value["id"]), AllergenRelation.FREE_FROM))
     return statements
+
+
+def _allergen_code(raw: Any) -> str:
+    """The code as the allergen code table spells it. A code outside the table rejects the file.
+
+    A statement with a misspelt code would match no excluded allergen, and the product would pass
+    under DECLARED_ONLY. The file has 45 codes, all in the table (AIMO/docs/SCHEMA-AND-CODES.md
+    sections 2.1, 2.3 and 3.3).
+    """
+    if not isinstance(raw, str):
+        raise TypeError(f"expected an allergen code as text, got {type(raw).__name__}")
+    code = normalise_code(raw)
+    if not is_known_code(code):
+        raise ValueError(f"the allergen code {raw!r} is not in the allergen code table")
+    return code
 
 
 @cache

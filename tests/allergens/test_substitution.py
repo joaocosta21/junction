@@ -97,11 +97,50 @@ def test_codes_are_compared_one_by_one_without_families(statements: Build) -> No
     assert _added_codes(check.added) == ["UW"]
 
 
-def test_the_rule_is_about_codes_not_about_the_level(statements: Build) -> None:
-    # SPEC section 6 names the allergen, not the level: MAY_CONTAIN on the original, CONTAINS on the substitute.
+def test_a_substitute_that_raises_may_contain_to_contains_fails_and_says_so(statements: Build) -> None:
+    # SPEC section 6: a substitute must not raise an allergen from MAY_CONTAIN to CONTAINS.
     check = check_substitute(statements(("AN", "MAY_CONTAIN")), statements(("AN", "CONTAINS")))
 
+    assert not check.passes
+    assert check.added == (AllergenStatement(code="AN", relation=AllergenRelation.CONTAINS),)
+    assert check.sentence == "The substitute raises 1 allergen from may contain to contains: tree nuts (AN)."
+
+
+def test_a_substitute_that_lowers_contains_to_may_contain_passes(statements: Build) -> None:
+    check = check_substitute(statements(("AN", "CONTAINS")), statements(("AN", "MAY_CONTAIN")))
+
     assert check.passes
+    assert check.added == ()
+
+
+def test_the_least_safe_level_of_each_product_is_the_one_compared(statements: Build) -> None:
+    both_levels = statements(("AN", "MAY_CONTAIN"), ("AN", "CONTAINS"))
+
+    assert check_substitute(both_levels, statements(("AN", "CONTAINS"))).passes
+    assert not check_substitute(statements(("AN", "MAY_CONTAIN")), both_levels).passes
+
+
+def test_an_added_and_a_raised_allergen_are_both_named(statements: Build) -> None:
+    original = statements(("AN", "MAY_CONTAIN"), ("AM", "CONTAINS"), ("AY", "MAY_CONTAIN"))
+    substitute = statements(("AY", "CONTAINS"), ("AN", "CONTAINS"), ("AM", "CONTAINS"), ("AE", "MAY_CONTAIN"))
+
+    check = check_substitute(original, substitute)
+
+    assert not check.passes
+    assert [(statement.code, statement.relation.value) for statement in check.added] == [
+        ("AE", "MAY_CONTAIN"), ("AN", "CONTAINS"), ("AY", "CONTAINS"),
+    ]
+    assert check.sentence == (
+        "The substitute adds 1 allergen that the original does not declare: eggs (AE, may contain). "
+        "It raises 2 allergens from may contain to contains: tree nuts (AN), soybeans (AY)."
+    )
+
+
+def test_a_passing_substitute_says_nothing_was_added_or_raised(statements: Build) -> None:
+    check = check_substitute(statements(("AN", "MAY_CONTAIN")), statements(("AN", "MAY_CONTAIN")))
+
+    assert check.passes
+    assert "raises none" in check.sentence
 
 
 def test_x99_on_the_substitute_is_not_an_added_allergen(statements: Build) -> None:

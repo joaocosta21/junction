@@ -28,9 +28,11 @@ class ProductCatalog:
 
     def __init__(self, products: Iterable[Product], product_types: Mapping[str, ProductType]) -> None:
         self._products = tuple(sorted(products, key=lambda product: product.id))
-        self._by_id = {product.id: product for product in self._products}
         self._product_types = dict(product_types)
         self._index = catalog_search.build_index(self._products)
+        # A deleted product is served by no lookup, the same as by the search (0 of 17,546 today).
+        self._by_id = {product.id: product for product in self._index.products}
+        self._deleted_ids = frozenset(product.id for product in self._products if product.deleted)
         by_category: defaultdict[str, list[Product]] = defaultdict(list)
         for product in self._index.products:
             by_category[product.category].append(product)
@@ -44,10 +46,11 @@ class ProductCatalog:
 
     @property
     def products(self) -> tuple[Product, ...]:
-        """Every product of the file, in id order."""
+        """Every product of the file, in id order, deleted ones included. The lookups leave those out."""
         return self._products
 
     def get_product(self, product_id: str) -> Product | None:
+        """The product, or `None` for an id that is not in the file or is marked deleted."""
         return self._by_id.get(product_id)
 
     def search(self, query: ProductQuery) -> SearchResult:
@@ -60,14 +63,24 @@ class ProductCatalog:
         """The substitutes Valio lists for the product, in file order, as a seed to re-check.
 
         A product is never its own substitute: `471661` lists itself (AIMO/FINDINGS.md section 5).
+        A deleted product has no substitutes and is nobody's substitute.
         """
         product = self._by_id.get(product_id)
         if product is None:
             return ()
-        return tuple(dict.fromkeys(other for other in product.listed_substitutes if other != product_id))
+        return tuple(
+            dict.fromkeys(
+                other
+                for other in product.listed_substitutes
+                if other != product_id and other not in self._deleted_ids
+            )
+        )
 
     def same_category(self, product_id: str, digits: int) -> tuple[Product, ...]:
-        """Other products sharing the first `digits` digits of the category, in id order."""
+        """Other products sharing the first `digits` digits of the category, in id order.
+
+        Deleted products are left out, and a deleted product has no such list.
+        """
         if not 1 <= digits <= CATEGORY_DIGITS:
             raise InvalidRequest(f"A category is compared on 1 to {CATEGORY_DIGITS} digits, not {digits}.")
         product = self._by_id.get(product_id)

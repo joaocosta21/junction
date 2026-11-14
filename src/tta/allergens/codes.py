@@ -102,6 +102,11 @@ def is_known_code(code: str) -> bool:
     return code in ALLERGEN_CODES
 
 
+def normalise_code(code: str) -> str:
+    """A code as the table spells it: no blanks around it, upper case. It may still be unknown."""
+    return code.strip().upper()
+
+
 def gs1_name(code: str) -> str | None:
     entry = ALLERGEN_CODES.get(code)
     return entry.gs1_name if entry else None

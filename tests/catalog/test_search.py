@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from typing import Any
 
 import pytest
 
-from tta.catalog import ProductCatalog
+from tta.catalog import ProductCatalog, ProductType
 from tta.contracts.errors import InvalidRequest
+from tta.contracts.product import Product
 from tta.contracts.request import ProductQuery
 
 MILK_CATEGORY = "10400"
+MILKS = 78  # catalog: the 91 products of category 10400 without the 13 below
+SOUR_MILKS = {
+    "463373", "463439", "469331", "469457", "469491", "472492", "475433", "475534", "476855", "476957", "477050",
+}
+LACTOSE_FREE_SOUR_MILKS = {"469331", "472492", "476957", "477050"}
+COFFEE_DRINK = "469266"  # "Valio Latte original coffee drink", lactose free
+SOY_YOGHURT = "472516"
 
 
 def _claim_ids(raw: dict[str, Any]) -> set[str]:
@@ -37,21 +46,99 @@ def _lactose_free_code(raw_products: list[dict[str, Any]]) -> str:
     return codes.pop()
 
 
-def test_lactose_free_milk_is_exactly_the_35_products_of_category_10400(
+def test_lactose_free_milk_is_exactly_the_30_milks_of_category_10400(
     catalog: ProductCatalog, raw_products: list[dict[str, Any]]
 ) -> None:
     claim = _lactose_free_code(raw_products)
-    expected = sorted(
+    with_claim = sorted(
         raw["id"] for raw in raw_products if raw["category"] == MILK_CATEGORY and claim in _claim_ids(raw)
     )
+    not_milk = LACTOSE_FREE_SOUR_MILKS | {COFFEE_DRINK}
 
     result = catalog.search(ProductQuery(product_type="milk", required_claims=(claim,)))
 
-    assert len(expected) == 35
-    assert [product.id for product in result.products] == expected
-    assert result.total == 35
+    # Category 10400 has 35 products with the claim: 30 milks, 4 sour milks and a coffee drink.
+    assert len(with_claim) == 35 and not_milk < set(with_claim)
+    assert [product.id for product in result.products] == [pid for pid in with_claim if pid not in not_milk]
+    assert result.total == 30
     assert result.categories == (MILK_CATEGORY,)
     assert result.unmatched_terms == ()
+
+
+def test_milk_leaves_out_sour_milk_the_coffee_drink_and_the_soy_yoghurt(catalog: ProductCatalog) -> None:
+    result = catalog.search(ProductQuery(product_type="milk", limit=1000))
+
+    ids = {product.id for product in result.products}
+    assert result.total == MILKS
+    assert not ids & (SOUR_MILKS | {COFFEE_DRINK, SOY_YOGHURT})
+    assert all(re.search(r"\bmilk", (product.name_en or "").casefold()) for product in result.products)
+    # Milk for coffee is milk: "Valio coffee milk" (kahvimaito) and "Arla Cafè milk" stay in.
+    assert {"462626", "464237", "473142", "463380"} <= ids
+    # The lactose-free milks of the demo capture, and the portion pack, are still candidates.
+    assert {"469363", "462775", "463380", "463203", "464306"} <= ids
+
+
+def test_sour_milk_is_a_product_type_of_its_own(catalog: ProductCatalog) -> None:
+    every = catalog.search(ProductQuery(product_type="sour_milk", limit=1000))
+    lactose_free = catalog.search(ProductQuery(product_type="sour_milk", required_claims=("FREE_FROM_LACTOSE",)))
+
+    assert {product.id for product in every.products} == SOUR_MILKS
+    assert every.categories == (MILK_CATEGORY,)
+    assert {product.id for product in lactose_free.products} == LACTOSE_FREE_SOUR_MILKS
+
+
+def test_milk_and_sour_milk_share_no_product_and_cover_all_but_two_of_the_category(catalog: ProductCatalog) -> None:
+    milk = {product.id for product in catalog.search(ProductQuery(product_type="milk", limit=1000)).products}
+    sour = {product.id for product in catalog.search(ProductQuery(product_type="sour_milk", limit=1000)).products}
+    category = {product.id for product in catalog.products if product.category == MILK_CATEGORY}
+
+    assert not milk & sour
+    assert category - milk - sour == {COFFEE_DRINK, SOY_YOGHURT}
+
+
+def _named(product_id: str, english: str | None, finnish: str | None) -> Product:
+    return Product(
+        id=product_id, name_en=english, name_fi=finnish, category=MILK_CATEGORY, sales_unit="ST", base_unit="ST",
+        allowed_lot_size=Decimal(1),
+    )
+
+
+def test_exclude_terms_match_english_at_the_start_of_a_word_and_finnish_anywhere() -> None:
+    products = [
+        _named("460001", "Skimmed milk 1 l", "Rasvaton maito 1 l"),
+        _named("460002", "Sour milk 1 l", "Hapanmaito 1 l"),  # English, start of a word
+        _named("460003", "Resourceful milk 1 l", "Maito 1 l"),  # "sour" inside an English word: kept
+        _named("460004", None, "Rasvatonpiimä 1 l"),  # Finnish, inside a joined word
+        _named("460005", "AB SOUR-milk 1 l", None),  # capitals and a hyphen
+    ]
+    milk = ProductType(
+        key="milk", categories=(MILK_CATEGORY,), exclude_terms=("Sour", "piimä"), products=2, derived_from="test"
+    )
+    plain = ProductType(key="plain", categories=(MILK_CATEGORY,), products=5, derived_from="test")
+    catalog = ProductCatalog(products, {"milk": milk, "plain": plain})
+
+    narrowed = catalog.search(ProductQuery(product_type="milk"))
+    whole = catalog.search(ProductQuery(product_type="plain"))
+
+    assert [product.id for product in narrowed.products] == ["460001", "460003"]
+    assert whole.total == 5
+
+
+def test_exclude_terms_and_name_terms_must_both_hold() -> None:
+    products = [
+        _named("460001", "Oat drink 1 l", None),
+        _named("460002", "Oat drink barista 1 l", None),
+        _named("460003", "Oat cooking base 1 l", None),
+    ]
+    drink = ProductType(
+        key="drink", categories=(MILK_CATEGORY,), name_terms=("drink",), exclude_terms=("barista",), products=1,
+        derived_from="test",
+    )
+    catalog = ProductCatalog(products, {"drink": drink})
+
+    result = catalog.search(ProductQuery(product_type="drink"))
+
+    assert [product.id for product in result.products] == ["460001"]
 
 
 def test_soya_drink_is_found_under_plant_drink(catalog: ProductCatalog) -> None:
@@ -226,7 +313,7 @@ def test_limit_cuts_the_list_and_total_keeps_the_count(catalog: ProductCatalog) 
     result = catalog.search(ProductQuery(product_type="milk", limit=10))
 
     assert len(result.products) == 10
-    assert result.total == 91
+    assert result.total == MILKS
     assert [product.id for product in result.products] == sorted(product.id for product in result.products)
 
 

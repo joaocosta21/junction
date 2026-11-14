@@ -143,6 +143,38 @@ def test_a_direct_statement_on_the_member_wins_over_the_family(statements: Build
     assert statement_for(rye_bread, "UW") is FREE_FROM
 
 
+@pytest.mark.parametrize(("family", "member"), [("AN", "SA"), ("AM", "ML")])
+@pytest.mark.parametrize("family_relation", ["CONTAINS", "MAY_CONTAIN"])
+def test_a_member_marked_undeclared_does_not_hide_its_declared_family(
+    statements: Build, family: str, member: str, family_relation: str
+) -> None:
+    # Least safe wins: UNDECLARED on the member is not a free-from statement, so the declared family counts.
+    product = statements((family, family_relation), (member, "UNDECLARED"))
+
+    assert statement_for(product, member) is MAY_CONTAIN
+    assert statement_for(tuple(reversed(product)), member) is MAY_CONTAIN
+
+
+def test_a_member_stated_free_from_and_undeclared_does_not_hide_its_declared_family(statements: Build) -> None:
+    product = statements(("AM", "CONTAINS"), ("ML", "FREE_FROM"), ("ML", "UNDECLARED"))
+
+    assert statement_for(product, "ML") is MAY_CONTAIN
+
+
+@pytest.mark.parametrize("family_relation", ["FREE_FROM", "UNDECLARED", None])
+def test_a_member_marked_undeclared_stays_undeclared_when_its_family_is_not_declared(
+    statements: Build, family_relation: str | None
+) -> None:
+    family = (("AN", family_relation),) if family_relation else ()
+
+    assert statement_for(statements(*family, ("SA", "UNDECLARED")), "SA") is UNDECLARED
+
+
+def test_a_declared_member_keeps_its_own_level_next_to_its_family(statements: Build) -> None:
+    assert statement_for(statements(("AN", "MAY_CONTAIN"), ("SA", "CONTAINS")), "SA") is CONTAINS
+    assert statement_for(statements(("AN", "CONTAINS"), ("SA", "MAY_CONTAIN")), "SA") is MAY_CONTAIN
+
+
 def test_a_sibling_says_nothing_about_another_member(statements: Build) -> None:
     assert statement_for(statements(("SH", "CONTAINS")), "SA") is NOT_STATED
 

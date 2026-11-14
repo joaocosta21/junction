@@ -111,3 +111,10 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Accepted ranges: a price from 0 to 1,000,000, an amount from 0 to 100,000,000,000 (the largest placeholder seen is 9,999,999,999). A 200 body over 20 MB is refused; the limit is checked after the download.
 - The call budget is counted under a file lock (POSIX), so several clients and processes count correctly.
 - A spent budget or a missing key tells the caller only that the supplier cannot be asked right now; the specifics go to a warning log record. Other supplier error details still name internals (listed for a later pass).
+
+## Allergens and catalog after review (FIX-3)
+- A member's own statement beats its declared family only when it is `FREE_FROM`; a member marked `UNDECLARED` or not stated under a declared family goes to a human.
+- The substitution rule also fails a substitute that raises an allergen from "may contain" to "contains" (0 of 249 listed pairs do; 37 of 249 still fail for adding one).
+- Allergen codes in the product file are stripped and upper-cased; a code outside the code table rejects the file (the real file has 45 codes, none unknown).
+- A deleted product behaves like an unknown id (the catalog has none today).
+- `milk` leaves out sour milks, the coffee drink and the soy yoghurt of category 10400 by name (78 of 91; 30 lactose-free). Milks sold for coffee stay in (question FIX3-1). `sour_milk` is its own type; the table has 30 types.

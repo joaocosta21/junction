@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from tta.allergens.codes import GENERAL_STATEMENT_CODE, describe, gs1_name, is_known_code
+from tta.allergens.codes import GENERAL_STATEMENT_CODE, describe, gs1_name, is_known_code, normalise_code
 from tta.allergens.statements import Basis, Resolution, resolve
 from tta.contracts.allergen import AllergenCheck, AllergenFinding, AllergenStatement
 from tta.contracts.common import AllergenOutcome, AllergenRelation, AllergenStrictness
-from tta.contracts.errors import InvalidRequest
+from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 
 STRICT = AllergenStrictness.STRICT
 DECLARED_ONLY = AllergenStrictness.DECLARED_ONLY
@@ -58,15 +58,18 @@ def check_exclusions(
     """Apply the buyer exclusion rule to the allergen statements of one product.
 
     Raises `InvalidRequest` for an excluded code outside the code table, for `X99`, and for an
-    exclusion without a strictness (there is no default, SPEC section 3).
+    exclusion without a strictness (there is no default, SPEC section 3). Raises `SupplierUnavailable`
+    for a statement whose code is outside the code table: such a statement matches no exclusion, so
+    the product would pass under `DECLARED_ONLY` on data nobody can read.
     """
     codes = tuple(dict.fromkeys(excluded))
     _require_valid_exclusions(codes)
+    checked = _with_table_codes(statements)
     if not codes:
         return AllergenCheck(outcome=AllergenOutcome.PASS, strictness=strictness, all_explicit=True)
     if strictness is None:
         raise InvalidRequest("allergen_strictness is required when an allergen is excluded: STRICT or DECLARED_ONLY.")
-    findings = tuple(_finding(statements, code, strictness) for code in codes)
+    findings = tuple(_finding(checked, code, strictness) for code in codes)
     return AllergenCheck(
         outcome=max((finding.outcome for finding in findings), key=_SEVERITY.__getitem__),
         strictness=strictness,
@@ -87,6 +90,24 @@ def _require_valid_exclusions(codes: Sequence[str]) -> None:
             f"Unknown allergen code(s): {', '.join(unknown)}. Use the GS1 codes of the catalog, such as AM for milk.",
             unknown_codes=unknown,
         )
+
+
+def _with_table_codes(statements: Sequence[AllergenStatement]) -> tuple[AllergenStatement, ...]:
+    """The statements with each code as the table spells it. Raises for a code outside the table."""
+    normalised = tuple(_with_table_code(statement) for statement in statements)
+    unknown = sorted({statement.code for statement in normalised if not is_known_code(statement.code)})
+    if unknown:
+        raise SupplierUnavailable(
+            f"The product data has an allergen statement with a code outside the code table: "
+            f"{', '.join(repr(code) for code in unknown)}. The allergen check is not made on such data.",
+            unknown_codes=unknown,
+        )
+    return normalised
+
+
+def _with_table_code(statement: AllergenStatement) -> AllergenStatement:
+    code = normalise_code(statement.code)
+    return statement if code == statement.code else AllergenStatement(code=code, relation=statement.relation)
 
 
 def _finding(statements: Sequence[AllergenStatement], code: str, strictness: AllergenStrictness) -> AllergenFinding:
@@ -125,6 +146,8 @@ def _fact(code: str, resolution: Resolution) -> str:
             "oats can be gluten-free or not"
         )
     if resolution.basis is Basis.FAMILY:
+        if resolution.own_relation is AllergenRelation.UNDECLARED:
+            return f"The product declares {source} and marks {allergen}, part of that family, as UNDECLARED"
         return f"The product declares {source} and makes no statement about {allergen}, part of that family"
     if resolution.basis is Basis.GENERAL:
         return (

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from tta.allergens import check_exclusions, check_substitute
+from tta.allergens import check_exclusions, check_substitute, parent_of
 from tta.config import Settings
 from tta.contracts.common import AllergenOutcome, AllergenRelation, AllergenStrictness
 from tta.contracts.product import Product
@@ -17,10 +17,13 @@ loader = pytest.importorskip("tta.catalog.loader")
 
 MILK_CATEGORY = "10400"
 LACTOSE_FREE_CLAIM = "FREE_FROM_LACTOSE"  # a nutritional claim: never an input to the allergen rules
-LACTOSE_FREE_MILKS = 35  # AIMO/FINDINGS.md section 2, the canonical request
+# Category 10400 with the claim: the 30 milks of the `milk` product type, 4 sour milks and a coffee drink.
+LACTOSE_FREE_MILKS = 35
 LISTED_SUBSTITUTES = 249  # 250 pairs, one product lists itself (AIMO/FINDINGS.md section 5)
 FAILING_LISTED_SUBSTITUTES = 37  # AIMO/PLAN.md, scenario 3 in numbers
 FAILING_WITH_DATA_ON_THE_ORIGINAL = 20
+RAISED_ON_LISTED_SUBSTITUTES = 0  # no listed pair raises an allergen from MAY_CONTAIN to CONTAINS
+DECLARING = (AllergenRelation.CONTAINS, AllergenRelation.MAY_CONTAIN)
 
 SOYA_DRINK = "464056"
 OAT_DRINK_WITH_GLUTEN = "468319"
@@ -104,15 +107,39 @@ def test_how_many_listed_substitutes_fail_the_substitution_rule(products: dict[s
         if substitute_id != product.id
     ]
 
-    failing = [
-        original
+    checks = [
+        (original, check_substitute(original.allergen_statements, substitute.allergen_statements))
         for original, substitute in pairs
-        if not check_substitute(original.allergen_statements, substitute.allergen_statements).passes
+    ]
+    failing = [original for original, check in checks if not check.passes]
+    raised = [
+        original.id
+        for original, check in checks
+        if _declared_codes(original) & {statement.code for statement in check.added}
     ]
 
     assert len(pairs) == LISTED_SUBSTITUTES
     assert len(failing) == FAILING_LISTED_SUBSTITUTES
     assert sum(1 for original in failing if original.allergen_statements) == FAILING_WITH_DATA_ON_THE_ORIGINAL
+    assert len(raised) == RAISED_ON_LISTED_SUBSTITUTES
+
+
+def _declared_codes(product: Product) -> set[str]:
+    return {statement.code for statement in product.allergen_statements if statement.relation in DECLARING}
+
+
+def test_no_catalog_product_marks_a_member_undeclared_under_its_declared_family(products: dict[str, Product]) -> None:
+    # The case of the rule "a member marked UNDECLARED does not hide its declared family": 0 of 17,546 today.
+    affected = [
+        product.id
+        for product in products.values()
+        for statement in product.allergen_statements
+        if statement.relation is AllergenRelation.UNDECLARED
+        and statement.code not in _declared_codes(product)
+        and parent_of(statement.code) in _declared_codes(product)
+    ]
+
+    assert affected == []
 
 
 def test_the_rules_run_over_every_product_without_an_error(products: dict[str, Product]) -> None:

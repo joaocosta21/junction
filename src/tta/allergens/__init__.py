@@ -11,6 +11,7 @@ from tta.allergens.codes import (
     gs1_name,
     is_known_code,
     members_of,
+    normalise_code,
     parent_of,
 )
 from tta.allergens.exclusion import check_exclusions
@@ -27,6 +28,7 @@ __all__ = [
     "gs1_name",
     "is_known_code",
     "members_of",
+    "normalise_code",
     "parent_of",
     "statement_for",
 ]

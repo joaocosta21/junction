@@ -1,6 +1,8 @@
 """Catalog search (SPEC section 3, steps 1 to 4). It returns candidates; others judge them.
 
 Every filter given must hold: product type, explicit ids, category prefix, claims, name terms.
+A product type is its categories, its claims, its name terms and its exclude terms: a product whose
+name has an exclude term is not of the type ("milk" leaves out sour milk).
 A name term may be in the English or in the Finnish name (`tta.catalog.text`). With name terms and
 nothing that fixes the categories, the result keeps the categories that hold most of the matches.
 Order: products whose English name has every term first, then those found through the Finnish
@@ -109,6 +111,7 @@ def _scope(
     wanted_ids = frozenset(product_ids)
     type_claims = product_type.claims if product_type else ()
     type_terms = tuple(normalise(term) for term in product_type.name_terms) if product_type else ()
+    type_excluded = tuple(normalise(term) for term in product_type.exclude_terms) if product_type else ()
     required = frozenset((*claims, *type_claims))
     return [
         product
@@ -118,6 +121,7 @@ def _scope(
         and product.category.startswith(prefix)
         and required.issubset(product.nutritional_claims)
         and (not type_terms or index.names[product.id].has_any(type_terms))
+        and not index.names[product.id].has_any(type_excluded)
     ]
 
 

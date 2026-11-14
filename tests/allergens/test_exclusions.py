@@ -9,7 +9,7 @@ import pytest
 from tta.allergens import check_exclusions
 from tta.contracts.allergen import AllergenStatement
 from tta.contracts.common import AllergenOutcome, AllergenRelation, AllergenStrictness
-from tta.contracts.errors import InvalidRequest
+from tta.contracts.errors import InvalidRequest, SupplierUnavailable
 
 Build = Callable[..., tuple[AllergenStatement, ...]]
 
@@ -134,6 +134,34 @@ def test_member_excluded_and_only_the_family_declared_goes_to_a_human(
     assert finding.matched_code == "AN"
     assert "tree nuts (AN)" in finding.sentence
     assert "almonds (SA)" in finding.sentence
+
+
+@pytest.mark.parametrize("strictness", [STRICT, DECLARED_ONLY])
+@pytest.mark.parametrize(("family", "member"), [("AN", "SA"), ("AM", "ML")])
+def test_member_excluded_and_marked_undeclared_under_a_declared_family_goes_to_a_human(
+    statements: Build, family: str, member: str, strictness: AllergenStrictness
+) -> None:
+    product = statements((family, "CONTAINS"), (member, "UNDECLARED"))
+
+    check = check_exclusions(product, [member], strictness)
+
+    finding = check.findings[0]
+    assert check.outcome is TO_HUMAN
+    assert finding.relation is AllergenRelation.MAY_CONTAIN
+    assert finding.matched_code == family
+    assert "UNDECLARED" in finding.sentence
+    assert "no statement" not in finding.sentence
+    assert "dietitian" in finding.sentence
+    assert not check.all_explicit
+
+
+def test_member_marked_undeclared_with_no_declared_family_still_passes_as_unverified(statements: Build) -> None:
+    check = check_exclusions(statements(("AN", "FREE_FROM"), ("SA", "UNDECLARED")), ["SA"], DECLARED_ONLY)
+
+    assert check.outcome is PASS
+    assert check.findings[0].relation is AllergenRelation.UNDECLARED
+    assert check.findings[0].matched_code is None
+    assert "unverified" in check.findings[0].sentence
 
 
 def test_lactose_excluded_and_lactose_free_milk_passes(statements: Build) -> None:
@@ -276,6 +304,37 @@ def test_an_unknown_excluded_code_is_an_invalid_request(statements: Build) -> No
 def test_a_lower_case_code_is_not_guessed(statements: Build) -> None:
     with pytest.raises(InvalidRequest, match="am"):
         check_exclusions(statements(), ["am"], STRICT)
+
+
+@pytest.mark.parametrize("written", ["am", " AM ", "Am\n"])
+@pytest.mark.parametrize("strictness", [STRICT, DECLARED_ONLY])
+def test_a_statement_code_is_read_as_the_table_spells_it(
+    statements: Build, written: str, strictness: AllergenStrictness
+) -> None:
+    # Unnormalised, "am" matches nothing and the product would pass under DECLARED_ONLY.
+    check = check_exclusions(statements((written, "CONTAINS")), ["AM"], strictness)
+
+    assert check.outcome is REJECT
+    assert check.findings[0].relation is AllergenRelation.CONTAINS
+
+
+@pytest.mark.parametrize("unknown", ["QQ", "MILK", ""])
+@pytest.mark.parametrize("strictness", [STRICT, DECLARED_ONLY])
+def test_a_statement_with_a_code_outside_the_table_is_refused(
+    statements: Build, unknown: str, strictness: AllergenStrictness
+) -> None:
+    product = statements(("AW", "FREE_FROM"), (unknown, "CONTAINS"))
+
+    with pytest.raises(SupplierUnavailable) as raised:
+        check_exclusions(product, ["AM"], strictness)
+
+    assert repr(unknown) in raised.value.detail
+    assert "code table" in raised.value.detail
+
+
+def test_statement_codes_are_checked_even_when_nothing_is_excluded(statements: Build) -> None:
+    with pytest.raises(SupplierUnavailable):
+        check_exclusions(statements(("QQ", "CONTAINS")), [], None)
 
 
 def test_x99_cannot_be_excluded(statements: Build) -> None:

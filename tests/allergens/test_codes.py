@@ -102,6 +102,15 @@ def test_is_known_code() -> None:
     assert not codes.is_known_code("ZZ")
 
 
+@pytest.mark.parametrize(("written", "code"), [("am", "AM"), (" AM ", "AM"), ("x99\n", "X99"), ("AW", "AW")])
+def test_normalise_code_strips_blanks_and_uses_capitals(written: str, code: str) -> None:
+    assert codes.normalise_code(written) == code
+
+
+def test_normalise_code_does_not_make_an_unknown_code_known() -> None:
+    assert not codes.is_known_code(codes.normalise_code(" milk "))
+
+
 def test_describe_gives_the_label_and_the_code() -> None:
     assert codes.describe("AM") == "milk (AM)"
     assert codes.describe("AW") == "cereals containing gluten (AW)"

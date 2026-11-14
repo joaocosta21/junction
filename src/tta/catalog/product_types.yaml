@@ -7,22 +7,37 @@
 # it is not a complete taxonomy.
 #
 # A product is of a type when all of these hold:
-#   categories   its category is one of these codes
-#   name_terms   (when given) a word of its English name starts with one of these terms,
-#                or its Finnish name contains one
-#   claims       (when given) it carries every one of these nutritionalClaim codes
+#   categories     its category is one of these codes
+#   name_terms     (when given) a word of its English name starts with one of these terms,
+#                  or its Finnish name contains one
+#   exclude_terms  (when given) no word of its English name starts with one of these terms,
+#                  and its Finnish name contains none
+#   claims         (when given) it carries every one of these nutritionalClaim codes
 # `products` is how many products that selects and `derived_from` says how the entry was derived.
 #
 # A claim is never an allergen statement: a request for lactose-free milk is type `milk` plus the
-# claim FREE_FROM_LACTOSE, and all 35 such products still declare milk as an allergen.
+# claim FREE_FROM_LACTOSE, and all 30 such products still declare milk as an allergen.
 
 milk:
   categories: ["10400"]
-  products: 91
+  exclude_terms: ["sour", "piimä", "coffee drink", "maitokahvi", "soygurt"]
+  products: 78
   derived_from: >-
-    Category 10400 holds 91 products and "milk" starts a word in 88 of their English names. The
-    other three are a sour milk (469457), a coffee drink (469266) and a soy yoghurt (472516).
-    No name term is set, so that the type is the whole category.
+    Category 10400 holds 91 products. The exclude terms leave out the 13 that are not milk: 11 sour
+    milks ("sour" in the English name, "piimä" in the Finnish one), a coffee drink (469266,
+    "maitokahvijuoma") and a soy yoghurt (472516). The 78 that stay are milk and lactose-free milk
+    drinks, among them 4 milks for coffee (462626, 464237, 473142 "coffee milk", 463380 "Cafè
+    milk"). With the claim FREE_FROM_LACTOSE the type gives 30 products; the category has 35 with
+    that claim, 4 of them sour milks and 1 the coffee drink.
+
+sour_milk:
+  categories: ["10400"]
+  name_terms: ["sour", "piimä"]
+  products: 11
+  derived_from: >-
+    The 11 products of category 10400 (91 products) with a word starting with "sour" in the English
+    name or "piimä", the Finnish word for sour milk, in the Finnish name. No product outside the
+    category has "piimä" in its name. 4 of the 11 carry the claim FREE_FROM_LACTOSE.
 
 cream:
   categories: ["10401"]

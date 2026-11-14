@@ -55,10 +55,13 @@ def test_every_entry_finds_the_number_of_products_its_note_states(catalog: Produ
         "milk: 5\n",
         "milk:\n  key: cream\n  categories: ['10400']\n  products: 1\n  derived_from: x\n",
         "milk:\n  categories: [10400]\n  products: 1\n  derived_from: x\n",
+        "milk:\n  categories: ['10400']\n  exclude_terms: ['sour', ' - ']\n  products: 1\n  derived_from: x\n",
+        "milk:\n  categories: ['10400']\n  exclude_terms: sour\n  products: 1\n  derived_from: x\n",
     ],
     ids=[
         "broken-yaml", "not-a-mapping", "no-category", "no-derivation", "unknown-field", "empty",
-        "entry-not-a-mapping", "key-given-twice", "category-not-quoted",
+        "entry-not-a-mapping", "key-given-twice", "category-not-quoted", "blank-exclude-term",
+        "exclude-terms-not-a-list",
     ],
 )
 def test_invalid_table_is_rejected(tmp_path: Path, content: str) -> None:
@@ -67,6 +70,17 @@ def test_invalid_table_is_rejected(tmp_path: Path, content: str) -> None:
 
     with pytest.raises(SupplierUnavailable):
         load_product_types(path)
+
+
+def test_exclude_terms_are_read_from_the_table(tmp_path: Path) -> None:
+    path = tmp_path / "product_types.yaml"
+    path.write_text(
+        "milk:\n  categories: ['10400']\n  exclude_terms: ['sour', 'piimä']\n  products: 1\n  derived_from: x\n",
+        encoding="utf-8",
+    )
+
+    assert load_product_types(path)["milk"].exclude_terms == ("sour", "piimä")
+    assert load_product_types(PRODUCT_TYPES_FILE)["cream"].exclude_terms == ()
 
 
 def test_missing_table_is_rejected(tmp_path: Path) -> None:
