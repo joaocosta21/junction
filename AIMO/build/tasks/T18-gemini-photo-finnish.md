@@ -23,3 +23,8 @@
 
 ## Hand-back
 The usual shape; also the exact demo moment for `docs/DEMO.md` (which button, which photo, what appears).
+
+## Notes from the orchestrator (Saturday 10:00)
+- **No new hook:** give the agent's parser object a method `read_image(image: bytes, media_type: str, identity) -> tuple[list[str], Reading]` (the transcription lines and the reading); the service calls it when the parser has it, and answers `supplier-unavailable` otherwise. Do not edit `src/tta/api/hooks.py` or `wiring.py`.
+- **Running alongside you:** S1 (`src/tta/store/`, `src/tta/api/wiring.py`), S2 (`src/tta/evidence/`, `src/tta/orders/`, the approval card), FIX-11 (`src/tta/api/limits.py`). Do not touch those. Use the existing model-call rate limit through the service as `parse_request` does.
+- **The app is deployed** (https://joaocostared--trusted-trade-agents.us-east.modal.run); do not call it. The orchestrator redeploys at the end.
