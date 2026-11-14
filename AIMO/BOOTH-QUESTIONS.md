@@ -313,6 +313,12 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "Which is right, the declaration or the ingredient list? Is this a data error in the hackathon file?"
 - **Built until now:** the declaration counts, so a buyer that excludes tree nuts could have it ordered alone. Being fixed: a conflict between the ingredient list and the declaration sends the product to a dietitian.
 
+**DATA-1 · You give us two kinds of data — which should an agent trust, and will it stay this way?** (from the team, Saturday)
+- **Context:** the product file (downloaded once; 17,546 products: names, allergens, claims, units, substitutes) says *what a product is*; the API (`/api/price`, `/api/availability`) says *what it costs and whether it can arrive*, and only for the ids you ask about. Our gateway searches the file, then asks the API for the candidates. For the demo we also keep a recording of the API's answers (Saturday 02:52), used when the mock is down; at 08:12 the live answers matched it exactly.
+- **What we got:** the two disagree in places. Tonight the sales unit differs between the file and the API on 15 of 624 products with a schedule line (for example `461439`: file `KI`, API `ST`); allergen and ingredient text exist only in the file (and `465793` contradicts itself there, ALMOND-1).
+- **Ask:** "In production, would an agent get product data through an API too, or a file like this? When the file and the API disagree, which one wins? How often does the file change? And may we show recorded API answers in the demo when the mock is down, labelled as recorded?"
+- **If no answer, we build:** price, quantity and sales unit follow the API; everything about what the product is follows the file; an offer always says whether its API data is live or recorded.
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)

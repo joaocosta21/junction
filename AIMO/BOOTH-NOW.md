@@ -13,6 +13,7 @@ The full wording, with a worked example for each, is in `AIMO/OPEN-QUESTIONS.md`
 5. **Q4** — When you accept an order today, what is committed at that moment: the price, the quantity, the delivery date?
 
 **Reading the data**
+5a. **DATA-1** — You give us two kinds of data: a product file (what a product is: names, allergens, claims, units) and the API (what it costs and whether it can arrive). In production, would an agent get product data through an API too? When the two disagree (sales unit differs on 15 of 624 products tonight, for example `461439`: file `KI`, API `ST`), which wins? How often does the file change? May we show recorded API answers in the demo when the mock is down, labelled as recorded?
 5b. **ALMOND-1 — ask this one** — `465793` Alpro Barista Almond drink 1L declares tree nuts (`AN`) as *free from*, but its own ingredient list says "Water, ALMOND (2.5%), Sugar, Fructose, Acidity regulators (Potassium phosphates), Calcium…". Which is right? *(Today our gateway trusts the declaration, so a no-nuts buyer's agent would order it alone.)*
 6. **Q2** — Do `X99` ("no declarable allergens") and `UNDECLARED` have their GS1 meanings in your data?
 7. **T03-2** — 176 products say a family is "free from" while declaring one of its members (a gluten-free loaf with wheat; Toblerone "free from tree nuts" with almonds). Gluten-free wheat starch, and a data error?
