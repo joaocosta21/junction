@@ -206,3 +206,11 @@ export const KITCHENS = [
 ];
 
 export const kitchenById = (id) => KITCHENS.find((k) => k.id === id) || KITCHENS[0];
+
+// Dish sentences the request box also takes (assistant.js sends them to the recipe planner when the reader does not
+// read them as a product request), shown as chips after the customer's own examples. Kept out of `examples`, which
+// tests/agent/test_reading_table.py reads as product requests: a dish is not one. The dishes themselves are the
+// gateway's recipe table; the page holds none of them.
+export const MENU_EXAMPLES = {
+  bakery: [{ text: "A chocolate cake for 20 by Monday" }],
+};

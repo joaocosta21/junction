@@ -361,3 +361,13 @@ def test_the_bakerys_standing_order_request_is_one_the_service_takes(world: Any)
     assert (body.name, body.cadence_days) == ("Weekly Oatly iKaffe", 7)
     assert [(each.product_ids, each.quantity) for each in body.request.lines] == [(("468319",), Decimal(30))]
     assert world.offer("bakery-cafe", body.request).options  # a renewal of it finds an option
+
+
+def test_a_shipped_type_only_request_is_caught_when_the_offer_fills_it_from_the_standing_order(world: Any) -> None:
+    milk = {"text": "100 litres of lactose-free milk", "product_type": "milk",
+            "required_claims": ["FREE_FROM_LACTOSE"], "quantity": 100, "unit": "L"}
+
+    alert = _shipped(world, "hotel-kitchen", milk)
+
+    assert (alert.finding, alert.sentence) == (Finding.ALREADY_ON_STANDING_ORDER, HOTEL_STANDING)
+    assert alert.evidence.products[0].resolved_by == "OFFER"

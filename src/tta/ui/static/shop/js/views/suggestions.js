@@ -138,8 +138,9 @@ function whyNot(turn) {
   </details>`;
 }
 
-// The gateway's own note that a suggestion never adds itself to an order, without its code quotes.
-const gatewayNote = (turn) => (turn.whyNot?.note ? plain(turn.whyNot.note).replaceAll("`", "") : "");
+// What the gateway's note says (a suggestion never adds itself to an order; its request is sent as a new one), in a
+// person's words: the note itself names a field (`accept_request`), which is for developers.
+const NEVER_ADDS_ITSELF = "Nothing is added to this order by itself: “Add” makes a new offer with it, which you confirm like any other.";
 
 export function suggestionsBox(turn) {
   const all = (turn.offer?.suggestions || []).filter((s) => s && typeof s === "object" && s.suggestion_id);
@@ -151,11 +152,10 @@ export function suggestionsBox(turn) {
   }
   const buyer = shown.filter((s) => s.kind !== FROM_VALIO);
   const valio = shown.filter((s) => s.kind === FROM_VALIO);
-  const note = gatewayNote(turn);
   return html`<section class="suggest" aria-label="Suggestions">
     ${buyer.length ? html`<h4>${icon("memory")}Suggested from your past orders</h4><ul class="sugg-list">${buyer.map((s) => item(turn, s))}</ul>` : ""}
     ${valio.length ? html`<h4 class="apart">${icon("store")}Suggested by Valio Aimo, not from your orders</h4><ul class="sugg-list">${valio.map((s) => item(turn, s))}</ul>` : ""}
     ${whyNot(turn)}
-    ${note ? html`<p class="tiny muted">${note}</p>` : ""}
+    <p class="tiny muted">${NEVER_ADDS_ITSELF}</p>
   </section>`;
 }

@@ -40,6 +40,7 @@ import json
 import logging
 import re
 import threading
+import weakref
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -50,20 +51,31 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from tta.agent.dishes import read_dishes
 from tta.api.customers import customer_view
 from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, KITCHEN_PROFILE_ID, Sandbox, file_profile
+from tta.api.standing_routes import with_set_up_limits
+from tta.config import Settings
 from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Identity, OrderStatus, Quantity, Unit
 from tta.contracts.customer import Customer, CustomerStandingOrder
-from tta.contracts.errors import SupplierUnavailable, TtaError
+from tta.contracts.errors import InvalidRequest, SupplierUnavailable, TtaError
+from tta.contracts.menu import MenuPlan
 from tta.contracts.order import DecisionRequest
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import ValioGateway
 from tta.contracts.request import PurchaseRequest
+from tta.contracts.standing import NewStandingOrder, StandingOrder
 from tta.customers import shipped_customers
+from tta.menus import shipped_recipes
+from tta.menus.recipes import dish_names
+from tta.menus.sentence import MenuAsk, data_today, plan_from_ask
 from tta.policy import PolicyLoadError
 from tta.standing import StandingOrders
 from tta.standing.demo import NO_PRICE, past_renewals, standing_order_of
 from tta.suggestions import ReorderPrompt, SuggestionPorts, history_of, reorder_prompt, standing_order_trends
+from tta.suggestions.regular import RegularAlert, chosen_products, held_lines, regular_alert
+from tta.suggestions.reorder import rhythm_of
+from tta.suggestions.wording import set_up_sentence, weekday_name
 from tta.ui import security
 from tta.ui.site import Site
 from tta.ui.standing_page import StandingBooks, data_clock
@@ -75,6 +87,7 @@ SHOP_HEADER = "x-shop-request"
 KITCHEN_HEADER = "x-shop-kitchen"
 KITCHEN_KEY = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
 PROBLEM = "application/problem+json"
+OK, CREATED = 200, 201
 NO_HEADER = "This route answers the shop page only (the header X-Shop-Request is missing)."
 CROSS_SITE = "This route does not answer requests from another site."
 NOT_JSON = "The body is not a JSON object."
@@ -171,6 +184,13 @@ class StandingOrdersView(_Body):
     synthetic: bool
     standing_orders: tuple[StandingOrderView, ...]
     note: str = STANDING_NOTE
+
+
+class StandingSetUp(_Body):
+    """Answer of `POST /standing-orders`: the standing order as stored, and what the page says of it."""
+
+    standing_order: StandingOrder
+    sentence: str
 
 
 def _problem(status: int, title: str, detail: str, **extra: Any) -> JSONResponse:
@@ -301,6 +321,27 @@ def _reorder(one: Sandbox, customer: Customer, profile: BuyerProfile) -> Reorder
                           today=datetime.now(UTC).date(), committed=committed)
 
 
+def _regular(one: Sandbox, customer: Customer, offer_id: str, standing: StandingOrders) -> RegularAlert:
+    """What the request of one offer of this book repeats of the customer's regular orders: its past orders (the
+    customer file's), and its standing orders, the file's and any set up in this book since. A line that names only a
+    product type is judged on the product the offer chose. Another book's offer is not found."""
+    offer = one.service.get_offer(KITCHEN_AGENT, offer_id)
+    offered = {line.product_id: line.name for option in offer.options[:1] for line in option.lines}
+    history = history_of(customer, {**offered, **_names(one, customer)})
+    held = held_lines(history, (*customer.standing_orders, *standing.list(KITCHEN_AGENT)))
+    return regular_alert(history, held, offer.request, today=standing.now().date(), chosen=chosen_products(offer),
+                         offer_id=offer.offer_id)
+
+
+def _set_up(standing: StandingOrders, customer: Customer, body: NewStandingOrder) -> StandingSetUp:
+    """A standing order of this book's buyer, set up by the book's own service under its limits. It orders nothing:
+    a renewal is an offer like any other, judged by every rule, and a person confirms it."""
+    made = standing.create(KITCHEN_AGENT, body)
+    rhythm = rhythm_of(history_of(customer))
+    weekdays = [weekday_name(weekday) for weekday in rhythm.weekdays] if rhythm is not None else []
+    return StandingSetUp(standing_order=made, sentence=set_up_sentence(made.name, made.cadence_days, weekdays))
+
+
 def _standing_order(customer: Customer, entry: CustomerStandingOrder, names: dict[str, str],
                     profile: BuyerProfile) -> StandingOrderView:
     history = history_of(customer, names)
@@ -328,6 +369,24 @@ def _standing_order(customer: Customer, entry: CustomerStandingOrder, names: dic
         lines=tuple(line(each.product_id, each.quantity) for each in entry.lines), past_orders=past,
         synthetic=customer.synthetic, trend=trends[0] if trends else None, trends=trends,
     )
+
+
+def _menu_plan(one: Sandbox, body: MenuAsk, settings: Settings) -> MenuPlan:
+    """The recipe plan of a sentence ("I want to make a chocolate cake for 20 people") for this book's customer, as
+    `POST /v1/menus/plan` answers it: its offer is one of this book's, ordered and confirmed like any other. A refusal
+    keeps its `detail` (the sentence to show) and says what the sentence named, so the page holds no dish list:
+    `dishes_named`, the dishes of the recipe table it names, and `unknown_dishes`, those it names that the table does
+    not have. Both empty: the sentence names no dish, and the reader's question is the one to show."""
+    recipes = shipped_recipes()
+    try:
+        return plan_from_ask(one.service, KITCHEN_AGENT, body, recipes, settings)
+    except InvalidRequest as error:
+        names = dish_names(recipes)
+        reading = read_dishes(body.text, names, data_today(settings)) if body.text else None
+        named = [names[dish.dish_id][0] for dish in reading.dishes] if reading is not None else []
+        unknown = list(reading.unknown) if reading is not None else []
+        said = {**error.extensions, "dishes_named": named, "unknown_dishes": unknown}
+        raise InvalidRequest(error.detail, **said) from error
 
 
 async def _body(request: Request, model: type[BaseModel]) -> BaseModel | JSONResponse:
@@ -359,6 +418,15 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
     replay = ReplayGateway.from_settings(site.settings)
     standing_books = StandingBooks(data_clock(site.settings, replay))
     setting_up = threading.Lock()  # two first calls of one book must not both set its standing orders up
+    # A book's service with the limits of a set-up (the rate limit and the demonstration's lines per request), kept
+    # per book so the limit's window lasts from one call to the next. A dropped book takes it along.
+    limited: weakref.WeakKeyDictionary[Sandbox, StandingOrders] = weakref.WeakKeyDictionary()
+
+    def limited_standing(one: Sandbox) -> StandingOrders:
+        with setting_up:
+            if one not in limited:
+                limited[one] = with_set_up_limits(standing_books.of(one), site.settings)
+            return limited[one]
 
     def book(request: Request) -> Sandbox:
         """This browser's book of the customer the header names, which the book's suggestions are computed for,
@@ -449,6 +517,17 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
             request, lambda one: one.service.create_offer(KITCHEN_AGENT, body), needs_settings=True
         )
 
+    @app.post(API + "/menus/plan")
+    async def menu_plan(request: Request) -> Response:
+        """A dish sentence ("I want to make a chocolate cake for 20 people by Monday") planned for the shop's selected
+        customer from the recipe table (`MenuAsk`, as `POST /v1/menus/plan`): the `MenuPlan`, whose `offer_id` is an
+        offer of this book (`GET /offers/{offer_id}`), confirmed like any other. The page sends a sentence here only
+        when the reader did not read it as a product request."""
+        body = await _body(request, MenuAsk)
+        if isinstance(body, JSONResponse):
+            return body
+        return await in_a_worker(request, lambda one: _menu_plan(one, body, site.settings), needs_settings=True)
+
     @app.get(API + "/offers/{offer_id}")
     def one_offer(request: Request, offer_id: str) -> Response:
         """An offer of this book, as it was made: the approvals page reads its options to offer the safe one (R6)."""
@@ -460,6 +539,33 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         with the reason (`dropped[].sentence`, `held_back[].summary`): the buyer's own view. Nothing is added to
         an order: the page posts a suggestion's `accept_request` to `POST /offers`."""
         return answer(request, lambda one: one.service.get_offer_suggestions(KITCHEN_AGENT, offer_id))
+
+    @app.get(API + "/regular")
+    def regular(request: Request, offer_id: str = Query(min_length=1, max_length=MAX_ID)) -> Response:
+        """"This is one of your regular orders": what the request of an offer of this book repeats of the shop's
+        selected customer's regular orders, computed on every call (`tta.suggestions.regular`). `finding`:
+        ALREADY_ON_STANDING_ORDER (a product is on a standing order: the request would be on top of it),
+        REGULAR_NOT_STANDING (with `standing_order_request`, the body `POST /standing-orders` takes),
+        REGULAR_DIFFERENT_QUANTITY (with `usual_request`, the same request at the usual quantities, for
+        `POST /offers`), or null with an empty `sentence`. Nothing is ordered or changed."""
+        customer_id = str(_customer_id(request))
+        return answer(request, lambda one: _regular(one, customers[customer_id], offer_id, standing_books.of(one)))
+
+    @app.post(API + "/standing-orders")
+    async def set_up_standing_order(request: Request) -> Response:
+        """Set up a standing order for the shop's selected customer (`NewStandingOrder`, as `POST /v1/standing-orders`)
+        in this book. Nothing is ordered: each renewal is an offer a person confirms. A buyer holds at most 20, a
+        set-up is counted by the rate limit as an offer is, and its request takes the demonstration's 5 lines."""
+        body = await _body(request, NewStandingOrder)
+        if isinstance(body, JSONResponse):
+            return body
+        customer_id = str(_customer_id(request))
+        made = await in_a_worker(
+            request, lambda one: _set_up(limited_standing(one), customers[customer_id], body), needs_settings=True
+        )
+        if made.status_code == OK:
+            made.status_code = CREATED
+        return made
 
     @app.get(API + "/customer")
     def customer(request: Request) -> Response:

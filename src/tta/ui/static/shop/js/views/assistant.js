@@ -1,17 +1,22 @@
 // The request page: the buyer writes what is needed, the gateway reads it into a typed request and answers with
 // an offer, and nothing is ordered until the buyer clicks "Confirm order". Not a chat: each result is one typed
 // request and its answer, newest first. The agent orders alone only where the buyer switched that on.
+// One box for two kinds of request: a sentence goes to the reader, as for any product; one it does not read as a
+// product request goes to the recipe planner (plan.js), which says whether it names a dish of the gateway's recipe
+// table. A product request costs the one round trip it always did; a dish sentence costs one more.
 import { app, api, deliveryOf, on, refresh, render, toast, verifyRules, withRules } from "../core.js";
 import { contact, customerKnown, customerOf, loadCustomer, myRoles } from "../customer.js";
 import { clock, html, longDate, num, unit } from "../dom.js";
-import { ROLES, allergenName } from "../kitchens.js";
+import { MENU_EXAMPLES, ROLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
 import { confirmedBy as confirmedOn, hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
+import { planCard, planReadAs } from "./plan.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
+import { regularBar } from "./regular.js";
 import { hideReorder, reorderPanel, reorderShown } from "./reorder.js";
 import { side } from "./side.js";
 import { loadWhyNot, suggestionsBox } from "./suggestions.js";
@@ -26,6 +31,7 @@ const SOURCES = {
   suggestion: "a suggestion you added, sent as its own typed request",
   reorder: "what you usually order, sent as the gateway wrote it",
   standing: "a standing order renewed once, sent as the gateway wrote it",
+  plan: "planned from the recipe table by fixed rules, no model",
 };
 const CONFIRM_NOTE = "Confirmed on the shop's request page.";
 
@@ -54,7 +60,8 @@ function unread(reading) {
   return error;
 }
 
-async function ask(text, typed = null) {
+// `menu`: a dish sentence the page offers as an example, sent to the planner without asking the reader first.
+async function ask(text, typed = null, { menu = false } = {}) {
   text = text.trim();
   if (!text) return;
   const k = active();
@@ -71,8 +78,10 @@ async function ask(text, typed = null) {
       request = structuredClone(typed);
       turn.reading = { source: "example" };
     } else {
-      const reading = await withRules(() => api().read(text));
-      if (!reading?.request?.lines?.length) throw unread(reading);
+      const { reading, refusal } = menu ? {} : await readText(text);
+      if (!reading?.request?.lines?.length) {
+        if (await planInstead(turn, text, menu ? null : refusal || unread(reading))) return;
+      }
       request = reading.request;
       turn.reading = { source: reading.source, sentence: reading.sentence };
     }
@@ -83,9 +92,66 @@ async function ask(text, typed = null) {
     await answerWith(turn, prepared.request);
   } catch (error) {
     turn.phase = "failed";
-    turn.problem = problemOf(error, step);
+    turn.problem = problemOf(error, error?.step || step);
     update(turn);
   }
+}
+
+// The reader's answer, or its refusal when it asks a question (422) or cannot read at all (503): such a sentence may
+// name a dish. Any other refusal (a rate limit, no connection, settings not in force) is thrown as it is.
+const MAY_NAME_A_DISH = [422, 503];
+async function readText(text) {
+  try {
+    return { reading: await withRules(() => api().read(text)) };
+  } catch (error) {
+    if (!MAY_NAME_A_DISH.includes(error?.status)) throw error;
+    return { refusal: error };
+  }
+}
+
+// The sentence planned from the gateway's recipe table. True: planned, the plan and its offer are on the result.
+// A refusal about a dish of the table (no servings, two days) is the question shown; a sentence that names no dish
+// of it keeps the reader's question (`readerError`), with the planner's list of dishes when it named an unknown one.
+async function planInstead(turn, text, readerError) {
+  turn.phase = "planning";
+  update(turn);
+  try {
+    turn.plan = await withRules(() => api().plan(text));
+  } catch (error) {
+    const p = error?.problem || {};
+    const aboutADish = Array.isArray(p.dishes_named) && p.dishes_named.length > 0;
+    if (!readerError || aboutADish || error?.status !== 422) {
+      error.step = error?.status === 422 ? "reading" : "plan";
+      error.menu = true;
+      throw error;
+    }
+    if (Array.isArray(p.unknown_dishes) && p.unknown_dishes.length) readerError.dishNote = error.message;
+    readerError.step = "reading";
+    throw readerError;
+  }
+  turn.reading = { source: "plan" };
+  turn.sent = turn.plan.request;
+  try {
+    await answerWithPlan(turn);
+  } catch (error) {
+    if (error && !error.step) error.step = "plan"; // the plan was made: what failed is reading its offer
+    throw error;
+  }
+  return true;
+}
+
+// The plan's offer, read from this book as it was made, then what it suggests and the one order placed without a
+// click (`act`). No brand question: the plan's lines are the recipe's, not a product the buyer named.
+async function answerWithPlan(turn) {
+  turn.phase = "looking";
+  update(turn);
+  if (turn.plan.offer_id) turn.offer = await withRules(() => api().getOffer(turn.plan.offer_id));
+  turn.flags = [];
+  turn.phase = "done";
+  update(turn);
+  if (!turn.offer) return;
+  loadWhyNot(turn);
+  await act(turn);
 }
 
 // The offer for a typed request, then what it suggests and does not, then the one order placed without a click.
@@ -209,6 +275,10 @@ on("example", (el) => {
   const example = active().examples[Number(el.dataset.i)];
   return ask(example.text, example.request);
 });
+on("menu-example", (el) => {
+  const example = (MENU_EXAMPLES[active().id] || [])[Number(el.dataset.i)];
+  if (example) return ask(example.text, null, { menu: true });
+});
 on("draft", (el) => {
   app.ui.draft = el.value;
 });
@@ -284,10 +354,11 @@ function asked(turn) {
   // What the reading itself says a person should know, e.g. "No allergen rule was given for …: read as strict,
   // the safe reading." Sentences about keys or routes are for developers and stay out (forPeople).
   const reading = turn.reading?.sentence ? forPeople(turn.reading.sentence) : [];
+  const read = turn.plan ? planReadAs(turn.plan) || turn.text : request ? readAs(request) : turn.text;
   return html`<div class="asked">
     <span class="label">Asked</span>
     <div class="read">
-      <b>${request ? readAs(request) : turn.text}</b>
+      <b>${read}</b>
       ${meta ? html`<div class="small muted">${meta}</div>` : ""}
       ${reading.length ? html`<p class="reading-note small">${icon("info")}<span>${reading.join(" ")}</span></p>` : ""}
       ${turn.applied?.length ? html`<div class="applied">${turn.applied.map((a) => html`<span class="tag ${a.tone}">${a.text}</span>`)}</div>` : ""}
@@ -404,6 +475,12 @@ function others(turn, chosen) {
 
 const card = (turn, body) => html`<article class="answer">${asked(turn)}${body}</article>`;
 
+// The offer with no note the plan above it already says (the later recording is said once).
+function withoutPlanNotes(turn) {
+  const said = new Set(turn.plan?.notes || []);
+  return said.size ? { ...turn.offer, notes: (turn.offer.notes || []).filter((n) => !said.has(n)) } : turn.offer;
+}
+
 function nothingOffered(turn) {
   const offer = turn.offer;
   return html`<div class="answer-body">
@@ -416,12 +493,17 @@ function nothingOffered(turn) {
 function answer(turn) {
   const prefs = mine().prefs;
   if (turn.phase === "reading") return card(turn, spinner(turn.reading?.source === "example" ? "Sending the typed request…" : "Reading the text into a typed request…"));
+  if (turn.phase === "planning") return card(turn, spinner("Planning from the recipe table: servings, ingredients, then price and stock with Valio Aimo…"));
   if (turn.phase === "looking") return card(turn, spinner("Checking price and availability with Valio Aimo…"));
   if (turn.phase === "failed") return card(turn, html`<div class="answer-body">${failedAnswer(turn)}</div>`);
   const option = chosenOf(turn);
-  if (!option) return card(turn, nothingOffered(turn));
+  // A recipe plan leads with its own three lines; its offer's options follow as on any result.
+  const plan = turn.plan ? html`<div class="answer-body">${planCard(turn, option)}</div>` : "";
+  if (turn.plan && !turn.offer) return card(turn, plan);
+  if (!option) return card(turn, html`${plan}${nothingOffered(turn)}`);
   const first = isFirst(turn, option);
-  return card(turn, html`<div class="answer-body">
+  return card(turn, html`${plan}<div class="answer-body">
+    ${regularBar(turn)}
     <div class="label-row"><span class="label">Suggested</span><span class="small muted">${plain(option.title)}</span></div>
     <p class="headline">${plain(option.summary)}</p>
     ${optionBlock(option, prefs.short)}
@@ -431,7 +513,7 @@ function answer(turn) {
     ${turn.problem ? html`${problemBox(turn.problem)}<div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Ask again</button></div>` : ""}
     ${others(turn, option)}
     ${turn.superseded ? "" : suggestionsBox(turn)}
-    ${prefs.short && !prefs.explain ? "" : whyBlock(turn.offer, option, prefs.explain)}
+    ${prefs.short && !prefs.explain ? "" : whyBlock(withoutPlanNotes(turn), option, prefs.explain)}
     ${typedRequest(turn)}
   </div>`);
 }
@@ -455,13 +537,13 @@ export function view() {
       <section>
         <div class="ask">
           <h2>What is needed, how much, and by when</h2>
-          <p>The text is read into a typed request: product, quantity, unit, date and allergens. The agent checks price and availability with Valio Aimo and prepares the order for you to confirm.</p>
+          <p>The text is read into a typed request: product, quantity, unit, date and allergens. The agent checks price and availability with Valio Aimo and prepares the order for you to confirm. Or name a dish and how many servings: its ingredients are planned from the recipe table.</p>
           <form data-act="ask">
             <label class="sr" for="ask-text">Request</label>
             <textarea id="ask-text" name="text" rows="2" data-send data-input="draft" placeholder="e.g. 40 litres of lactose-free milk by Monday">${app.ui.draft || ""}</textarea>
             <button class="btn" type="submit">Check price and stock</button>
           </form>
-          <div class="examples"><span>Examples:</span>${k.examples.map((e, i) => html`<button class="chip" data-act="example" data-i="${i}">${e.text}</button>`)}</div>
+          <div class="examples"><span>Examples:</span>${k.examples.map((e, i) => html`<button class="chip" data-act="example" data-i="${i}">${e.text}</button>`)}${(MENU_EXAMPLES[k.id] || []).map((e, i) => html`<button class="chip" data-act="menu-example" data-i="${i}">${e.text}</button>`)}</div>
           ${openInterface()}
         </div>
         <div class="results">

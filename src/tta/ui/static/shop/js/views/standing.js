@@ -12,8 +12,11 @@ import { active, memory } from "../store.js";
 import { plain } from "../words.js";
 import { sendAsWritten } from "./assistant.js";
 import { customerPending, spinner } from "./parts.js";
+import { forPeople } from "./refusal.js";
 
-const state = { kitchen: null, list: null, problem: null, loading: false };
+// `renewing`: the standing order whose renewal is on its way; `refused`: the gateway's refusal of a renewal, by
+// standing order, said under its button until the next try.
+const state = { kitchen: null, list: null, problem: null, loading: false, renewing: null, refused: {} };
 
 const isObject = (x) => x && typeof x === "object";
 // One standing order of the route's answer, whether it comes as the order itself or wrapped with its trend.
@@ -44,13 +47,32 @@ async function load() {
   render();
 }
 
-on("standing-renew", (el) => {
+// The renewal is sent from here; its offer is shown as a result card on the request page, where it is confirmed. A
+// renewal the gateway refuses keeps the person here, with the gateway's own sentence under the button.
+on("standing-renew", async (el) => {
   const so = (state.list || []).find((one) => one.standing_order_id === el.dataset.id);
   const request = so?.trend?.accept_request;
-  if (!isObject(request)) return;
-  location.hash = "#/"; // the offer is shown as a result card on the request page, where it is confirmed
-  return sendAsWritten("standing", so.name || so.standing_order_id, request);
+  if (!isObject(request) || state.renewing) return;
+  const id = so.standing_order_id;
+  state.renewing = id;
+  state.refused = { ...state.refused, [id]: null };
+  render();
+  const turn = await sendAsWritten("standing", so.name || id, request);
+  state.renewing = null;
+  if (turn.phase === "failed") {
+    state.refused = { ...state.refused, [id]: turn.problem };
+    render();
+    return;
+  }
+  location.hash = "#/";
 });
+
+function refusedLine(so) {
+  const problem = state.refused[so.standing_order_id];
+  if (!problem) return "";
+  const said = forPeople(problem.message);
+  return html`<p class="small"><b>Not renewed:</b> ${said.length ? said.join(" ") : problem.title || "The gateway refused the renewal."}</p>`;
+}
 
 // ---- one standing order ----------------------------------------------------------------------------------------
 
@@ -65,7 +87,8 @@ function trendBox(so) {
   const amount = `${num(t.suggested_quantity)} ${unitWord(t.unit)}`;
   return html`<div class="verdict info">${icon("chart")}<div><b>Ordered more, or less, week after week</b>
     <p>${plain(t.sentence)}</p>
-    ${isObject(t.accept_request) && t.suggested_quantity !== undefined ? html`<div class="actions"><button class="btn small" data-act="standing-renew" data-id="${so.standing_order_id}">Renew once at ${amount}</button></div>
+    ${isObject(t.accept_request) && t.suggested_quantity !== undefined ? html`<div class="actions"><button class="btn small" data-act="standing-renew" data-id="${so.standing_order_id}" ${state.renewing ? "disabled" : ""}>${state.renewing === so.standing_order_id ? "Sending…" : `Renew once at ${amount}`}</button></div>
+    ${refusedLine(so)}
     <p class="small">This renews it once, as a new request at today's prices and stock: the quantity the standing order stores does not change, and nothing is ordered until you confirm it.</p>` : ""}
   </div></div>`;
 }

@@ -34,6 +34,28 @@ const FORMULA_TAGS = {
   DIFFERENT: ["stop", "Different formula"],
   NOT_KNOWN: ["wait", "Formula cannot be compared"],
 };
+// What decided a formula that is not kept (`formula.contents_compared`, `only_in_other`, `only_in_original`): the
+// gateway compares the two ingredient lists first and the six nutrition figures second.
+function formulaTag(formula) {
+  const tag = FORMULA_TAGS[formula?.outcome];
+  if (!tag) return null;
+  const components = (formula.only_in_other || []).length + (formula.only_in_original || []).length;
+  const outside = (formula.differences || []).some((d) => !d.within_tolerance);
+  if (formula.outcome === "DIFFERENT") {
+    if (formula.contents_compared && components) return ["stop", "Different ingredients"];
+    return outside ? ["stop", "Different nutrition"] : tag;
+  }
+  if (formula.outcome === "NOT_KNOWN" && !formula.contents_compared) return ["wait", "Ingredients could not be compared"];
+  return tag;
+}
+
+// The components only one of the two ingredient lists names, in the labels' own words, as two short lines.
+function formulaComponents(formula) {
+  if (!formula?.contents_compared) return "";
+  const line = (label, items) => (items?.length ? html`<p class="small"><b>${label}:</b> ${items.map((c) => plain(c)).join(", ")}</p>` : "");
+  return html`${line("Contains", formula.only_in_other)}${line("Lacks", formula.only_in_original)}`;
+}
+
 const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
 // Two columns of numbers: the product asked for and the substitute, for each nutrient whose figures differ, with
@@ -63,13 +85,13 @@ function lastResort(s) {
 export function substituteNote(line, { sentence = true, table = true } = {}) {
   const s = line.substitute;
   if (!s) return "";
-  const tag = FORMULA_TAGS[s.formula?.outcome];
+  const tag = formulaTag(s.formula);
   const formula = s.formula?.sentence || "";
   const extra = formula && !String(s.gives_up || "").includes(formula.replace(/\.$/, "")) ? ` ${plain(formula)}` : "";
   return html`<div class="subst">
     <div class="subst-head"><span class="tag info">Substitute</span>${s.last_resort ? html`<span class="tag stop">Last resort</span>` : ""}${tag ? html`<span class="tag ${tag[0]}">${tag[1]}</span>` : ""}<span class="small">in place of ${s.original_name || "the product asked for"} (${s.original_id})</span></div>
     ${sentence ? html`<p class="small">${s.last_resort ? html`<b>${lastResort(s)}</b> ` : ""}${plain(s.gives_up)}${extra}</p>` : ""}
-    ${table ? formulaTable(s.formula) : ""}
+    ${table ? html`${formulaComponents(s.formula)}${formulaTable(s.formula)}` : ""}
   </div>`;
 }
 

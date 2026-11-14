@@ -44,6 +44,9 @@ export function gateway(kitchen) {
     setKitchen: (settings) => call(kitchen, "PUT", "/kitchen", withAllergenRules(settings)),
     read: (text) => call(kitchen, "POST", "/read", { text }),
     offer: (request) => call(kitchen, "POST", "/offers", request),
+    // A sentence that names a dish and its servings, planned from the gateway's recipe table: the plan and its
+    // offer. A refusal says whether the sentence names a dish (`dishes_named`, `unknown_dishes`).
+    plan: (text) => call(kitchen, "POST", "/menus/plan", { text }),
     getOffer: (id) => call(kitchen, "GET", `/offers/${q(id)}`),
     // What an offer suggests and what it does not show, with the reason (the buyer's view; nothing is added to it).
     suggestions: (offerId) => call(kitchen, "GET", `/suggestions?offer_id=${q(offerId)}`),

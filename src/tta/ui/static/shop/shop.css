@@ -696,3 +696,35 @@ details.why.fold summary { font-size: 13px; }
   .nav { display: none; }
   .mobile-nav { display: flex; }
 }
+
+/* ---------- a recipe plan on a result (views/plan.js): one row per ingredient, then who must confirm ---------- */
+
+.plan .label-row { margin-bottom: 8px; }
+.plan-rows { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line-soft); border-radius: 8px; }
+.plan-row {
+  display: grid; grid-template-columns: minmax(0, 1.1fr) 92px minmax(0, 2fr); gap: 14px;
+  padding: 12px 14px; align-items: start; min-width: 0; overflow-wrap: anywhere;
+}
+.plan-row + .plan-row { border-top: 1px solid var(--line-soft); }
+.plan-what b, .plan-need b { color: var(--navy); }
+.plan-what span, .plan-need span { display: block; margin-top: 2px; }
+.plan-product + .plan-product { margin-top: 8px; }
+.plan-offer p { margin: 0 0 4px; }
+.plan-offer p.plan-left { margin: 6px 0 0; color: var(--ink); }
+.plan > p { margin: 10px 0 0; }
+@media (max-width: 640px) {
+  .plan-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .plan-offer { grid-column: 1 / -1; }
+}
+
+/* "This is one of your regular orders": one bar at the top of a result, above its options (views/regular.js). */
+.regular-bar { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--petrol); border-radius: 8px; background: var(--info-bg); min-width: 0; overflow-wrap: anywhere; }
+.regular-bar > svg { flex: none; width: 20px; height: 20px; margin-top: 1px; color: var(--petrol); }
+.regular-bar > div { flex: 1; min-width: 0; }
+.regular-bar p { margin: 0; font-size: 14px; }
+.regular-bar p + p { margin-top: 6px; }
+.regular-bar .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.regular-bar.amber { background: var(--wait-bg); border-color: #efd9ad; border-left-color: var(--wait); color: #5b3800; }
+.regular-bar.amber > svg { color: var(--wait); }
+.regular-bar.done { background: var(--ok-bg); border-color: #c5e3d1; border-left-color: var(--ok); }
+.regular-bar.done > svg { color: var(--ok); }

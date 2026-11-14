@@ -31,6 +31,10 @@ export function problemOf(error, step) {
     message: error?.message || p.detail || "",
     questions,
     notRead: typeof p.not_read === "string" ? p.not_read.trim() : "",
+    // The recipe planner's refusal of a dish sentence (`menu`), or its list of dishes beside the reader's question
+    // when the sentence named a dish the recipe table does not have (`dishNote`; assistant.js, planInstead).
+    menu: error?.menu === true,
+    dishNote: typeof error?.dishNote === "string" ? error.dishNote.trim() : "",
   };
 }
 
@@ -60,7 +64,8 @@ function readerBox(turn) {
     <b>${isQuestion ? "The agent needs an answer before it can look this up" : "The request could not be read into a typed request"}</b>
     ${asks.length ? html`<ul class="asks">${asks.map((a) => html`<li>${a}</li>`)}</ul>` : html`<p>The agent could not tell what is needed, how much, or by when.</p>`}
     ${questions.length && said.length ? html`<p class="small">${said.join(" ")}</p>` : ""}
-    <p>Say what is needed, how much (a number and a unit) and by when, for example “40 litres of lactose-free milk by Monday”.</p>
+    ${p.dishNote ? html`<p class="small">If you meant a dish: ${forPeople(p.dishNote).join(" ")}</p>` : ""}
+    ${p.menu ? "" : html`<p>Say what is needed, how much (a number and a unit) and by when, for example “40 litres of lactose-free milk by Monday”.</p>`}
     <form class="reask" data-act="reask" data-turn="${turn.id}">
       <label class="sr" for="reask-${turn.id}">Your answer, or the request written again</label>
       <textarea id="reask-${turn.id}" name="text" rows="2" data-send data-input="redraft" data-turn="${turn.id}">${draft}</textarea>
