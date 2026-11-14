@@ -83,10 +83,6 @@ def test_the_reason_names_no_path_no_secret_and_no_file_kind() -> None:
     assert "PostgreSQL" in STORE_FALLBACK and "start-up" in STORE_FALLBACK
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="needs src/tta/api/routes.py (not S1's path): get_health must add parts.start_reasons to its reasons",
-)
 def test_health_says_the_gateway_runs_on_the_fallback(tmp_path: Path, catalog: ProductCatalog) -> None:
     settings = _settings(tmp_path, database_url=UNREACHABLE)
 

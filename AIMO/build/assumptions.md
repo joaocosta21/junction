@@ -266,3 +266,13 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - A page is dropped when the product name or brand does not match, when the link is not plain http(s), or when the answer failed. Page text is bounded and hashed; the audit trail records the URL and the hash.
 - One lookup per product, stored; recordings for the demo products in `fixtures/evidence/`. At most 40 lookups per process and 3 per approval. Queries carry the product's English and Finnish names and the brand only.
 - A lookup for a product with nothing stored runs inside the order book's lock and can hold it up to 40 s, once per product.
+
+## Aiven PostgreSQL (S1)
+- When `DATABASE_URL` is set, the shared order book (REST and MCP) and its audit trail live in PostgreSQL; each browser's own order book on the pages stays in memory. A database that cannot be reached at start-up falls back to SQLite and `/healthz` says so.
+- In the database: triggers refuse any update, delete, truncate or replacing insert of an audit event, from any connection; each event gets its position 1, 2, 3 with no gaps; two events can never follow the same one. Views `audit_buyer` and `audit_supplier` give each reader what `tta.audit` shows it; role `tta_supplier` reads `audit_supplier` only.
+- Limits: the gateway connects as the service's admin login, which could drop a trigger; the server certificate is not verified (`sslmode=require`); buyers are kept apart by the gateway, not by the database. Schema `tta_dev` in dev, `tta` in demo and prod.
+
+## Gemini photo and Finnish (T18)
+- A photo of an order list is read in two visible steps: Gemini writes out the lines it reads, word for word; then the same parser and text check read those lines. At most 5 MB, checked by its first bytes, held in memory only, never logged.
+- Finnish and Swedish orders read like English ones; the text check knows their numbers, units, weekdays, "-vapaa"/"-fri" and "vahvistet…"/"bekräftad".
+- The Finnish and photo recordings are hand-written: Gemini answered 503 or 504 to every request of their live check on 14 Nov.

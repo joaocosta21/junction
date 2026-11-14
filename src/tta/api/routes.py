@@ -369,6 +369,7 @@ def get_health(request: Request) -> Health:
     parts, state = request.app.state.parts, request.app.state
     events, last_hash = parts.audit.head()
     source, reasons = _looks(parts.gateway, parts.settings.tta_mode)
+    reasons = (*reasons, *parts.start_reasons)  # what the start had to do without, for example the database
     return Health(
         status=DEGRADED if reasons else OK,
         reasons=reasons,
