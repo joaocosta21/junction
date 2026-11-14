@@ -14,7 +14,7 @@ The full wording, with a worked example for each, is in `AIMO/OPEN-QUESTIONS.md`
 
 **Reading the data**
 6. **Q2** — Do `X99` ("no declarable allergens") and `UNDECLARED` have their GS1 meanings in your data?
-7. **T03-2** — 178 products say a family is "free from" while declaring one of its members (a gluten-free loaf with wheat; Toblerone "free from tree nuts" with almonds). Gluten-free wheat starch, and a data error?
+7. **T03-2** — 176 products say a family is "free from" while declaring one of its members (a gluten-free loaf with wheat; Toblerone "free from tree nuts" with almonds). Gluten-free wheat starch, and a data error?
 8. **Q5** — 46% of the catalog has no allergen statement. Does no data mean "declared nothing", so an agent must treat it as unknown?
 9. **T02-1** — `allowedLotSize` is 0.01 on nearly every countable product (cases, cartons). Does 0.01 mean "no step"?
 10. **T02-2** — Is `comparisonPrice` the catalog price divided by the content of one sales unit (drained weight where there is one)?

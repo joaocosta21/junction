@@ -9,7 +9,9 @@ The only question list. Every question has the same shape: **context → what we
 - **"The catalog"** = counted over all 17,546 products in the product file.
 - Examples with live values (Q1, Q3–Q10, Q12) must be re-run before showing.
 
-## If you only get two minutes: Q1 · Q2 · Q7
+## If you only get two minutes: SCOPE-1 · T03-1 · Q1 · Q7 · Q4
+
+Updated Saturday 14 Nov. The booth-ready versions are `AIMO/OPEN-QUESTIONS.md` (every open question with an example to show) and `AIMO/BOOTH-NOW.md` (the questions plus the decisions to confirm). This file keeps the full history.
 Their answers feed Saturday-morning work, so ask them as soon as a mentor is free.
 
 ---
@@ -258,7 +260,7 @@ The build agents add questions here in the same shape as above. Empty until the 
 **T03-2 · A family stated "free from" while one of its members is declared** (whole catalog)
 - **Context:** a buyer excludes a family code such as `AW` (cereals containing gluten) or `AN` (tree nuts); we also read the member codes (wheat, oats, almonds).
 - **We did:** counted products whose `nonAllergen` group holds the family while the `allergen` group declares a member.
-- **We got:** 178 products: 132 for `AW` (76 with oats, 35 with wheat CONTAINS), 45 for `AN`, 1 for `AM` with lactose.
+- **We got:** 176 distinct products (two count under both `AW` and `AN`): 132 for `AW` (76 with oats, 35 with wheat CONTAINS), 45 for `AN`, 1 for `AM` with lactose.
 - **Example to show:** `460124` Fria loaf "glutenfree": `AW` FREE_FROM and `UW` (wheat) CONTAINS · `461333` Toblerone: `AN` FREE_FROM and `SA` (almonds) CONTAINS.
 - **Ask:** "We read 'free from gluten cereals' with 'contains wheat' as gluten-free wheat starch, and 'free from tree nuts' with 'contains almonds' as a data error. Is that expected, or did we get something wrong?"
 - **If no answer, we build:** two statements, the least safe counts: with the family excluded, a declared member rejects the product (oats go to a dietitian).
