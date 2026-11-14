@@ -58,7 +58,8 @@ def test_with_the_setting_off_a_fully_confirmed_order_within_every_limit_needs_t
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-10",)
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert decision.sentence == (
-        "Every order needs human approval before it can be confirmed (F-10). It needs the purchasing manager."
+        "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): the purchasing "
+        "manager confirms."
     )
 
 
@@ -71,7 +72,7 @@ def test_with_the_setting_on_and_everything_confirmed_the_ward_orders_its_200_li
     assert decision.verdict is Verdict.AUTO and decision.fired == () and decision.required_roles == ()
     assert decision.sentence == (
         "The agent may place this order alone: the total of €402.00 before tax is within the €500 limit per "
-        "order, today's spend would be €402.00 of the €1,500 limit per day of profile allergy-ward, 100% of the "
+        "order, today's spend would be €402.00 of the €1,500 limit per day of City Hospital, Ward 4, 100% of the "
         "requested quantity is covered, and no rule asks for a human."
     )
 
@@ -116,8 +117,8 @@ def test_with_the_setting_on_a_statement_no_other_rule_reads_still_keeps_a_perso
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert decision.fired[0].facts == {"profile.auto_order_enabled": True, "not_confirmed": [named]}
     assert decision.sentence == (
-        "The agent orders alone only when every statement of the offer is confirmed (F-10). "
-        f"Not confirmed: {named}. It needs the purchasing manager."
+        "Prepared: confirm to order. The agent orders alone only when every statement of the offer is confirmed "
+        f"(F-10). Not confirmed: {named}. It needs the purchasing manager."
     )
 
 

@@ -67,14 +67,14 @@ def test_canonical_option_is_explained_in_one_sentence_with_the_numbers_and_the_
 
     assert decision.sentence == (
         "The agent cannot place this order alone: the total of €1,980.77 before tax is above the €750 limit "
-        "per order of profile hotel-kitchen (P-01) and only 74.9% of the requested quantity is covered, below "
+        "per order of Harbourside Hotel (P-01) and only 74.9% of the requested quantity is covered, below "
         "the 90% minimum (covered: 749 of 1,000 L) (P-03). It needs the purchasing manager."
     )
     assert decision.fired[0].sentence == (
-        "The total of €1,980.77 before tax is above the €750 limit per order of profile hotel-kitchen."
+        "The total of €1,980.77 before tax is above the €750 limit per order of Harbourside Hotel."
     )
     assert decision.fired[0].facts == {
-        "option.net_eur": 1980.77, "profile.max_order_net_eur": 750.0, "profile.profile_id": "hotel-kitchen",
+        "option.net_eur": 1980.77, "profile.max_order_net_eur": 750.0, "profile.display_name": "Harbourside Hotel",
     }
     assert decision.fired[1].facts == {
         "option.fill_ratio": 0.749, "profile.min_fill_ratio": 0.9, "option.least_covered": "the requested quantity",
@@ -139,7 +139,8 @@ def test_backup_scenario_variable_weight_beef_goes_to_the_purchasing_manager(
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("P-06",)
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert decision.fired[0].sentence == (
-        "Beef chuck (466988) is sold by variable weight, so its final price is not fixed in advance."
+        "Beef chuck (466988) is sold by variable weight, so the total is an estimate: Valio Aimo invoices the "
+        "weight delivered, which can be lower or higher than the weight ordered."
     )
 
 
@@ -172,7 +173,7 @@ def test_the_same_ward_order_goes_to_finance_once_the_day_would_pass_1500(
     assert decision.required_roles == (ApproverRole.FINANCE,)
     assert decision.fired[0].sentence == (
         "With this order today's spend would reach €1,528.00 before tax, above the €1,500 limit per day of "
-        "profile allergy-ward."
+        "City Hospital, Ward 4."
     )
     assert decision.fired[0].facts["order.day_net_eur"] == 1528.0
 

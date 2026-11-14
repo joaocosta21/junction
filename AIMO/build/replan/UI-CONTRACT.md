@@ -101,6 +101,19 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 - `category_distance`: 0 (same category) or 1 (another, only a pair Valio lists). The heading "Other products of the same category" is now true for every unlisted candidate.
 - `product.nutrition`: `{"fat": 38.0, "saturated_fat": 22.0, "protein": 2.0, "carbohydrate": 2.8, "sugars": 2.8, "salt": 0.07, "basis": "G"}` — two columns of numbers for the substitute comparison.
 
+### L3a — rules, wording, four profiles
+| Field | What a person reads |
+|---|---|
+| `decision.sentence`, F-10 only | "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): the purchasing manager confirms." |
+| `order.status_sentence`, waiting | "Prepared: confirm to order. Waiting for the purchasing manager to confirm, by Sunday 15 November 2026 at 17:00 (UTC+02:00) (rule F-10: a person confirms every order)." |
+| `order.status_sentence`, one of two roles signed | "Confirmed by Hanna Laine (purchasing manager); still waiting for finance to confirm, by … " |
+| `order.status_sentence`, ordered | "Confirmed by Jussi Nieminen (purchasing manager): ordered for €402.00 net." |
+| `order.status_sentence`, placed by the agent | "The agent placed this order alone for €402.00 net: no rule asked for a human and every statement of the offer is confirmed." |
+| `decision.sentence`, `approval.reasons[]`, limit rules | "… above the €750 limit per order of Harbourside Hotel (P-01)" |
+| `authority.profile.display_name` | "Harbourside Hotel", "City Hospital, Ward 4", "Kilo School", "Kallio Bakery" |
+| `authority.rules[]` P-06 | "A product sold by variable weight goes to the purchasing manager: its total is an estimate, because Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered." |
+| Profiles `school-kitchen`, `bakery-cafe` | school: `excluded_allergens: [AN, AP, AS]`, STRICT; bakery: `substitution_without_approval: NONE`. `kitchens.js` still says DECLARED_ONLY for the school and SAME_CATEGORY for the bakery: to change with the customers route (wave 2) |
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

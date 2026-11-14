@@ -93,6 +93,8 @@ def _drift_ratio(profile: BuyerProfile, _: ScopeTable) -> Reading:
 
 PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.profile_id": lambda profile, _: profile.profile_id,
+    # A visitor types the name of its own kitchen: read as data, like a product name.
+    "profile.display_name": lambda profile, _: plain_name(profile.display_name),
     "profile.auto_order_enabled": lambda profile, _: profile.auto_order_enabled,
     "profile.max_order_net_eur": lambda profile, _: profile.max_order_net_eur,
     "profile.max_daily_net_eur": lambda profile, _: profile.max_daily_net_eur,

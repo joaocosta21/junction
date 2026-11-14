@@ -28,15 +28,17 @@ HUMAN_APPROVAL = FiredRule(
     fixed=False,  # the buyer's setting drives it, so it is not one of the rules that hold whatever is set
     verdict=Verdict.APPROVAL,
     approver_role=ApproverRole.PURCHASING_MANAGER,
-    sentence="Every order needs human approval before it can be confirmed.",
+    sentence="The agent prepares the order, a person confirms it.",
 )
+# What a person reads first on an order only this rule holds back: it is ready, and one confirmation places it.
+PREPARED = "Prepared: confirm to order."
 DECISION_SENTENCE = (
-    "Every order needs human approval before it can be confirmed (F-10). It needs the purchasing manager."
+    f"{PREPARED} The agent prepares the order, a person confirms it (F-10): the purchasing manager confirms."
 )
 # With the setting on, when a statement is not confirmed. {what} names each one with its product id.
 NOT_CONFIRMED_SENTENCE = (
-    "The agent orders alone only when every statement of the offer is confirmed (F-10). Not confirmed: {what}. "
-    "It needs the purchasing manager."
+    PREPARED + " The agent orders alone only when every statement of the offer is confirmed (F-10). "
+    "Not confirmed: {what}. It needs the purchasing manager."
 )
 NOT_CONFIRMED_RULE_SENTENCE = "Not every statement of the offer is confirmed, so a person confirms the order."
 STATEMENT_WORDS = {
@@ -45,18 +47,18 @@ STATEMENT_WORDS = {
 }
 # At decision time, on an order that already waits: the person the approval names is the person F-10 asks for.
 NAMED_ROLES_SENTENCE = (
-    "Every order needs human approval before it can be confirmed (F-10). The roles this approval already names "
-    "sign it."
+    f"{PREPARED} The agent prepares the order, a person confirms it (F-10): a role this approval already names "
+    "confirms."
 )
 # GET /v1/authority: the rule in plain language, by the value of the setting.
 AUTHORITY_OFF = (
-    "Every order needs human approval before it can be confirmed: this profile does not let the agent place an "
-    "order alone. The purchasing manager approves when no other rule names a role."
+    "The agent prepares the order, a person confirms it: this profile does not let the agent place an order "
+    "alone. The purchasing manager confirms when no other rule names a role."
 )
 AUTHORITY_ON = (
     "This profile lets the agent place an order alone, and only when no rule asks for a human and every statement "
     "of the offer is confirmed: price, quantity, delivery date, allergens and origin of every line. Otherwise the "
-    "purchasing manager approves."
+    "purchasing manager confirms."
 )
 
 

@@ -166,7 +166,7 @@ def test_the_name_of_the_product_a_substitute_replaces_is_neutralised_too(
     assert decision.rule_ids == ("P-05",)
     assert decision.fired[0].facts["line.substitute_original"] == f"{NEUTRAL} (473609)"
     assert decision.fired[0].sentence == (
-        f"Oat drink (471690) replaces {NEUTRAL} (473609), a substitute that profile hotel-kitchen does not accept "
+        f"Oat drink (471690) replaces {NEUTRAL} (473609), a substitute that Harbourside Hotel does not accept "
         "without a human."
     )
 
@@ -197,6 +197,7 @@ def test_a_long_name_is_cut_inside_the_sentence(
 
     assert decision.rule_ids == ("P-06",)
     assert decision.fired[0].sentence == (
-        f"{plain_name(long_name)} (463380) is sold by variable weight, so its final price is not fixed in advance."
+        f"{plain_name(long_name)} (463380) is sold by variable weight, so the total is an estimate: Valio Aimo "
+        "invoices the weight delivered, which can be lower or higher than the weight ordered."
     )
     assert len(plain_name(long_name)) == NAME_MAX_CHARACTERS

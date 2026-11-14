@@ -6,7 +6,7 @@
 # names one, or carries any setting not listed here, is rejected when it is loaded.
 
 profile_id: allergy-ward
-display_name: Allergy ward
+display_name: "City Hospital, Ward 4"    # the customer file's name (src/tta/customers/data/allergy-ward.yaml)
 description: "Illustrative profile of a hospital allergy ward: no milk, no gluten, confirmed data only, no substitute without a human."
 illustrative: true
 

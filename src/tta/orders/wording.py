@@ -14,6 +14,7 @@ from tta.audit.phrases import ended, joined, moment, money, person, roles_text
 from tta.contracts.common import ApproverRole, DecisionKind, OrderStatus, Verdict
 from tta.contracts.order import Approval, ApprovalDecision, Order
 from tta.contracts.policy import PolicyDecision
+from tta.policy.human_approval import HUMAN_APPROVAL, PREPARED
 
 ONLY_AN_AGENT_ORDERS = "Only a buyer's agent may place an order."
 KEY_REQUIRED = "An order needs an Idempotency-Key, so that a retry cannot place a second order."
@@ -52,6 +53,8 @@ APPROVER_NOT_LISTED = "This approver is not listed for any of its roles in profi
 ALREADY_DECIDED = "Approval {approval_id} is closed: order {order_id} is already {status}. It cannot be decided again."
 REJECTION_CHOOSES_NO_OPTION = "A rejection cannot choose another option. Approve with the option, or reject without it."
 FRESH_OFFER_NEEDED = "Ask for a fresh offer."
+# Why a prepared order waits, at the end of its status sentence.
+CONFIRMATION_RULE = f"rule {HUMAN_APPROVAL.rule_id}: a person confirms every order"
 ORDER_BY_PASSED = (
     "Order {order_id} expired: it had to be decided by {deadline} and the approval was not complete. "
     "Nothing was ordered. Ask for a fresh offer."
@@ -68,11 +71,29 @@ def _approvers(approval: Approval) -> str:
     return joined(person(entry.approver_name, entry.roles) for entry in given)
 
 
+def _only_confirmation_is_asked(decision: PolicyDecision) -> bool:
+    """True when F-10 is the only rule that asks for a person: the order is prepared and waits to be confirmed."""
+    return _asking(decision) == (HUMAN_APPROVAL.rule_id,)
+
+
 def placed_alone(net: Decimal, profile_id: str) -> str:
-    return f"The agent placed this order alone for {money(net)} net: no rule of profile {profile_id} asked for a human."
+    """`profile_id` is no longer printed: a sentence never names a buyer by its profile id."""
+    return (
+        f"The agent placed this order alone for {money(net)} net: no rule asked for a human and every statement of "
+        "the offer is confirmed."
+    )
+
+
+def _prepared(approval: Approval) -> str:
+    approvers = _approvers(approval)
+    start = f"Confirmed by {approvers}; still waiting" if approvers else f"{PREPARED} Waiting"
+    deadline = f", by {moment(approval.valid_until)}" if approval.valid_until else ""
+    return f"{start} for {roles_text(approval.roles_missing)} to confirm{deadline} ({CONFIRMATION_RULE})."
 
 
 def waiting(approval: Approval, decision: PolicyDecision) -> str:
+    if _only_confirmation_is_asked(decision):
+        return _prepared(approval)
     approvers = _approvers(approval)
     start = f"Approved by {approvers}; still waiting" if approvers else "Waiting"
     deadline = f", to be decided by {moment(approval.valid_until)}" if approval.valid_until else ""
@@ -82,6 +103,8 @@ def waiting(approval: Approval, decision: PolicyDecision) -> str:
 
 
 def ordered_with_approval(approval: Approval, net: Decimal, decision: PolicyDecision) -> str:
+    if _only_confirmation_is_asked(decision):
+        return f"Confirmed by {_approvers(approval)}: ordered for {money(net)} net."
     rules = _asking(decision)
     why = ""
     if rules:

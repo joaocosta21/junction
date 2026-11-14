@@ -1,0 +1,35 @@
+# Buyer profile "school-kitchen". ILLUSTRATIVE: every value below is ours, chosen for the demonstration.
+# The Valio Aimo mock has no customer model and Valio Aimo publishes no customer limits (AIMO/SPEC.md
+# section 7). The limits and the substitution scope are those of the shop page's school.
+#
+# Tree nuts, peanuts and sesame are kept out for the whole school, under the STRICT rule: a product that may
+# contain one, or says nothing about it, goes to the dietitian. Valio Aimo, 14 Nov 2026: "if you are not sure
+# you need to flag it to the user", and when the data leaves a doubt the safe product wins.
+#
+# A profile sets limits. It cannot switch off or weaken a fixed rule of ../rules.yaml: a profile file that
+# names one, or carries any setting not listed here, is rejected when it is loaded.
+
+profile_id: school-kitchen
+display_name: Kilo School         # the customer file's name (src/tta/customers/data/school-kitchen.yaml)
+description: "Illustrative profile of a school kitchen: no tree nuts, peanuts or sesame for the whole school under the strict rule, the whole quantity covered, substitutes only those Valio Aimo lists."
+illustrative: true
+
+auto_order_enabled: false         # off: every order needs a person (F-10). true lets the agent order alone,
+                                  # and only when every statement is confirmed and no rule asks for a human
+max_order_net_eur: 250            # EUR before tax per order without a human (P-01)
+max_daily_net_eur: 800            # EUR before tax per day, this order included (P-02)
+min_fill_ratio: 1.0               # the whole requested quantity must be covered (P-03)
+excluded_allergens: [AN, AP, AS]  # GS1 codes: AN tree nuts, AP peanuts, AS sesame (F-02, P-04)
+allergen_strictness: STRICT       # STRICT · DECLARED_ONLY; required because allergens are excluded
+substitution_without_approval: LISTED_BY_SUPPLIER   # a substitute Valio Aimo does not list goes to a human (P-05)
+variable_weight: APPROVAL         # the cautious value (P-06)
+deposits: APPROVAL                # the cautious value (P-07)
+require_confirmed: false          # true: the offer holds fully confirmed options only
+standing_order_drift_ratio: 0.25  # a renewal 25% above or below the median of its history goes to a human (P-08)
+
+# Who holds each role. The ids are those of the demonstration identities; the people are named in the
+# customer file.
+approver_roles:
+  purchasing_manager: ["human:school-purchasing"]
+  finance: ["human:school-finance"]
+  dietitian: ["human:school-dietitian"]

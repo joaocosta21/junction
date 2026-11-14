@@ -85,7 +85,7 @@ def test_290_litres_against_a_median_of_100_goes_to_the_purchasing_manager(
     rule = _p08(decision)[0]
     assert rule.sentence == (
         "For standing order so_milk, 290 L this week against a median of 100 L over the last 6 renewals, more "
-        "than the 25% tolerance of profile hotel-kitchen."
+        "than the 25% tolerance of Harbourside Hotel."
     )
     assert rule.fixed is False and rule.product_id is None
     assert rule.facts["standing.largest_drift"] == 1.9

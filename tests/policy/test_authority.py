@@ -44,7 +44,7 @@ def test_authority_rules_carry_their_verdict_and_role(engine: RulePolicyEngine, 
 def test_authority_summary_says_what_the_agent_may_do_alone(engine: RulePolicyEngine, hotel: BuyerProfile) -> None:
     summary = engine.describe_authority(hotel).summary
 
-    assert "Every order needs human approval" in summary[0]
+    assert "The agent prepares the order, a person confirms it (F-10)" in summary[0]
     assert all(value in summary[1] for value in ("750", "3,000", "90%"))
     assert any("quantity is not confirmed" in line for line in summary)
     assert any("price is not confirmed" in line and "needed-by date" in line for line in summary)
@@ -80,14 +80,16 @@ def test_authority_follows_the_profile_settings(
     assert hotel.auto_order_enabled is False
     assert "does not let the agent place an order alone" in _sentence(hotel_authority, "F-10")
     assert "every statement of the offer is confirmed: price, quantity, delivery date" in _sentence(alone, "F-10")
-    assert alone.summary[0].startswith("Profile hotel-kitchen lets the agent place an order alone, and only when")
+    assert alone.summary[0].startswith("Harbourside Hotel lets the agent place an order alone, and only when")
     assert alone.summary[1] == (
         "Alone, at most: €750 before tax per order and €3,000 before tax per day, this order included, with at "
         "least 90% of the requested quantity covered."
     )
     assert alone.policy_hash != hotel_authority.policy_hash  # the setting is part of what is hashed
-    assert "ceiling" in _sentence(ceiling, "P-06")
-    assert "ceiling" not in _sentence(hotel_authority, "P-06")
+    # Valio Aimo, 14 Nov 2026: a product sold by weight is invoiced for the weight delivered. Never a ceiling.
+    assert "needs no approval of its own when the offer marks its total as an estimate" in _sentence(ceiling, "P-06")
+    assert "goes to the purchasing manager: its total is an estimate" in _sentence(hotel_authority, "P-06")
+    assert "ceiling" not in _sentence(ceiling, "P-06") + _sentence(hotel_authority, "P-06")
 
 
 def test_authority_serialises_to_json(engine: RulePolicyEngine, ward: BuyerProfile) -> None:

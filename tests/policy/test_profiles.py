@@ -28,8 +28,8 @@ from tta.policy import PROFILES_DIR, RULES_PATH, PolicyLoadError, RulePolicyEngi
 FIXED_IDS = frozenset({"F-01", "F-02", "F-03", "F-04", "F-05", "F-06", "F-07", "F-08", "F-09"})
 
 
-def test_the_two_shipped_profiles_load(engine: RulePolicyEngine) -> None:
-    assert engine.profile_ids() == ("allergy-ward", "hotel-kitchen")
+def test_the_four_shipped_profiles_load(engine: RulePolicyEngine) -> None:
+    assert engine.profile_ids() == ("allergy-ward", "bakery-cafe", "hotel-kitchen", "school-kitchen")
 
 
 def test_hotel_kitchen_carries_the_values_of_the_spec_and_is_marked_illustrative(hotel: BuyerProfile) -> None:
@@ -215,7 +215,7 @@ def test_a_folder_without_profiles_is_rejected(tmp_path: Path) -> None:
 def test_load_profiles_returns_every_profile_by_id() -> None:
     profiles = load_profiles(PROFILES_DIR, FIXED_IDS)
 
-    assert sorted(profiles) == ["allergy-ward", "hotel-kitchen"]
+    assert sorted(profiles) == ["allergy-ward", "bakery-cafe", "hotel-kitchen", "school-kitchen"]
     assert all(profile.profile_id == profile_id for profile_id, profile in profiles.items())
 
 

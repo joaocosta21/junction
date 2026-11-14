@@ -7,7 +7,7 @@
 # names one, or carries any setting not listed here, is rejected when it is loaded.
 
 profile_id: hotel-kitchen
-display_name: Hotel kitchen
+display_name: Harbourside Hotel    # the customer file's name (src/tta/customers/data/hotel-kitchen.yaml)
 description: "Illustrative profile of a hotel kitchen: spend limits, no allergen exclusion, substitutes from the same category."
 illustrative: true
 

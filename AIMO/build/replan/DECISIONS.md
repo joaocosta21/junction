@@ -36,6 +36,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B16 | Scenario 3 (oat-drink substitute) is shown at the default clock unless B1 to B4 fix it at the demo clock too | At the demo clock it offered the nutty-vanilla drink | E1 decides after L2a-R |
 | B17 | The whole suite is run once per wave, not after every lane | Lanes change the same tree at the same time; each lane's own tests are run before its commit | Orchestrator |
 | B18 | No push, although fetch and outside calls are now approved | You approved fetch, deployment and the award services; a push was never mentioned | Orchestrator |
+| B19 | The bakery's limit becomes €300 per order and €1,000 per day (was €50 and €400, the shop page's values) | €50 is below any wholesale order: its usual 40 L of whipping cream is about €230, so every order would cite the spend limit | L3-2, wave 2 |
+| B20 | Q16: a total with a product sold by weight is called an estimate ("Valio Aimo invoices the weight delivered"); the hotel still sends such an order to a person | Valio's answer of 14 Nov; wording only | L3a, L3b |
 
 ## C. Questions for the team (domain)
 

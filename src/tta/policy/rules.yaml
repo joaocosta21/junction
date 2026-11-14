@@ -69,6 +69,7 @@ substitution_scopes:
 facts:
   # --- the buyer profile ---
   profile.profile_id:                    {type: string, source: profile, label: "the profile"}
+  profile.display_name:                  {type: string, source: profile, label: "the buyer's name", note: "what a sentence calls the buyer, never the profile id; text a visitor may have typed, read as data like line.name"}
   profile.auto_order_enabled:            {type: bool,   source: profile, label: "whether the agent may order alone"}
   profile.max_order_net_eur:             {type: limit,  source: profile, label: "the spend limit per order"}
   profile.max_daily_net_eur:             {type: limit,  source: profile, label: "the spend limit per day"}
@@ -92,7 +93,7 @@ facts:
   option.needed_by_check:         {type: enum,     source: option, label: "the needed-by check", values: [NOT_ASKED, MET, UNVERIFIED, NOT_MET], note: "the least favourable result of the option's constraint checks of kind NEEDED_BY; NOT_ASKED when it carries none, because the request gave no date"}
   option.needed_by:               {type: string,   source: option, label: "the needed-by date", note: "the subject of the needed-by check with the least favourable result"}
   option.needed_by_finding:       {type: string,   source: engine, label: "what the needed-by check found", note: "in words; missing when the date is met or the request gave none"}
-  option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is a ceiling", note: "totals.is_ceiling"}
+  option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is marked as an estimate by weight", note: "totals.is_ceiling, which keeps its name in the contract; the total of a product sold by weight is an estimate, because Valio Aimo invoices the weight delivered"}
   option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
   # --- the order context ---
   context.at_order_time:          {type: bool,  source: context, label: "whether an order is being placed"}
@@ -295,7 +296,8 @@ rules:
   #   * auto_order_enabled: false (every shipped profile; Valio Aimo, 14 Nov 2026: "the final submition should
   #     always have the input from the user"): an order that no rule of this file sends to a person goes to
   #     the purchasing manager under F-10. When another rule already names a role, that role signs and F-10
-  #     is not added.
+  #     is not added. What a person reads: "Prepared: confirm to order" (the agent prepares the order, a person
+  #     confirms it), then "Confirmed by <name>" (tta.orders.wording).
   #   * auto_order_enabled: true (the buyer's own choice; Valio Aimo: "after and if you are 100% sure yes"):
   #     the agent orders alone only when no rule of this file fires and every statement of every line is
   #     confirmed (price, quantity, delivery date, allergens, origin). One statement that is unknown or
@@ -312,7 +314,7 @@ rules:
         - {fact: option.net_eur, op: gt, value: {fact: profile.max_order_net_eur}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "the total of €{option.net_eur} before tax is above the €{profile.max_order_net_eur} limit per order of profile {profile.profile_id}"
+    message: "the total of €{option.net_eur} before tax is above the €{profile.max_order_net_eur} limit per order of {profile.display_name}"
     authority:
       - text: "An order above €{profile.max_order_net_eur} before tax goes to the purchasing manager."
     justification: "Standard spend control; the brief names it as a guardrail."
@@ -326,7 +328,7 @@ rules:
         - {fact: order.day_net_eur, op: gt, value: {fact: profile.max_daily_net_eur}}
     verdict: APPROVAL
     approver_role: finance
-    message: "with this order today's spend would reach €{order.day_net_eur} before tax, above the €{profile.max_daily_net_eur} limit per day of profile {profile.profile_id}"
+    message: "with this order today's spend would reach €{order.day_net_eur} before tax, above the €{profile.max_daily_net_eur} limit per day of {profile.display_name}"
     records: [context.day_committed_net_eur, option.net_eur]
     authority:
       - text: "When the day's orders, this one included, pass €{profile.max_daily_net_eur} before tax, the order goes to finance."
@@ -376,7 +378,7 @@ rules:
         - {fact: line.substitute_scope, op: not_in, value: {fact: profile.substitution_scopes_allowed}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{line.name} ({line.product_id}) replaces {line.substitute_original}, a substitute that profile {profile.profile_id} does not accept without a human"
+    message: "{line.name} ({line.product_id}) replaces {line.substitute_original}, a substitute that {profile.display_name} does not accept without a human"
     records: [profile.substitution_without_approval]
     authority:
       - when: {all: [{fact: profile.substitution_without_approval, op: eq, value: NONE}]}
@@ -398,12 +400,12 @@ rules:
             - {fact: option.total_is_ceiling, op: is_false}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{line.name} ({line.product_id}) is sold by variable weight, so its final price is not fixed in advance"
+    message: "{line.name} ({line.product_id}) is sold by variable weight, so the total is an estimate: Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered"
     authority:
       - when: {all: [{fact: profile.variable_weight, op: eq, value: APPROVAL}]}
-        text: "A product sold by variable weight goes to the purchasing manager: its final price is not fixed in advance."
-      - text: "A product sold by variable weight may be ordered alone when the total is a ceiling: the invoice can be lower, never higher."
-    justification: "632 products are sold by variable weight (AIMO/FINDINGS.md section 4). Whether the delivered weight equals the ordered weight is an open question to Valio Aimo."
+        text: "A product sold by variable weight goes to the purchasing manager: its total is an estimate, because Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered."
+      - text: "A product sold by variable weight needs no approval of its own when the offer marks its total as an estimate: Valio Aimo invoices the weight delivered, which can be lower or higher than the weight ordered."
+    justification: "632 products are sold by variable weight (AIMO/FINDINGS.md section 4). Valio Aimo, 14 Nov 2026, on whether such a product is invoiced for the weight ordered or delivered: 'what is actually delivered. like in a normal store'. So the price per kilo is fixed and the total is not: it is an estimate, and no bound on the difference is in the data. A buyer chooses whether that estimate needs a named person."
 
   - id: P-07
     fixed: false
@@ -439,7 +441,7 @@ rules:
         - {fact: standing.largest_drift, op: gt, value: {fact: profile.standing_order_drift_ratio}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{standing.drift_found}, more than the {profile.standing_order_drift_ratio} tolerance of profile {profile.profile_id}"
+    message: "{standing.drift_found}, more than the {profile.standing_order_drift_ratio} tolerance of {profile.display_name}"
     records: [standing.standing_order_id, standing.renewals_compared, standing.largest_drift]
     authority:
       - when: {all: [{fact: profile.standing_order_drift_ratio, op: gte, value: 0}]}
@@ -458,9 +460,10 @@ access_rules:
     justification: "An approval is a human's signature. An agent that could give it would have no limit at all."
 
 # The sentence of a decision, by verdict. {reasons} is the clauses of the rules that decide, each followed
-# by its rule id; {roles} is who must sign.
+# by its rule id; {roles} is who must sign. A sentence names the buyer by {profile.display_name}, never by the
+# profile id. The sentence of an order that only F-10 holds back is in tta.policy.human_approval.
 decision_sentences:
-  AUTO: "The agent may place this order alone: the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order, today's spend would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day of profile {profile.profile_id}, {option.fill_ratio} of the requested quantity is covered, and no rule asks for a human."
+  AUTO: "The agent may place this order alone: the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order, today's spend would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day of {profile.display_name}, {option.fill_ratio} of the requested quantity is covered, and no rule asks for a human."
   APPROVAL: "The agent cannot place this order alone: {reasons}. It needs {roles}."
   BLOCK: "This order cannot be placed, even with approval: {reasons}."
 
@@ -470,9 +473,9 @@ authority:
   note: "The limit values of this profile are illustrative: they are ours, chosen for the demonstration. The Valio Aimo mock has no customer limits."
   summary:
     - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
-      text: "Every order needs human approval before it can be confirmed (F-10). The purchasing manager approves when no other approval role is required."
+      text: "The agent prepares the order, a person confirms it (F-10). The purchasing manager confirms when no other approval role is required."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
-      text: "Profile {profile.profile_id} lets the agent place an order alone, and only when no rule asks for a human and every statement of the offer is confirmed: price, quantity, delivery date, allergens and origin (F-10)."
+      text: "{profile.display_name} lets the agent place an order alone, and only when no rule asks for a human and every statement of the offer is confirmed: price, quantity, delivery date, allergens and origin (F-10)."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
       text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}

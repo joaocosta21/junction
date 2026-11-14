@@ -66,7 +66,8 @@ def test_a_substitute_whose_original_has_no_name_is_named_by_its_id(
 
     assert decision.rule_ids == ("P-05",)
     assert decision.fired[0].sentence == (
-        "Oat drink (471690) replaces 473609, a substitute that profile allergy-ward does not accept without a human."
+        "Oat drink (471690) replaces 473609, a substitute that City Hospital, Ward 4 does not accept without a "
+        "human."
     )
     assert decision.fired[0].facts["line.substitute_scope"] == "LISTED_BY_SUPPLIER"
     assert decision.fired[0].facts["profile.substitution_scopes_allowed"] == []
