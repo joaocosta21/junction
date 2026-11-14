@@ -11,9 +11,9 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T04 | Availability: six states, verification status | T00 | done | 78 tests, 100% coverage; Friday regression matches exactly |
 | T05 | Policy: fixed rules, buyer profiles, engine | T00 | done | 227 tests, 99% coverage; keeps Gabriela's structure |
 | T06 | Store and audit trail | T00 | done | 122 tests, 100% coverage |
-| T07 | Offers: options, ranking, combining, substitutes | T01 T02 T03 T04 T05 | running | |
-| T08 | Orders and approvals | T05 T06 | running | |
-| T09 | API: routes, identity, errors, schemas | T07 T08 | todo | |
+| T07 | Offers: options, ranking, combining, substitutes | T01 T02 T03 T04 T05 | done | 143 tests, 98% coverage; a follow-up fills `claims_lost` |
+| T08 | Orders and approvals | T05 T06 | done | 89 tests, 100% coverage; two-thread tests for approvals and idempotency |
+| T09 | API: routes, identity, errors, schemas | T07 T08 | running | |
 | T10 | Buyer agent (Gemini) | T09 | todo | needs `GEMINI_API_KEY` for the live check only |
 | T11 | MCP surface | T09 | todo | first cut if behind |
 | T12 | Pages: demo, approvals, order and audit | T09 | todo | |
@@ -22,12 +22,13 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | todo | only if approved, `CONTEXT_DEV_API_KEY` set, T13 green before 06:30 |
 | T14 | Deployment on Modal | T13 | todo | needs a Modal token |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | todo | |
-| T16 | Review and fixes | each wave | running | round 1 (wave 1) running; rounds after waves 2, 3 and at the end to come |
+| T16 | Review and fixes | each wave | running | round 1 done (FIX-1 to FIX-4 in); round 2 (offers, orders) running; rounds after wave 3 and at the end to come |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
-| FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | running | |
-| FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | running | |
-| FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | running | |
-| FIX-4 | Valio client: budget lock, clock bound, HTTPS only, bounded input | T01 | running | |
+| FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
+| FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
+| FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | done | 313 tests; `milk` 91 → 78, lactose-free 35 → 30 |
+| FIX-4 | Valio client: budget lock, clock bound, HTTPS only, bounded input | T01 | done | 221 tests; all six findings fixed |
+| FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | running | |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -42,6 +43,13 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 03:30 T05 done and committed. Wave 1 complete: 852 tests pass, lint clean, the six packages satisfy their ports together (smoke run). Demo approvers added for every role on both profiles. Questions T05-1 to T05-3 (team) added.
 - 03:30 wave 2 started: T07 T08. T16 round 1 started on wave 1 (three reviewers, read-only), base commit 1e20827.
 - 03:37 T16 round 1 back: no critical finding. High: the 60-second cache could hide a change from the order-time re-check (fixed by the orchestrator: `fresh=True` on the port, commit 2b3444c); the policy counted a missing claim as confirmed (FIX-1, new fixed rule F-07 in SPEC §7). Request bounds added to the contract. Four fix tasks started (FIX-1 to FIX-4). T07 and T08 were told what changes.
+- 03:53 T08 done and committed. Questions T08-1 to T08-4 (team) added.
+- 03:53 FIX-4 done and committed (no live call).
+- 03:54 FIX-3 done and committed. Question FIX3-1 (team) added.
+- 03:55 FIX-1 done and committed.
+- 03:59 FIX-2 done and committed. `AuditSink.head()` added to the port.
+- 04:14 T07 done and committed. Wave 2 complete: 1,346 tests pass; the three scenarios and the backup run through the offer service in replay (products in question T07-6). Found by T07: regular milk could stand in for lactose-free milk and be ordered by the agent alone → new fixed rule F-08 in SPEC §7, FIX-5 started, T07's builder asked to fill `claims_lost`.
+- 04:14 wave 3 started: T09. T16 round 2 started on offers and orders (three reviewers, read-only), base commit e593693.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)

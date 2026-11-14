@@ -39,7 +39,7 @@ class SubstituteInfo(Contract):
     listed_by_supplier: bool
     category_distance: int = Field(
         ge=0,
-        description="0 same 5-digit category, 1 same first 4, 2 same first 3, 3 listed by the supplier from further away",
+        description="0 same 5-digit category, 1 same first 4, 2 same first 3, 3 listed from further away",
     )
     allergen_check: SubstituteAllergenCheck
     claims_lost: tuple[str, ...] = ()  # nutritional claims of the original that the substitute does not carry

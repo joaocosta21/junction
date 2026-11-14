@@ -23,3 +23,23 @@
 - `POST /v1/orders` without `Idempotency-Key` → `invalid-request`; the same key twice → the same order.
 - `/openapi.json` lists every route of SPEC §2 and the security scheme; `/v1/schemas` returns every model.
 - The supplier token sees only the supplier view of the audit trail.
+
+## Notes from waves 1 and 2 (read every hand-back in `AIMO/build/handback/` before writing anything)
+- **Wiring** (all synchronous):
+  - `catalog = ProductCatalog.from_settings(settings)` (`tta.catalog.catalog`; about 1.3 s, build once)
+  - replay: `gateway = ReplayGateway(settings.replay_capture_dir)`; live: `gateway = ValioClient(settings)`; the data clock is `gateway.clock`
+  - `engine = RulePolicyEngine.from_files()` · `store = open_store(settings)`
+  - `trail = AuditTrail(store, audit_clock, policy=engine)` — **one per process**, and `audit_clock` is the real time (a small clock that answers UTC now), never the pinned replay clock (decision T06-2)
+  - `offers = OfferService(OfferDeps(catalog=catalog, gateway=gateway, policy=engine, clock=clock, day_spend=lambda profile_id: day_committed_net_eur(store, clock, profile_id)))`
+  - `orders = OrderBookService(store=store, policy=engine, revalidator=offers, audit=trail, clock=clock)`
+- **One service object implements the `GatewayService` port** (`tta/contracts/ports.py`), in `src/tta/api/service.py`. REST routes, the MCP tools (T11), the pages (T12) and the buyer agent (T10) all call it and nothing else. It checks what the identity may do, then delegates.
+- **Offers:** `create_offer` builds the offer, stores it, and writes the audit events `request.parsed`, `lookup.performed`, `offer.created` and `policy.evaluated`, each with the offer id (the trail of an order is found through its offer). `request.received` is written by `parse_request` and `run_agent` with the pasted text. The offer builder itself stores nothing and writes no event.
+- **Stale or expired at order time:** `orders.place_order` raises `OfferStale` or `OfferExpired`. Catch it, build a fresh offer from the stored offer's request, store it, and add `fresh_offer_id` to the problem's extension members before answering 409.
+- **Live with a fall-back to replay.** In live mode wrap the live client and a replay gateway behind the `ValioGateway` port: when the live client raises `SupplierUnavailable`, or fewer than 10 calls remain (`ValioClient.calls_remaining`), answer from replay. Every answer already states its `source`, and an offer carries it. The data clock must follow the source of the last answer (pinned for replay, live otherwise). `/healthz` says which source is in use.
+- **Identity.** Demo tokens (only when `settings.is_demo_environment`): two agents (`agent:hotel-kitchen`, `agent:allergy-ward`), six approvers whose ids are listed in the profile files (`human:hotel-purchasing`, `human:hotel-finance`, `human:hotel-dietitian`, `human:ward-dietitian`, `human:ward-purchasing`, `human:ward-finance`), and the supplier reader `supplier:valio-aimo`. Outside dev and demo: `settings.tta_tokens` holds a JSON object mapping each token to an identity; without it the app refuses to start. The demo tokens are public by design: say so in the file and in `/docs`.
+- **Audit route:** a supplier token gets the supplier view only. An agent or approver gets the buyer view of its own buyer's orders and offers (check the order's or offer's `profile_id` against the identity before asking the trail), and may ask for `reader=supplier` to see what the supplier sees about its own order.
+- Add `GET /v1/orders` (the caller's own buyer's orders, newest first) for the pages; `Store.list_orders` exists.
+- **`/healthz`:** environment, mode, the source in use, the head of the audit chain (`trail.head()`: event count and last hash), and `settings.describe()` — never a secret, never a path.
+- **Problem details:** `TtaError.to_problem()` gives the body. `AuditChainConflict` is a `SupplierUnavailable` (503, safe to retry). A Pydantic validation error is `invalid-request` and lists the fields without echoing the values. Any other exception is a 500 problem with a generic detail; the trace goes to the log only.
+- **Limits, from the security review:** the request contract already bounds quantities and list sizes. Add: a body size limit, a per-token rate limit on the routes that reach the supplier (offers, substitutes, orders, agent run), and no route that reaches the supplier without a token.
+- Tests use `Settings.for_tests(...)` in replay, a database under `tmp_path`, and `create_app(settings)`; nothing reads `.env`.

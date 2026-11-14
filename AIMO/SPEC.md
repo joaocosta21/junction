@@ -169,6 +169,7 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 - **Candidates:** the pairs Valio lists (250 pairs on 189 products) as a seed, then the same 5-digit category, then the same first 4 digits, then the same first 3. Every candidate is re-checked for price and availability.
 - **Ranking (good, better, best):** passes §6 (a failure is shown, with the reason, and can never be ordered) → category distance → listed by Valio → pack size closest to the original → verification status → price difference.
 - Each result says in one sentence what the buyer gives up.
+- A substitute that lacks a nutritional claim of the original (`claims_lost`) ranks after those that keep every claim, and ordering it always needs a human (F-08).
 
 ---
 
@@ -206,6 +207,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | F-05 | A substitute adds an allergen the original does not declare | `BLOCK` |
 | F-06 | The caller is an agent on an approval route | refused (`not-authorised`) |
 | F-07 | A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met | `APPROVAL` (purchasing manager) |
+| F-08 | A substitute lacks a nutritional claim the original carries (for example lactose-free) | `APPROVAL` (purchasing manager) |
 
 ### Buyer profile — set per buyer, one YAML file each
 | Setting | Meaning | Rule when crossed |
