@@ -16,19 +16,32 @@ At most `MAX_SANDBOXES` are kept; above that the one used least recently is drop
 address opens at most `MAX_NEW_BOOKS_PER_ADDRESS` new books in `NEW_BOOKS_WINDOW_MINUTES` (task FIX-11): a
 room on one Wi-Fi opens one each, and one address sending a new cookie with every form cannot push the other
 visitors' books out of the `MAX_SANDBOXES`.
+
+Each book also holds one custom buyer profile, "My kitchen" (task FEAT-1): what the visitor lets its own agent,
+"My kitchen agent", decide alone. It starts as a copy of `hotel-kitchen`, is checked exactly as a profile file is,
+and is in force only in the calls made on this book's service (`tta.policy.custom`): the shared book of the
+tokens, the policy files and every other book never see it. Its approvals are decided by three approvers bound to
+it, who carry the names of the hotel's demo approvers. "Start again" drops it with the book.
 """
 
 from __future__ import annotations
 
+import functools
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import Any, cast
 
 from tta.api.limits import SECONDS_PER_MINUTE, Counted, RateLimit, RateLimiter, current_client_key
 from tta.api.service import Gateway
+from tta.contracts.common import ApproverRole, Identity, IdentityKind
+from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import AuditSink
+from tta.policy import PolicyLoadError, RulePolicyEngine, profile_in_force
+from tta.policy.rulebook import AccessRule
 from tta.store import SqliteStore
 
 MAX_SANDBOXES = 300
@@ -43,13 +56,177 @@ NEW_BOOKS_LIMITED = (
 )
 
 
+# --- "My kitchen": the book's own buyer profile (task FEAT-1) ---------------------------------------------
+
+KITCHEN_PROFILE_ID = "my-kitchen"
+KITCHEN_NAME = "My kitchen"
+KITCHEN_DESCRIPTION = "Set up by the visitor on the page Your kitchen, in this browser's own demo order book."
+STARTING_POINTS = ("hotel-kitchen", "allergy-ward")  # the profile files a kitchen can start from a copy of
+KITCHEN_SETTINGS = (  # what the page sets, in the order it shows them; the rest is the gateway's
+    "display_name", "auto_order_enabled", "max_order_net_eur", "max_daily_net_eur", "min_fill_ratio",
+    "excluded_allergens", "allergen_strictness", "substitution_without_approval", "variable_weight", "deposits",
+    "require_confirmed",
+)
+LIMIT_SETTINGS = ("max_order_net_eur", "max_daily_net_eur")
+MAX_LIMIT_EUR = Decimal(100_000)
+MAX_EXCLUDED_ALLERGENS = 10
+MAX_NAME_LENGTH = 60
+KITCHEN_SOURCE = "Your kitchen"
+
+KITCHEN_AGENT = Identity(
+    kind=IdentityKind.AGENT, id="agent:my-kitchen", display_name="My kitchen agent", profile_id=KITCHEN_PROFILE_ID
+)
+# An identity is bound to one buyer profile (tta.contracts.common), so the hotel's demo approvers decide for My
+# kitchen as approvers of their own, with the same names.
+KITCHEN_APPROVERS = tuple(
+    Identity(
+        kind=IdentityKind.APPROVER, id=f"human:my-kitchen-{suffix}", display_name=f"Demo approver {name}, My kitchen",
+        profile_id=KITCHEN_PROFILE_ID, roles=(role,),
+    )
+    for suffix, name, role in (
+        ("purchasing", "Hanna", ApproverRole.PURCHASING_MANAGER),
+        ("finance", "Mikko", ApproverRole.FINANCE),
+        ("dietitian", "Leena", ApproverRole.DIETITIAN),
+    )
+)
+KITCHEN_IDENTITIES = (KITCHEN_AGENT, *KITCHEN_APPROVERS)
+# Set by the gateway, never by the page: a form that sends one of these is refused.
+_FIXED_PARTS: Mapping[str, Any] = {
+    "profile_id": KITCHEN_PROFILE_ID,
+    "description": KITCHEN_DESCRIPTION,
+    "illustrative": True,
+    "approver_roles": {role.value: [one.id for one in KITCHEN_APPROVERS if role in one.roles] for role in ApproverRole},
+}
+
+
+@functools.cache
+def _file_policy() -> RulePolicyEngine:
+    """The rules and profile files the gateway loads (`tta.api.wiring`): what a kitchen is checked against."""
+    return RulePolicyEngine.from_files()
+
+
+def kitchen_profile(policy: RulePolicyEngine, settings: Mapping[str, Any]) -> BuyerProfile:
+    """The kitchen's settings as a profile, checked exactly as a profile file is and within the page's bounds.
+    Raises `PolicyLoadError` with one problem per field, each starting with the field's name."""
+    problems = _page_problems(settings)
+    if problems:
+        raise PolicyLoadError(KITCHEN_SOURCE, problems)
+    profile = policy.check_custom_profile({**settings, **_FIXED_PARTS})
+    over = [
+        f"{name}: at most €{MAX_LIMIT_EUR:,} on this page (got €{getattr(profile, name):,})"
+        for name in LIMIT_SETTINGS if getattr(profile, name) > MAX_LIMIT_EUR
+    ]
+    if over:
+        raise PolicyLoadError(KITCHEN_SOURCE, over)
+    return profile
+
+
+def _page_problems(settings: Mapping[str, Any]) -> list[str]:
+    """What the page refuses before the profile checks: a setting of the gateway, a name, the exclusions."""
+    problems = [f"{name}: is set by the gateway for My kitchen, not on this page" for name in _FIXED_PARTS
+                if name in settings]
+    name = settings.get("display_name")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_NAME_LENGTH:
+        problems.append(f"display_name: give the kitchen a name of 1 to {MAX_NAME_LENGTH} characters")
+    excluded = settings.get("excluded_allergens") or ()
+    if len(excluded) > MAX_EXCLUDED_ALLERGENS:
+        problems.append(f"excluded_allergens: at most {MAX_EXCLUDED_ALLERGENS} allergens (got {len(excluded)})")
+    if excluded and not settings.get("allergen_strictness"):
+        problems.append("allergen_strictness: choose STRICT or DECLARED_ONLY when an allergen is excluded")
+    return problems
+
+
+class Kitchen:
+    """The book's own custom profile. Replaced whole, never changed in place. Thread-safe."""
+
+    def __init__(self, policy: RulePolicyEngine | None = None) -> None:
+        self._policy = policy or _file_policy()
+        self._lock = threading.Lock()
+        self._profile = self._copy_of(STARTING_POINTS[0])
+        self._started_from = STARTING_POINTS[0]
+        self._is_set_up = False
+
+    @property
+    def profile(self) -> BuyerProfile:
+        with self._lock:
+            return self._profile
+
+    @property
+    def started_from(self) -> str:
+        """The profile file this kitchen was last copied from."""
+        with self._lock:
+            return self._started_from
+
+    @property
+    def is_set_up(self) -> bool:
+        """Whether the visitor saved settings of its own since the last copy."""
+        with self._lock:
+            return self._is_set_up
+
+    @property
+    def settings(self) -> dict[str, Any]:
+        """The settings the page shows and sends, as they stand."""
+        return self.profile.model_dump(include=set(KITCHEN_SETTINGS))
+
+    @property
+    def access_rules(self) -> tuple[AccessRule, ...]:
+        """The fixed rules enforced where the caller is known (F-06): shown with the other fixed rules."""
+        return self._policy.access_rules
+
+    def start_from(self, profile_id: str) -> BuyerProfile:
+        """Replace the kitchen with a copy of one of `STARTING_POINTS`. Raises `PolicyLoadError` for another id."""
+        profile = self._copy_of(profile_id)
+        with self._lock:
+            self._profile, self._started_from, self._is_set_up = profile, profile_id, False
+        return profile
+
+    def set_up(self, settings: Mapping[str, Any]) -> BuyerProfile:
+        """Replace the kitchen with these settings. Raises `PolicyLoadError`; a refused form changes nothing."""
+        profile = kitchen_profile(self._policy, settings)
+        with self._lock:
+            self._profile, self._is_set_up = profile, True
+        return profile
+
+    def _copy_of(self, profile_id: str) -> BuyerProfile:
+        if profile_id not in STARTING_POINTS:
+            raise PolicyLoadError(KITCHEN_SOURCE, [f"start from one of {', '.join(STARTING_POINTS)}"])
+        settings = self._policy.get_profile(profile_id).model_dump(include=set(KITCHEN_SETTINGS))
+        return kitchen_profile(self._policy, {**settings, "display_name": KITCHEN_NAME})
+
+
+class ProfileInForce:
+    """A book's gateway service with the book's own kitchen in force during every call made on it. Everything
+    else is the service itself."""
+
+    def __init__(self, service: Gateway, kitchen: Kitchen) -> None:
+        self._service = service
+        self._kitchen = kitchen
+
+    def __getattr__(self, name: str) -> Any:
+        found = getattr(self._service, name)
+        if not callable(found):
+            return found
+
+        @functools.wraps(found)
+        def in_force(*args: Any, **kwargs: Any) -> Any:
+            with profile_in_force(self._kitchen.profile):
+                return found(*args, **kwargs)
+
+        return in_force
+
+
 @dataclass(frozen=True, eq=False)  # one book is one object: compared and hashed by identity
 class Sandbox:
-    """One visitor's order book."""
+    """One visitor's order book, with its own kitchen in force in every call made on `service`."""
 
     service: Gateway
     store: SqliteStore
     audit: AuditSink
+    kitchen: Kitchen = field(default_factory=Kitchen)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.service, ProfileInForce):
+            object.__setattr__(self, "service", cast(Gateway, ProfileInForce(self.service, self.kitchen)))
 
     def close(self) -> None:
         self.store.close()

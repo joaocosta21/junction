@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Your kitchen{% endblock %}
+{% macro rule_note(setting) %}
+{% set rule = rules.get(setting_rules.get(setting, ""), none) %}
+{% if rule %}<p class="small"><span class="tag">{{ rule.rule_id }}</span> {{ rule.sentence }}</p>{% endif %}
+{% endmacro %}
+{% macro choices(name, labels) %}
+{% for value, label in labels.items() %}
+<label><input type="radio" name="{{ name }}" value="{{ value.value }}"{% if form[name] == value.value %} checked{% endif %}> {{ label }}</label>
+{% endfor %}
+{% endmacro %}
+{% block main %}
+<h1>Your kitchen: what your agent may decide alone</h1>
+<p class="lead">Set what <strong>{{ agent.display_name }}</strong> may order without a human. Each setting drives
+one rule, shown next to it with your values. The fixed rules below hold whatever you set. Run a request as
+{{ agent.display_name }} on the <a href="/">first page</a> to see the setting at work.</p>
+
+<div class="banner banner-plain">
+  <p>{% if kitchen.is_set_up %}Your own settings are in force.{% else %}Not changed yet: a copy of <code>{{ kitchen.started_from }}</code>.{% endif %}
+  Buyer profile <code>{{ kitchen.profile.profile_id }}</code>, kept in your own demo order book only: no other
+  visitor, no REST or MCP caller and no policy file sees it. "Start again" clears it.</p>
+  <p class="small">Policy and profile in force: <code class="hash">{{ authority.policy_hash }}</code></p>
+</div>
+
+<section aria-labelledby="summary-title">
+  <h2 id="summary-title">What {{ agent.display_name }} may do alone now</h2>
+  {% for sentence in authority.summary %}<p>{{ sentence }}</p>{% endfor %}
+  <p class="small">{{ authority.note }}</p>
+</section>
+
+<form method="post" action="{{ '/kitchen/start-from' }}" class="inline-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <span>Start from a copy of</span>
+  {% for profile_id in starting_points %}
+  <button type="submit" name="profile" value="{{ profile_id }}">{{ profile_id }}</button>
+  {% endfor %}
+</form>
+
+{% if problems %}
+<div class="banner banner-bad" role="alert" id="problem">
+  <p><strong>The settings were not saved.</strong> Nothing was changed:</p>
+  <ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post" action="/kitchen" class="kitchen-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+
+  <fieldset>
+    <legend>Name</legend>
+    <label class="field-label" for="display_name">The kitchen's name</label>
+    <input type="text" id="display_name" name="display_name" value="{{ form.display_name }}" maxlength="60" required>
+  </fieldset>
+
+  <fieldset>
+    <legend>Ordering alone</legend>
+    <label><input type="checkbox" name="auto_order_enabled" value="yes"{% if form.auto_order_enabled %} checked{% endif %}> The agent may order alone at all</label>
+    {{ rule_note("auto_order_enabled") }}
+    <label class="field-label" for="max_order_net_eur">Spend limit per order, EUR before tax (0 to {{ max_limit_eur|money }})</label>
+    <input type="text" inputmode="decimal" id="max_order_net_eur" name="max_order_net_eur" value="{{ form.max_order_net_eur }}">
+    {{ rule_note("max_order_net_eur") }}
+    <label class="field-label" for="max_daily_net_eur">Spend limit per day, EUR before tax, this order included (0 to {{ max_limit_eur|money }})</label>
+    <input type="text" inputmode="decimal" id="max_daily_net_eur" name="max_daily_net_eur" value="{{ form.max_daily_net_eur }}">
+    {{ rule_note("max_daily_net_eur") }}
+    <label class="field-label" for="min_fill_ratio">Minimum share of the requested quantity covered, percent</label>
+    <input type="text" inputmode="decimal" id="min_fill_ratio" name="min_fill_ratio" value="{{ form.min_fill_ratio }}">
+    {{ rule_note("min_fill_ratio") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Allergens to exclude (GS1 codes, at most {{ max_excluded }})</legend>
+    <div class="allergens">
+    {% for code in allergens %}
+    <label><input type="checkbox" name="excluded_allergens" value="{{ code.code }}"{% if code.code in form.excluded_allergens %} checked{% endif %}> <code>{{ code.code }}</code> {{ code.gs1_name }}</label>
+    {% endfor %}
+    </div>
+    <p class="field-label">Strictness, required when an allergen is excluded</p>
+    <label><input type="radio" name="allergen_strictness" value=""{% if not form.allergen_strictness %} checked{% endif %}> Not set (only with no exclusion)</label>
+    {{ choices("allergen_strictness", strictness_labels) }}
+    {{ rule_note("excluded_allergens") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Substitutes the agent may order without a human</legend>
+    {{ choices("substitution_without_approval", substitution_labels) }}
+    {{ rule_note("substitution_without_approval") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Products sold by variable weight</legend>
+    {{ choices("variable_weight", variable_weight_labels) }}
+    {{ rule_note("variable_weight") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Products with a deposit</legend>
+    {{ choices("deposits", deposit_labels) }}
+    {{ rule_note("deposits") }}
+  </fieldset>
+
+  <fieldset>
+    <legend>Data</legend>
+    <label><input type="checkbox" name="require_confirmed" value="yes"{% if form.require_confirmed %} checked{% endif %}> Confirmed data only</label>
+    <p class="small">Shapes the offer itself: an option whose quantity or delivery date Valio Aimo does not confirm is left out.</p>
+  </fieldset>
+
+  <button type="submit" class="primary">Save my kitchen</button>
+</form>
+
+<section aria-labelledby="fixed-title">
+  <h2 id="fixed-title">Always, whatever you set</h2>
+  <p>No setting can switch off or weaken these rules: a form that tries is refused.</p>
+  <ul class="findings">
+  {% for rule in fixed_rules %}
+    <li><span class="tag">{{ rule.rule_id }}</span> <strong>{{ rule.title }}.</strong> {{ rule.sentence }}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endblock %}

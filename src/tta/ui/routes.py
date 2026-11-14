@@ -12,6 +12,7 @@ seen by another, and every visitor starts from an empty book.
     /approvals        pending approvals as cards; approve (choosing an option) or reject with a note
     /orders/{id}      the order record, the statements it relied on, the audit trail for two readers
     /assumptions      docs/ASSUMPTIONS.md, when it exists
+    /kitchen          "Your kitchen": what My kitchen agent may decide alone, in this browser's book (FEAT-1)
     POST /start-again empties the visitor's own order book
 """
 
@@ -30,9 +31,10 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from tta.api.hooks import SurfaceContext
+from tta.api.sandbox import KITCHEN_IDENTITIES
 from tta.config import REPO_ROOT
 from tta.contracts.errors import TtaError
-from tta.ui import approvals_page, order_page, request_page, security
+from tta.ui import approvals_page, kitchen_page, order_page, request_page, security
 from tta.ui.markdown import render as render_markdown
 from tta.ui.run import Problem
 from tta.ui.security import BookCookie, SecurityHeaders
@@ -106,6 +108,7 @@ def create_surface(context: SurfaceContext) -> FastAPI:
     identities = tuple(context.demo_identities)
     if not any(one.is_agent for one in identities) or not any(one.is_approver for one in identities):
         raise ValueError(NO_IDENTITIES)
+    identities = (*identities, *KITCHEN_IDENTITIES)  # My kitchen's agent and approvers (task FEAT-1)
     if context.sandboxes is None:
         raise ValueError(NO_BOOKS)
     site = Site(settings=context.settings, sandboxes=context.sandboxes, identities=identities)
@@ -117,6 +120,7 @@ def create_surface(context: SurfaceContext) -> FastAPI:
     request_page.add_routes(app, site)
     approvals_page.add_routes(app, site)
     order_page.add_routes(app, site)
+    kitchen_page.add_routes(app, site)
 
     @app.get("/assumptions", response_class=HTMLResponse)
     def assumptions(request: Request) -> HTMLResponse:

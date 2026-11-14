@@ -6,7 +6,7 @@ contract does not know, is rejected: no profile can switch off or weaken a fixed
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +25,16 @@ PROFILE_SETTINGS = frozenset(BuyerProfile.model_fields)
 def load_profile(path: Path, fixed_rule_ids: Collection[str]) -> BuyerProfile:
     """One profile file. Raises `PolicyLoadError` naming what is wrong."""
     source = f"profile file {path.name}"
-    data = read_mapping(path, source)
-    named = _fixed_rules_named(data, fixed_rule_ids)
+    profile = check_profile(read_mapping(path, source), source, fixed_rule_ids)
+    if profile.profile_id != path.stem:
+        raise PolicyLoadError(source, [f"profile_id '{profile.profile_id}' does not match the file name"])
+    return profile
+
+
+def check_profile(data: Mapping[str, Any], source: str, fixed_rule_ids: Collection[str]) -> BuyerProfile:
+    """The checks of a profile file on its settings, wherever they come from: a file, or a form of the pages
+    (task FEAT-1). Raises `PolicyLoadError` naming what is wrong."""
+    named = _fixed_rules_named(dict(data), fixed_rule_ids)
     if named:
         raise PolicyLoadError(
             source, [f"it names fixed rule {', '.join(named)}: a profile cannot switch off or weaken a fixed rule"]
@@ -42,8 +50,6 @@ def load_profile(path: Path, fixed_rule_ids: Collection[str]) -> BuyerProfile:
         profile = BuyerProfile.model_validate(data)
     except ValidationError as error:
         raise PolicyLoadError(source, validation_problems(error)) from error
-    if profile.profile_id != path.stem:
-        raise PolicyLoadError(source, [f"profile_id '{profile.profile_id}' does not match the file name"])
     problems = _exclusion_problems(profile.excluded_allergens)
     if problems:
         raise PolicyLoadError(source, problems)

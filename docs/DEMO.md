@@ -135,3 +135,16 @@ The REST answers are the record: the order is `PENDING_APPROVAL`. The pages do n
 - **Free text answers 503:** with no Gemini key, only the recorded sentences can be read. Use the example buttons, or send the typed request.
 - **The page waits on the model:** a Gemini key is set and Gemini is slow. Restart with `GEMINI_API_KEY=` empty.
 - **The mock is down in live mode:** offers come from the capture and say `replay`; `/healthz` shows `degraded` and the reason. Nothing else changes.
+
+## Your kitchen: the buyer sets what its agent may decide alone (task FEAT-1)
+
+*Scores on:* 20% autonomy and controls (what the agent may decide alone is a setting the buyer reads and changes; the fixed rules stay on) · Core 3 of the brief · 30% demo.
+
+1. Open "Your kitchen" in the menu (`/kitchen`). It starts as a copy of `hotel-kitchen` under the id `my-kitchen`. Each setting shows the rule it drives (P-00 to P-07) with its values, and below the form are the fixed rules F-01 to F-08, under "Always, whatever you set".
+2. Set **Spend limit per order** to `3000` and press **Save my kitchen**. The policy hash on the page changes.
+3. On `/`, choose **My kitchen agent**, paste `1,000 litres of lactose-free milk by Monday`, press **Run**. Option 1 (384 × `469363` + 51 × `462775` + 565 × `463380`, **€2,580.64**) is `ORDERED` by the agent alone: verdict `AUTO`, profile `my-kitchen`. The order record shows the policy hash in force, and its audit trail names profile `my-kitchen`.
+4. Back on `/kitchen`, set the limit to `750` and save. Run the same sentence as My kitchen agent: the order waits for the purchasing manager (P-01). Finance is asked as well (P-02), because the €2,580.64 of step 3 already counts in today's €3,000. Decide it on `/approvals` as "Demo approver Hanna, My kitchen".
+5. Say: "Same request, same data, a different setting, a different verdict. The buyer sets the limits; nothing it sets can switch off a fixed rule. A form that tries is refused, with the field named."
+
+- **Without a Gemini key** the result page says "The buyer agent could not run: This sentence was recorded for another buyer profile …" and "Read from the typed request of this example": the recordings are for `hotel-kitchen` and `allergy-ward`, so the page uses the example's typed request. The verdicts above are the same.
+- The kitchen is in this browser's own order book only. Another visitor, the REST API, MCP and the profile files never see it. **Start again** brings back the copy of `hotel-kitchen` at €750.

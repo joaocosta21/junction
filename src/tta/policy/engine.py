@@ -7,25 +7,29 @@ and a fact that is missing sends the order to a human (F-03) instead of passing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from tta.contracts.common import ApproverRole, JsonDict, Verdict, most_severe
 from tta.contracts.errors import NotAuthorised
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import Authority, BuyerProfile, FiredRule, PolicyContext, PolicyDecision, RuleSummary
 from tta.policy.conditions import Truth, evaluate
+from tta.policy.custom import custom_profile
+from tta.policy.errors import PolicyLoadError
 from tta.policy.facts import Missing, OrderScope, Reading, read_fact, read_profile_fact
 from tta.policy.hashing import policy_hash
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
-from tta.policy.profiles import load_profiles
-from tta.policy.rulebook import AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
+from tta.policy.profiles import check_profile, load_profiles
+from tta.policy.rulebook import AccessRule, AuthorityText, FactType, Rulebook, RuleSpec, Scope, Trigger, facts_read_by
 from tta.policy.sentences import format_fact, render, to_json
 from tta.policy.text import as_sentence, join_words, plain_name, unique
 
 Lookup = Callable[[str], Reading]
+CUSTOM_SOURCE = "custom profile"
 
 
 @dataclass(frozen=True)
@@ -64,13 +68,31 @@ class RulePolicyEngine:
         return cls(rulebook, load_profiles(profiles_dir, rulebook.fixed_rule_ids).values())
 
     def get_profile(self, profile_id: str) -> BuyerProfile:
-        profile = self._profiles.get(profile_id)
+        """A profile file's profile, or the custom profile in force with this id (`tta.policy.custom`)."""
+        profile = self._profiles.get(profile_id) or custom_profile(profile_id)
         if profile is None:
             raise NotAuthorised("No buyer profile is set up for this caller.")
         return profile
 
     def profile_ids(self) -> tuple[str, ...]:
+        """The ids of the profile files. A custom profile is never listed."""
         return tuple(sorted(self._profiles))
+
+    def check_custom_profile(self, data: Mapping[str, Any]) -> BuyerProfile:
+        """A profile that is not a file (task FEAT-1), checked exactly as a profile file is: it names no fixed rule,
+        sets nothing the contract does not know, holds values in range and known allergen codes. Its id may not be
+        one of a profile file. Raises `PolicyLoadError` naming what is wrong."""
+        profile = check_profile(data, CUSTOM_SOURCE, self._rulebook.fixed_rule_ids)
+        if profile.profile_id in self._profiles:
+            raise PolicyLoadError(
+                CUSTOM_SOURCE, [f"profile_id: '{profile.profile_id}' is the id of a profile file and cannot be reused"]
+            )
+        return profile
+
+    @property
+    def access_rules(self) -> tuple[AccessRule, ...]:
+        """The fixed rules enforced where the caller's identity is known, not by the engine (F-06)."""
+        return self._rulebook.access_rules
 
     def policy_hash(self, profile: BuyerProfile) -> str:
         return policy_hash(self._canonical_rules, profile)

@@ -12,6 +12,7 @@ every decision. Her spend limits of 750 and 3,000 and her minimum fill ratio of 
 the `hotel-kitchen` profile.
 """
 
+from tta.policy.custom import profile_in_force
 from tta.policy.engine import RulePolicyEngine
 from tta.policy.errors import PolicyLoadError
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook, parse_rulebook
@@ -26,4 +27,5 @@ __all__ = [
     "load_profiles",
     "load_rulebook",
     "parse_rulebook",
+    "profile_in_force",
 ]
