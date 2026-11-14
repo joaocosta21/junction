@@ -19,7 +19,7 @@ from tta.api.hooks import HookError
 from tta.api.wiring import build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
-from tta.contracts.agent import AgentRun, AgentStep
+from tta.contracts.agent import AgentRun, AgentStep, Reading, ReadingSource
 from tta.contracts.common import Identity, Unit
 from tta.contracts.errors import InvalidRequest
 from tta.contracts.ports import GatewayService
@@ -40,6 +40,10 @@ class FakeParser:
         if "milk" not in text:
             raise InvalidRequest("The request names no quantity.")
         return TYPED
+
+    def read(self, text: str, identity: Identity) -> Reading:
+        return Reading(request=self.parse_request(text, identity), source=ReadingSource.MODEL, model="fake",
+                       sentence="Read by a fake parser.")
 
 
 class FakeRunner:

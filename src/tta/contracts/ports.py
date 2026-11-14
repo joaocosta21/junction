@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
-from tta.contracts.agent import AgentRun
+from tta.contracts.agent import AgentRun, Reading
 from tta.contracts.audit import (
     Actor,
     AuditContext,
@@ -229,6 +229,10 @@ class RequestParser(Protocol):
         """Raises `InvalidRequest` naming what is missing; never guesses a quantity or a strictness."""
         ...
 
+    def read(self, text: str, identity: Identity) -> Reading:
+        """The same reading as `parse_request`, with who made it (the model now, a recording, a person)."""
+        ...
+
 
 @runtime_checkable
 class GatewayService(Protocol):
@@ -267,6 +271,14 @@ class GatewayService(Protocol):
     ) -> AuditView: ...
 
     def parse_request(self, identity: Identity, text: str) -> PurchaseRequest: ...
+
+    def read_request(self, identity: Identity, text: str) -> Reading:
+        """`parse_request` with who read the text; the pages and the parse route show it."""
+        ...
+
+    def order_for_offer(self, identity: Identity, offer_id: str) -> Order | None:
+        """The live or last order of the caller's own offer, read through the store."""
+        ...
 
     def run_agent(self, identity: Identity, text: str) -> AgentRun: ...
 
