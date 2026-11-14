@@ -1,0 +1,30 @@
+{
+  "capture": "2026-11-14-baking",
+  "time_now": "2026-11-14T21:12:02+0200",
+  "requested_date": "2026-11-16",
+  "customer": "123",
+  "product_count": 394,
+  "calls": 2,
+  "files": {
+    "availability": [
+      "availability-1.json"
+    ],
+    "price": [
+      "price-1.json"
+    ]
+  },
+  "selection": {
+    "category_prefixes": [
+      "10500",
+      "10590",
+      "10592",
+      "21300",
+      "21310",
+      "22100",
+      "22540",
+      "22601"
+    ],
+    "ids": [],
+    "with_listed_substitutes": false
+  }
+}
