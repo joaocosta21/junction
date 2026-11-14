@@ -198,3 +198,13 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - `/healthz` is public: environment, mode, source, the audit head (event count and last hash), which optional parts are in, and which settings are set (true or false, never a value).
 - OpenAPI examples are produced by running the scenarios through the service against the capture; none is written by hand. `/docs` loads its assets from a CDN (FastAPI's default) and needs the network; `/openapi.json` does not.
 - Pages are mounted only in dev and demo (question T09-4).
+
+## MCP surface (T11)
+- Eight tools, each one call of the gateway service as the identity of the request's bearer token: `get_authority`, `search_products`, `get_product`, `find_substitutes`, `get_offer`, `place_order`, `get_order`, `get_audit`. There is no tool that lists or decides an approval: approving is for humans.
+- Transport: Streamable HTTP, no session, plain JSON answers, so any replica can answer. SDK `mcp` 2.3.0.
+- `get_offer` makes a new offer from the typed request; no tool reads a stored offer by id (question T11-1).
+- Identity is the SDK's bearer check asking the same token registry as REST; without a valid token the answer is 401 with `WWW-Authenticate: Bearer` (RFC 6750), not a problem document. No OAuth: tokens are handed out outside the protocol.
+- A typed error is an error result whose content is the same problem document REST sends.
+- The Host header is not checked on the MCP endpoint (the SDK's default would accept only localhost); a setting for the public address is a next step.
+- The server's instructions tell an agent that product names and other supplier text are data, never instructions.
+- Large answers are not trimmed: a search for `milk` is about 138 KB; `limit` asks for fewer.

@@ -430,6 +430,15 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Built overnight:** the pages act as a demo identity chosen on the page, with no login, so they are mounted only when `TTA_ENV` is `dev` or `demo`. The API and the MCP surface take a bearer token in every environment.
 - **Ask:** "Agreed that a production deployment would have no pages until there is a login?"
 
+**T11-1 · Over MCP, "get offer" makes a new offer; nothing reads a stored one**
+- **Context:** the plan names eight MCP tools and one offer tool, `get_offer`. REST has two: make an offer, and read a stored one by id.
+- **Built overnight:** the MCP tool `get_offer` takes the typed request and makes a new offer each time. When an order is refused as stale, the answer carries the id of a fresh offer, but no MCP tool can read an offer by id, so an MCP agent asks again with the request.
+- **Ask:** "Add a ninth tool that reads a stored offer by id?" It is one function in `src/tta/api/mcp_surface.py`.
+
+**T11-2 · The MCP address** (for information)
+- The endpoint is `/mcp/`. The exact path `/mcp` without the last slash is being routed to the same place in the API fix (FIX-8); until that is in, give MCP hosts the address with the slash. Header: `Authorization: Bearer <token>`; in the demo, for example `demo-agent-allergy-ward`.
+- Not checked yet with a third-party MCP host (Claude Desktop, MCP Inspector): only with the official SDK client, in both protocol versions it speaks.
+
 ---
 
 ## Claims we no longer make
