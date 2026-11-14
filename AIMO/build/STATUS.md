@@ -39,6 +39,8 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-11 | Rate limits for a room on one Wi-Fi: per browser on the pages, a cap per address | FIX-10 | done | 42 new tests; twelve browsers on one address all run scenario 2 |
 | FIX-12a | Say only what the data says: not in the recording, ingredient lists, cream | T07 T03 | running | |
 | FIX-12b | Coverage per line, substitutes judged like the offer, earliest date, trade-off on the approval card | T07 T12 | running | |
+| FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | running | |
+| DOCS-2 | Documents say what the code does | — | running | |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -87,6 +89,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 10:01 FIX-11 done and committed. Docs to align at the end: `src/tta/api/docs.py` (limits text), `docs/DEMO.md`, `docs/ASSUMPTIONS.md`.
 - 10:13 S2 built and committed: Context.dev evidence on the dietitian's approval card (demo: `469512` Elovena oat drink, maker's page 'Maidoton'). Wiring and deploy secret to add after S1 finishes with `wiring.py`. T18 asked for a fourth example button for this moment. `AIMO/OPEN-QUESTIONS.md` committed (23 questions, 32 examples verified); `AIMO/BOOTH-NOW.md` for the booth.
 - 10:25 Use-case check report in `AIMO/USE-CASES.md`: our own scenarios all hold; Valio's six examples: allergen-safe substitution, stock-out, last-minute and recipe partly, proactive selling and standing-order drift not at all. Its top fixes started as FIX-12a and FIX-12b. Booth questions ALMOND-1 (`465793` declared free from tree nuts, ingredients say almond) and DATA-1 (the product file and the API) added.
+- 10:33 Walkthrough rewritten and committed (17 sections; 25 open questions with examples; decisions split into Valio's and the team's). The human has about 1h30 and 40% of the weekly limit: FEAT-1 (profile page) and DOCS-2 (documents) started on Opus.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
