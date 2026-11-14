@@ -130,9 +130,12 @@ class ExclusionReason(StrEnum):
     ALLERGEN_DECLARED = "ALLERGEN_DECLARED"
     ALLERGEN_NOT_STATED = "ALLERGEN_NOT_STATED"
     PORTION_PACK = "PORTION_PACK"
+    NOT_A_PORTION_PACK = "NOT_A_PORTION_PACK"  # on a line that asks for portion packs
     PACK_SIZE_UNKNOWN = "PACK_SIZE_UNKNOWN"
     PRICE_UNAVAILABLE = "PRICE_UNAVAILABLE"
     SUBSTITUTE_ADDS_ALLERGEN = "SUBSTITUTE_ADDS_ALLERGEN"
+    QUANTITY_NOT_CONFIRMED = "QUANTITY_NOT_CONFIRMED"  # only when the buyer asked for confirmed data only
+    DELIVERY_DATE_NOT_CONFIRMED = "DELIVERY_DATE_NOT_CONFIRMED"  # only when the buyer asked for confirmed data only
 
 
 class ConstraintKind(StrEnum):
