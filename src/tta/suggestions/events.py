@@ -34,7 +34,8 @@ SHOWN_KEY = "suggestions"  # the key of the event's facts, in each reader's view
 ACCEPTED_KEY = "suggestion"
 # The reasons that say something about what the buyer excludes or requires: Valio Aimo's view groups them.
 _BUYERS_OWN = frozenset({DropReason.ALLERGEN_NOT_RULED_OUT.value, DropReason.DIETARY_CLAIM_MISSING.value,
-                         DropReason.ADDS_ALLERGEN.value, "ALLERGEN_DECLARED", "ALLERGEN_NOT_STATED"})
+                         DropReason.ADDS_ALLERGEN.value, "ALLERGEN_DECLARED", "ALLERGEN_NOT_STATED",
+                         "CLAIM_CONTRADICTED"})
 BUYERS_REQUIREMENT = "BUYER_REQUIREMENT"
 # Valio Aimo's own suggestion left silent (decision B32): in the buyer's log, never in Valio Aimo's view.
 _SILENCED = frozenset({DropReason.OTHER_PACK_KIND.value, DropReason.ONE_UNIT_IN_STOCK.value})

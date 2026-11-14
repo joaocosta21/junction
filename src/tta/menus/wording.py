@@ -26,6 +26,7 @@ REASON_WORDS: Mapping[ExclusionReason, str] = {
     ExclusionReason.LATE_FOR_NEEDED_BY: "delivered too late",
     ExclusionReason.ALLERGEN_DECLARED: "declares an excluded allergen",
     ExclusionReason.ALLERGEN_NOT_STATED: "no allergen statement",
+    ExclusionReason.CLAIM_CONTRADICTED: "carries a claim its allergen data contradicts",
     ExclusionReason.PORTION_PACK: "portion pack",
     ExclusionReason.NOT_A_PORTION_PACK: "not a portion pack",
     ExclusionReason.PACK_SIZE_UNKNOWN: "pack size unknown",

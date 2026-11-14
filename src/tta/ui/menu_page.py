@@ -46,7 +46,7 @@ STATUS_MARKS: Mapping[IngredientStatus, tuple[str, str]] = {
     IngredientStatus.IN_STOCK: ("ok", "In stock"),
     IngredientStatus.ORDERED_AS_IN_RECIPE: ("ok", "Ordered as in the recipe"),
     IngredientStatus.STANDS_IN: ("warn", "Stands in"),
-    IngredientStatus.CANNOT_BE_SOURCED: ("bad", "Cannot arrive in time"),
+    IngredientStatus.CANNOT_BE_SOURCED: ("bad", "Cannot be sourced"),
 }
 NOT_A_DEMO_AGENT = "Choose who is asking: one of the demo agents."
 NO_DISH = "Choose at least one dish: give it a number of servings."

@@ -81,7 +81,8 @@ class OrderTimeChecker:
             excluding_order_id=attempt.order.order_id if attempt.order is not None else None,
         )
         context = PolicyContext(
-            now=self._clock.now(), day_committed_net_eur=day.committed, at_order_time=True, revalidation=revalidation,
+            now=self._clock.now(), day_committed_net_eur=day.committed, day_waiting_net_eur=day.waiting,
+            at_order_time=True, revalidation=revalidation,
             standing_history=self._standing_history(attempt),
         )
         # F-10 is applied by the engine already; applying it again here means no policy engine, a test's own

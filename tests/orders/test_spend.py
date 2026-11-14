@@ -6,6 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from tta.contracts.common import ApproverRole, Identity, OrderStatus, Verdict
+from tta.offers.deps import spend_parts
 from tta.orders import day_committed_net_eur
 from tta.orders.spend import day_spend
 
@@ -146,6 +147,21 @@ def test_the_days_spend_is_split_into_what_is_ordered_and_what_is_waiting(
         "Before this order, today's spend of this buyer is €2,915.00 before tax: €265.00 ordered and €2,650.00 "
         "waiting for approval. A waiting order counts until a person rejects it or its time to decide passes."
     )
+
+
+def test_the_days_spend_is_what_the_offer_takes_in_its_two_parts(
+    book, samples, agent_hotel: Identity, approver_purchasing: Identity
+) -> None:
+    """`OfferDeps.day_spend` may answer a `DaySpend`: the offer reads its total and its waiting part, and rule
+    P-02's sentence then says both (`tta.offers.deps.spend_parts`)."""
+    approved = _place(book, agent_hotel, samples.within_authority(), "ordered")  # €265.00, approved below
+    book.service.decide(approved.approval_id, approver_purchasing, samples.approve())
+    _place(book, agent_hotel, samples.above_order_limit(), "pending")  # €2,650.00, PENDING_APPROVAL
+
+    day = day_spend(book.store, book.clock, "hotel-kitchen")
+
+    assert spend_parts(day) == (Decimal("2915.00"), Decimal("2650.00"))
+    assert spend_parts(day.committed) == (Decimal("2915.00"), None)  # one figure, as before: the total only
 
 
 def test_an_order_sent_to_finance_for_the_day_says_how_much_is_ordered_and_how_much_is_waiting(

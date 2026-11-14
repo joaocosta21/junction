@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, replace
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -24,7 +24,7 @@ from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.offers.candidates import Need
 from tta.offers.checks import constraint_checks
 from tta.offers.comparison import compare, gain
-from tta.offers.deps import OfferDeps, standing_history_of
+from tta.offers.deps import OfferDeps, spend_parts, standing_history_of
 from tta.offers.lines import coverage_of, lowest_fill_ratio, totals_of, valid_until_of
 from tta.offers.mixed import mixed_formulas
 from tta.offers.preference import (
@@ -59,11 +59,11 @@ TITLES = {
 ALTERNATIVE = "Alternative: "
 QUANTITY_NOT_CONFIRMED = "quantity not confirmed"
 ALLERGEN_NOT_RULED_OUT = "allergen not ruled out"
-# A substitute that does not keep the formula on a line whose request says the formula matters (P10 item F5).
+# A substitute that does not keep the formula on a line where the formula matters: the request says so (P10
+# item F5) or the buyer profile does (decision B35). `said` is `Need.formula_said`.
 FORMULA_NOT_KEPT = "a substitute that does not keep the formula"
 FORMULA_NOTE = (
-    " The request says the formula matters, and no substitute that keeps it can be ordered: this one does not "
-    "keep it, so a person decides."
+    " {said}, and no substitute that keeps it can be ordered: this one does not keep it, so a person decides."
 )
 # The option ranked by a preference, when its premium put it after the cheapest one (review A2b, finding H2).
 DEMOTED_TITLE = "Confirmed option"
@@ -97,6 +97,8 @@ class _Assembled:
     net_above_cheapest: Decimal | None = None  # on the preferred option, when a cheaper confirmed one is offered
     demoted: bool = False  # the preferred option costs too much over the cheapest one to come first
     promoted: bool = False  # the cheapest confirmed option, when the preferred one is demoted
+    # Per request line where the formula matters, who says so (`Need.formula_said`).
+    formula_said: Mapping[int, str] = field(default_factory=dict)
 
     @property
     def compared(self) -> OptionComparison:
@@ -112,9 +114,20 @@ class _Assembled:
 
     @property
     def formula_changed(self) -> bool:
-        """A line whose request says the formula matters holds a substitute that does not keep it, or one that
-        cannot be compared: not known is never read as the same formula."""
-        return any(_changes_formula(line) for line in self.draft.lines)
+        """A line where the formula matters holds a substitute that does not keep it, or one that cannot be
+        compared: not known is never read as the same formula."""
+        return bool(self.formula_changed_said)
+
+    @property
+    def formula_changed_said(self) -> str:
+        """Who says the formula matters on the first line whose substitute does not keep it; empty when none."""
+        return next(
+            (
+                self.formula_said[line.request_line_index] for line in self.draft.lines
+                if line.request_line_index in self.formula_said and _changes_formula(line)
+            ),
+            "",
+        )
 
 
 def finish_options(
@@ -136,8 +149,9 @@ def finish_options(
     if ranked and headline:
         ranked = [replace(ranked[0], named=f"{ranked[0].named} {headline}"), *ranked[1:]]
     # The day's committed spend must reach the policy, or every option reads APPROVAL for a missing fact.
+    committed, waiting = spend_parts(deps.day_spend(profile.profile_id))
     context = PolicyContext(
-        now=now, day_committed_net_eur=deps.day_spend(profile.profile_id),
+        now=now, day_committed_net_eur=committed, day_waiting_net_eur=waiting,
         standing_history=standing_history_of(deps, profile.profile_id, request.standing_order_id),  # P-08
     )
     options = (_option(rank, each, request.prefer) for rank, each in enumerate(ranked, start=1))
@@ -155,11 +169,13 @@ def _assemble(draft: Draft, request: PurchaseRequest, needs: Sequence[Need], dep
         named=_variants_named(draft.lines, request.lines, coverage, deps.catalog)
         + mixed_formulas(draft.lines, deps.catalog),
         extra=draft.said,
+        formula_said={need.index: need.formula_said for need in needs if need.formula_matters},
     )
 
 
 def _changes_formula(line: OfferLine) -> bool:
-    if line.keep_formula is not True or line.substitute is None:
+    """A substitute that does not keep the formula, or carries no comparison. Asked only where it matters."""
+    if line.substitute is None:
         return False
     return line.substitute.formula is None or not line.substitute.formula.keeps_formula
 
@@ -282,7 +298,8 @@ def _rank_key(assembled: _Assembled) -> tuple[bool, bool, bool, int, int, int, D
     never the suggestion (SPEC section 4), so such an option comes after every option that holds none,
     whatever else it fits and however little it costs. The price is the last key and cannot change that.
 
-    Where the request says the formula matters, an option whose substitute does not keep it comes after every
+    Where the formula matters (the request line or the buyer profile says so), an option whose substitute does
+    not keep it comes after every
     option that changes no formula (P10 item F5): it is a labelled alternative, never the suggestion while
     another option exists. This is the one case where an option with an unconfirmed quantity can come first:
     the product asked for, quantity not confirmed, before a confirmed stand-in of another formula. Both go to a
@@ -361,7 +378,8 @@ def _summary(assembled: _Assembled) -> str:
         stands_in = "fills what is missing of" if kept else "in place of"
         text = f"{_names(stand_ins)} {stands_in} {originals}: {covered}, for {money}."
     if assembled.formula_changed:
-        text += FORMULA_NOTE
+        said = assembled.formula_changed_said
+        text += FORMULA_NOTE.format(said=said[0].upper() + said[1:])
     notes = (ESTIMATE_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
     return text + assembled.extra + _per_line(assembled.coverage, assembled.asked) + notes + assembled.named
 

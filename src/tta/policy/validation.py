@@ -59,6 +59,7 @@ FIXED_RULES: Mapping[str, FixedRule] = MappingProxyType({
     "F-09": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # task MENU-1
     # F-10 is the buyer's setting, in code (tta.policy.human_approval). F-11: the formula of a substitute.
     "F-11": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
+    "F-12": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # a last-resort substitute
 })
 NO_ROLE = "none"  # how a rule without an approver role reads in a load error
 MISSING_FACT_PLACEHOLDERS = frozenset({"missing.what", "missing.reason", "missing.needed_by"})

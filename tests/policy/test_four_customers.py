@@ -89,14 +89,15 @@ def test_a_school_product_that_says_nothing_about_nuts_goes_to_the_dietitian(
     assert decision.required_roles == (ApproverRole.DIETITIAN,)
 
 
-def test_the_bakery_takes_no_substitute_alone_and_names_no_dietitian(engine: RulePolicyEngine) -> None:
+def test_the_bakery_takes_no_substitute_alone_and_its_owner_holds_every_role(engine: RulePolicyEngine) -> None:
     bakery = engine.get_profile("bakery-cafe")
 
     assert bakery.substitution_without_approval is SubstitutionScope.NONE
     assert bakery.excluded_allergens == () and bakery.allergen_strictness is None
-    assert set(bakery.approver_roles) == {ApproverRole.PURCHASING_MANAGER, ApproverRole.FINANCE}
-    # The owner holds both roles (the customer file), so one identity signs for either.
-    assert bakery.approver_roles[ApproverRole.PURCHASING_MANAGER] == bakery.approver_roles[ApproverRole.FINANCE]
+    # Decision B27: a bakery-café has no dietitian, so the owner decides allergen questions too. Without the
+    # role an order with an allergen doubt could never be completed.
+    assert set(bakery.approver_roles) == set(ApproverRole)
+    assert {holders for holders in bakery.approver_roles.values()} == {("human:bakery-owner",)}
     assert "formula" in (bakery.description or "")
     assert (bakery.max_order_net_eur, bakery.max_daily_net_eur, bakery.min_fill_ratio) == (
         Decimal(300), Decimal(1000), Decimal(1)  # decision B19: sized for a wholesale order

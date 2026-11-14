@@ -22,8 +22,8 @@ from tta.policy.text import format_number, plain_name
 if TYPE_CHECKING:  # facts.py imports this module; OrderScope is only named in annotations
     from tta.policy.facts import OrderScope
 
-# The request line's own word, copied onto the offer line as `stands_in_for` is. No offer line carries it yet
-# (AIMO/build/replan/P10-formula.md, item F5): absent reads as "not said", never as "does not matter".
+# The request line's own word, copied onto the offer line as `stands_in_for` is (`OfferLine.keep_formula`,
+# AIMO/build/replan/P10-formula.md, item F5): None or False reads as "not said", never as "does not matter".
 LINE_SAYS_FIELD = "keep_formula"
 REQUEST_SAYS = "the request says so for this line"
 PROFILE_SAYS = "{buyer} uses its products as ingredients"

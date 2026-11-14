@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -262,6 +263,30 @@ def test_the_days_spend_reaches_the_policy(build: Build, price: Any, stock: Any,
     assert best(quiet).decision.verdict is Verdict.APPROVAL
     assert "P-02" in best(busy).decision.rule_ids  # 2,900 + 248 is above the 3,000 EUR a day of hotel-kitchen
     assert best(busy).decision.verdict is Verdict.APPROVAL
+
+
+def test_the_days_spend_in_its_two_parts_reaches_the_policy_and_p02_says_both(
+    build: Build, price: Any, stock: Any, make_request: Any, best: Any
+) -> None:
+    """`OfferDeps.day_spend` may answer what is ordered and what is waiting (`tta.orders.spend.DaySpend`)."""
+
+    @dataclass(frozen=True)
+    class Parts:
+        committed: Decimal
+        waiting: Decimal
+
+    request = make_request(100)
+    busy = build(
+        [price(A, "2.48")], [stock(A, 5000)], request, day_spend=Parts(Decimal("2900"), Decimal("2650")),
+    )
+
+    decision = best(busy).decision
+    assert "P-02" in decision.rule_ids
+    assert (
+        "today's spend would reach €3,148.00 before tax (€250.00 ordered, €2,650.00 waiting for a person, and "
+        "this order's €248.00), above the €3,000 limit per day of Harbourside Hotel"
+    ) in decision.sentence
+
 
 
 def test_confirmed_only_leaves_the_unconfirmed_product_out_and_says_so(

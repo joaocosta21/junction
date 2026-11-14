@@ -99,7 +99,7 @@ def test_a_required_claim_the_products_own_allergen_data_contradicts_is_said_as_
 
     dropped = _check(world_now, HOTEL, request, suggestion)
 
-    assert isinstance(dropped, DroppedSuggestion) and dropped.reason == "ALLERGEN_DECLARED"
+    assert isinstance(dropped, DroppedSuggestion) and dropped.reason == "CLAIM_CONTRADICTED"
     assert dropped.summary == "its own allergen data contradicts a claim the request requires"
 
 

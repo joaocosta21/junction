@@ -60,6 +60,7 @@ Last updated: Sat 14 Nov, about 19:00.
 | B39 | A word in a request that is a brand in Valio's catalog ("Arla") is kept as a term the product must carry; any other unknown word before the product is still not asked about | "Arla whipping cream" must not come back as another brand; asking about every adjective would refuse ordinary sentences | L1-3 |
 | B40 | "Cream for whipping" is read as whipping cream with the formula marked as mattering | The use names the product a kitchen means | L1-3 |
 | B41 | "A milk substitute" is read as a plant drink, and the reading says so | It is scenario 2's own sentence | L1-2 |
+| B42 | New fixed rule F-12: a last-resort substitute (loses a dietary claim, flavoured against plain, another product type) always goes to the purchasing manager, even with ordering alone switched on | Without it such a substitute could be ordered with no person: 11 cases in a sample over the recording | P3 |
 
 ## C. Questions for the team (domain)
 

@@ -21,7 +21,6 @@ from tta.contracts.common import (
     ClaimStatus,
     ConstraintKind,
     SubstitutionScope,
-    round_money,
 )
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, PolicyContext
@@ -35,7 +34,9 @@ from tta.policy.claims import (
     unconfirmed_reasons,
 )
 from tta.policy.coverage import coverage_by_line, least_covered
+from tta.policy.day_facts import DAY_FACTS
 from tta.policy.formula_facts import FORMULA_FACTS
+from tta.policy.last_resort_facts import LAST_RESORT_FACTS
 from tta.policy.premium_facts import PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS
 from tta.policy.reading import Missing, Reading
 from tta.policy.standing_facts import STANDING_FACTS
@@ -156,20 +157,6 @@ def _coverage_by_line(scope: OrderScope) -> Reading:
     return words if words is not None else Missing("the option carries no coverage per request line")
 
 
-def _day_committed(scope: OrderScope) -> Reading:
-    committed = scope.context.day_committed_net_eur
-    if committed is None:
-        return Missing("today's committed spend did not come with the order context")
-    return round_money(committed)
-
-
-def _day_net(scope: OrderScope) -> Reading:
-    committed = scope.context.day_committed_net_eur
-    if committed is None:
-        return Missing("today's committed spend did not come with the order context")
-    return round_money(committed + scope.option.totals.net)
-
-
 def _revalidation(scope: OrderScope) -> RevalidationResult | Missing:
     result = scope.context.revalidation
     return result if result is not None else Missing("no fresh price and availability check came with the order")
@@ -227,8 +214,7 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "option.total_is_ceiling": lambda scope: scope.option.totals.is_ceiling,
     "option.total_excludes_deposits": lambda scope: scope.option.totals.excludes_deposits,
     "context.at_order_time": lambda scope: scope.context.at_order_time,
-    "context.day_committed_net_eur": _day_committed,
-    "order.day_net_eur": _day_net,
+    **DAY_FACTS,  # the day's spend, rule P-02
     "order.stale_reason": _stale_reason,
     "revalidation.ok": _revalidation_ok,
     "revalidation.expired": _revalidation_expired,
@@ -439,6 +425,7 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.has_deposits": lambda _, line: line.has_deposits,
     "line.stands_in_for": _stands_in_for,
     **FORMULA_FACTS,  # rule F-11: a substitute's formula where the formula matters
+    **LAST_RESORT_FACTS,  # rule F-12: a substitute that is a last resort
 }
 
 LINE_FACT_PREFIX = "line."

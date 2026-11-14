@@ -48,6 +48,8 @@ def exclusion_summary(reason: ExclusionReason, allergen_check: AllergenCheck | N
         if _open(allergen_check):
             return allergen_summary(allergen_check)
         return CLAIM_CONTRADICTED if reason is ExclusionReason.ALLERGEN_DECLARED else ALLERGEN_DOUBT
+    if reason is ExclusionReason.CLAIM_CONTRADICTED:
+        return CLAIM_CONTRADICTED
     return EXCLUSION_SUMMARIES.get(reason, f"it does not pass the check {reason.value}")
 
 

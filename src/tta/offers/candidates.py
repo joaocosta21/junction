@@ -41,7 +41,7 @@ from tta.contracts.product import PackSize, Product
 from tta.contracts.request import MAX_PRODUCT_IDS, ProductQuery, PurchaseRequest, RequestLine
 from tta.offers.combining import ceil_to_step
 from tta.offers.deps import Lookup
-from tta.offers.wording import UNIT_WORDS, eur
+from tta.offers.wording import UNIT_WORDS, eur, plain_name
 
 # Below every lot step of the catalog (the smallest is 0.01, AIMO/FINDINGS.md section 4), so rounding
 # it up to the lot gives the step itself. The `Catalog` port has no method that names the step.
@@ -58,6 +58,9 @@ _STATE_REASONS = {
     AvailabilityState.CUTOFF_PASSED: ExclusionReason.CUTOFF_PASSED,
 }
 CONFIRMED_ONLY_ASKED = "Confirmed data only was asked for."
+# Who says the formula matters for a line (`Need.formula_said`); each reads inside a sentence and can open one.
+REQUEST_SAYS_FORMULA = "the request says the formula matters"
+PROFILE_SAYS_FORMULA = "{buyer}'s profile says the formula matters"
 # Replay only: the recorded copy has no answer for the product. Never worded as something Valio said (SPEC 5).
 NOT_IN_RECORDING_SENTENCE = "Not in the recorded copy of Valio's data used for this demo; a live lookup would answer."
 # Under confirmed-only, the reason for a claim an order depends on that Valio's data does not confirm
@@ -92,9 +95,17 @@ class Need:
     read_as_strict: tuple[str, ...] = ()
     # The request line's own word that the formula matters (P10 item F5), copied onto each offer line.
     keep_formula: bool | None = None
+    # Who says the formula matters for the line: "the request says the formula matters" or
+    # "<buyer>'s profile says the formula matters" (decision B35). Empty: nobody says so. The request's own word
+    # is named first; either can add the check and neither removes it, as rule F-11 reads it.
+    formula_said: str = ""
     # The nutritional claims the request line requires: each is measured against the product's own allergen
     # data (review P4, item F4). The product type's own claims are the search's business and are not here.
     required_claims: tuple[str, ...] = ()
+
+    @property
+    def formula_matters(self) -> bool:
+        return bool(self.formula_said)
 
     @property
     def dated(self) -> bool:
@@ -167,8 +178,17 @@ def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: B
         strictness_by_code=by_code,
         read_as_strict=tuple(code for code in excluded if code not in given),
         keep_formula=line.keep_formula,
+        formula_said=_formula_said(line, profile),
         required_claims=tuple(line.required_claims),
     )
+
+
+def _formula_said(line: RequestLine, profile: BuyerProfile) -> str:
+    if line.keep_formula is True:
+        return REQUEST_SAYS_FORMULA
+    if profile.formula_matters:
+        return PROFILE_SAYS_FORMULA.format(buyer=plain_name(profile.display_name))
+    return ""
 
 
 def allergen_rules(
@@ -341,10 +361,9 @@ def _allergen_declared(candidate: Candidate, _need: Need, _now: datetime) -> Dro
 
 def _claim_contradicted(candidate: Candidate, need: Need, _now: datetime) -> Dropped | None:
     """A claim the request requires, carried by the product and contradicted by its own allergen statements:
-    the data wins over the label (review P4, item F4). `ExclusionReason` has no code of its own for it, so the
-    reason is ALLERGEN_DECLARED and the sentence says what was found."""
+    the data wins over the label (review P4, item F4). The sentence says what was found."""
     found = claim_contradictions(need.required_claims, candidate.product.allergen_statements)
-    return (ExclusionReason.ALLERGEN_DECLARED, contradiction_sentence(found)) if found else None
+    return (ExclusionReason.CLAIM_CONTRADICTED, contradiction_sentence(found)) if found else None
 
 
 def _pack_preference(candidate: Candidate, need: Need, _now: datetime) -> Dropped | None:

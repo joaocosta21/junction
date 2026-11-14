@@ -276,10 +276,13 @@ def make_context() -> Callable[..., PolicyContext]:
         at_order_time: bool = False,
         revalidation: RevalidationResult | None = None,
         at: datetime = NOW,
+        day_waiting: str | None = None,
     ) -> PolicyContext:
+        """`day_waiting`: the part of `day_committed` that waits for a person; None when the caller does not say."""
         return PolicyContext(
             now=at,
             day_committed_net_eur=None if day_committed is None else Decimal(day_committed),
+            day_waiting_net_eur=None if day_waiting is None else Decimal(day_waiting),
             at_order_time=at_order_time,
             revalidation=revalidation,
         )

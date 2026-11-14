@@ -30,15 +30,15 @@ CSRF_FIELD = re.compile(r'name="csrf" value="([A-Za-z0-9_-]+)"')
 ORDER_KEY_FIELD = re.compile(r'name="order_key" value="([A-Za-z0-9_-]+)"')
 OFFER_FIELD = re.compile(r'name="offer" value="([A-Za-z0-9_-]+)"')
 HOTEL_AGENT = "agent:hotel-kitchen"
+FEW_CALLS = 3  # a plan asks for an offer once per round of stand-ins, so the second or third plan is refused
 EVENT_FORM = {
     "who": HOTEL_AGENT, "servings__beef_stew": "120", "servings__berry_quark_dessert": "120",
     "stock__butter": "3", "stock__sugar": "2", "needed_by": "2026-11-16", "require_confirmed": "yes",
 }
 
 
-@pytest.fixture
-def pages(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClient]:
-    parts = build_parts(settings, catalog=catalog, rate_limit=RateLimit(calls=1000))
+def _client(settings: Settings, catalog: ProductCatalog, calls: int) -> Iterator[TestClient]:
+    parts = build_parts(settings, catalog=catalog, rate_limit=RateLimit(calls=calls))
     identities = (*parts.tokens.identities, *KITCHEN_IDENTITIES)
     site = Site(settings=settings, sandboxes=parts.sandboxes, identities=identities)
     app = FastAPI()
@@ -50,6 +50,16 @@ def pages(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClient]:
     with TestClient(app) as client:
         yield client
     parts.close()
+
+
+@pytest.fixture
+def pages(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClient]:
+    yield from _client(settings, catalog, calls=1000)
+
+
+@pytest.fixture
+def pages_with_few_calls_a_minute(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClient]:
+    yield from _client(settings, catalog, calls=FEW_CALLS)
 
 
 def _csrf(client: TestClient, path: str = "/menu") -> str:
@@ -132,8 +142,8 @@ def test_a_form_that_cannot_be_read_says_why_and_keeps_what_was_typed(
     assert 'name="servings__berry_quark_dessert"' in page.text
 
 
-def test_a_refusal_of_the_gateway_is_shown_on_the_page(pages: TestClient) -> None:
-    """Five dishes need more than the five lines a demonstration request may hold."""
+def test_five_dishes_plan_in_one_offer(pages: TestClient) -> None:
+    """A menu's offer holds the contract's 20 lines, not the five of a demonstration request (L4-2b)."""
     form = {
         "who": HOTEL_AGENT, "servings__lasagne": "50", "servings__oven_pancake": "50",
         "servings__creamy_chicken_pasta": "50", "servings__beef_stew": "50", "servings__salmon_with_rice": "50",
@@ -141,4 +151,26 @@ def test_a_refusal_of_the_gateway_is_shown_on_the_page(pages: TestClient) -> Non
 
     page = _plan(pages, form)
 
-    assert page.status_code == 422 and "at most 5 lines" in page.text
+    assert page.status_code == 200 and "at most 5 lines" not in page.text
+    assert 'action="/menu/order"' in page.text
+
+
+def test_a_refusal_of_the_gateway_is_shown_on_the_page(pages_with_few_calls_a_minute: TestClient) -> None:
+    """A plan past the caller's limit per minute is refused: the page says so and keeps what was typed."""
+    pages = pages_with_few_calls_a_minute
+    answers = [_plan(pages) for _ in range(FEW_CALLS + 1)]
+
+    page = answers[-1]
+
+    assert answers[0].status_code == 200, answers[0].text
+    assert page.status_code == 429 and "Too many requests" in page.text
+    assert 'name="servings__beef_stew" value="120"' in page.text and 'action="/menu/order"' not in page.text
+
+
+def test_an_ingredient_nothing_can_supply_is_headed_cannot_be_sourced(pages: TestClient) -> None:
+    """Not every such ingredient is late: eggs are not in this demo's recording at all (L4a's item M-5)."""
+    page = _plan(pages, {"who": HOTEL_AGENT, "servings__oven_pancake": "50"})
+
+    assert page.status_code == 200, page.text
+    assert "<h3>Cannot be sourced</h3>" in page.text and "Cannot arrive in time" not in page.text
+    assert "Cannot be sourced in this demo: eggs" in page.text

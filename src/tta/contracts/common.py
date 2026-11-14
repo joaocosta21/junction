@@ -146,6 +146,8 @@ class ExclusionReason(StrEnum):
     LATE_FOR_NEEDED_BY = "LATE_FOR_NEEDED_BY"
     ALLERGEN_DECLARED = "ALLERGEN_DECLARED"
     ALLERGEN_NOT_STATED = "ALLERGEN_NOT_STATED"
+    # A nutritional claim the request requires, carried by the product and contradicted by its own allergen data.
+    CLAIM_CONTRADICTED = "CLAIM_CONTRADICTED"
     PORTION_PACK = "PORTION_PACK"
     NOT_A_PORTION_PACK = "NOT_A_PORTION_PACK"  # on a line that asks for portion packs
     PACK_SIZE_UNKNOWN = "PACK_SIZE_UNKNOWN"

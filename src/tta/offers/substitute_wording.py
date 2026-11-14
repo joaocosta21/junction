@@ -116,7 +116,7 @@ def why(judged: Judged) -> str:
     """Why the candidate passes or fails, and whether it can be ordered."""
     if judged.reason is ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN:
         return f"{judged.rule.sentence} It can never be ordered as a substitute."
-    if judged.reason is ExclusionReason.ALLERGEN_DECLARED:
+    if judged.reason in (ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.CLAIM_CONTRADICTED):
         return f"{judged.reason_sentence} It cannot be ordered for this buyer."
     lacks = ""
     if judged.claims_lost:  # dietary claims only: the ones that change the rank and the verdict

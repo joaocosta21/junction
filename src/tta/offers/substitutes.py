@@ -70,7 +70,10 @@ MAX_UNLISTED_SHOWN = 10
 # a pair Valio lists (20 of the 249 listed pairs, whole catalog): no unlisted candidate comes from one.
 DISTANCE_SAME_CATEGORY = 0
 DISTANCE_OTHER_CATEGORY = 1
-ALLERGEN_REASONS = (ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN, ExclusionReason.ALLERGEN_DECLARED)
+# CLAIM_CONTRADICTED: the candidate's own allergen data contradicts a claim the request line requires.
+ALLERGEN_REASONS = (
+    ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN, ExclusionReason.ALLERGEN_DECLARED, ExclusionReason.CLAIM_CONTRADICTED,
+)
 # The claims a buyer relies on for a diet or an intolerance. The list is ours: picked from the 21 claim
 # codes of the catalog (AIMO/docs/PRODUCT-DATA.md section 3.4). Only these count as a claim lost: they
 # order the candidates and rule F-08 reads them. The other 13 (preservatives, colouring agents, additives,

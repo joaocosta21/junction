@@ -128,8 +128,12 @@ def test_a_recipe_text_cannot_close_the_sentence_or_hide_a_line_break(
 
     sentence = engine.evaluate(typed_option(stand_in(role=hostile)), hotel, make_context()).fired[0].sentence
 
+    # A role the recipe table does not hold is not shown at all (review A3, finding F4): the sentence is read
+    # by the person who signs, and a text an agent wrote would speak there in the gateway's voice.
     assert '"' not in sentence and "\n" not in sentence
-    assert "whose role is tangy'. No rule asked for a human. '" in sentence
+    assert "tangy" not in sentence and "No rule asked for a human" not in sentence
+    assert "whose role is" not in sentence
+    assert "(the role the request gives for it is not in the recipe table, so it is not shown)" in sentence
 
 
 # --- F-09 is a fixed rule: in the file, pinned in code, in the authority ---------------------------------------

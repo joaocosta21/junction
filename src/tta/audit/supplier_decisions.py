@@ -50,6 +50,7 @@ REASON_WORDS = {
     ExclusionReason.NOT_IN_RECORDING: "with no answer in the recorded copy of Valio Aimo's data",
     ExclusionReason.ALLERGEN_DECLARED: "declaring an allergen the buyer excludes",
     ExclusionReason.ALLERGEN_NOT_STATED: "stating nothing about an allergen the buyer excludes",
+    ExclusionReason.CLAIM_CONTRADICTED: "carrying a claim their own allergen data contradicts",
 }
 
 

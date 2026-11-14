@@ -100,6 +100,9 @@ class PolicyContext(Contract):
 
     now: datetime
     day_committed_net_eur: Decimal | None = None  # today's ORDERED and PENDING_APPROVAL, this order excluded
+    # The part of `day_committed_net_eur` that waits for a person (PENDING_APPROVAL). Rule P-02's sentence says
+    # both parts when it is set. None: the caller does not say; never a missing fact, the rule says the total.
+    day_waiting_net_eur: Decimal | None = None
     at_order_time: bool = False
     revalidation: RevalidationResult | None = None  # set at order time; None there is a missing fact
     # The standing order the request renews and its past renewals (P-08). None means "not a renewal": it is

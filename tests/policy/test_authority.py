@@ -17,11 +17,11 @@ def test_authority_lists_every_rule_with_this_profiles_values(engine: RulePolicy
     assert authority.profile == hotel
     assert authority.policy_hash == engine.policy_hash(hotel)
     assert [rule.rule_id for rule in authority.rules] == [
-        "F-01", "F-02", "F-03", "F-04", "F-05", "F-07", "F-08", "F-09", "F-11",
+        "F-01", "F-02", "F-03", "F-04", "F-05", "F-07", "F-08", "F-09", "F-11", "F-12",
         "F-10", "P-01", "P-02", "P-03", "P-04", "P-05", "P-06", "P-07", "P-08", "P-09",
     ]
     # F-10 is driven by the buyer's setting, so it stands with the profile rules and is not fixed.
-    assert [rule.fixed for rule in authority.rules] == [True] * 9 + [False] * 10
+    assert [rule.fixed for rule in authority.rules] == [True] * 10 + [False] * 10
     assert _sentence(authority, "P-01") == "An order above €750 before tax goes to the purchasing manager."
     assert _sentence(authority, "P-02") == (
         "When the day's orders, this one included, pass €3,000 before tax, the order goes to finance."

@@ -4,7 +4,8 @@ full (SPEC section 5, step 3). The ranking itself is `tta.offers.substitutes`.
 Which candidate of the ranking stands in (ours, decided on 14 Nov 2026):
 
 1. Safe first (review P4, item M1): a candidate whose data rules out every excluded allergen.
-2. Where the request line says the formula matters (`RequestLine.keep_formula`, P10 item F5): a candidate that
+2. Where the formula matters, because the request line says so (`RequestLine.keep_formula`, P10 item F5) or the
+   buyer profile does for every line (`BuyerProfile.formula_matters`, decision B35): a candidate that
    keeps the formula. When none can be ordered the SUBSTITUTE option gets no stand-in for the line, the offer
    says so, and the formula-changing candidate is a labelled alternative that rule F-11 sends to a person.
 3. Confirmed stock that replaces the original like for like (`ReplaceVerdict.REPLACEABLE`) before a product
@@ -98,7 +99,7 @@ def _substitute_line(
     # The substitute is asked to fill what the named products leave missing, not the whole line.
     gap = replace(outcome.need, quantity=picked.missing)
     ranking = rank_substitutes(original, gap, deps, skip=outcome.asked.product_ids)
-    keep = outcome.asked.keep_formula is True
+    keep = outcome.need.formula_matters
     lines = [(judged, _line_from(judged, ranking, used_elsewhere)) for judged in _in_order(outcome, ranking, keep)]
     orderable = [(judged, line) for judged, line in lines if line is not None]
     named = f"{plain_name(original.display_name)} ({original.id})"
@@ -120,7 +121,7 @@ def _substitute_line(
         )
         said = f"{NO_FORMULA_KEEPER}: {rest}"
         note = (
-            f"{label}: the request says the formula matters, and {NO_FORMULA_KEEPER} for {named}. "
+            f"{label}: {outcome.need.formula_said}, and {NO_FORMULA_KEEPER} for {named}. "
             f"{plain_name(line.name)} ({line.product_id}) does not keep it and is offered only as a labelled "
             "alternative for a person to decide."
         )

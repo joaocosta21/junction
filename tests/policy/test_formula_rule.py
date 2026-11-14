@@ -159,15 +159,21 @@ def test_a_request_line_cannot_remove_the_check_a_profile_adds(
     assert read_fact("line.formula_matters", OrderScope(scope.option, hotel, scope.context, {}), line) is False
 
 
-def test_today_s_offer_line_has_no_word_on_the_formula_and_that_reads_as_not_said(
+def test_an_offer_line_that_does_not_say_so_reads_as_not_said_and_one_that_says_so_makes_the_formula_matter(
     hotel: BuyerProfile, blend_for_cream: Callable[..., OfferLine], make_option: Callable[..., OfferOption],
     make_context: Callable[..., PolicyContext],
 ) -> None:
-    line = blend_for_cream(DIFFERENT)
-    scope = OrderScope(make_option((line,)), hotel, make_context(), {})
+    """`OfferLine.keep_formula` is the request line's own word (L2a-2): None and False are "not said"."""
+    silent = blend_for_cream(DIFFERENT)
+    refuses = silent.model_copy(update={"keep_formula": False})
+    says_so = silent.model_copy(update={"keep_formula": True})
+    scope = OrderScope(make_option((silent,)), hotel, make_context(), {})
 
-    assert not hasattr(line, "keep_formula")
-    assert read_fact("line.formula_matters", scope, line) is False
+    assert silent.keep_formula is None
+    assert read_fact("line.formula_matters", scope, silent) is False
+    assert read_fact("line.formula_matters", scope, refuses) is False
+    assert read_fact("line.formula_matters", scope, says_so) is True
+    assert read_fact("line.formula_matters_reason", scope, says_so) == "the request says so for this line"
 
 
 def test_a_substitute_with_no_formula_comparison_is_a_missing_fact_where_the_formula_matters(

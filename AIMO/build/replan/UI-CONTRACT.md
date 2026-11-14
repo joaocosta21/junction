@@ -178,6 +178,13 @@ The page's customer values equal the profile files (`tests/ui/test_shop_customer
 - `offer.proof`, `order.proof` (REST and MCP): "Signed by this gateway (demo key). Check it with the key at /.well-known/jwks.json." Never "signed by Valio".
 - `/healthz` → `store.reason`, `signing.note`.
 
+### P3 — rules
+- Rule **F-12** in `decision.rule_ids`, `fired`, `GET /v1/authority` (fixed, after F-11): "A substitute that is a last resort (it lacks a dietary claim of the product asked for, is flavoured where that product is not, or is another product type) always goes to the purchasing manager." `tests/ui/test_kitchen_page.py` `FIXED_SHOWN` can add it.
+- `offer.excluded[].reason == "CLAIM_CONTRADICTED"`: "Carries a claim its allergen data contradicts".
+- P-02: "With this order today's spend would reach €3,772.17 before tax (€0.00 ordered, €2,688.78 waiting for a person, and this order's €1,083.39), above the €3,000 limit per day of Harbourside Hotel."
+- The bakery without the word: "Kallio Bakery's profile says the formula matters, and no substitute that keeps it can be ordered: this one does not keep it, so a person decides."
+- Menu page: "Cannot be sourced".
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

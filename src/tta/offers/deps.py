@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from typing import Protocol
 
 from tta.contracts.availability import AvailabilityLine, AvailabilityResponse, PriceLine, PriceResponse
 from tta.contracts.common import ClockBasis, DataSource
@@ -25,9 +26,28 @@ TWO_SOURCES = (
 )
 
 
+class SpendParts(Protocol):
+    """The day's spend in its parts, as `tta.orders.spend.DaySpend` gives it."""
+
+    @property
+    def committed(self) -> Decimal: ...  # ORDERED and PENDING_APPROVAL together: what rule P-02 adds the order to
+
+    @property
+    def waiting(self) -> Decimal: ...  # the PENDING_APPROVAL part
+
+
+def spend_parts(spend: Decimal | SpendParts) -> tuple[Decimal, Decimal | None]:
+    """(committed, waiting) of what `OfferDeps.day_spend` answered; waiting is None for a single figure."""
+    if isinstance(spend, Decimal):
+        return spend, None
+    return spend.committed, spend.waiting
+
+
 @dataclass(frozen=True)
 class OfferDeps:
-    """`day_spend` answers the net EUR a buyer profile has committed today (ORDERED and PENDING_APPROVAL).
+    """`day_spend` answers the net EUR a buyer profile has committed today (ORDERED and PENDING_APPROVAL): one
+    figure, or the figure in its parts (`SpendParts`), and then rule P-02's sentence says what is ordered and
+    what is waiting for a person.
 
     `standing_history` answers the history of a standing order by (profile id, standing order id) and raises
     `InvalidRequest` for one the profile does not have (`tta.standing.history_lookup`). None: no standing orders
@@ -38,7 +58,7 @@ class OfferDeps:
     gateway: ValioGateway
     policy: PolicyEngine
     clock: Clock
-    day_spend: Callable[[str], Decimal]
+    day_spend: Callable[[str], Decimal | SpendParts]
     standing_history: Callable[[str, str], StandingHistory] | None = None
 
 

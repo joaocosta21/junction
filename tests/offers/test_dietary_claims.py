@@ -74,7 +74,8 @@ def test_a_required_claim_that_the_allergen_data_contradicts_excludes_the_produc
 
     assert "471881" not in {line.product_id for option in offer.options for line in option.lines}
     exclusion = next(each for each in offer.excluded if each.product_id == "471881")
-    assert exclusion.reason is ExclusionReason.ALLERGEN_DECLARED
+    # Its own reason, so a page does not headline it "Declares an excluded allergen": the buyer excluded none.
+    assert exclusion.reason is ExclusionReason.CLAIM_CONTRADICTED
     assert exclusion.sentence == (
         "The product carries the claim FREE_FROM_GLUTEN, but its allergen data says it contains cereals "
         "containing gluten (AW). The data is taken as it stands, so the claim the request requires is not met."

@@ -103,7 +103,9 @@ facts:
   # --- the order context ---
   context.at_order_time:          {type: bool,  source: context, label: "whether an order is being placed"}
   context.day_committed_net_eur:  {type: money, source: context, label: "today's committed spend", missing_role: finance, note: "ORDERED and PENDING_APPROVAL orders of the profile today, this order excluded"}
+  context.day_waiting_net_eur:    {type: money, source: context, label: "the part of today's committed spend that waits for a person", note: "PENDING_APPROVAL orders of the profile today, this order excluded; read by no condition, so its absence is never a missing fact"}
   order.day_net_eur:              {type: money, source: engine,  label: "today's spend with this order", missing_role: finance, note: "context.day_committed_net_eur plus option.net_eur"}
+  order.day_net_said:             {type: string, source: engine, label: "today's spend with this order, in its parts", note: "order.day_net_eur as '€3,772.17 before tax', followed by '(€0.00 ordered, €2,688.78 waiting for a person, and this order's €1,083.39)' when context.day_waiting_net_eur is known"}
   order.stale_reason:             {type: string, source: engine, label: "why the option can no longer be ordered"}
   revalidation.ok:                {type: bool,  source: context, label: "the fresh price and availability check", note: "true only when nothing changed and nothing expired"}
   revalidation.expired:           {type: bool,  source: context, label: "whether the fresh check found an expiry"}
@@ -137,12 +139,15 @@ facts:
   line.has_deposits:              {type: bool,   source: option, label: "whether the product carries a deposit"}
   line.stands_in_for:             {type: string, source: engine, label: "the recipe ingredient the line stands in for", note: "task MENU-1: the line's own product type, the recipe's product type it replaces (RequestLine.stands_in_for) and the ingredient's role in the dish, each read as data like line.name; empty when the line stands in for nothing, which is never a missing fact"}
   # --- the formula of a substitute (rule F-11; tta.policy.formula_facts) ---
-  line.formula_matters:           {type: bool,   source: engine, label: "whether the formula matters for the line", note: "true when the request line says so or when the buyer profile sets formula_matters; a request or a profile can add the check and neither can remove it. The request line's word is not carried by an offer line yet: absent reads as not said"}
+  line.formula_matters:           {type: bool,   source: engine, label: "whether the formula matters for the line", note: "true when the request line says so or when the buyer profile sets formula_matters; a request or a profile can add the check and neither can remove it. The request line's word is OfferLine.keep_formula: absent or false reads as not said"}
   line.formula_matters_reason:    {type: string, source: engine, label: "who says the formula matters", note: "the request line, else the buyer profile, named by its display name read as data like line.name"}
   line.substitute_keeps_formula:  {type: bool,   source: option, label: "whether the substitute keeps the formula", note: "SubstituteInfo.formula.keeps_formula: the offer's measure (six nutrients within 15% or 1 g, salt within 0.25 g, the same fat source; the tolerances are ours) says SAME_PRODUCT_OTHER_PACK, SAME_BRAND or OTHER_BRAND; false for DIFFERENT and for NOT_KNOWN; missing when the substitute carries no comparison"}
   line.substitute_formula_outcome: {type: enum,  source: option, label: "the outcome of the formula comparison", values: [SAME_PRODUCT_OTHER_PACK, SAME_BRAND, OTHER_BRAND, DIFFERENT, NOT_KNOWN]}
   line.substitute_formula:        {type: string, source: option, label: "what the formula comparison found", note: "the offer's own sentence with its numbers, read as data like line.name, at most 400 characters"}
   line.substitute_formula_differences: {type: list, source: option, label: "the figures outside the tolerance", note: "each as 'fat 15 g, not 36 g' per 100 g or ml, then 'another fat source' when one ingredient list names a vegetable oil or fat and the other does not"}
+  # --- a substitute that is a last resort (rule F-12; tta.policy.last_resort_facts) ---
+  line.substitute_last_resort:    {type: bool,   source: option, label: "whether the substitute is a last resort", note: "SubstituteInfo.last_resort: it loses a dietary claim, is flavoured where the product asked for is not, or is another product type, and stands in only because nothing like for like can be ordered; false on a line that replaces nothing"}
+  line.substitute_last_resort_reason: {type: string, source: option, label: "why the substitute is a last resort", note: "the reasons of the offer's own sentence (SubstituteInfo.replaceable.sentence, after 'Not a like-for-like replacement:'), read as data like line.name, at most 400 characters; else the claims it lacks; else what a last resort is"}
 
 # ---------------------------------------------------------------------------------------------------------
 # Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
@@ -329,6 +334,27 @@ rules:
       - text: "Where a request line says the formula matters, a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager."
     justification: "A cream with 15% fat does not whip and a vegetable-fat blend does not behave as butter in a dough: the swap changes what the kitchen can make. Of Valio Aimo's 249 listed substitute pairs our measure finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (whole catalog, AIMO/build/replan/P10-formula.md). The tolerances are ours and illustrative; 'cannot be compared' is never read as 'the same'."
 
+  # A last resort (found by L2a-R, 14 Nov 2026). The offer marks a substitute `last_resort` when it loses a
+  # dietary claim, is flavoured where the product asked for is not, or is another product type: it is shown
+  # only because no like-for-like product can be ordered. F-08 already sends the claim-loser to a person. A
+  # flavoured or other-type one fired no rule of its own, so a buyer who lets the agent order alone and accepts
+  # same-category substitutes would have had a nutty-vanilla drink ordered alone for a plain oat drink. It is
+  # FIXED: no profile setting lets a last resort through. With F-08 on the same line both are named.
+  - id: F-12
+    fixed: true
+    title: A substitute is a last resort
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.substitute_last_resort, op: is_true}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} as a last resort: {line.substitute_last_resort_reason}. A person decides whether it will do"
+    authority:
+      - text: "A substitute that is a last resort (it lacks a dietary claim of the product asked for, is flavoured where that product is not, or is another product type) always goes to the purchasing manager."
+    justification: "A kitchen that asked for a plain oat drink for coffee cannot use a nutty-vanilla one without knowing; the offer shows a last resort only because nothing like for like can be ordered, and a person decides whether it will do. The reading of flavour and product type from product names is ours and illustrative (3,465 of 17,546 catalog products read as flavoured)."
+
   # --- Profile rules: the settings of one buyer ---
   # F-10, "Every order needs human approval", is the rule the profile setting `auto_order_enabled` drives.
   # It is NOT an entry of this list: it is written in code (tta.policy.human_approval) and applied twice, when
@@ -368,8 +394,8 @@ rules:
         - {fact: order.day_net_eur, op: gt, value: {fact: profile.max_daily_net_eur}}
     verdict: APPROVAL
     approver_role: finance
-    message: "with this order today's spend would reach €{order.day_net_eur} before tax, above the €{profile.max_daily_net_eur} limit per day of {profile.display_name}"
-    records: [context.day_committed_net_eur, option.net_eur]
+    message: "with this order today's spend would reach {order.day_net_said}, above the €{profile.max_daily_net_eur} limit per day of {profile.display_name}"
+    records: [context.day_committed_net_eur, context.day_waiting_net_eur, option.net_eur]
     authority:
       - text: "When the day's orders, this one included, pass €{profile.max_daily_net_eur} before tax, the order goes to finance."
     justification: "Stops one large order from being split into many small ones under the limit per order."
@@ -544,5 +570,5 @@ authority:
       text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
       text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
-    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; a substitute that does not keep the formula where the formula matters; and any fact a rule needs that is missing."
+    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a nutritional claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

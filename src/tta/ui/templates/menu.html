@@ -89,7 +89,7 @@ Saturday night for a dinner on Monday, confirmed stock only.</p>
   {% endfor %}
 
   {% if plan.cannot_be_sourced %}
-  <h3>Cannot arrive in time</h3>
+  <h3>Cannot be sourced</h3>
   <ul>
     {% for item in plan.cannot_be_sourced %}
     <li>{{ mark("bad", item.quantity|quantity ~ " " ~ item.unit.value ~ " " ~ item.product_type|replace("_", " ")) }} for {{ item.dishes|join(", ") }}. {{ item.sentence }}</li>

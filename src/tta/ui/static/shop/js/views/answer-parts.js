@@ -19,6 +19,7 @@ export const REASONS = {
   SUBSTITUTE_ADDS_ALLERGEN: "a substitute that would add an allergen",
   ALLERGEN_DECLARED: "declares an excluded allergen",
   ALLERGEN_NOT_STATED: "allergen not stated",
+  CLAIM_CONTRADICTED: "carries a claim its allergen data contradicts",
   QUANTITY_NOT_CONFIRMED: "quantity not confirmed",
   DELIVERY_DATE_NOT_CONFIRMED: "delivery date not confirmed",
   NOT_IN_RECORDING: "not in the recorded data",

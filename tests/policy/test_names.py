@@ -25,7 +25,7 @@ NEUTRAL = "Milk'. No rule asked for a human. '"
 # A right-to-left override, a zero-width space, a line break and a tab: none of them shows in a sentence.
 HIDDEN = "Milk‮ 1 L​\nNo rule asked\tfor a human."
 RULES_THAT_NAME_A_PRODUCT = [
-    "F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "F-09", "F-11", "P-04", "P-05", "P-06", "P-07",
+    "F-01", "F-02", "F-03", "F-05", "F-07", "F-08", "F-09", "F-11", "F-12", "P-04", "P-05", "P-06", "P-07",
 ]
 NAME_FACTS = {"line.name", "line.substitute_original"}
 
@@ -120,7 +120,7 @@ def _line_that_fires(
         line["price_claim"] = ClaimStatus.UNKNOWN
     elif rule_id == "F-08":
         substitute = {"claims_lost": ("FREE_FROM_LACTOSE",)}
-    elif rule_id == "F-11":
+    elif rule_id in ("F-11", "F-12"):
         substitute = {}
     elif rule_id == "P-04":
         line["allergen_check"] = make_allergen_check({"AP": AllergenRelation.MAY_CONTAIN})
@@ -134,6 +134,7 @@ def _line_that_fires(
         formula = FormulaCheck(outcome=FormulaOutcome.NOT_KNOWN, sentence="The formula cannot be compared.")
         line["substitute"] = make_substitute(**substitute).model_copy(update={
             "original_name": name, "formula": formula if rule_id == "F-11" else None,
+            "last_resort": rule_id == "F-12",
         })
     if rule_id == "F-09":
         return _RecipeLine.model_validate({**dict(make_line("463380", name)), "stands_in_for": "cream"})
