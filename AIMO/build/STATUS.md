@@ -19,7 +19,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | running | the human chose to build it (Saturday); starts after FIX-10 and the first deployment |
-| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | running | the human chose to build it (Saturday); ask Context.dev's CTO whether it counts as core flow; starts after FIX-10 |
+| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | review | built and committed (90 tests, 17 of 60 requests); waits for wiring in `src/tta/api/wiring.py` and the deploy secret after S1 |
 | T14 | Deployment on Modal | T13 | done | **deployed** https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` all 7 checks passed; a redeploy at the end is approved |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
@@ -83,6 +83,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 09:45 S1 (Aiven), S2 (Context.dev), T18 (Gemini photo and Finnish) and FIX-11 (room limits) started in parallel, each with its own files.
 - 09:54 The human asked for three more pieces, each with its own agent: `AIMO/OPEN-QUESTIONS.md` (the 22 open questions to Valio, each with its example), a clearer rewrite of `AIMO/WALKTHROUGH.md`, and a check of Valio's six example scenarios and our own by running the system (a main agent with one sub-agent per use case, in an isolated worktree), report in `AIMO/USE-CASES.md`.
 - 10:01 FIX-11 done and committed. Docs to align at the end: `src/tta/api/docs.py` (limits text), `docs/DEMO.md`, `docs/ASSUMPTIONS.md`.
+- 10:13 S2 built and committed: Context.dev evidence on the dietitian's approval card (demo: `469512` Elovena oat drink, maker's page 'Maidoton'). Wiring and deploy secret to add after S1 finishes with `wiring.py`. T18 asked for a fourth example button for this moment. `AIMO/OPEN-QUESTIONS.md` committed (23 questions, 32 examples verified); `AIMO/BOOTH-NOW.md` for the booth.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
