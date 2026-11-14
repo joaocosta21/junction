@@ -6,6 +6,7 @@ Our challenge. €4,000 / €2,000 / €1,000. **The judging criteria are the sc
 |---|---|
 | **[PLAN.md](PLAN.md)** | **The working plan** — rubric mapping, response logic, schedule, tech awards, cut order |
 | [SPEC.md](SPEC.md) | **The build contract** — interface, data shapes, states, rules. Code follows it |
+| [WALKTHROUGH.md](WALKTHROUGH.md) | How the built gateway works, why each piece is there, the decisions taken overnight, and how to check it |
 | [build/](build/) | Overnight build: [RUNBOOK.md](build/RUNBOOK.md) (how to run), [STATUS.md](build/STATUS.md) (task board), [tasks/](build/tasks/) (one file per agent) |
 | [CHALLENGE.md](CHALLENGE.md) | The problem statement and judging criteria, verbatim |
 | [FINDINGS.md](FINDINGS.md) | **Read first.** Verified facts about the API and the data |
