@@ -1,0 +1,357 @@
+# Policy rules of the Trusted Trade Agents gateway: what the buyer's agent may decide alone, what needs
+# a human, and what can never be ordered (AIMO/SPEC.md section 7).
+#
+# The structure is Gabriela's (AIMO/policy/policy.yaml, branch bio2): declared facts, declarative rules,
+# the most severe verdict wins, a missing fact never passes, and a hash of the policy in force.
+#
+# This file is DATA. The engine (tta.policy.engine) only reads it; no rule is written in code.
+#   * Every rule is evaluated deterministically. No model decides a verdict, a price or a quantity.
+#   * Fixed rules (fixed: true) hold for every buyer. Their `when` may not read a `profile.*` fact, so no
+#     profile setting can switch one off or weaken it, and a profile file that names one is rejected at load.
+#   * Profile rules compare an option with the settings of one buyer profile (profiles/*.yaml).
+#     The limit values live there and are illustrative. Nothing in this file is a Valio Aimo limit.
+#   * A condition whose fact is missing is unknown, not false. A rule left unknown fires F-03.
+#   * The policy hash is the SHA-256 of the canonical form of this file plus the profile in force.
+#
+# Dropped from Friday's file, as AIMO/PLAN.md section 5 asks: the contradicted-closing-time setting and its
+# trust finding (a passed cut-off now excludes the product, SPEC section 4), the three placeholder values
+# and their quantity threshold (a quantity that is not confirmed always goes to a human, F-01), and the
+# rule that blocked the GS1 code for "no declarable allergens". Not carried over because SPEC section 7
+# does not list them and the offer already excludes those products: not deliverable, pack size estimated
+# or unknown, quantity off the lot step.
+
+policy_id: tta-default
+version: 1.0.0
+
+verdicts:
+  # Least to most severe. The most severe verdict of the rules that fire wins.
+  - AUTO        # the agent places the order
+  - APPROVAL    # a human with the named role decides
+  - BLOCK       # cannot be ordered, even with approval
+
+defaults:
+  verdict_when_no_rule_fires: AUTO
+  on_missing_fact: APPROVAL                     # missing is not good: never order alone on data we do not have
+  missing_fact_approver_role: purchasing_manager  # when the missing fact names no role of its own
+
+roles:
+  purchasing_manager:
+    name: "the purchasing manager"
+    decides: "Spend per order, partial fills, substitutes, variable weight and quantities that are not confirmed"
+  dietitian:
+    name: "the dietitian"
+    decides: "Products that do not rule out an allergen the buyer excludes"
+  finance:
+    name: "finance"
+    decides: "Spend per day and totals that leave deposits out"
+
+# What each value of the profile setting `substitution_without_approval` lets the agent accept alone.
+# A substitute is LISTED_BY_SUPPLIER when Valio Aimo lists it for the product, else SAME_CATEGORY when it
+# shares the 5-digit category, else OUTSIDE. The scopes widen: SAME_CATEGORY includes the listed ones.
+substitution_scopes:
+  NONE: []
+  LISTED_BY_SUPPLIER: [LISTED_BY_SUPPLIER]
+  SAME_CATEGORY: [LISTED_BY_SUPPLIER, SAME_CATEGORY]
+
+# ---------------------------------------------------------------------------------------------------------
+# Facts: every value a rule or a sentence may read. The loader checks that rules use declared facts only
+# and that the engine can read every fact declared here (tta.policy.facts).
+#   source: profile = the buyer profile file · option = the offer option being judged ·
+#           context = the order context (clock, today's spend, the fresh check at order time) ·
+#           engine  = worked out by the engine from the others
+#   type:   money prints as 1,980.77 · limit as 750 · ratio as 74.9% · number as 1,000
+#   missing_role: who decides when this fact is missing (F-03); otherwise defaults.missing_fact_approver_role
+# ---------------------------------------------------------------------------------------------------------
+facts:
+  # --- the buyer profile ---
+  profile.profile_id:                    {type: string, source: profile, label: "the profile"}
+  profile.auto_order_enabled:            {type: bool,   source: profile, label: "whether the agent may order alone"}
+  profile.max_order_net_eur:             {type: limit,  source: profile, label: "the spend limit per order"}
+  profile.max_daily_net_eur:             {type: limit,  source: profile, label: "the spend limit per day"}
+  profile.min_fill_ratio:                {type: ratio,  source: profile, label: "the minimum share of the quantity"}
+  profile.excluded_allergens:            {type: list,   source: profile, label: "the excluded allergens", note: "GS1 codes"}
+  profile.allergen_strictness:           {type: enum,   source: profile, label: "the allergen rule", values: [STRICT, DECLARED_ONLY]}
+  profile.substitution_without_approval: {type: enum,   source: profile, label: "the substitution setting", values: [NONE, LISTED_BY_SUPPLIER, SAME_CATEGORY]}
+  profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
+  profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
+  profile.deposits:                      {type: enum,   source: profile, label: "the deposit setting", values: [APPROVAL, NOTE]}
+  # --- the option ---
+  option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
+  option.fill_ratio:              {type: ratio,    source: option, label: "the share of the quantity covered", note: "the lowest fill ratio over the request's lines"}
+  option.valid_until:             {type: datetime, source: option, label: "the time the option is valid until"}
+  option.expired:                 {type: bool,     source: engine, label: "the option's expiry", note: "valid_until earlier than the clock; missing when the option carries no valid_until"}
+  option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is a ceiling", note: "totals.is_ceiling"}
+  option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
+  # --- the order context ---
+  context.at_order_time:          {type: bool,  source: context, label: "whether an order is being placed"}
+  context.day_committed_net_eur:  {type: money, source: context, label: "today's committed spend", missing_role: finance, note: "ORDERED and PENDING_APPROVAL orders of the profile today, this order excluded"}
+  order.day_net_eur:              {type: money, source: engine,  label: "today's spend with this order", missing_role: finance, note: "context.day_committed_net_eur plus option.net_eur"}
+  order.stale_reason:             {type: string, source: engine, label: "why the option can no longer be ordered"}
+  revalidation.ok:                {type: bool,  source: context, label: "the fresh price and availability check", note: "true only when nothing changed and nothing expired"}
+  revalidation.expired:           {type: bool,  source: context, label: "whether the fresh check found an expiry"}
+  revalidation.changes:           {type: list,  source: context, label: "what the fresh check found changed"}
+  # --- one line of the option ---
+  line.product_id:                {type: string, source: option, label: "the product id"}
+  line.name:                      {type: string, source: option, label: "the product name"}
+  line.quantity:                  {type: number, source: option, label: "the quantity in sales units"}
+  line.availability_state:        {type: enum,   source: option, label: "the availability state", values: [BLOCKED, NOT_DELIVERABLE, OUT_OF_STOCK, CUTOFF_PASSED, QUANTITY_NOT_CONFIRMED, CONFIRMED]}
+  line.quantity_confirmed:        {type: bool,   source: engine, label: "whether the quantity is confirmed", note: "state CONFIRMED and no quantity claim that says otherwise"}
+  line.allergen_outcomes:         {type: list,   source: option, label: "the allergen check", missing_role: dietitian, note: "every outcome the check reports (PASS, REJECT, TO_HUMAN), its own and each finding's; missing when the profile excludes an allergen the check does not cover, or the check ran under a weaker rule than the profile's"}
+  line.allergens_declared:        {type: list,   source: option, label: "the excluded allergens the product declares"}
+  line.allergens_to_human:        {type: list,   source: option, label: "the excluded allergens the product does not rule out"}
+  line.is_substitute:             {type: bool,   source: option, label: "whether the line replaces a product the buyer named"}
+  line.substitute_original:       {type: string, source: option, label: "the product it replaces"}
+  line.substitute_scope:          {type: enum,   source: engine, label: "how close the substitute is", values: [LISTED_BY_SUPPLIER, SAME_CATEGORY, OUTSIDE]}
+  line.substitute_adds_allergen:  {type: bool,   source: option, label: "whether the substitute adds an allergen"}
+  line.substitute_added_allergens: {type: list,  source: option, label: "the allergens the substitute adds"}
+  line.variable_weight:           {type: bool,   source: option, label: "the variable-weight statement", note: "absent on 3,068 of the 17,546 catalog products (AIMO/FINDINGS.md section 4)"}
+  line.has_deposits:              {type: bool,   source: option, label: "whether the product carries a deposit"}
+
+# ---------------------------------------------------------------------------------------------------------
+# Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
+#   eq, ne, gt, gte, lt, lte, in, not_in, contains_any (with a value) · is_true, is_false, not_empty, is_empty
+# `value` is a literal or another fact: {fact: name}.
+# `message` is the reason, written as a clause; {placeholders} are facts. The engine turns it into the
+#   rule's sentence and joins the clauses of the rules that decide into the decision's sentence.
+# `records` lists further facts written to the decision next to those the rule read.
+# `authority` is the rule in plain language for GET /v1/authority: the first text whose `when` holds for
+#   the profile is used; the last one has no `when`. Only `profile.*` facts may appear in it.
+# ---------------------------------------------------------------------------------------------------------
+rules:
+  # --- Fixed rules: no profile can switch these off ---
+  - id: F-01
+    fixed: true
+    title: A line's quantity is not confirmed
+    scope: line
+    when:
+      all:
+        - {fact: line.quantity_confirmed, op: is_false}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "the quantity of {line.quantity} × {line.name} ({line.product_id}) is not confirmed by Valio Aimo"
+    records: [line.availability_state]
+    authority:
+      - text: "A product whose quantity Valio Aimo does not confirm always goes to the purchasing manager."
+    justification: "Valio Aimo said on 14 Nov 2026 that a very large availableAmount means the stock is not known (AIMO/FINDINGS.md section 1). The agent never commits a buyer to stock nobody confirmed."
+
+  - id: F-02
+    fixed: true
+    title: A line declares an excluded allergen
+    scope: line
+    when:
+      all:
+        - {fact: line.allergen_outcomes, op: contains_any, value: [REJECT]}
+    verdict: BLOCK
+    message: "{line.name} ({line.product_id}) declares an allergen this buyer excludes: {line.allergens_declared}"
+    authority:
+      - when: {all: [{fact: profile.excluded_allergens, op: not_empty}]}
+        text: "A product that declares an allergen this buyer excludes ({profile.excluded_allergens}) can never be ordered, even with approval."
+      - text: "A product that declares an allergen the buyer excludes can never be ordered, even with approval."
+    justification: "Defence in depth. The offer already leaves such a product out (ALLERGEN_DECLARED); the policy refuses it even if one gets through. The outcome comes from the allergen rule of SPEC section 6; the policy does not redo it."
+
+  - id: F-03
+    fixed: true
+    title: A fact a rule needs is missing
+    trigger: missing_fact   # no `when`: fires once for every fact that left a rule unknown, per line
+    verdict: APPROVAL
+    message: "{missing.what} is missing ({missing.reason}), so {missing.needed_by} cannot be checked"
+    authority:
+      - text: "When a fact a rule needs is missing, a human decides. Missing data never counts as good data."
+    justification: "No data means unknown, not safe: 46.2% of the catalog carries no allergen statement and 3,068 products do not say whether they are sold by variable weight (AIMO/FINDINGS.md sections 3 and 4)."
+
+  - id: F-04
+    fixed: true
+    title: The option expired or changed before the order
+    scope: order
+    when:
+      all:
+        - {fact: context.at_order_time, op: is_true}
+        - any:
+            - {fact: option.expired, op: is_true}
+            - {fact: revalidation.ok, op: is_false}
+    verdict: BLOCK
+    message: "this option can no longer be ordered as offered: {order.stale_reason}"
+    records: [option.valid_until, revalidation.expired, revalidation.changes]
+    authority:
+      - text: "An option that has expired, whose order cut-off has passed, or whose price or availability changed since the offer cannot be ordered. A fresh offer is needed."
+    justification: "The spec says to order by closingTime at the latest to receive goods on availableDate, and a price holds until its validTo. An order rests on the statements of its offer; when they no longer hold the agent asks again."
+
+  - id: F-05
+    fixed: true
+    title: A substitute adds an allergen the original does not declare
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.substitute_adds_allergen, op: is_true}
+    verdict: BLOCK
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} but adds an allergen the original does not declare: {line.substitute_added_allergens}"
+    authority:
+      - text: "A substitute that declares an allergen the original product does not can never be ordered, for any buyer."
+    justification: "Of Valio Aimo's 249 listed substitutes, 37 declare an allergen the original does not (AIMO/PLAN.md section 3). A buyer who chose the original chose its allergens."
+
+  # --- Profile rules: the settings of one buyer ---
+  - id: P-00
+    fixed: false
+    title: The profile does not let the agent order alone
+    scope: order
+    when:
+      all:
+        - {fact: profile.auto_order_enabled, op: is_false}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "profile {profile.profile_id} does not let the agent place any order alone"
+    authority:
+      - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
+        text: "This profile lets the agent place an order alone when no other rule asks for a human."
+      - text: "This profile does not let the agent place any order alone: every order goes to the purchasing manager."
+    justification: "A buyer can keep a human on every order, for example while it gains trust in the agent."
+
+  - id: P-01
+    fixed: false
+    title: The order is above the spend limit per order
+    scope: order
+    when:
+      all:
+        - {fact: option.net_eur, op: gt, value: {fact: profile.max_order_net_eur}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "the total of €{option.net_eur} before tax is above the €{profile.max_order_net_eur} limit per order of profile {profile.profile_id}"
+    authority:
+      - text: "An order above €{profile.max_order_net_eur} before tax goes to the purchasing manager."
+    justification: "Standard spend control; the brief names it as a guardrail."
+
+  - id: P-02
+    fixed: false
+    title: The day's spend would pass the limit per day
+    scope: order
+    when:
+      all:
+        - {fact: order.day_net_eur, op: gt, value: {fact: profile.max_daily_net_eur}}
+    verdict: APPROVAL
+    approver_role: finance
+    message: "with this order today's spend would reach €{order.day_net_eur} before tax, above the €{profile.max_daily_net_eur} limit per day of profile {profile.profile_id}"
+    records: [context.day_committed_net_eur, option.net_eur]
+    authority:
+      - text: "When the day's orders, this one included, pass €{profile.max_daily_net_eur} before tax, the order goes to finance."
+    justification: "Stops one large order from being split into many small ones under the limit per order."
+
+  - id: P-03
+    fixed: false
+    title: The option covers too little of the requested quantity
+    scope: order
+    when:
+      all:
+        - {fact: option.fill_ratio, op: lt, value: {fact: profile.min_fill_ratio}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "only {option.fill_ratio} of the requested quantity is covered, below the {profile.min_fill_ratio} minimum"
+    authority:
+      - text: "An option that covers less than {profile.min_fill_ratio} of the requested quantity goes to the purchasing manager."
+    justification: "A partial fill changes what the kitchen can serve; below the buyer's threshold a person decides."
+
+  - id: P-04
+    fixed: false
+    title: A line does not rule out an excluded allergen
+    scope: line
+    when:
+      all:
+        - {fact: line.allergen_outcomes, op: contains_any, value: [TO_HUMAN]}
+    verdict: APPROVAL
+    approver_role: dietitian
+    message: "{line.name} ({line.product_id}) does not rule out an allergen this buyer excludes: {line.allergens_to_human}"
+    authority:
+      - when: {all: [{fact: profile.excluded_allergens, op: is_empty}]}
+        text: "This profile excludes no allergen. When a request excludes one, a product that does not rule it out goes to the dietitian."
+      - when: {all: [{fact: profile.allergen_strictness, op: eq, value: STRICT}]}
+        text: "Excluded allergens: {profile.excluded_allergens}, rule STRICT. A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
+      - text: "Excluded allergens: {profile.excluded_allergens}, rule DECLARED_ONLY. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+    justification: "MAY_CONTAIN appears on 2,685 products and 46.2% of the catalog has no allergen statement (AIMO/FINDINGS.md section 3). A named person owns the decision to accept that."
+
+  - id: P-05
+    fixed: false
+    title: A substitute is outside what the profile accepts
+    scope: line
+    when:
+      all:
+        - {fact: line.is_substitute, op: is_true}
+        - {fact: line.substitute_scope, op: not_in, value: {fact: profile.substitution_scopes_allowed}}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} ({line.product_id}) replaces {line.substitute_original}, a substitute that profile {profile.profile_id} does not accept without a human"
+    records: [profile.substitution_without_approval]
+    authority:
+      - when: {all: [{fact: profile.substitution_without_approval, op: eq, value: NONE}]}
+        text: "Every substitute goes to the purchasing manager."
+      - when: {all: [{fact: profile.substitution_without_approval, op: eq, value: LISTED_BY_SUPPLIER}]}
+        text: "A substitute that Valio Aimo does not list for the product goes to the purchasing manager."
+      - text: "A substitute that Valio Aimo does not list for the product and that is not in the same product category goes to the purchasing manager."
+    justification: "The brief asks that substitutions outside stated preferences get a sign-off."
+
+  - id: P-06
+    fixed: false
+    title: A line is sold by variable weight
+    scope: line
+    when:
+      all:
+        - {fact: line.variable_weight, op: is_true}
+        - any:
+            - {fact: profile.variable_weight, op: eq, value: APPROVAL}
+            - {fact: option.total_is_ceiling, op: is_false}
+    verdict: APPROVAL
+    approver_role: purchasing_manager
+    message: "{line.name} ({line.product_id}) is sold by variable weight, so its final price is not fixed in advance"
+    authority:
+      - when: {all: [{fact: profile.variable_weight, op: eq, value: APPROVAL}]}
+        text: "A product sold by variable weight goes to the purchasing manager: its final price is not fixed in advance."
+      - text: "A product sold by variable weight may be ordered alone when the total is a ceiling: the invoice can be lower, never higher."
+    justification: "632 products are sold by variable weight (AIMO/FINDINGS.md section 4). Whether the delivered weight equals the ordered weight is an open question to Valio Aimo."
+
+  - id: P-07
+    fixed: false
+    title: A line carries a deposit the total leaves out
+    scope: line
+    when:
+      all:
+        - {fact: line.has_deposits, op: is_true}
+        - any:
+            - {fact: profile.deposits, op: eq, value: APPROVAL}
+            - {fact: option.total_excludes_deposits, op: is_false}
+    verdict: APPROVAL
+    approver_role: finance
+    message: "{line.name} ({line.product_id}) carries a deposit that has no published price, so the total of €{option.net_eur} leaves it out"
+    authority:
+      - when: {all: [{fact: profile.deposits, op: eq, value: APPROVAL}]}
+        text: "A product that carries a deposit goes to finance: deposits have no published price, so the total leaves them out."
+      - text: "A product that carries a deposit may be ordered alone; the total leaves deposits out and says so."
+    justification: "506 products carry deposits and none of the 7 deposit codes can be priced (AIMO/FINDINGS.md section 4)."
+
+# Fixed rules that are enforced where the caller's identity is known, not by the engine. They are listed
+# here so that this file states every fixed rule and the policy hash covers them.
+access_rules:
+  - id: F-06
+    title: An agent cannot approve an order
+    enforced_by: "the approval routes (tta.orders and tta.api)"
+    outcome: "refused with the problem type not-authorised"
+    text: "An agent can never approve an order, its own included: approval routes refuse agent tokens."
+    justification: "An approval is a human's signature. An agent that could give it would have no limit at all."
+
+# The sentence of a decision, by verdict. {reasons} is the clauses of the rules that decide, each followed
+# by its rule id; {roles} is who must sign.
+decision_sentences:
+  AUTO: "The agent may place this order alone: the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order, today's spend would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day of profile {profile.profile_id}, {option.fill_ratio} of the requested quantity is covered, and no rule asks for a human."
+  APPROVAL: "The agent cannot place this order alone: {reasons}. It needs {roles}."
+  BLOCK: "This order cannot be placed, even with approval: {reasons}."
+
+# GET /v1/authority. `summary`: every text whose `when` holds for the profile, in this order, followed by
+# the text of each access rule. Only `profile.*` facts may appear.
+authority:
+  note: "The limit values of this profile are illustrative: they are ours, chosen for the demonstration. The Valio Aimo mock has no customer limits."
+  summary:
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
+      text: "Profile {profile.profile_id}: the agent may place an order alone when no rule asks for a human."
+    - when: {all: [{fact: profile.auto_order_enabled, op: is_false}]}
+      text: "Profile {profile.profile_id}: the agent may not place any order alone; every order goes to a human."
+    - text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
+    - text: "Always to a human: a product whose quantity is not confirmed, and any fact a rule needs that is missing."
+    - text: "Never, even with approval: a product that declares an excluded allergen, a substitute that adds an allergen, and an option that expired or changed before the order."

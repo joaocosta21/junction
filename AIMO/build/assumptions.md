@@ -73,3 +73,20 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Origin placeholders `zy`, `xs`, `zz` (195 products) load as no origin.
 - Listed substitutes are Valio's pairs as listed, in one direction.
 - The catalog needs all three data files at start-up; a missing or malformed one stops the start rather than serving a partial catalog.
+
+## Policy (T05)
+- The policy is data: `src/tta/policy/rules.yaml` (39 declared facts, F-01 to F-05, P-00 to P-07, F-06 as an access rule) and one YAML file per buyer profile. The structure is Gabriela's.
+- A missing fact never passes: it fires F-03 (to a human). That includes the day's committed spend, the re-check at order time, an option with no `valid_until`, a missing allergen check for a buyer with exclusions, and a product that does not say whether it is sold by variable weight (3,068 of 17,546 catalog products).
+- F-01 fires for every availability state other than confirmed, and for a confirmed line whose quantity claim is not confirmed.
+- F-02 and P-04 read the outcome of the allergen rule; the policy does not redo it.
+- F-04 is evaluated only at order time: the option's `valid_until` has passed, or the re-check found a change.
+- P-01 and P-02 fire strictly above the limit; P-03 strictly below the minimum. P-02 compares the day's committed spend plus this order with the daily limit.
+- Roles the plan does not name: P-00, P-05 and P-06 go to the purchasing manager.
+- `SAME_CATEGORY` includes substitutes listed by the supplier; "same category" is the same 5-digit category (question T05-1).
+- `AUTO_WITH_CEILING` (variable weight) lets the agent order alone only when the total is marked as a ceiling; `NOTE` (deposits) only when the total says it excludes deposits.
+- `allergy-ward`: variable weight and deposits both need approval (question T05-2).
+- A blocked decision names no approver role. An approval decision requires the roles of every rule that asks for a human.
+- Policy hash: `sha256:` + SHA-256 of the canonical JSON of the rules plus the profile; comments and key order do not change it.
+- A profile file cannot name a rule or carry a setting outside the profile contract: it has no way to switch off a fixed rule.
+- Gabriela's rules for not-deliverable products, estimated pack sizes and lot steps are not carried over: the offer excludes those products before the policy runs.
+- All limit values are illustrative. Demo approvers exist for every role on both profiles.

@@ -1,0 +1,28 @@
+# Buyer profile "hotel-kitchen". ILLUSTRATIVE: every value below is ours, chosen for the demonstration.
+# The Valio Aimo mock has no customer model and Valio Aimo publishes no customer limits (AIMO/SPEC.md
+# section 7). The values of 750, 3,000 and 0.9 are Gabriela's of Friday (AIMO/policy/policy.yaml); 750 was
+# picked so that the 1,010.00 milk order of the canonical request goes to a human.
+#
+# A profile sets limits. It cannot switch off or weaken a fixed rule of ../rules.yaml: a profile file that
+# names one, or carries any setting not listed here, is rejected when it is loaded.
+
+profile_id: hotel-kitchen
+display_name: Hotel kitchen
+description: "Illustrative profile of a hotel kitchen: spend limits, no allergen exclusion, substitutes from the same category."
+illustrative: true
+
+auto_order_enabled: true          # false sends every order to a human (P-00)
+max_order_net_eur: 750            # EUR before tax per order without a human (P-01)
+max_daily_net_eur: 3000           # EUR before tax per day, this order included (P-02)
+min_fill_ratio: 0.9               # share of the requested quantity that must be covered (P-03)
+excluded_allergens: []            # GS1 codes; a request can add exclusions and can never remove one (P-04)
+substitution_without_approval: SAME_CATEGORY   # NONE · LISTED_BY_SUPPLIER · SAME_CATEGORY (P-05)
+variable_weight: APPROVAL         # APPROVAL · AUTO_WITH_CEILING (P-06)
+deposits: APPROVAL                # APPROVAL · NOTE (P-07)
+require_confirmed: false          # true: the offer holds fully confirmed options only
+
+# Who holds each role. The ids are those of the demonstration identities.
+approver_roles:
+  purchasing_manager: ["human:hotel-purchasing"]
+  finance: ["human:hotel-finance"]
+  dietitian: ["human:hotel-dietitian"]

@@ -1,0 +1,28 @@
+# Buyer profile "allergy-ward". ILLUSTRATIVE: every value below is ours, chosen for the demonstration.
+# The Valio Aimo mock has no customer model and Valio Aimo publishes no customer limits (AIMO/SPEC.md
+# section 7).
+#
+# A profile sets limits. It cannot switch off or weaken a fixed rule of ../rules.yaml: a profile file that
+# names one, or carries any setting not listed here, is rejected when it is loaded.
+
+profile_id: allergy-ward
+display_name: Allergy ward
+description: "Illustrative profile of a hospital allergy ward: no milk, no gluten, confirmed data only, no substitute without a human."
+illustrative: true
+
+auto_order_enabled: true          # false sends every order to a human (P-00)
+max_order_net_eur: 500            # EUR before tax per order without a human (P-01)
+max_daily_net_eur: 1500           # EUR before tax per day, this order included (P-02)
+min_fill_ratio: 1.0               # the whole requested quantity must be covered (P-03)
+excluded_allergens: [AM, AW]      # GS1 codes: AM milk, AW cereals containing gluten (F-02, P-04)
+allergen_strictness: STRICT       # STRICT · DECLARED_ONLY; required because allergens are excluded
+substitution_without_approval: NONE   # every substitute goes to a human (P-05)
+variable_weight: APPROVAL         # not set for this profile by SPEC section 7; the cautious value (P-06)
+deposits: APPROVAL                # not set for this profile by SPEC section 7; the cautious value (P-07)
+require_confirmed: true           # the offer holds fully confirmed options only
+
+# Who holds each role. The id is that of the demonstration identity.
+approver_roles:
+  dietitian: ["human:ward-dietitian"]
+  purchasing_manager: ["human:ward-purchasing"]
+  finance: ["human:ward-finance"]

@@ -324,6 +324,19 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Context:** the product-type table is ours (29 types, derived from the names in each category). `milk` is category 10400: 91 products, of which 88 are milk; the other three are a sour milk, a coffee drink and a soy yoghurt. Lactose-free milk = `milk` + claim `FREE_FROM_LACTOSE` = 35 products, among them lactose-free sour milks (`477050`, `476957`).
 - **Ask:** "Should a request for 'milk' leave out sour milk and coffee drinks?" Tonight none of them is the cheapest option, so the demo is not affected.
 
+**T05-1 · Does "same category" also accept a substitute Valio lists from another category?** (from the policy package)
+- **Context:** the profile setting `substitution_without_approval` has three values: `NONE` · `LISTED_BY_SUPPLIER` · `SAME_CATEGORY`. Of Valio's 250 listed pairs, 20 leave the 5-digit category (whole catalog).
+- **Built overnight:** a widening scale. Under `SAME_CATEGORY` a substitute Valio lists is accepted without a human even from another category; an unlisted one must be in the same 5-digit category. One line in `src/tta/policy/rules.yaml` (`substitution_scopes`) changes it.
+- **Ask:** "Is that the reading we want?"
+
+**T05-2 · The allergy ward's settings for variable weight and deposits**
+- **Context:** the plan sets both to "needs approval" for the hotel and names neither for the ward.
+- **Built overnight:** both "needs approval" for the ward as well, the cautious value. Scenario 2 is not affected (`464056` has no deposit and is not sold by variable weight).
+- **Ask:** "Agreed?"
+
+**T05-3 · Demo approvers** (settled by the orchestrator, for information)
+- Every role now has a demo person on both profiles: hotel — purchasing manager, finance, dietitian; ward — dietitian, purchasing manager, finance. Without that, an approval needing a role nobody holds could never complete. Names and ids are placeholders in the two profile files.
+
 ---
 
 ## Claims we no longer make
