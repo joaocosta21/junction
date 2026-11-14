@@ -4,7 +4,7 @@
     {% if candidate.listed_by_supplier %}<span class="tag">Listed by Valio Aimo</span>{% endif %}</p>
   <p class="marks">
     {{ mark("ok" if candidate.passes else "bad", "Passes the allergen rule" if candidate.passes else "Fails the allergen rule") }}
-    {% if candidate.orderable %}{{ mark("ok", "Can be ordered") }}{% else %}{{ mark("bad", "Cannot be ordered" ~ (": " ~ (candidate.reason|words) if candidate.reason else "")) }}{% endif %}
+    {% set orderable_tone, orderable_words = candidate|can_be_ordered %}{{ mark(orderable_tone, orderable_words) }}
     {%+ if candidate.unit_net_price is not none %}<span class="price">{{ candidate.unit_net_price|unit_price }} per sales unit</span>{% endif %}
   </p>
   <p class="sentence">{{ candidate.sentence }}</p>

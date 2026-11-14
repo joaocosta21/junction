@@ -17,6 +17,13 @@
   </nav>
   <p class="mode">{{ mode_label }}</p>
 </header>
+<div class="own-book">
+  <p>{{ own_book }}</p>
+  <form method="post" action="/start-again" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit">Start again</button>
+  </form>
+</div>
 <main>
 {% block main %}{% endblock %}
 </main>
@@ -25,7 +32,8 @@
   order within its authority or with human approval. The same functions are open as REST and as MCP tools:
   <a href="/openapi.json">OpenAPI document</a> · <a href="/v1/schemas">JSON Schemas</a> · <a href="/healthz">health</a>.</p>
   <p>Buyer profiles, spend limits and approver names on these pages are illustrative: they are ours, chosen for
-  the demonstration. An order here is a record in the gateway's order book; the Valio Aimo mock has no order endpoint.</p>
+  the demonstration. An order here is a record in your own demo order book, which the REST API and MCP do not
+  share; the Valio Aimo mock has no order endpoint, so it commits nobody.</p>
 </footer>
 </body>
 </html>

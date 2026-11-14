@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, Path, Query, Request
+from fastapi import APIRouter, Header, Path, Query, Request, Response
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 
 from tta.api import docs
+from tta.api.agent_calls import header_value
 from tta.api.identity import Caller
 from tta.api.service import Gateway
 from tta.contracts.agent import AgentRun, ParseRequestBody
@@ -41,6 +42,20 @@ MAX_KEY_LENGTH = 100
 KEY_PATTERN = r"^[A-Za-z0-9._:-]+$"  # the same form the order book accepts
 CALLER = (Unauthenticated, NotAuthorised)  # every route with a token can answer these two
 CREATED = 201
+READ_BY_HEADER = "TTA-Read-By"
+READING_SOURCE_HEADER = "TTA-Reading-Source"
+READING_HEADERS = {
+    READ_BY_HEADER: {
+        "description": "The model id that read the text, or that the recording came from; `hand-built` for an "
+                       "answer a person wrote.",
+        "schema": {"type": "string"},
+    },
+    READING_SOURCE_HEADER: {
+        "description": "`model` (the model read it just now), `recording` (a recording of the model's earlier "
+                       "answer) or `hand-built`.",
+        "schema": {"type": "string", "enum": ["model", "recording", "hand-built"]},
+    },
+}
 
 ProductIdPath = Annotated[
     str, Path(min_length=1, max_length=MAX_ID_LENGTH, pattern=r"^[A-Za-z0-9]+$", description="A Valio product id")
@@ -241,14 +256,21 @@ def get_audit(
 
 @router.post(
     "/requests/parse", operation_id="parse_request", tags=[docs.TAG_AGENT],
-    responses=docs.problems(*CALLER, InvalidRequest, RateLimited, SupplierUnavailable),
+    responses={
+        200: {"description": "The typed request", "headers": READING_HEADERS},
+        **docs.problems(*CALLER, InvalidRequest, RateLimited, SupplierUnavailable),
+    },
     summary="Free text becomes a typed request",
 )
-def parse_request(request: Request, caller: Caller, pasted: ParseRequestBody) -> PurchaseRequest:
+def parse_request(request: Request, response: Response, caller: Caller, pasted: ParseRequestBody) -> PurchaseRequest:
     """A missing quantity, or an allergen exclusion with no strictness, is reported as `invalid-request`
-    and never guessed. Answers `supplier-unavailable` while no parser is running; the typed request can
-    always be sent to `POST /v1/offers`."""
-    return _service(request).parse_request(caller, pasted.text)
+    and never guessed. Two headers say who read the text: `TTA-Read-By` and `TTA-Reading-Source`, so a
+    reading served from a recording is never taken for the model's. Answers `supplier-unavailable` while no
+    parser is running; the typed request can always be sent to `POST /v1/offers`."""
+    reading = _service(request).read_request(caller, pasted.text)
+    response.headers[READ_BY_HEADER] = header_value(reading.model)
+    response.headers[READING_SOURCE_HEADER] = reading.source.value
+    return reading.request
 
 
 @router.post(
@@ -258,7 +280,8 @@ def parse_request(request: Request, caller: Caller, pasted: ParseRequestBody) ->
 )
 def run_agent(request: Request, caller: Caller, pasted: ParseRequestBody) -> AgentRun:
     """For the demonstration. The agent works only through this gateway's own functions, as the caller's
-    identity; the answer is its tool-call trace and a report built from the gateway's sentences."""
+    identity; the answer is its tool-call trace and a report built from the gateway's sentences. A run that
+    stops after the gateway placed its order is answered with that order, never with an error."""
     return _service(request).run_agent(caller, pasted.text)
 
 

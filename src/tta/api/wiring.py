@@ -16,8 +16,9 @@ from datetime import UTC, datetime
 from tta.api import hooks
 from tta.api.fallback import FallbackGateway
 from tta.api.identity import TokenRegistry, load_tokens
-from tta.api.limits import CallLimits, RateLimit
-from tta.api.service import Gateway, GatewayDeps
+from tta.api.limits import CallLimits, RateLimit, call_limits
+from tta.api.sandbox import Sandbox, Sandboxes
+from tta.api.service import MAX_DEMO_REQUEST_LINES, Gateway, GatewayDeps
 from tta.audit import AuditTrail
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -36,7 +37,7 @@ from tta.contracts.ports import (
 from tta.offers import OfferDeps, OfferService
 from tta.orders import OrderBookService, day_committed_net_eur
 from tta.policy import RulePolicyEngine
-from tta.store import open_store
+from tta.store import SqliteStore, open_store
 from tta.valio import ReplayGateway, ValioClient
 
 logger = logging.getLogger(__name__)
@@ -90,11 +91,13 @@ class Parts:
     audit: AuditSink
     service: Gateway
     tokens: TokenRegistry
+    sandboxes: Sandboxes | None = None  # the pages' private order books: in dev and demo only
 
     @property
     def opened(self) -> tuple[object, ...]:
-        """What is to be closed, in that order: the database and, in live mode, the gateway's HTTP client."""
-        return (self.store, self.gateway)
+        """What is to be closed, in that order: the sandboxes, the database and, in live mode, the gateway's
+        HTTP client."""
+        return (self.sandboxes, self.store, self.gateway)
 
     def close(self) -> None:
         """Release what is open. Each part is closed even when the one before it fails; the first failure is
@@ -129,6 +132,7 @@ def wire(
     limiter: CallLimits,
     request_parser: RequestParser | None = None,
     agent_runner: AgentRunner | None = None,
+    max_request_lines: int | None = None,
 ) -> tuple[Gateway, AuditSink]:
     """The services over one store: one audit trail, the offer service, the order book, the gateway service."""
     audit = AuditTrail(store, UtcClock(), policy=policy)  # one per store and process
@@ -139,9 +143,33 @@ def wire(
     orders = OrderBookService(store=store, policy=policy, revalidator=offers, audit=audit, clock=clock)
     service = Gateway(GatewayDeps(
         catalog=catalog, policy=policy, store=store, audit=audit, offers=offers, orders=orders, limiter=limiter,
-        request_parser=request_parser, agent_runner=agent_runner,
+        request_parser=request_parser, agent_runner=agent_runner, max_request_lines=max_request_lines,
     ))
     return service, audit
+
+
+@dataclass(frozen=True)
+class _Shared:
+    """What every order book of the process shares: everything but the store and what writes to it."""
+
+    catalog: Catalog
+    policy: PolicyEngine
+    gateway: ValioGateway
+    clock: Clock
+    limiter: CallLimits
+    request_parser: RequestParser | None
+    agent_runner: AgentRunner | None
+    max_request_lines: int | None
+
+    def sandbox(self) -> Sandbox:
+        """A new, empty order book in memory, over the shared parts."""
+        store = SqliteStore()
+        service, audit = wire(
+            catalog=self.catalog, policy=self.policy, gateway=self.gateway, clock=self.clock, store=store,
+            limiter=self.limiter, request_parser=self.request_parser, agent_runner=self.agent_runner,
+            max_request_lines=self.max_request_lines,
+        )
+        return Sandbox(service=service, store=store, audit=audit)
 
 
 def build_parts(
@@ -174,13 +202,18 @@ def build_parts(
         keys = catalog.product_type_keys()
         request_parser = request_parser or hooks.request_parser(settings, clock, keys)
         agent_runner = agent_runner or hooks.agent_runner(settings, clock, keys)
+        demo = settings.is_demo_environment
+        shared = _Shared(
+            catalog=catalog, policy=policy, gateway=gateway, clock=clock,
+            # The demonstration tokens are public and shared: there a caller is counted per visitor.
+            limiter=call_limits(demo, rate_limit), request_parser=request_parser, agent_runner=agent_runner,
+            max_request_lines=MAX_DEMO_REQUEST_LINES if demo else None,
+        )
         store = open_store(settings)
         opened.insert(0, store)
         service, audit = wire(
-            catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store,
-            # The demonstration tokens are public and shared: there a caller is counted per visitor.
-            limiter=CallLimits(rate_limit or RateLimit(), per_visitor=settings.is_demo_environment),
-            request_parser=request_parser, agent_runner=agent_runner,
+            catalog=catalog, policy=policy, gateway=gateway, clock=clock, store=store, limiter=shared.limiter,
+            request_parser=request_parser, agent_runner=agent_runner, max_request_lines=shared.max_request_lines,
         )
     except BaseException:
         close_each(opened)  # a close that fails here is logged; the error that stopped the start is raised
@@ -188,4 +221,5 @@ def build_parts(
     return Parts(
         settings=settings, catalog=catalog, gateway=gateway, replay=replay, clock=clock, policy=policy,
         store=store, audit=audit, service=service, tokens=tokens,
+        sandboxes=Sandboxes(shared.sandbox) if demo else None,
     )

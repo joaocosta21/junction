@@ -15,10 +15,16 @@ Post = Callable[..., Any]
 NOTE = "Agreed with the kitchen on Friday."
 
 
+def _service(client: TestClient) -> Any:
+    """The service of this browser's own order book."""
+    sandboxes = client.app.state.parts.sandboxes  # type: ignore[attr-defined]
+    return sandboxes.find(client.cookies.get("tta_book") or client.cookies.get("__Host-tta_book")).service
+
+
 def _approved_order(client: TestClient, run_example: Post, decide: Post, identities: Callable[..., Any]) -> str:
     """Scenario 1, approved by the purchasing manager with a note. Returns the order id."""
     run_example(client, "scenario-1")
-    service = client.app.state.parts.service  # type: ignore[attr-defined]
+    service = _service(client)
     approval = service.list_approvals(identities(client)["human:hotel-purchasing"], ApprovalStatus.PENDING)[0]
     decide(client, approval.approval_id, "APPROVE", option=approval.option_id, note=NOTE)
     return approval.order_id
@@ -45,7 +51,7 @@ def test_the_order_page_shows_the_record_and_the_statements_it_relied_on(
 
 
 def test_the_audit_trail_is_a_timeline_of_sentences_and_the_chain_verifies(
-    client: TestClient, run_example: Post, only_order: Callable[..., Any], parts: Any, identities: Callable[..., Any]
+    client: TestClient, run_example: Post, only_order: Callable[..., Any], identities: Callable[..., Any]
 ) -> None:
     run_example(client, "scenario-2")
     order = only_order(client, "agent:allergy-ward")
@@ -56,11 +62,10 @@ def test_the_audit_trail_is_a_timeline_of_sentences_and_the_chain_verifies(
     for sentence in ("The request was read as", "looked up price and availability", "built offer",
                      "The rules of profile allergy-ward were checked", "within its authority"):
         assert sentence in trail, sentence
-    events = parts.service.get_audit(identities(client)["agent:allergy-ward"], order_id=order.order_id).events
+    events = _service(client).get_audit(identities(client)["agent:allergy-ward"], order_id=order.order_id).events
     assert trail.count('class="event"') == len(events) >= 5  # parsed, looked up, offered, policy, placed by the agent
     assert "The hash chain verifies" in trail and "The audit trail is intact" in trail
     assert "Allergy ward agent (demo)" in trail and "The gateway" in trail
-    assert 'data-audit-head="/healthz"' in trail  # filled in by the page's script from the public health route
 
 
 def test_the_supplier_view_shows_no_limit_value_no_approver_and_no_note(
@@ -97,7 +102,7 @@ def test_a_chain_that_does_not_verify_is_said_in_words(
 ) -> None:
     run_example(client, "scenario-2")
     order = only_order(client, "agent:allergy-ward")
-    service = client.app.state.parts.service  # type: ignore[attr-defined]
+    service = _service(client)
     real = service.get_audit
 
     def broken(*args: Any, **kwargs: Any) -> Any:
@@ -156,7 +161,7 @@ def test_a_product_name_with_markup_is_rendered_escaped_on_every_page(
 
 
 def _approved_order_of(client: TestClient, decide: Post, identities: Callable[..., Any]) -> str:
-    service = client.app.state.parts.service  # type: ignore[attr-defined]
+    service = _service(client)
     approval = service.list_approvals(identities(client)["human:hotel-purchasing"], ApprovalStatus.PENDING)[0]
     decide(client, approval.approval_id, "APPROVE", option=approval.option_id)
     return approval.order_id

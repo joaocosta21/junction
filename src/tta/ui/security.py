@@ -8,6 +8,9 @@ read, and no page loads or runs anything from outside this server.
   (`SameSite=Lax`); every form repeats it in a hidden field and the two must match. One per browser session.
   Over HTTPS the cookie carries the `__Host-` prefix, so another host of the same domain cannot plant one.
 - Nothing is kept on the server for it, so it survives a restart and more than one server process.
+
+Each browser session also gets the key of its own demo order book (`tta.api.sandbox`) in a second cookie of
+the same kind. The key is never written into a page, so a page passed around does not give its book away.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 CSRF_COOKIE = "tta_csrf"
 AGENT_COOKIE = "tta_agent"  # the demo agent chosen on the first page
 APPROVER_COOKIE = "tta_approver"  # the demo approver chosen on the approvals page
+BOOK_COOKIE = "tta_book"  # the key of the browser session's own demo order book
+BOOK_STATE = "tta_book"  # where the request's book key is kept for the routes (`request.state`)
 HOST_PREFIX = "__Host-"  # a browser accepts such a cookie only over HTTPS, for this host, for every path
 TOKEN_BYTES = 32
 STATIC_PATH = "/static/"
@@ -57,8 +62,12 @@ def is_https(request: Request) -> bool:
     return HTTPS in (request.url.scheme, forwarded)
 
 
+def _cookie_name(request: Request, name: str) -> str:
+    return HOST_PREFIX + name if is_https(request) else name
+
+
 def csrf_cookie_name(request: Request) -> str:
-    return HOST_PREFIX + CSRF_COOKIE if is_https(request) else CSRF_COOKIE
+    return _cookie_name(request, CSRF_COOKIE)
 
 
 def new_token() -> str:
@@ -82,6 +91,48 @@ def token_matches(request: Request, submitted: str) -> bool:
 def set_session_cookie(response: Response, request: Request, name: str, value: str) -> None:
     """A cookie that ends with the browser session, that scripts cannot read and other sites do not send."""
     response.set_cookie(name, value, path="/", httponly=True, samesite="lax", secure=is_https(request))
+
+
+def book_key(request: Request) -> str:
+    """The key of this browser session's order book, as `BookCookie` found or made it for the request."""
+    key = getattr(request.state, BOOK_STATE, None)
+    if isinstance(key, str):
+        return key
+    found = request.cookies.get(_cookie_name(request, BOOK_COOKIE), "")
+    return found if _TOKEN.fullmatch(found) else new_token()
+
+
+def _set_cookie_value(request: Request, name: str, value: str) -> str:
+    """The `Set-Cookie` value of a session cookie, written by Starlette as `set_session_cookie` writes it."""
+    response = Response()
+    set_session_cookie(response, request, name, value)
+    return next(value for header, value in response.headers.items() if header == "set-cookie")
+
+
+class BookCookie:
+    """Gives each browser session the key of its own order book: the cookie's, or a new one sent back with the
+    answer. Making a key opens no book: a book is built when something is first written to it."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["path"].startswith(STATIC_PATH):
+            await self._app(scope, receive, send)
+            return
+        request = Request(scope)
+        name = _cookie_name(request, BOOK_COOKIE)
+        found = request.cookies.get(name, "")
+        key = found if _TOKEN.fullmatch(found) else new_token()
+        scope.setdefault("state", {})[BOOK_STATE] = key
+        cookie = None if key == found else _set_cookie_value(request, name, key)
+
+        async def send_with_cookie(message: Message) -> None:
+            if cookie is not None and message["type"] == "http.response.start":
+                MutableHeaders(scope=message).append("set-cookie", cookie)
+            await send(message)
+
+        await self._app(scope, receive, send_with_cookie)
 
 
 class SecurityHeaders:

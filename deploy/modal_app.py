@@ -88,6 +88,7 @@ PINNED = (
     "python-multipart==0.0.33",
     "google-genai==3.3.0",
     "mcp==2.3.0",
+    "psycopg[binary]==3.3.9",
 )
 NOT_INSTALLED = ("modal", "uvicorn")
 

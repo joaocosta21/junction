@@ -155,7 +155,7 @@ def test_the_same_request_from_another_buyer_gets_that_buyers_rules(client: Test
 
 
 def test_free_text_without_a_parser_is_refused_with_a_way_forward(
-    client: TestClient, run_text: Post, parts: Any, identities: Callable[..., Any]
+    client: TestClient, run_text: Post, orders: Callable[..., Any]
 ) -> None:
     response = run_text(client, "ten crates of something nice")
 
@@ -163,7 +163,7 @@ def test_free_text_without_a_parser_is_refused_with_a_way_forward(
     assert "no request parser running" in response.text
     assert "one of the examples" in response.text
     assert "ten crates of something nice" in response.text  # the text stays in the box
-    assert parts.service.list_orders(identities(client)["agent:hotel-kitchen"]) == ()
+    assert orders(client) == ()
 
 
 def test_free_text_is_read_by_the_parser_when_there_is_one(
@@ -181,7 +181,7 @@ def test_free_text_is_read_by_the_parser_when_there_is_one(
 
 
 def test_what_the_parser_cannot_read_is_said_and_nothing_is_ordered(
-    make_client: MakeClient, run_text: Post, fakes: Any, identities: Callable[..., Any]
+    make_client: MakeClient, run_text: Post, fakes: Any, orders: Callable[..., Any]
 ) -> None:
     client = make_client(request_parser=fakes.FakeParser())
 
@@ -190,7 +190,7 @@ def test_what_the_parser_cannot_read_is_said_and_nothing_is_ordered(
     assert response.status_code == 422
     assert "The request names no quantity." in response.text
     assert "<b>please</b>" not in response.text and "&lt;b&gt;please&lt;/b&gt;" in response.text
-    assert client.app.state.parts.service.list_orders(identities(client)["agent:hotel-kitchen"]) == ()  # type: ignore[attr-defined]
+    assert orders(client) == ()
 
 
 def test_the_buyer_agent_runs_the_request_when_there_is_one_and_its_steps_are_shown(
@@ -224,15 +224,18 @@ def test_an_example_still_runs_when_the_model_behind_the_agent_cannot_be_reached
     assert only_order(client, "agent:allergy-ward").status is OrderStatus.ORDERED
 
 
-def test_free_text_fails_plainly_when_neither_the_agent_nor_the_parser_can_be_reached(
-    make_client: MakeClient, run_text: Post, fakes: Any
+def test_free_text_the_agent_cannot_run_is_answered_with_its_reason_and_the_parser_is_not_asked_again(
+    make_client: MakeClient, run_text: Post, fakes: Any, orders: Callable[..., Any]
 ) -> None:
-    client = make_client(agent_runner=fakes.DownRunner(), request_parser=fakes.NoParser())
+    parser = fakes.FakeParser()
+    client = make_client(agent_runner=fakes.DownRunner(), request_parser=parser)
 
     response = run_text(client, fakes.FREE_TEXT)
 
     assert response.status_code == 503
-    assert "The model that reads requests cannot be reached right now." in response.text
+    assert "The model behind the buyer agent cannot be reached right now." in response.text
+    assert parser.texts == []  # one reading per submission: the agent's (task FIX-10, finding 7)
+    assert orders(client) == ()
 
 
 def test_posting_the_same_form_twice_places_one_order(
@@ -316,7 +319,7 @@ def test_the_summary_sorts_options_by_what_the_data_confirms_not_by_their_kind(
 
 
 def test_an_agent_that_stops_without_an_offer_is_shown_with_its_report_and_its_steps(
-    make_client: MakeClient, run_text: Post, fakes: Any, identities: Callable[..., Any]
+    make_client: MakeClient, run_text: Post, fakes: Any, orders: Callable[..., Any]
 ) -> None:
     client = make_client(agent_runner=fakes.StoppedRunner(), request_parser=fakes.FakeParser())
 
@@ -328,4 +331,4 @@ def test_an_agent_that_stops_without_an_offer_is_shown_with_its_report_and_its_s
     assert "I could not tell which product is meant, so I asked for no offer." in page
     assert "get_authority" in page[page.index('id="agent"'):] and "stopped at the step limit" in page
     assert fakes.FREE_TEXT in page  # the text stays in the box
-    assert client.app.state.parts.service.list_orders(identities(client)["agent:hotel-kitchen"]) == ()  # type: ignore[attr-defined]
+    assert orders(client) == ()

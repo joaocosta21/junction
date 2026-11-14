@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
+from tta.api.service import Gateway
 from tta.contracts.audit import AuditView
 from tta.contracts.common import AuditReader, AvailabilityState, DataSource, Identity, OrderStatus, PlacedBy
 from tta.contracts.errors import NotFound
@@ -26,7 +27,6 @@ from tta.ui.outcome import Outcome, outcome_of_order
 from tta.ui.site import NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
 
 TEMPLATE = "order.html"
-HEALTH_PATH = "/healthz"  # public: the head of the whole audit chain (count and last hash)
 ORDER_FACT = "order"
 NO_SUCH_ORDER = ("No such order", "No order has this id.")
 NO_SUCH_VIEW = ("No such view", "The audit trail has two readers: the buyer and the supplier.")
@@ -100,15 +100,16 @@ class OrderPage:
     outcome: Outcome | None  # the buyer's view only
     record: SupplierRecord | None  # the supplier's view only
     decider: Identity | None  # a demo approver who can decide a waiting order
+    head: tuple[int, str]  # of this order book's audit chain: how many events, and the last hash
 
 
-def _read_order(site: Site, request: Request, order_id: str) -> tuple[Identity, Order]:
+def _read_order(site: Site, service: Gateway, request: Request, order_id: str) -> tuple[Identity, Order]:
     """The order and the demo agent of its buyer. Another buyer's agent gets `not-found`, like a made-up id."""
     if not RECORD_ID.fullmatch(order_id):
         raise page_error(NOT_FOUND, *NO_SUCH_ORDER)
     for agent in site.agents_chosen_first(request):
         try:
-            return agent, site.service.get_order(agent, order_id)
+            return agent, service.get_order(agent, order_id)
         except NotFound:
             continue
     raise page_error(NOT_FOUND, *NO_SUCH_ORDER)
@@ -136,16 +137,18 @@ def _decider(site: Site, order: Order) -> Identity | None:
 
 
 def _order_page(site: Site, request: Request, order_id: str, reader: AuditReader) -> OrderPage:
-    read_as, order = _read_order(site, request, order_id)
-    audit = site.service.get_audit(read_as, reader=reader, order_id=order.order_id)
+    book = site.book(request)
+    read_as, order = _read_order(site, book.service, request, order_id)
+    audit = book.service.get_audit(read_as, reader=reader, order_id=order.order_id)
+    head = book.audit.head()  # this book's own chain: /healthz shows the shared book of the tokens
     if reader is AuditReader.SUPPLIER:
         return OrderPage(
             order_id=order.order_id, reader=reader, read_as=read_as, audit=audit, order=None, outcome=None,
-            record=supplier_record(audit), decider=None,
+            record=supplier_record(audit), decider=None, head=head,
         )
     return OrderPage(
         order_id=order.order_id, reader=reader, read_as=read_as, audit=audit, order=order,
-        outcome=outcome_of_order(order), record=None, decider=_decider(site, order),
+        outcome=outcome_of_order(order), record=None, decider=_decider(site, order), head=head,
     )
 
 
@@ -155,4 +158,4 @@ def add_routes(app: FastAPI, site: Site) -> None:
         if view not in (AuditReader.BUYER.value, AuditReader.SUPPLIER.value):
             raise page_error(UNPROCESSABLE, *NO_SUCH_VIEW)
         page = _order_page(site, request, order_id, AuditReader(view))
-        return site.render(request, TEMPLATE, page=page, health_path=HEALTH_PATH, supplier=AuditReader.SUPPLIER)
+        return site.render(request, TEMPLATE, page=page, supplier=AuditReader.SUPPLIER)

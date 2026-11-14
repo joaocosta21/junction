@@ -64,6 +64,7 @@ SCENARIO_2 = {
     }],
 }
 
+DEFAULT_PEER, PEER_PORT = "127.0.0.1", 123  # what the SDK's in-memory transport reports by default
 OTHER_OPTIONAL_MODULES = ("tta.agent", "tta.ui.routes")  # what other tasks add to the gateway (`tta.api.hooks`)
 
 Headers = dict[str, str]
@@ -187,15 +188,14 @@ async def rest(running_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
 def connect(running_app: FastAPI, auth: Callable[[str], Headers]) -> Connect:
     """An MCP client session as one of the demonstration identities, or with no token when `who` is `None`.
     `mode` is the SDK client's: "auto" speaks the newest protocol version, "legacy" the handshake one.
-    `visitor` is the address the gateway's proxy would report for the caller (`X-Forwarded-For`)."""
+    `visitor` is the caller's address, as the gateway sees its peer (no forwarded header is trusted)."""
 
     @asynccontextmanager
     async def session(who: str | None, mode: str = "auto", visitor: str | None = None) -> AsyncIterator[Client]:
         headers = {} if who is None else auth(who)
-        if visitor is not None:
-            headers = {**headers, "X-Forwarded-For": visitor}
+        transport = httpx2.ASGITransport(app=running_app, client=(visitor or DEFAULT_PEER, PEER_PORT))
         async with (
-            httpx2.AsyncClient(transport=httpx2.ASGITransport(app=running_app), headers=headers) as http,
+            httpx2.AsyncClient(transport=transport, headers=headers) as http,
             Client(streamable_http_client(MCP_URL, http_client=http), mode=mode) as client,
         ):
             yield client

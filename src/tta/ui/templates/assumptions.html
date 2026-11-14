@@ -1,14 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Assumptions and next steps{% endblock %}
 {% block main %}
-{% if document %}
+{% if document.markup %}
 <article class="document">
-{{ document }}
+{{ document.markup }}
 </article>
 {% else %}
 <h1>Assumptions and next steps</h1>
+{% if document.too_large %}
+<p class="lead"><code>{{ document_name }}</code> is larger than {{ max_document_kib }} KiB, the most this page shows,
+so it is not shown here. Read it in the repository.</p>
+{% else %}
 <p class="lead">The assumptions page has not been written yet. It is rendered from <code>{{ document_name }}</code>
 in the repository as soon as that file exists.</p>
+{% endif %}
 <p>What is already said on every page: buyer profiles, spend limits and approver names are illustrative and ours;
 the Valio Aimo mock has no customer limits and no order endpoint; a very large stock figure means the quantity
 is not confirmed.</p>

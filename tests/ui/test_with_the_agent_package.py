@@ -8,7 +8,9 @@ typed request. No model is called: the settings hold no key.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -69,3 +71,26 @@ def test_scenario_3_has_no_recording_so_the_page_goes_on_with_its_typed_request(
     assert AGENT_STEPS not in page
     assert "Ordered by the agent" in page
     assert only_order(agent_client).status is OrderStatus.ORDERED
+
+
+def test_with_the_parser_alone_the_page_says_the_request_was_read_from_its_recording(
+    make_client: MakeClient, settings: Settings, catalog: ProductCatalog, run_example: Post
+) -> None:
+    # Task FIX-10, finding 5: the reading's own sentence, built here from the recording's own time, so that
+    # a new recording of the sentence changes nothing in this test.
+    package = pytest.importorskip(AGENT_PACKAGE)
+    labels = pytest.importorskip(AGENT_PACKAGE + ".labels")
+    given = {
+        "settings": settings,
+        "clock": ReplayGateway(settings.replay_capture_dir).clock,
+        "product_type_keys": catalog.product_type_keys(),
+    }
+    client = make_client(request_parser=package.build_request_parser(**given))
+    recording = json.loads((settings.tta_fixtures_dir / "agent" / "parse-scenario-1.json").read_text(encoding="utf-8"))
+    made = labels.made_on(datetime.fromisoformat(recording["recorded_at"]))
+
+    page = run_example(client, "scenario-1").text
+    how = page[page.index('class="how"'):page.index('class="source"')]
+
+    assert f"Read from a recording of {recording['model']} made on {made}; no model was asked." in how
+    assert "Sent for approval" in page

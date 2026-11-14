@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
 
+from tta.contracts.agent import AgentRun
 from tta.contracts.common import (
     ApproverRole,
     AvailabilityState,
@@ -26,7 +27,7 @@ from tta.contracts.common import (
     Unit,
     Verdict,
 )
-from tta.contracts.offer import Exclusion
+from tta.contracts.offer import Exclusion, SubstituteCandidate
 
 NOT_STATED = "not stated"
 NO_END_DATE = "no end date"
@@ -36,6 +37,20 @@ CENTS = Decimal("0.01")
 HUNDRED = Decimal(100)
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+# How a run of the buyer agent was served (task FIX-10, finding 12). The agent package labels a run written by
+# hand "hand-built" and one replayed from a model's recording "recorded" (`tta.agent.recorded`).
+HAND_BUILT_MODEL = "hand-built"
+RECORDED_MODEL = "recorded"
+BY_HAND = "answers written by hand, not by a model"
+FROM_A_RECORDING = "a recording of the model's earlier answers"
+FROM_A_RECORDING_OF = "a recording of {model}'s earlier answers"
+RUN_FROM = "Run from {what}: no live model call."
+RUN_FALLBACK = "Gemini did not answer, so this run was served from {what}."
+RUN_LIVE = "Run live by {model}."
+CAN_BE_ORDERED = "Can be ordered"
+NEEDS_APPROVAL = "Can be ordered, needs approval"  # its quantity is not confirmed: a human decides (rule F-01)
+CANNOT_BE_ORDERED = "Cannot be ordered"
 
 OK, WARN, BAD, PLAIN = "ok", "warn", "bad", "plain"
 GLYPHS = {OK: "✓", WARN: "?", BAD: "✕", PLAIN: "•"}
@@ -200,3 +215,27 @@ def spread_by_reason(excluded: tuple[Exclusion, ...]) -> tuple[Exclusion, ...]:
 def reason_counts(excluded: tuple[Exclusion, ...]) -> tuple[tuple[ExclusionReason, int], ...]:
     """How many products each reason excluded, the most frequent first."""
     return tuple(Counter(entry.reason for entry in excluded).most_common())
+
+
+def run_label(run: AgentRun, live_model: bool) -> str:
+    """What served a run of the buyer agent, in a sentence: a live model, a recording or answers written by
+    hand, and whether the recording stood in for Gemini (`live_model`: a Gemini key is set)."""
+    if not run.recorded:
+        return RUN_LIVE.format(model=run.model)
+    if run.model == HAND_BUILT_MODEL:
+        what = BY_HAND
+    else:
+        what = FROM_A_RECORDING if run.model == RECORDED_MODEL else FROM_A_RECORDING_OF.format(model=run.model)
+    return RUN_FALLBACK.format(what=what) if live_model else RUN_FROM.format(what=what)
+
+
+def can_be_ordered(candidate: SubstituteCandidate) -> tuple[str, str]:
+    """The tone and words of a substitute's "can it be ordered" mark. One whose quantity is not confirmed can
+    be ordered only with a human's approval, as every such line can."""
+    if not candidate.orderable:
+        reason = f": {words(candidate.reason)}" if candidate.reason else ""
+        return BAD, CANNOT_BE_ORDERED + reason
+    state = candidate.availability.state if candidate.availability else None
+    if state is AvailabilityState.QUANTITY_NOT_CONFIRMED:
+        return WARN, NEEDS_APPROVAL
+    return OK, CAN_BE_ORDERED

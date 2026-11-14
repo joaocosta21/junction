@@ -58,6 +58,7 @@ option of the same offer, or rejects. An agent can never approve: the gateway re
   {% if card.can_decide %}
   <form method="post" action="/approvals/{{ approval.approval_id }}/decision" class="decision">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="shown_to" value="{{ approver.id }}">
     <h3>The options</h3>
     {% if card.offer %}
     <div class="options">

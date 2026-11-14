@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from tta.api.fallback import LIVE_CALLS_PER_LOOK, MIN_CALLS_REMAINING, RETRY_LIVE_AFTER_SECONDS, FallbackGateway
-from tta.api.limits import MAX_LIVE_LOOKS_PER_MINUTE
+from tta.api.limits import MAX_LIVE_LOOKS_PER_MINUTE, MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE, as_client
 from tta.contracts.availability import PriceResponse
 from tta.contracts.common import DataSource
 from tta.contracts.errors import SupplierUnavailable
@@ -237,20 +237,43 @@ def test_in_live_mode_the_data_clock_is_the_live_clock_also_while_the_capture_an
 # --- live looks per minute (finding 4) ------------------------------------------------------------------
 
 
+VISITORS = ("93.184.216.34", "93.184.216.35", "93.184.216.36", "93.184.216.37")
+
+
 def test_at_most_six_looks_a_minute_reach_the_supplier_and_the_rest_come_from_the_capture(
     gateway: FallbackGateway, live: FakeLive, time: FakeTime, caplog: pytest.LogCaptureFixture
 ) -> None:
-    assert MAX_LIVE_LOOKS_PER_MINUTE == 6
+    assert (MAX_LIVE_LOOKS_PER_MINUTE, MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE) == (6, 2)
     with caplog.at_level("WARNING", logger="tta.api.fallback"):
         sources = []
-        for _ in range(MAX_LIVE_LOOKS_PER_MINUTE + 2):
-            time.seconds += 1
-            sources.append(gateway.look_up(IDS, fresh=True)[1].source)
+        for visitor in VISITORS:  # four visitors, two looks each: only the overall cap of six holds them back
+            for _ in range(MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE):
+                time.seconds += 1
+                with as_client(visitor):
+                    sources.append(gateway.look_up(IDS, fresh=True)[1].source)
 
     assert sources == [DataSource.LIVE] * MAX_LIVE_LOOKS_PER_MINUTE + [DataSource.REPLAY] * 2  # no error
     assert live.calls == MAX_LIVE_LOOKS_PER_MINUTE * LIVE_CALLS_PER_LOOK
-    assert caplog.text.count("a minute") == 1
+    assert caplog.text.count("looks a minute were asked for") == 1
     assert gateway.state().live_paused is False  # a full minute is not a supplier failure
 
     time.seconds += 60
     assert gateway.look_up(IDS)[0].source is DataSource.LIVE
+
+
+def test_one_visitor_gets_two_live_looks_a_minute_and_another_visitor_is_still_served_live(
+    gateway: FallbackGateway, live: FakeLive, time: FakeTime
+) -> None:
+    def look(visitor: str) -> DataSource:
+        time.seconds += 1
+        with as_client(visitor):
+            return gateway.look_up(IDS, fresh=True)[1].source
+
+    one = [look(VISITORS[0]) for _ in range(MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE + 2)]
+    other = look(VISITORS[1])
+
+    assert one == [DataSource.LIVE] * MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE + [DataSource.REPLAY] * 2
+    assert other is DataSource.LIVE
+    assert live.calls == (MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE + 1) * LIVE_CALLS_PER_LOOK
+    time.seconds += 60
+    assert look(VISITORS[0]) is DataSource.LIVE

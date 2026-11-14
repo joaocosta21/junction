@@ -1,8 +1,11 @@
-"""What every page shares: the demo identities, who is chosen, the templates, the form token.
+"""What every page shares: the demo identities, who is chosen, the visitor's order book, the templates, the
+form token.
 
 Scores on the 20% "autonomy and controls": a page acts as one demonstration identity (an agent or a human
 approver) chosen on the page and kept in a cookie, and calls the gateway's service as that identity. The
-service decides what that identity may do, exactly as it does for a bearer token.
+service decides what that identity may do, exactly as it does for a bearer token. The service is the one of
+the browser session's own order book (task FIX-10, finding 1): read from with `book`, written to with
+`own_book`, which builds the book on its first use.
 """
 
 from __future__ import annotations
@@ -16,11 +19,11 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
-from tta.api.service import Gateway
+from tta.api.sandbox import Sandbox, Sandboxes
 from tta.config import Settings
 from tta.contracts.common import ApproverRole, DataSource, Identity
 from tta.ui import security, view
-from tta.ui.run import Problem, RunLog
+from tta.ui.run import Problem, RunLog, RunLogs
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = PACKAGE_DIR / "templates"
@@ -33,6 +36,7 @@ FORM_OUT_OF_DATE = Problem(
     detail="Nothing was changed. Go back, reload the page and try again.",
     status=FORBIDDEN,
 )
+OWN_BOOK = "Your own demo order book: nothing you do here is seen by other visitors, and it commits nobody."
 MODE_LABELS = {
     DataSource.REPLAY: "Replay: recorded Valio Aimo data, clock pinned to the recording",
     DataSource.LIVE: "Live: Valio Aimo mock API. Each offer says where its data came from",
@@ -63,7 +67,7 @@ def _environment() -> Environment:
     environment.filters.update(
         money=view.money, unit_price=view.unit_price, quantity=view.quantity, percent=view.percent,
         day=view.day, moment=view.moment, clock_time=view.clock_time, valid_to=view.valid_to,
-        words=view.words, tone=view.tone,
+        words=view.words, tone=view.tone, run_label=view.run_label, can_be_ordered=view.can_be_ordered,
     )
     environment.globals.update(glyphs=view.GLYPHS)
     return environment
@@ -74,9 +78,9 @@ class Site:
     """The pages' shared state: built once by `create_surface`, read by every route."""
 
     settings: Settings
-    service: Gateway
+    sandboxes: Sandboxes
     identities: tuple[Identity, ...]
-    runs: RunLog = field(default_factory=RunLog)
+    run_logs: RunLogs = field(default_factory=RunLogs)
     templates: Environment = field(default_factory=_environment)
 
     @property
@@ -86,6 +90,18 @@ class Site:
     @property
     def approvers(self) -> tuple[Identity, ...]:
         return tuple(identity for identity in self.identities if identity.is_approver)
+
+    def book(self, request: Request) -> Sandbox:
+        """The order book of this browser session for reading: its own, or the blank one when it has none yet."""
+        return self.sandboxes.find(security.book_key(request)) or self.sandboxes.blank()
+
+    def own_book(self, request: Request) -> Sandbox:
+        """The order book of this browser session for writing, built empty on its first use."""
+        return self.sandboxes.open(security.book_key(request))
+
+    def runs(self, book: Sandbox) -> RunLog:
+        """The runs of this book: how each request was read, the agent's steps, the substitutes."""
+        return self.run_logs.of(book)
 
     def agent(self, identity_id: str | None) -> Identity | None:
         return next((identity for identity in self.agents if identity.id == identity_id), None)
@@ -123,7 +139,8 @@ class Site:
         is_new = token is None
         token = token or security.new_token()
         html = self.templates.get_template(template).render(
-            csrf=token, mode_label=MODE_LABELS[self.settings.tta_mode], path=request.url.path, **context
+            csrf=token, mode_label=MODE_LABELS[self.settings.tta_mode], path=request.url.path, own_book=OWN_BOOK,
+            live_model=self.settings.has_gemini_key, **context,
         )
         response = HTMLResponse(html, status_code=status)
         if is_new:

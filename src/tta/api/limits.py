@@ -6,9 +6,11 @@ budget and the model is paid per call, so no caller may fill the one or spend th
 the demo may not lock out the rest.
 
 Three layers, each a sliding window of one minute, in memory, for one process:
-    one caller       a token from the environment, or one visitor using a demonstration token
+    one caller       a token from the environment; where the tokens are the public demonstration tokens, one
+                     visitor (its address, whichever token it sends), with a window per kind of call
+                     (`VISITOR_WINDOWS`), each well under its ceiling
     all callers      a ceiling per kind of call (`GLOBAL_CEILINGS`)
-    the supplier     live looks at price and availability (`MAX_LIVE_LOOKS_PER_MINUTE`, used by the fall-back)
+    the supplier     live looks at price and availability, overall and per visitor (used by the fall-back)
 
 The values are ours and illustrative, like the buyer profiles: the mock publishes no rate limit
 (AIMO/docs/API.md section 2).
@@ -51,13 +53,22 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = SECONDS_PER_MINUTE
 MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE = 120
 MAX_ORDERS_AND_DECISIONS_PER_MINUTE = 120
 MAX_MODEL_CALLS_PER_MINUTE = 30
+# One visitor of the public demonstration, whichever of the public tokens it sends (task FIX-10). Each is at
+# most a quarter of its ceiling, so one address cannot lock the others out.
+MAX_LOOKUPS_PER_VISITOR_PER_MINUTE = 20
+MAX_ORDERS_PER_VISITOR_PER_MINUTE = 20
+MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE = 5
 # One look is a price call and an availability call. At this rate the default call budget of 150 lasts
 # twelve minutes of a full room; above it the fall-back answers from the capture and says so.
 MAX_LIVE_LOOKS_PER_MINUTE = 6
+MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE = 2
 
 RATE_LIMITED = (
     "Too many requests that reach the supplier or write to the audit trail: at most {calls} in "
     "{window} seconds for one caller. Try again in {wait} seconds."
+)
+VISITOR_LIMITED = (
+    "Too many {kind} from one visitor: at most {calls} in {window} seconds. Try again in {wait} seconds."
 )
 CEILING_REACHED = (
     "This gateway takes at most {calls} {kind} in {window} seconds from all callers together, and that "
@@ -67,6 +78,8 @@ CEILING_REACHED = (
 UNKNOWN_CLIENT = "unknown"  # no peer address, or one that is not an address: such callers share one window
 FORWARDED_HEADER = b"x-forwarded-for"
 MAX_ADDRESS_CHARACTERS = 64  # the longest text read as an address; an IPv6 address has at most 45
+MAX_FORWARDED_BYTES = 4096  # of X-Forwarded-For, over all its lines: more is not read
+IPV6_VISITOR_PREFIX = 64
 KEYED_SCOPES = ("http", "websocket")
 
 
@@ -90,6 +103,11 @@ GLOBAL_CEILINGS: Mapping[CallKind, int] = MappingProxyType({
     CallKind.LOOKUP: MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE,
     CallKind.ORDER: MAX_ORDERS_AND_DECISIONS_PER_MINUTE,
     CallKind.MODEL: MAX_MODEL_CALLS_PER_MINUTE,
+})
+VISITOR_WINDOWS: Mapping[CallKind, int] = MappingProxyType({
+    CallKind.LOOKUP: MAX_LOOKUPS_PER_VISITOR_PER_MINUTE,
+    CallKind.ORDER: MAX_ORDERS_PER_VISITOR_PER_MINUTE,
+    CallKind.MODEL: MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE,
 })
 
 
@@ -125,7 +143,12 @@ class RateLimiter:
 
     def allows(self, caller_id: str) -> bool:
         """Count one call of this caller and answer true, or answer false when its window is full."""
-        return self._take((Counted(caller_id, self._limit),))[0] == 0
+        return self.full_window((Counted(caller_id, self._limit),)) is None
+
+    def full_window(self, counted: Sequence[Counted]) -> Counted | None:
+        """Count one call in every window named and answer `None`, or answer the fullest and count it in none."""
+        wait, full = self._take(counted)
+        return full if wait else None
 
     def check_all(self, counted: Sequence[Counted]) -> None:
         """Count one call in every window named, or raise `RateLimited` for the fullest and count it in none."""
@@ -196,49 +219,63 @@ def _address(text: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address 
         return None
 
 
-def _first_forwarded(scope: Scope) -> str | None:
-    for name, value in scope.get("headers", ()):
-        if name == FORWARDED_HEADER:
-            return value.split(b",", 1)[0][:MAX_ADDRESS_CHARACTERS + 1].decode("latin-1")
-    return None
+def _forwarded(scope: Scope) -> list[str]:
+    """Every entry of `X-Forwarded-For`, in order, over all the header's lines. Bounded before it is split."""
+    lines = [value for name, value in scope.get("headers", ()) if name == FORWARDED_HEADER]
+    joined = b",".join(lines)[:MAX_FORWARDED_BYTES].decode("latin-1")
+    return [entry.strip() for entry in joined.split(",")]
 
 
-def client_key_of(scope: Scope) -> str:
-    """The address that stands for the visitor: the direct peer, or, when that peer is a private or loopback
-    address (a proxy of ours), the first address of `X-Forwarded-For`. The header is the caller's own text:
-    it is read only as an address, and never believed from a public peer."""
+def _visitor(scope: Scope, trusted_proxy_hops: int) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The peer, or with N trusted proxies the N-th forwarded entry from the right: the address our outermost
+    proxy saw. What a caller wrote into the header itself stands left of that and is never read. A header
+    with fewer entries, or an entry that is not an address, leaves the peer: never a guess."""
     client = scope.get("client")
     peer = _address(client[0] if client else None)
-    if peer is None:
+    if trusted_proxy_hops == 0 or peer is None:
+        return peer
+    entries = _forwarded(scope)
+    if len(entries) < trusted_proxy_hops:
+        return peer
+    return _address(entries[-trusted_proxy_hops]) or peer
+
+
+def client_key_of(scope: Scope, *, trusted_proxy_hops: int = 0) -> str:
+    """The key that stands for the visitor: its address, an IPv6 address by its /64 (one network hands its
+    hosts many addresses). `X-Forwarded-For` is believed only as far as `TTA_TRUSTED_PROXY_HOPS` says."""
+    address = _visitor(scope, trusted_proxy_hops)
+    if address is None:
         return UNKNOWN_CLIENT
-    if peer.is_private or peer.is_loopback:
-        forwarded = _address(_first_forwarded(scope))
-        if forwarded is not None:
-            return str(forwarded)
-    return str(peer)
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return str(address.ipv4_mapped)
+    if isinstance(address, ipaddress.IPv6Address):
+        return str(ipaddress.IPv6Network((address, IPV6_VISITOR_PREFIX), strict=False))
+    return str(address)
 
 
 class ClientKeyMiddleware:
     """Puts the client key of each request into a context variable, where the service's limits read it:
     the REST routes, the MCP tools and the pages are all counted per visitor without passing it along."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, trusted_proxy_hops: int = 0) -> None:
         self._app = app
+        self._hops = trusted_proxy_hops
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in KEYED_SCOPES:
             await self._app(scope, receive, send)
             return
-        with as_client(client_key_of(scope)):
+        with as_client(client_key_of(scope, trusted_proxy_hops=self._hops)):
             await self._app(scope, receive, send)
 
 
 class CallLimits:
     """What the gateway service asks before a call that reaches the supplier, the model or the audit trail.
 
-    One window per caller and one per kind of call for all callers together. Where the tokens are the public
-    demonstration tokens (`per_visitor`), a caller is the identity and the client key, so each visitor has
-    its own window; a token from the environment is counted by its identity alone.
+    One window for the caller and one ceiling per kind of call for all callers together. A token from the
+    environment is one caller, counted by its identity. Where the tokens are the public demonstration tokens
+    (`per_visitor`), anyone may send any of them, so the caller is the visitor's address alone, with one
+    window per kind of call (`VISITOR_WINDOWS`): one address with every token cannot reach a ceiling.
     """
 
     def __init__(
@@ -246,22 +283,39 @@ class CallLimits:
         per_caller: RateLimit,
         *,
         per_visitor: bool,
+        visitor_windows: Mapping[CallKind, RateLimit] | None = None,
         ceilings: Mapping[CallKind, int] | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._per_caller = per_caller
         self._per_visitor = per_visitor
+        self._visitor_windows = dict(visitor_windows if visitor_windows is not None else {
+            kind: RateLimit(calls=calls, window_seconds=SECONDS_PER_MINUTE) for kind, calls in VISITOR_WINDOWS.items()
+        })
         self._ceilings = dict(GLOBAL_CEILINGS if ceilings is None else ceilings)
         self._limiter = RateLimiter(per_caller, monotonic=monotonic)
 
     def check(self, identity: Identity, kind: CallKind) -> None:
         """Count one call, or raise `RateLimited` (with the seconds to wait) and count it nowhere."""
-        caller = f"{identity.id} {current_client_key()}" if self._per_visitor else identity.id
         ceiling = RateLimit(calls=self._ceilings[kind], window_seconds=SECONDS_PER_MINUTE)
         self._limiter.check_all((
-            Counted(f"caller {caller}", self._per_caller),
+            self._callers_window(identity, kind),
             Counted(f"all {kind.name}", ceiling, CEILING_REACHED.replace("{kind}", kind.value)),
         ))
+
+    def _callers_window(self, identity: Identity, kind: CallKind) -> Counted:
+        if not self._per_visitor:
+            return Counted(f"caller {identity.id}", self._per_caller)
+        refusal = VISITOR_LIMITED.replace("{kind}", kind.value)
+        return Counted(f"visitor {kind.name} {current_client_key()}", self._visitor_windows[kind], refusal)
+
+
+def call_limits(per_visitor: bool, rate_limit: RateLimit | None = None) -> CallLimits:
+    """The limits of the gateway. `rate_limit`, for a test, replaces the window of one caller for every kind
+    of call: of a token from the environment, or of one visitor of the demonstration tokens."""
+    if rate_limit is None:
+        return CallLimits(RateLimit(), per_visitor=per_visitor)
+    return CallLimits(rate_limit, per_visitor=per_visitor, visitor_windows=dict.fromkeys(CallKind, rate_limit))
 
 
 class BodyLimitMiddleware:

@@ -11,7 +11,7 @@ The MCP surface (`tta.api.mcp_surface`, task T11) and the pages (`tta.ui.routes`
     create_surface(context: SurfaceContext) -> ASGI application
 `create_app` mounts the MCP application at `/mcp` and the pages at `/`, and runs the application's own
 lifespan together with the gateway's (the MCP session manager needs it). A surface calls `context.service`
-and nothing else.
+and nothing else; the pages call the service of the visitor's own order book (`context.sandboxes`).
 
 A module that exists but lacks what the gateway calls stops the start: a part that silently went missing
 would only be noticed in front of a judge.
@@ -28,6 +28,7 @@ from typing import Any
 
 from starlette.types import ASGIApp
 
+from tta.api.sandbox import Sandboxes
 from tta.api.service import Gateway
 from tta.config import Settings
 from tta.contracts.common import Identity
@@ -50,13 +51,14 @@ class HookError(RuntimeError):
 
 @dataclass(frozen=True)
 class SurfaceContext:
-    """What a surface gets. `demo_identities` is empty outside the dev and demo environments, so a page can
-    act as a demonstration identity only where those identities exist."""
+    """What a surface gets. `demo_identities` and `sandboxes` are empty outside the dev and demo environments,
+    so a page can act as a demonstration identity, in an order book of its visitor's own, only there."""
 
     settings: Settings
-    service: Gateway  # the `GatewayService` port, plus `list_orders`
+    service: Gateway  # the `GatewayService` port, plus `list_orders`: the shared book of the tokens
     identify: Callable[[str], Identity | None]  # bearer token -> identity, the same as the REST routes use
     demo_identities: tuple[Identity, ...] = ()
+    sandboxes: Sandboxes | None = None  # a private order book per browser session (`tta.api.sandbox`)
 
 
 def optional_module(name: str) -> ModuleType | None:

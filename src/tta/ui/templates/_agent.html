@@ -2,7 +2,7 @@
 {# The buyer agent's own steps: each call it made to the gateway and what the gateway answered. #}
 <section id="agent" class="agent-run">
   <h2>What the buyer agent did</h2>
-  <p>Model <code>{{ run.model }}</code>{% if run.recorded %} · recorded answers, no live model call{% else %} · live model{% endif %}{% if run.stopped_at_cap %} · stopped at the step limit{% endif %}.
+  <p>{{ run|run_label(live_model) }}{% if run.stopped_at_cap %} The run stopped at the step limit.{% endif %}
   The model chooses which function to call; the gateway decides every price, quantity and verdict.</p>
   <ol class="steps">
     {% for step in run.steps %}

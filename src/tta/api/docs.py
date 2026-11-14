@@ -20,11 +20,15 @@ from tta.api.limits import (
     DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
     MAX_BODY_KILOBYTES,
     MAX_LIVE_LOOKS_PER_MINUTE,
+    MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE,
+    MAX_LOOKUPS_PER_VISITOR_PER_MINUTE,
     MAX_MODEL_CALLS_PER_MINUTE,
+    MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE,
     MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE,
     MAX_ORDERS_AND_DECISIONS_PER_MINUTE,
+    MAX_ORDERS_PER_VISITOR_PER_MINUTE,
 )
-from tta.api.service import MAX_LIST_ITEMS
+from tta.api.service import MAX_DEMO_REQUEST_LINES, MAX_LIST_ITEMS
 from tta.contracts.errors import (
     PROBLEM_CONTENT_TYPE,
     InvalidRequest,
@@ -72,17 +76,24 @@ profile is never a request field. The demonstration tokens are **public by desig
 **Assumptions to know.** The limits in a buyer profile are **illustrative** values of ours: the mock has no
 customer model. `ORDERED` means recorded in this gateway's order book: the mock has no order endpoint, and
 the record commits nobody. Answers say whether their data is `live` or a `replay` of recorded responses.
+`POST /v1/requests/parse` says who read the text in two headers, `TTA-Read-By` and `TTA-Reading-Source`
+(`model`, `recording` or `hand-built`). The REST routes and MCP share one order book per buyer; the
+demonstration pages keep each browser's orders in an order book of its own, which this API does not see.
 
 **Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a
-`Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids. A list
-answers at most {MAX_LIST_ITEMS} items, the newest. The routes that reach the supplier, the model or the audit
-trail are counted: one caller makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in
-{DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g} seconds (a demonstration token is shared, so there a caller is one
-visitor), and all callers together at most {MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE} offers and substitute
-searches, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE} orders and approval decisions, and {MAX_MODEL_CALLS_PER_MINUTE}
-request readings and agent runs a minute. Beyond that the answer is `rate-limited` with `Retry-After`. In live
-mode at most {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute reach the supplier; further looks are answered from the
-recorded capture and say `replay`.
+`Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids and,
+in the dev and demo environments, at most {MAX_DEMO_REQUEST_LINES} lines. A list answers at most {MAX_LIST_ITEMS}
+items, the newest. The routes that reach the supplier, the model or the audit trail are counted. A token from
+the environment makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in {DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g}
+seconds. The demonstration tokens are public, so there a caller is one visitor, its address, whichever token it
+sends: at most {MAX_LOOKUPS_PER_VISITOR_PER_MINUTE} offers and substitute searches,
+{MAX_ORDERS_PER_VISITOR_PER_MINUTE} orders and approval decisions and {MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE}
+request readings and agent runs a minute. All callers together make at most
+{MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE}, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE} and {MAX_MODEL_CALLS_PER_MINUTE} of
+these a minute. Beyond that the answer is `rate-limited` with `Retry-After`. The visitor is the peer address;
+`X-Forwarded-For` is read only as far as `TTA_TRUSTED_PROXY_HOPS` says (default 0: never). In live mode at most
+{MAX_LIVE_LOOKS_PER_MINUTE} looks a minute reach the supplier, {MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE} for one
+visitor; further looks are answered from the recorded capture and say `replay`.
 """
 
 EXAMPLES_NOT_BUILT = (

@@ -16,8 +16,10 @@ NOTE = 'Use the cheaper one <img src=x onerror="alert(1)">'
 
 
 def _pending(client: TestClient, identities: Identities, approver_id: str = HANNA) -> Any:
-    service = client.app.state.parts.service  # type: ignore[attr-defined]
-    approvals = service.list_approvals(identities(client)[approver_id], ApprovalStatus.PENDING)
+    """The one pending approval of this browser's order book."""
+    sandboxes = client.app.state.parts.sandboxes  # type: ignore[attr-defined]
+    key = client.cookies.get("tta_book") or client.cookies.get("__Host-tta_book")
+    approvals = sandboxes.find(key).service.list_approvals(identities(client)[approver_id], ApprovalStatus.PENDING)
     assert len(approvals) == 1, approvals
     return approvals[0]
 
@@ -167,3 +169,32 @@ def test_the_result_of_a_request_leads_to_the_approver_who_can_decide(
     assert 'action="/approvals/as"' in outcome
     assert 'name="approver" value="human:hotel-purchasing"' in outcome
     assert "Demo approver Hanna" in outcome
+
+
+def test_a_card_decided_after_the_approver_was_changed_in_another_tab_is_refused(
+    client: TestClient, run_example: Post, decide: Post, identities: Identities, act_as: Post,
+    only_order: Callable[..., Any],
+) -> None:
+    # Task FIX-10, finding 6: the card was shown to Hanna; another tab then switched this browser to Mikko.
+    run_example(client, "scenario-1")
+    approval = _pending(client, identities)
+    act_as(client, "human:hotel-finance")
+
+    switched = decide(client, approval.approval_id, "APPROVE", option=approval.option_id, shown_to=HANNA)
+    without = decide(client, approval.approval_id, "APPROVE", option=approval.option_id, shown_to="")
+
+    assert (switched.status_code, without.status_code) == (409, 409)
+    assert "changed in another tab" in switched.text and "Nothing was changed" in switched.text
+    assert only_order(client).status is OrderStatus.PENDING_APPROVAL
+    assert _pending(client, identities).decisions == ()
+
+
+def test_the_decision_form_carries_the_approver_it_was_shown_to(
+    client: TestClient, run_example: Post
+) -> None:
+    run_example(client, "scenario-1")
+
+    page = client.get("/approvals").text
+    form = page[page.index('class="decision"'):]
+
+    assert 'name="shown_to" value="human:hotel-purchasing"' in form

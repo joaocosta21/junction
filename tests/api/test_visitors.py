@@ -19,6 +19,7 @@ from tta.api import create_app
 from tta.api.limits import (
     GLOBAL_CEILINGS,
     UNKNOWN_CLIENT,
+    VISITOR_WINDOWS,
     CallKind,
     CallLimits,
     ClientKeyMiddleware,
@@ -61,25 +62,57 @@ def _scope(peer: Any, forwarded: bytes | None = None) -> dict[str, Any]:
     ("peer", "forwarded", "expected"),
     [
         ((VISITOR_A, 4711), None, VISITOR_A),
-        # A public peer speaks for itself: the header is the caller's own text and is not believed.
+        # With no trusted proxy (the default) the header is the caller's own text and is never believed,
+        # whatever the peer: a private peer is the visitor too.
         ((VISITOR_A, 4711), VISITOR_B.encode(), VISITOR_A),
-        # Behind a proxy of ours (a private or loopback peer) the first forwarded address is the visitor.
-        ((PROXY, 4711), VISITOR_B.encode(), VISITOR_B),
-        (("127.0.0.1", 4711), f"{VISITOR_A}, {PROXY}".encode(), VISITOR_A),
-        (("::1", 4711), b" 2001:db8::7 ,10.0.0.1", "2001:db8::7"),
+        ((PROXY, 4711), VISITOR_B.encode(), PROXY),
+        (("127.0.0.1", 4711), f"{VISITOR_A}, {PROXY}".encode(), "127.0.0.1"),
         ((PROXY, 4711), None, PROXY),
-        ((PROXY, 4711), b"", PROXY),
-        ((PROXY, 4711), b"not an address, 93.184.216.34", PROXY),
-        ((PROXY, 4711), b"<script>" + b"x" * 5000, PROXY),
-        ((PROXY, 4711), b"\xff\xfe", PROXY),
+        # An IPv6 visitor is keyed on its /64: one network hands its hosts many addresses.
+        (("2001:db8:1:2:3:4:5:6", 4711), None, "2001:db8:1:2::/64"),
+        (("2001:db8:1:2:ffff::1", 4711), None, "2001:db8:1:2::/64"),
+        (("::ffff:93.184.216.34", 4711), None, VISITOR_A),  # an IPv4 visitor seen through IPv6
         (None, VISITOR_A.encode(), UNKNOWN_CLIENT),
         (("testclient", 50000), VISITOR_A.encode(), UNKNOWN_CLIENT),
     ],
 )
-def test_the_client_key_is_the_peer_or_behind_our_own_proxy_the_first_forwarded_address(
+def test_without_trusted_proxy_hops_the_client_key_is_the_peer(
     peer: Any, forwarded: bytes | None, expected: str
 ) -> None:
     assert client_key_of(_scope(peer, forwarded)) == expected
+
+
+@pytest.mark.parametrize(
+    ("hops", "forwarded", "expected"),
+    [
+        # Each trusted proxy appends the address it saw: the N-th entry from the right is the visitor.
+        (1, VISITOR_B.encode(), VISITOR_B),
+        (1, f"203.0.113.9, {VISITOR_B}".encode(), VISITOR_B),  # what the caller wrote itself is the left part
+        (2, f"203.0.113.9, {VISITOR_B}, {PROXY}".encode(), VISITOR_B),
+        (1, b" 2001:db8::7 ", "2001:db8::/64"),
+        # Fewer entries than hops, or an entry that is not an address: the peer, never a guess.
+        (2, VISITOR_B.encode(), PROXY),
+        (1, None, PROXY),
+        (1, b"", PROXY),
+        (1, f"{VISITOR_B}, not an address".encode(), PROXY),
+        (1, b"<script>" + b"x" * 5000, PROXY),
+        (1, b"\xff\xfe", PROXY),
+    ],
+)
+def test_with_trusted_proxy_hops_the_client_key_is_that_entry_from_the_right(
+    hops: int, forwarded: bytes | None, expected: str
+) -> None:
+    assert client_key_of(_scope((PROXY, 4711), forwarded), trusted_proxy_hops=hops) == expected
+
+
+def test_forwarded_headers_sent_on_several_lines_are_read_as_one_list() -> None:
+    scope = {
+        "type": "http", "path": "/v1/offers", "client": (PROXY, 1),
+        "headers": [(FORWARDED, b"203.0.113.9"), (b"accept", b"*/*"), (FORWARDED, VISITOR_B.encode())],
+    }
+
+    assert client_key_of(scope, trusted_proxy_hops=1) == VISITOR_B
+    assert client_key_of(scope, trusted_proxy_hops=2) == "203.0.113.9"
 
 
 def test_the_middleware_sets_the_client_key_for_the_request_and_takes_it_back() -> None:
@@ -89,41 +122,74 @@ def test_the_middleware_sets_the_client_key_for_the_request_and_takes_it_back() 
         seen.append(current_client_key())
 
     async def run() -> None:
+        behind_one_proxy = ClientKeyMiddleware(application, trusted_proxy_hops=1)
+        await behind_one_proxy(_scope((PROXY, 1), VISITOR_B.encode()), None, None)
         await ClientKeyMiddleware(application)(_scope((PROXY, 1), VISITOR_B.encode()), None, None)
         await ClientKeyMiddleware(application)({"type": "lifespan"}, None, None)
         seen.append(current_client_key())
 
     asyncio.run(run())
 
-    assert seen == [VISITOR_B, UNKNOWN_CLIENT, UNKNOWN_CLIENT]
+    assert seen == [VISITOR_B, PROXY, UNKNOWN_CLIENT, UNKNOWN_CLIENT]
 
 
 # --- one window per visitor, one ceiling for everybody --------------------------------------------------
 
 
 def _limits(time: FakeTime, *, per_visitor: bool, calls: int = 2, **ceilings: int) -> CallLimits:
+    """Limits with `calls` a minute for one caller, for every kind of call, and the given ceilings."""
     chosen = {**GLOBAL_CEILINGS, **{CallKind[name.upper()]: ceiling for name, ceiling in ceilings.items()}}
-    return CallLimits(RateLimit(calls=calls), per_visitor=per_visitor, ceilings=chosen, monotonic=time)
+    window = RateLimit(calls=calls)
+    return CallLimits(
+        window, per_visitor=per_visitor, visitor_windows=dict.fromkeys(CallKind, window), ceilings=chosen,
+        monotonic=time,
+    )
 
 
 def test_the_ceilings_are_120_lookups_120_orders_and_30_model_calls_a_minute() -> None:
     assert GLOBAL_CEILINGS == {CallKind.LOOKUP: 120, CallKind.ORDER: 120, CallKind.MODEL: 30}
 
 
-def test_with_shared_demo_tokens_each_visitor_has_its_own_window(agent_hotel: Identity) -> None:
+def test_one_visitor_may_make_20_lookups_20_orders_and_5_model_calls_a_minute_well_under_each_ceiling() -> None:
+    assert VISITOR_WINDOWS == {CallKind.LOOKUP: 20, CallKind.ORDER: 20, CallKind.MODEL: 5}
+    for kind, calls in VISITOR_WINDOWS.items():
+        assert calls * 4 <= GLOBAL_CEILINGS[kind], kind  # one visitor takes at most a quarter of a ceiling
+
+
+def test_with_shared_demo_tokens_each_visitor_has_its_own_window_per_kind_of_call(agent_hotel: Identity) -> None:
     limits = _limits(FakeTime(), per_visitor=True)
 
     with as_client(VISITOR_A):
         limits.check(agent_hotel, CallKind.LOOKUP)
-        limits.check(agent_hotel, CallKind.ORDER)
+        limits.check(agent_hotel, CallKind.LOOKUP)
+        limits.check(agent_hotel, CallKind.ORDER)  # another kind of call: its own window
         with pytest.raises(RateLimited) as refused:
             limits.check(agent_hotel, CallKind.LOOKUP)
     with as_client(VISITOR_B):
         limits.check(agent_hotel, CallKind.LOOKUP)  # the same token, another visitor: not locked out
 
     assert refused.value.extensions["retry_after_seconds"] == 60
-    assert "2 in 60 seconds" in refused.value.detail
+    assert "2 in 60 seconds" in refused.value.detail and "one visitor" in refused.value.detail
     assert VISITOR_A not in refused.value.detail and agent_hotel.id not in refused.value.detail
+
+
+@pytest.mark.parametrize("kind", list(CallKind))
+def test_one_address_with_both_agent_tokens_cannot_reach_a_ceiling_and_a_second_address_is_still_served(
+    agent_hotel: Identity, agent_ward: Identity, approver_purchasing: Identity, kind: CallKind
+) -> None:
+    limits = CallLimits(RateLimit(), per_visitor=True, monotonic=FakeTime())
+    callers = (agent_hotel, agent_ward, approver_purchasing)
+    accepted = 0
+
+    with as_client(VISITOR_A), pytest.raises(RateLimited) as refused:
+        while True:  # each identity in turn, from one address, until the address is refused
+            limits.check(callers[accepted % len(callers)], kind)
+            accepted += 1
+    with as_client(VISITOR_B):
+        limits.check(agent_hotel, kind)
+
+    assert accepted == VISITOR_WINDOWS[kind] < GLOBAL_CEILINGS[kind]
+    assert "one visitor" in refused.value.detail and "all callers together" not in refused.value.detail
 
 
 def test_a_token_from_the_environment_is_counted_by_identity_wherever_it_calls_from(agent_hotel: Identity) -> None:
@@ -157,20 +223,25 @@ def test_a_ceiling_holds_for_all_callers_together_and_says_when_to_come_back(
         limits.check(agent_ward, other)  # the other kinds of call are not held back
 
 
-def test_a_call_refused_by_a_ceiling_is_not_counted_against_the_caller(agent_hotel: Identity) -> None:
+def test_a_call_refused_by_a_ceiling_is_not_counted_against_the_caller(
+    agent_hotel: Identity, agent_ward: Identity
+) -> None:
     time = FakeTime()
-    limits = _limits(time, per_visitor=True, calls=2, model=1)
+    limits = _limits(time, per_visitor=True, calls=2, model=2)
+    with as_client(VISITOR_B):
+        limits.check(agent_ward, CallKind.MODEL)
+        limits.check(agent_ward, CallKind.MODEL)  # visitor B fills the ceiling of two
+    time.seconds += 30
 
     with as_client(VISITOR_A):
-        limits.check(agent_hotel, CallKind.MODEL)
         for _ in range(5):
-            with pytest.raises(RateLimited):
+            with pytest.raises(RateLimited) as refused:
                 limits.check(agent_hotel, CallKind.MODEL)
-        limits.check(agent_hotel, CallKind.LOOKUP)  # the second call of the visitor's two: the refusals took none
-        with pytest.raises(RateLimited) as refused:
-            limits.check(agent_hotel, CallKind.LOOKUP)
+        time.seconds += 31  # visitor B's calls leave the window; visitor A's refusals would still be in it
+        limits.check(agent_hotel, CallKind.MODEL)
+        limits.check(agent_hotel, CallKind.MODEL)
 
-    assert "all callers together" not in refused.value.detail
+    assert "all callers together" in refused.value.detail
 
 
 def test_a_call_refused_for_the_caller_is_not_counted_against_the_ceiling(
@@ -213,18 +284,33 @@ def test_one_visitor_cannot_lock_the_others_out_of_a_shared_demo_token(
     assert served.status_code == 201
 
 
-def test_behind_our_proxy_visitors_are_told_apart_by_the_forwarded_address(
+def test_behind_one_trusted_proxy_visitors_are_told_apart_by_the_address_it_appended(
+    settings: Settings, catalog: ProductCatalog, auth: Auth, scenario_2: dict[str, Any], assert_problem: Problem
+) -> None:
+    behind_a_proxy = settings.model_copy(update={"tta_trusted_proxy_hops": 1})
+    parts = build_parts(behind_a_proxy, catalog=catalog, rate_limit=RateLimit(calls=2, window_seconds=60))
+
+    def offer(client: TestClient, written: str | None, visitor: str) -> Any:
+        appended = visitor if written is None else f"{written}, {visitor}"  # the proxy appends what it saw
+        headers = {**auth("agent_ward"), "X-Forwarded-For": appended}
+        return client.post("/v1/offers", json=scenario_2, headers=headers)
+
+    with TestClient(create_app(behind_a_proxy, parts=parts), client=(PROXY, 50000)) as proxied:
+        assert [offer(proxied, None, VISITOR_A).status_code for _ in range(2)] == [201, 201]
+        assert_problem(offer(proxied, "192.0.2.77", VISITOR_A), "rate-limited", 429)  # a written address buys nothing
+        assert offer(proxied, None, VISITOR_B).status_code == 201
+
+
+def test_with_no_trusted_proxy_a_forwarded_address_from_a_private_peer_is_not_believed(
     limited_app: Any, auth: Auth, scenario_2: dict[str, Any], assert_problem: Problem
 ) -> None:
     proxied = TestClient(limited_app, client=(PROXY, 50000))
 
-    def offer(visitor: str) -> Any:
-        headers = {**auth("agent_ward"), "X-Forwarded-For": f"{visitor}, {PROXY}"}
-        return proxied.post("/v1/offers", json=scenario_2, headers=headers)
+    def offer(claimed: str) -> Any:
+        return proxied.post("/v1/offers", json=scenario_2, headers={**auth("agent_ward"), "X-Forwarded-For": claimed})
 
-    assert [offer(VISITOR_A).status_code for _ in range(2)] == [201, 201]
-    assert_problem(offer(VISITOR_A), "rate-limited", 429)
-    assert offer(VISITOR_B).status_code == 201
+    assert [offer(VISITOR_A).status_code, offer(VISITOR_B).status_code] == [201, 201]
+    assert_problem(offer("192.0.2.99"), "rate-limited", 429)
 
 
 def test_a_forwarded_address_from_a_public_peer_buys_no_second_window(
@@ -323,3 +409,22 @@ def test_above_a_ceiling_the_answer_is_rate_limited_with_retry_after_whoever_cal
     assert int(refused.headers["retry-after"]) == problem["retry_after_seconds"] > 0
     assert "all callers together" in problem["detail"]
     assert read.status_code == 200  # reads have no ceiling
+
+
+def test_one_visitor_with_both_agent_tokens_leaves_the_lookup_ceiling_to_the_others(
+    settings: Settings, catalog: ProductCatalog, auth: Auth, scenario_2: dict[str, Any]
+) -> None:
+    # The reviewer's reproduction: one address sends 60 substitute searches with each public agent token.
+    app = create_app(settings, parts=build_parts(settings, catalog=catalog))
+    query = {"quantity": 10, "unit": "L"}
+    with TestClient(app):
+        one = TestClient(app, client=(VISITOR_A, 50000))
+        accepted = sum(
+            one.post("/v1/products/473609/substitutes", json=query, headers=auth(who)).status_code == 200
+            for who in ("agent_hotel", "agent_ward") for _ in range(60)
+        )
+        other = TestClient(app, client=(VISITOR_B, 50000))
+        served = other.post("/v1/offers", json=scenario_2, headers=auth("agent_ward"))
+
+    assert accepted == VISITOR_WINDOWS[CallKind.LOOKUP]
+    assert served.status_code == 201

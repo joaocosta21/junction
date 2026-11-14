@@ -31,10 +31,11 @@ def _raising(error: Exception) -> Callable[..., Any]:
 
 
 def test_an_order_the_policy_blocks_is_shown_as_not_placed_next_to_the_offer(
-    client: TestClient, run_example: Post, parts: Any, identities: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    client: TestClient, run_example: Post, own_book: Callable[..., Any], orders: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     blocked = PolicyBlocked("A line declares an allergen the buyer excludes (F-02).")
-    monkeypatch.setattr(parts.service, "place_order", _raising(blocked))
+    monkeypatch.setattr(own_book(client).service, "place_order", _raising(blocked))
 
     response = run_example(client, "scenario-2")
     outcome = response.text[response.text.index('id="outcome"'):]
@@ -43,13 +44,14 @@ def test_an_order_the_policy_blocks_is_shown_as_not_placed_next_to_the_offer(
     assert "No order was placed" in outcome
     assert "A line declares an allergen the buyer excludes (F-02)." in outcome
     assert "Ordered by the agent" not in response.text
-    assert parts.service.list_orders(identities(client)["agent:allergy-ward"]) == ()
+    assert orders(client, "agent:allergy-ward") == ()
 
 
 def test_substitutes_the_gateway_refuses_to_list_do_not_hide_the_offer(
-    client: TestClient, run_example: Post, parts: Any, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, run_example: Post, own_book: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(parts.service, "find_substitutes", _raising(RateLimited("Too many searches right now.")))
+    refused = _raising(RateLimited("Too many searches right now."))
+    monkeypatch.setattr(own_book(client).service, "find_substitutes", refused)
 
     page = run_example(client, "scenario-3").text
 
@@ -58,9 +60,9 @@ def test_substitutes_the_gateway_refuses_to_list_do_not_hide_the_offer(
 
 
 def test_a_refusal_of_the_gateway_while_a_page_is_built_is_an_error_page(
-    client: TestClient, parts: Any, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, own_book: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(parts.service, "list_approvals", _raising(RateLimited("Too many calls right now.")))
+    monkeypatch.setattr(own_book(client).service, "list_approvals", _raising(RateLimited("Too many calls right now.")))
 
     response = client.get("/approvals")
 
@@ -104,9 +106,10 @@ def test_a_form_sent_again_while_it_is_still_running_runs_once(
     assert only_order(client, "agent:allergy-ward").status is OrderStatus.ORDERED
 
 
-def test_a_run_that_breaks_frees_its_form_for_another_try(
-    client: TestClient, form_fields: Callable[..., Any], only_order: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+def test_a_run_that_breaks_on_an_unexpected_fault_is_not_run_again_by_the_same_form(
+    client: TestClient, form_fields: Callable[..., Any], orders: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Whether the fault came before or after an order, a resend must not order again (task FIX-10, finding 4).
     fields = {**form_fields(client), "example": "scenario-2"}
     real = request_page.run_request
     monkeypatch.setattr(request_page, "run_request", _raising(RuntimeError("a fault nobody expected")))
@@ -116,15 +119,18 @@ def test_a_run_that_breaks_frees_its_form_for_another_try(
 
     again = client.post("/run", data=fields)
 
-    assert again.status_code == 200 and "Ordered by the agent" in again.text
-    only_order(client, "agent:allergy-ward")
+    assert again.status_code == 200 and "stopped on an unexpected fault" in again.text
+    assert "a fault nobody expected" not in again.text
+    assert orders(client, "agent:allergy-ward") == ()
+    fresh = client.post("/run", data={**form_fields(client), "example": "scenario-2"})  # a new form runs
+    assert "Ordered by the agent" in fresh.text
 
 
 def test_a_card_whose_offer_can_no_longer_be_read_still_takes_a_decision(
-    client: TestClient, run_example: Post, parts: Any, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, run_example: Post, book: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_example(client, "scenario-1")
-    monkeypatch.setattr(parts.service, "get_offer", _raising(NotFound("No offer has this id.")))
+    monkeypatch.setattr(book(client).service, "get_offer", _raising(NotFound("No offer has this id.")))
 
     page = client.get("/approvals").text
 
@@ -149,7 +155,8 @@ def test_a_document_too_large_to_be_the_assumptions_page_is_not_shown(
 
     page = client.get("/assumptions").text
 
-    assert "Far too long" not in page and "has not been written yet" in page
+    assert "Far too long" not in page and "has not been written yet" not in page
+    assert "larger than 512 KiB" in page and "docs/ASSUMPTIONS.md" in page
 
 
 def _view(*facts: dict[str, Any]) -> AuditView:
@@ -186,11 +193,12 @@ def test_a_trail_without_a_readable_order_gives_no_record_rather_than_a_guess() 
 
 
 def test_the_order_page_says_so_when_the_suppliers_view_carries_no_record(
-    client: TestClient, run_example: Post, only_order: Callable[..., Any], parts: Any, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, run_example: Post, only_order: Callable[..., Any], book: Callable[..., Any],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_example(client, "scenario-2")
     order = only_order(client, "agent:allergy-ward")
-    monkeypatch.setattr(parts.service, "get_audit", lambda *args, **kwargs: _view())
+    monkeypatch.setattr(book(client).service, "get_audit", lambda *args, **kwargs: _view())
 
     page = client.get(f"/orders/{order.order_id}", params={"view": "supplier"}).text
 

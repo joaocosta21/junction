@@ -287,18 +287,22 @@ def limited(settings: Settings, catalog: ProductCatalog) -> Iterator[TestClient]
         yield test_client
 
 
-def test_too_many_offers_from_one_token_are_rate_limited_and_another_token_is_not(
+def test_too_many_offers_from_one_visitor_are_rate_limited_whichever_demo_token_it_uses(
     limited: TestClient, auth: Auth, scenario_1: dict[str, Any], scenario_2: dict[str, Any], assert_problem: Problem
 ) -> None:
+    # The demonstration tokens are public: a visitor is its address, not the token it sends (task FIX-10).
     for _ in range(2):
         assert limited.post("/v1/offers", json=scenario_2, headers=auth("agent_ward")).status_code == 201
 
     refused = limited.post("/v1/offers", json=scenario_2, headers=auth("agent_ward"))
-    other = limited.post("/v1/offers", json=scenario_1, headers=auth("agent_hotel"))
+    other_token = limited.post("/v1/offers", json=scenario_1, headers=auth("agent_hotel"))
+    elsewhere = TestClient(limited.app, client=("93.184.216.34", 50000))
+    other_visitor = elsewhere.post("/v1/offers", json=scenario_1, headers=auth("agent_hotel"))
 
     problem = assert_problem(refused, "rate-limited", 429)
     assert int(refused.headers["retry-after"]) == problem["retry_after_seconds"] > 0
-    assert other.status_code == 201
+    assert_problem(other_token, "rate-limited", 429)
+    assert other_visitor.status_code == 201
 
 
 @pytest.mark.parametrize(

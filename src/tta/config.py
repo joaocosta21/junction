@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_VALIO_BASE_URL = "https://junction26.valioaimo.fi/api"
 DEFAULT_CALL_BUDGET = 150
 DEMO_ENVIRONMENTS = ("dev", "demo")
+MAX_TRUSTED_PROXY_HOPS = 10
 _SECRET_FIELDS = ("valio_aimo_api_key", "gemini_api_key", "database_url", "context_dev_api_key", "tta_tokens")
 
 
@@ -50,6 +51,9 @@ class Settings(BaseSettings):
     tta_customer: str = "123"
     tta_gemini_model: str | None = None  # overrides the model the agent package chooses
     tta_tokens: SecretStr | None = None  # JSON map of bearer token to identity; required outside dev and demo
+    # How many proxies of ours stand in front of the app, each appending the address it saw to X-Forwarded-For.
+    # 0: no forwarded header is believed and the peer address is the visitor (Modal: the peer is the visitor).
+    tta_trusted_proxy_hops: int = Field(default=0, ge=0, le=MAX_TRUSTED_PROXY_HOPS)
 
     valio_aimo_api_key: SecretStr | None = None
     valio_aimo_base_url: str = DEFAULT_VALIO_BASE_URL

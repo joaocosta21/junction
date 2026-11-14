@@ -69,3 +69,13 @@ def test_an_unset_environment_is_production_and_has_no_demo_identity(monkeypatch
     assert settings.tta_env == "prod"
     assert not settings.is_demo_environment
 
+
+
+def test_no_forwarded_header_is_trusted_unless_the_proxy_hops_are_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import ValidationError  # noqa: PLC0415  (only this test needs it)
+
+    assert Settings.for_tests().tta_trusted_proxy_hops == 0
+    monkeypatch.setenv("TTA_TRUSTED_PROXY_HOPS", "2")
+    assert Settings(_env_file=None).tta_trusted_proxy_hops == 2
+    with pytest.raises(ValidationError):
+        Settings.for_tests(tta_trusted_proxy_hops=-1)

@@ -1,5 +1,7 @@
 """Fixtures for the page tests: the whole gateway in replay over tonight's capture, a database under `tmp_path`.
 
+Each browser session of the pages has an order book of its own (task FIX-10): what a test runs on a page is
+read back from that client's book (`book`, `orders`, `only_order`), never from the shared book of the tokens.
 Every helper is a fixture, because test modules cannot import from one another (`--import-mode=importlib`).
 No test here calls a live service or a model, and nothing reads `.env`. The buyer agent (T10) and the MCP
 surface (T11) are written while these tests run, so both are switched off here: the pages are tested against
@@ -31,6 +33,9 @@ from tta.contracts.request import ProductQuery, PurchaseRequest, RequestLine
 
 CSRF_FIELD = re.compile(r'name="csrf" value="([A-Za-z0-9_-]+)"')
 RUN_KEY_FIELD = re.compile(r'name="run_key" value="([A-Za-z0-9_-]+)"')
+SHOWN_TO_FIELD = re.compile(r'name="shown_to" value="([^"]+)"')
+BOOK_COOKIES = ("tta_book", "__Host-tta_book")  # the order book of a browser session, over HTTP and HTTPS
+DEFAULT_APPROVER = "human:hotel-purchasing"  # the first demo approver: the one chosen when no cookie names one
 FREE_TEXT = "80 litres of oat drink for the breakfast buffet by Monday"
 TYPED_FREE_TEXT = PurchaseRequest(
     needed_by=date(2026, 11, 16),
@@ -51,6 +56,8 @@ class NoParser:
 
 
 class FakeParser:
+    model_id = "fake-model-1"
+
     def __init__(self) -> None:
         self.texts: list[str] = []
 
@@ -243,25 +250,73 @@ def act_as(form_fields: Callable[..., Form]) -> Post:
 
 @pytest.fixture(scope="session")
 def decide(form_fields: Callable[..., Form]) -> Post:
-    """Approve or reject the one pending approval the chosen approver sees."""
+    """Approve or reject the one pending approval the chosen approver sees. The form says whom the card was
+    shown to, as the page's own form does; a test may send another `shown_to`."""
 
     def post(client: TestClient, approval_id: str, decision: str, **extra: str) -> Any:
+        page = client.get("/approvals").text
+        shown_to = SHOWN_TO_FIELD.search(page)
         fields = form_fields(client, "/approvals")
         data = {"csrf": fields["csrf"], "decision": decision, **extra}
+        if "shown_to" not in extra:  # a card with no decision form: the approver this browser decides as
+            chosen = client.cookies.get("tta_approver") or DEFAULT_APPROVER
+            data["shown_to"] = shown_to.group(1) if shown_to is not None else chosen
         return client.post(f"/approvals/{approval_id}/decision", data=data)
 
     return post
 
 
+def _book_key(client: TestClient) -> str | None:
+    return next((client.cookies.get(name) for name in BOOK_COOKIES if client.cookies.get(name)), None)
+
+
 @pytest.fixture(scope="session")
-def only_order() -> Callable[..., Any]:
-    """The one order of a buyer, read through the service as its agent."""
+def book() -> Callable[[TestClient], Any]:
+    """The order book of this client's browser session: where its runs, orders and approvals are."""
+
+    def of(client: TestClient) -> Any:
+        found = client.app.state.parts.sandboxes.find(_book_key(client))  # type: ignore[attr-defined]
+        assert found is not None, "this browser has no order book yet: nothing was run from it"
+        return found
+
+    return of
+
+
+@pytest.fixture(scope="session")
+def own_book() -> Callable[[TestClient], Any]:
+    """The client's order book, opened before anything is run in it: for a test that changes it first."""
+
+    def open_book(client: TestClient) -> Any:
+        if _book_key(client) is None:
+            client.get("/")  # the first page gives the browser its book's key
+        return client.app.state.parts.sandboxes.open(_book_key(client))  # type: ignore[attr-defined]
+
+    return open_book
+
+
+def _agent(client: TestClient, agent_id: str) -> Identity:
+    parts = client.app.state.parts  # type: ignore[attr-defined]
+    return next(identity for identity in parts.tokens.identities if identity.id == agent_id)
+
+
+@pytest.fixture(scope="session")
+def orders() -> Callable[..., tuple[Any, ...]]:
+    """A buyer's orders in this client's book, newest first; none when the browser has no book yet."""
+
+    def read(client: TestClient, agent_id: str = "agent:hotel-kitchen") -> tuple[Any, ...]:
+        found = client.app.state.parts.sandboxes.find(_book_key(client))  # type: ignore[attr-defined]
+        return () if found is None else found.service.list_orders(_agent(client, agent_id))
+
+    return read
+
+
+@pytest.fixture(scope="session")
+def only_order(orders: Callable[..., tuple[Any, ...]]) -> Callable[..., Any]:
+    """The one order of a buyer in this client's book, read through its service as the buyer's agent."""
 
     def read(client: TestClient, agent_id: str = "agent:hotel-kitchen") -> Any:
-        parts = client.app.state.parts  # type: ignore[attr-defined]
-        agent = next(identity for identity in parts.tokens.identities if identity.id == agent_id)
-        orders = parts.service.list_orders(agent)
-        assert len(orders) == 1, orders
-        return orders[0]
+        found = orders(client, agent_id)
+        assert len(found) == 1, found
+        return found[0]
 
     return read

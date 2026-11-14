@@ -4,42 +4,50 @@ Scores on the 30% "working end-to-end demo" (the visible half of the flow) and o
 controls" (the human approval panel, the readable audit trail). Server-rendered Jinja2, plain CSS, a little
 plain JavaScript, no external asset: the venue network may fail.
 
-The pages call `context.service` and nothing below it, as the demonstration identity chosen on the page.
+The pages call the gateway's service and nothing below it, as the demonstration identity chosen on the page,
+in an order book of the browser session's own (`context.sandboxes`, task FIX-10): nothing a visitor does is
+seen by another, and every visitor starts from an empty book.
 
     /                 paste a request, choose who is asking, run; the offer and what happened to it
     /approvals        pending approvals as cards; approve (choosing an option) or reject with a note
     /orders/{id}      the order record, the statements it relied on, the audit trail for two readers
     /assumptions      docs/ASSUMPTIONS.md, when it exists
+    POST /start-again empties the visitor's own order book
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Form
 from fastapi.exceptions import RequestValidationError
 from markupsafe import Markup
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from tta.api.hooks import SurfaceContext
 from tta.config import REPO_ROOT
 from tta.contracts.errors import TtaError
-from tta.ui import approvals_page, order_page, request_page
+from tta.ui import approvals_page, order_page, request_page, security
 from tta.ui.markdown import render as render_markdown
 from tta.ui.run import Problem
-from tta.ui.security import SecurityHeaders
+from tta.ui.security import BookCookie, SecurityHeaders
 from tta.ui.site import NOT_FOUND, STATIC_DIR, UNPROCESSABLE, PageError, Site
 
 ASSUMPTIONS_FILE = REPO_ROOT / "docs" / "ASSUMPTIONS.md"
 ASSUMPTIONS_NAME = "docs/ASSUMPTIONS.md"
-MAX_DOCUMENT_BYTES = 512 * 1024  # the document is a file like any other: bounded before it is read
+MAX_DOCUMENT_KIB = 512
+MAX_DOCUMENT_BYTES = MAX_DOCUMENT_KIB * 1024  # the document is a file like any other: bounded before it is read
+SEE_OTHER = 303
 NO_IDENTITIES = (
     "The pages act as one of the demonstration identities, and none was given: they need at least one demo "
     "agent and one demo approver (TTA_ENV dev or demo)."
 )
+NO_BOOKS = "The pages keep each visitor's orders in an order book of its own, and none was given (TTA_ENV dev or demo)."
 PAGE_NOT_FOUND = Problem(title="No such page", detail="This address is not a page of the gateway.", status=NOT_FOUND)
 FORM_NOT_VALID = Problem(
     title="The form is not valid", detail="A field is missing or not valid. Nothing was changed.", status=UNPROCESSABLE
@@ -50,15 +58,23 @@ REQUEST_REFUSED = "The gateway did not accept this request."
 logger = logging.getLogger(__name__)
 
 
-def _assumptions() -> Markup | None:
-    """The assumptions document as markup, or `None` when it is not there (or is not a document we show)."""
+@dataclass(frozen=True)
+class Document:
+    """The assumptions document as the page shows it: its markup, or why there is none (task FIX-10, 14)."""
+
+    markup: Markup | None = None
+    too_large: bool = False  # it is there, and larger than the page shows
+
+
+def _assumptions() -> Document:
+    """The assumptions document: rendered, missing, or too large to show. Each case is said as it is."""
     if not ASSUMPTIONS_FILE.is_file():
-        return None
+        return Document()
     if ASSUMPTIONS_FILE.stat().st_size > MAX_DOCUMENT_BYTES:
         logger.warning("%s is larger than %d bytes and is not shown.", ASSUMPTIONS_NAME, MAX_DOCUMENT_BYTES)
-        return None
+        return Document(too_large=True)
     # `render_markdown` escapes every character of the file; only its own structure is markup.
-    return Markup(render_markdown(ASSUMPTIONS_FILE.read_text(encoding="utf-8")))  # noqa: S704
+    return Document(markup=Markup(render_markdown(ASSUMPTIONS_FILE.read_text(encoding="utf-8"))))  # noqa: S704
 
 
 def _install_error_pages(app: FastAPI, site: Site) -> None:
@@ -85,11 +101,16 @@ def _install_error_pages(app: FastAPI, site: Site) -> None:
 
 
 def create_surface(context: SurfaceContext) -> FastAPI:
-    """The pages as an ASGI application. Raises `ValueError` without the demonstration identities."""
-    site = Site(settings=context.settings, service=context.service, identities=tuple(context.demo_identities))
-    if not site.agents or not site.approvers:
+    """The pages as an ASGI application. Raises `ValueError` without the demonstration identities or the
+    visitors' order books."""
+    identities = tuple(context.demo_identities)
+    if not any(one.is_agent for one in identities) or not any(one.is_approver for one in identities):
         raise ValueError(NO_IDENTITIES)
+    if context.sandboxes is None:
+        raise ValueError(NO_BOOKS)
+    site = Site(settings=context.settings, sandboxes=context.sandboxes, identities=identities)
     app = FastAPI(title="Trusted Trade Agents: pages", docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(BookCookie)
     app.add_middleware(SecurityHeaders)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     _install_error_pages(app, site)
@@ -99,6 +120,16 @@ def create_surface(context: SurfaceContext) -> FastAPI:
 
     @app.get("/assumptions", response_class=HTMLResponse)
     def assumptions(request: Request) -> HTMLResponse:
-        return site.render(request, "assumptions.html", document=_assumptions(), document_name=ASSUMPTIONS_NAME)
+        return site.render(
+            request, "assumptions.html", document=_assumptions(), document_name=ASSUMPTIONS_NAME,
+            max_document_kib=MAX_DOCUMENT_KIB,
+        )
+
+    @app.post("/start-again", response_class=HTMLResponse)
+    def start_again(request: Request, csrf: Annotated[str, Form()] = "") -> Response:
+        """Empty this browser's order book: its orders, approvals, trail and runs. No other book changes."""
+        site.check_form(request, csrf)
+        site.sandboxes.drop(security.book_key(request))
+        return RedirectResponse("/", status_code=SEE_OTHER)
 
     return app

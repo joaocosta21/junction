@@ -4,6 +4,9 @@ Scores on the 20% "autonomy and controls": what needs human sign-off, who may si
 before signing. Each card says why a human is needed, shows every option of the offer, the "order by" time,
 and lets the approver approve (choosing an option) or reject with a note. The gateway decides whether this
 approver may: an agent is refused (F-06), and so is an approver who holds none of the roles still missing.
+
+A card's form says whom it was shown to. When another tab of the same browser has switched the approver in
+the meantime, the decision is refused rather than signed by someone who never saw the card (FIX-10, 6).
 """
 
 from __future__ import annotations
@@ -15,13 +18,14 @@ from fastapi import FastAPI, Form
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
+from tta.api.service import Gateway
 from tta.contracts.common import ApprovalStatus, DecisionKind, Identity
 from tta.contracts.errors import NotFound, TtaError
 from tta.contracts.offer import Offer
 from tta.contracts.order import MAX_NOTE_LENGTH, Approval, DecisionRequest
 from tta.ui import security
 from tta.ui.run import Problem
-from tta.ui.site import NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
+from tta.ui.site import CONFLICT, NOT_FOUND, RECORD_ID, UNPROCESSABLE, Site, page_error
 
 TEMPLATE = "approvals.html"
 SEE_OTHER = 303
@@ -30,6 +34,12 @@ NOT_A_DEMO_APPROVER = ("Choose who decides", "Approvals are decided by one of th
 NOT_A_DECISION = ("Not a decision", "An approval is approved or rejected. Nothing was changed.")
 NOT_AN_OPTION = ("Not an option", "Choose one of the options on the card. Nothing was changed.")
 NOTE_TOO_LONG = ("The note is too long", f"A note is at most {MAX_NOTE_LENGTH:,} characters. Nothing was changed.")
+APPROVER_CHANGED = "The approver was changed in another tab"
+APPROVER_CHANGED_DETAIL = (
+    "This card was shown to {shown}, and this browser now decides as {now}. Nothing was changed: read the card "
+    "again below and decide as the approver it shows."
+)
+SOMEONE_ELSE = "another approver"
 
 
 @dataclass(frozen=True)
@@ -42,9 +52,9 @@ class Card:
     holders: tuple[Identity, ...]  # the demo approvers who hold a role that is still missing
 
 
-def _card(site: Site, approver: Identity, approval: Approval) -> Card:
+def _card(site: Site, service: Gateway, approver: Identity, approval: Approval) -> Card:
     try:
-        offer: Offer | None = site.service.get_offer(approver, approval.offer_id)
+        offer: Offer | None = service.get_offer(approver, approval.offer_id)
     except NotFound:
         offer = None
     missing = approval.roles_missing
@@ -55,9 +65,11 @@ def _card(site: Site, approver: Identity, approval: Approval) -> Card:
 
 
 def _page(site: Site, request: Request, approver: Identity, problem: Problem | None = None) -> HTMLResponse:
-    """The queue of the chosen approver's buyer, oldest first. A refusal of the gateway is shown above it."""
-    pending = site.service.list_approvals(approver, ApprovalStatus.PENDING)
-    cards = tuple(_card(site, approver, approval) for approval in pending)
+    """The queue of the chosen approver's buyer in this browser's book, oldest first. A refusal of the gateway
+    is shown above it."""
+    service = site.book(request).service
+    pending = service.list_approvals(approver, ApprovalStatus.PENDING)
+    cards = tuple(_card(site, service, approver, approval) for approval in pending)
     status = 200 if problem is None else problem.status
     return site.render(
         request, TEMPLATE, status=status, approver=approver, approvers=site.approvers, cards=cards, problem=problem,
@@ -76,6 +88,14 @@ def _decision(decision: str, option: str, note: str) -> DecisionRequest:
     kind = DecisionKind(decision)
     chosen = option if option and kind is DecisionKind.APPROVE else None
     return DecisionRequest(decision=kind, option_id=chosen, note=note.strip() or None)
+
+
+def _changed_in_another_tab(site: Site, shown_to: str, now: Identity) -> Problem:
+    shown = site.approver(shown_to)
+    detail = APPROVER_CHANGED_DETAIL.format(
+        shown=shown.display_name if shown is not None else SOMEONE_ELSE, now=now.display_name
+    )
+    return Problem(title=APPROVER_CHANGED, detail=detail, status=CONFLICT)
 
 
 def add_routes(app: FastAPI, site: Site) -> None:
@@ -104,14 +124,17 @@ def add_routes(app: FastAPI, site: Site) -> None:
         decision: Annotated[str, Form()] = "",
         option: Annotated[str, Form()] = "",
         note: Annotated[str, Form()] = "",
+        shown_to: Annotated[str, Form()] = "",
     ) -> Response:
         site.check_form(request, csrf)
         if not RECORD_ID.fullmatch(approval_id):
             raise page_error(NOT_FOUND, *NO_SUCH_APPROVAL)
         approver = site.chosen_approver(request)
         asked = _decision(decision, option, note)
+        if shown_to != approver.id:
+            return _page(site, request, approver, problem=_changed_in_another_tab(site, shown_to, approver))
         try:
-            order = site.service.decide_approval(approver, approval_id, asked)
+            order = site.own_book(request).service.decide_approval(approver, approval_id, asked)
         except TtaError as error:
             return _page(site, request, approver, problem=Problem.of(error))
         return RedirectResponse(f"/orders/{order.order_id}", status_code=SEE_OTHER)

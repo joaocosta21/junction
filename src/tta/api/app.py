@@ -17,6 +17,7 @@ from starlette.routing import Match, Mount
 from starlette.types import ASGIApp, Scope
 
 from tta.api import docs, hooks
+from tta.api.docs_pages import install_docs_pages
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
@@ -58,11 +59,12 @@ class _PagesMount(Mount):
 
 def _surfaces(parts: Parts) -> dict[str, ASGIApp]:
     """The optional surfaces that exist, by name. The pages act as a demonstration identity chosen on the
-    page, with no token, so they are mounted only where those identities exist: in dev and demo."""
+    page, with no token, in an order book of the visitor's own, so they are mounted only where those
+    identities and books exist: in dev and demo."""
     demo = parts.settings.is_demo_environment
     context = hooks.SurfaceContext(
         settings=parts.settings, service=parts.service, identify=parts.tokens.identify,
-        demo_identities=parts.tokens.identities if demo else (),
+        demo_identities=parts.tokens.identities if demo else (), sandboxes=parts.sandboxes if demo else None,
     )
     found: dict[str, ASGIApp] = {}
     mcp = hooks.surface(hooks.MCP_MODULE, context)
@@ -95,18 +97,20 @@ def _lifespan(parts: Parts, surfaces: dict[str, ASGIApp]) -> Callable[[FastAPI],
 def _application(parts: Parts) -> FastAPI:
     surfaces = _surfaces(parts)
     app = FastAPI(
-        title=docs.TITLE, version=docs.VERSION, openapi_tags=docs.TAGS, lifespan=_lifespan(parts, surfaces)
+        title=docs.TITLE, version=docs.VERSION, openapi_tags=docs.TAGS, lifespan=_lifespan(parts, surfaces),
+        docs_url=None, redoc_url=None,  # `tta.api.docs_pages` serves both, pinned and under a policy
     )
     app.state.parts = parts
     app.state.surfaces = {name: name in surfaces for name in (MCP_SURFACE, PAGES_SURFACE)}
     app.state.examples = None  # set when the application starts
     # The last one added is the outermost: the headers cover what the two inside it answer themselves.
     app.add_middleware(BodyLimitMiddleware)
-    app.add_middleware(ClientKeyMiddleware)
+    app.add_middleware(ClientKeyMiddleware, trusted_proxy_hops=parts.settings.tta_trusted_proxy_hops)
     app.add_middleware(SecurityHeadersMiddleware)
     install_error_handlers(app)
     app.include_router(router)
     app.include_router(public)
+    install_docs_pages(app)
     # Without a running application (a script that exports the document) the examples are built when asked for.
     docs.install_openapi(app, lambda: app.state.examples or build_examples(parts))
     if MCP_SURFACE in surfaces:

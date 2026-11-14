@@ -122,9 +122,10 @@
   <div class="chain chain-{{ 'ok' if page.audit.chain.ok else 'bad' }}">
     <p class="headline">{% if page.audit.chain.ok %}{{ mark("ok", "The hash chain verifies") }}{% else %}{{ mark("bad", "The hash chain does not verify") }}{% endif %}</p>
     <p>{{ page.audit.chain.sentence }}</p>
-    <p class="small" data-audit-head="{{ health_path }}">Each event carries the hash of the one before it. The head of
-    the whole chain (how many events, and the last hash) is public at <a href="{{ health_path }}">{{ health_path }}</a>:
-    held by another party, it shows a trail that was cut short.</p>
+    {% set events, last_hash = page.head %}
+    <p class="small">Each event carries the hash of the one before it. The head of your order book's whole chain now:
+    {{ events }} events, last hash <code>{{ last_hash[:16] }}…</code>. Held by another party, it shows a trail that
+    was cut short. (<code>/healthz</code> shows the head of the shared order book of the REST API and MCP.)</p>
   </div>
   <ol class="timeline">
     {% for event in page.audit.events %}

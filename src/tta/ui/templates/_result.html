@@ -49,13 +49,17 @@
   <p>Needed by: <strong>{% if dated %}{{ offer.request.needed_by|day }}{% else %}no date given{% endif %}</strong>
   · Confirmed data only: <strong>{{ "yes" if offer.request.require_confirmed else "no" }}</strong>
   · Products looked up: <strong>{{ offer.candidates_considered }}</strong></p>
-  {% if result.record %}
+  {% set record = result.record %}
   <ul class="how">
-    {% for note in result.record.notes %}<li>{{ note }}</li>{% endfor %}
-    {% if result.record.read_by.value == "agent" %}<li>The text was read and run by the buyer agent; its steps are at the end of this page.</li>{% endif %}
-    {% if result.record.read_by.value == "parser" %}<li>The text was read by the request parser; the page then asked for the offer and ordered the top option.</li>{% endif %}
+    {% if record %}
+    {% for note in record.notes %}<li>{{ note }}</li>{% endfor %}
+    {% if record.agent_run %}<li>The text was read and run by the buyer agent; its steps are at the end of this page. {{ record.agent_run|run_label(live_model) }}</li>{% endif %}
+    {% if record.reading %}<li>The text was read by the request parser; the page then asked for the offer and ordered the top option.</li>
+    <li>{{ record.reading.sentence }}</li>{% endif %}
+    {% else %}
+    <li>How this was read is no longer known: the page keeps how each request was read in memory, and this one is gone (after a restart of the gateway). The offer, its order and the audit trail are read from your order book.</li>
+    {% endif %}
   </ul>
-  {% endif %}
   <p class="source">{{ source_label(offer.source) }}
   {% if offer.source.value == "replay" %}Built from a recorded copy of Valio Aimo's data, as it stood on {{ offer.time_now|moment }}. Cut-offs are judged against that time.
   {% else %}Built from live answers of the Valio Aimo mock API, server time {{ offer.time_now|moment }}.{% endif %}</p>
@@ -138,15 +142,25 @@
   </div>
 </section>
 
-{% if result.substitutes or result.substitutes_problem %}
+{% set looked_up = result.substitutes %}
+{% if looked_up or result.can_look_up %}
 <section id="substitutes">
   <h2>Substitutes, ranked</h2>
-  <p>Every candidate was checked again for price, availability and allergens. A substitute that adds an
-  allergen the original does not declare can never be ordered, for any buyer.</p>
-  {% if result.substitutes_problem %}
-  <div class="banner banner-bad"><p><strong>{{ result.substitutes_problem.title }}.</strong> {{ result.substitutes_problem.detail }}</p></div>
+  <p>Every candidate was checked for price, availability and allergens when it was looked up. A substitute that
+  adds an allergen the original does not declare can never be ordered, for any buyer.</p>
+  {% if looked_up and looked_up.problem %}
+  <div class="banner banner-bad"><p><strong>{{ looked_up.problem.title }}.</strong> {{ looked_up.problem.detail }}</p></div>
   {% endif %}
-  {% for found in result.substitutes %}
+  {% if result.can_look_up %}
+  <p>{% if not looked_up %}The substitutes of the products this request names are looked up when it runs, and this
+  run is no longer in memory. {% endif %}Looking them up asks Valio Aimo's price and availability again.</p>
+  <form method="post" action="/substitutes" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="offer" value="{{ offer.offer_id }}">
+    <button type="submit">Look up substitutes</button>
+  </form>
+  {% endif %}
+  {% for found in (looked_up.found if looked_up else ()) %}
   {% set listed = found.candidates|selectattr("listed_by_supplier")|list %}
   {% set others = found.candidates|rejectattr("listed_by_supplier")|list %}
   <h3>In place of {{ found.original_name or "the product" }} <span class="id">({{ found.original_id }})</span></h3>

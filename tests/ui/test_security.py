@@ -62,29 +62,33 @@ def test_no_page_carries_inline_script_inline_style_or_an_external_address(
     assert "eval(" not in script and "innerHTML" not in script
 
 
-def test_the_form_token_is_a_cookie_scripts_cannot_read_and_other_sites_do_not_send(client: TestClient) -> None:
-    cookie = client.get("/").headers["set-cookie"]
+def test_the_form_token_and_the_book_are_cookies_scripts_cannot_read_and_other_sites_do_not_send(
+    client: TestClient,
+) -> None:
+    cookies = client.get("/").headers.get_list("set-cookie")
 
-    assert cookie.startswith("tta_csrf=")
-    assert "HttpOnly" in cookie and "SameSite=lax" in cookie and "Path=/" in cookie
-    assert "Max-Age" not in cookie and "expires" not in cookie.lower()  # it ends with the browser session
-    assert "set-cookie" not in client.get("/").headers  # one token per session, not per page
+    assert sorted(cookie.split("=")[0] for cookie in cookies) == ["tta_book", "tta_csrf"]
+    for cookie in cookies:
+        assert "HttpOnly" in cookie and "SameSite=lax" in cookie and "Path=/" in cookie
+        assert "Max-Age" not in cookie and "expires" not in cookie.lower()  # it ends with the browser session
+    assert "set-cookie" not in client.get("/").headers  # one of each per session, not per page
 
 
 def test_over_https_the_cookie_is_secure_and_bound_to_the_host(make_client: MakeClient) -> None:
     client = make_client(base_url="https://testserver")
 
-    cookie = client.get("/").headers["set-cookie"]
+    cookies = client.get("/").headers.get_list("set-cookie")
 
-    assert cookie.startswith("__Host-tta_csrf=")
-    assert "Secure" in cookie and "HttpOnly" in cookie and "Domain" not in cookie
+    assert sorted(cookie.split("=")[0] for cookie in cookies) == ["__Host-tta_book", "__Host-tta_csrf"]
+    for cookie in cookies:
+        assert "Secure" in cookie and "HttpOnly" in cookie and "Domain" not in cookie
 
 
 def test_a_run_without_the_token_or_with_a_wrong_one_is_refused_and_nothing_is_ordered(
-    client: TestClient, form_fields: Callable[..., Any], identities: Callable[..., Any]
+    client: TestClient, form_fields: Callable[..., Any], orders: Callable[..., Any]
 ) -> None:
     fields = form_fields(client)
-    service = client.app.state.parts.service  # type: ignore[attr-defined]
+    sandboxes = client.app.state.parts.sandboxes  # type: ignore[attr-defined]
 
     missing = client.post("/run", data={"example": "scenario-2"})
     wrong = client.post("/run", data={**fields, "csrf": "y" * 43, "example": "scenario-2"})
@@ -93,8 +97,8 @@ def test_a_run_without_the_token_or_with_a_wrong_one_is_refused_and_nothing_is_o
 
     assert (missing.status_code, wrong.status_code, no_cookie.status_code) == (403, 403, 403)
     assert "Nothing was changed" in wrong.text
-    assert service.list_orders(identities(client)["agent:allergy-ward"]) == ()
-    assert service.get_audit(identities(client)["agent:allergy-ward"]).events == ()
+    assert orders(client, "agent:allergy-ward") == ()
+    assert len(sandboxes) == 0  # a refused form opens no order book
 
 
 def test_state_changes_only_through_post(client: TestClient) -> None:

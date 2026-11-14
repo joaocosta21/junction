@@ -17,7 +17,15 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from tta.api.limits import MAX_LIVE_LOOKS_PER_MINUTE, SECONDS_PER_MINUTE, RateLimit, RateLimiter
+from tta.api.limits import (
+    MAX_LIVE_LOOKS_PER_MINUTE,
+    MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE,
+    SECONDS_PER_MINUTE,
+    Counted,
+    RateLimit,
+    RateLimiter,
+    current_client_key,
+)
 from tta.contracts.availability import AvailabilityResponse, PriceResponse
 from tta.contracts.common import DataSource
 from tta.contracts.errors import SupplierUnavailable
@@ -37,6 +45,11 @@ LIVE_LOOKS = "live looks"
 PAUSED = f"it failed less than {RETRY_LIVE_AFTER_SECONDS:.0f} seconds ago"  # said when it failed
 BUDGET_LOW = f"fewer than {MIN_CALLS_REMAINING} calls would be left in the supplier call budget"
 TOO_MANY_LOOKS = f"more than {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute were asked for"
+TOO_MANY_LOOKS_OF_ONE_VISITOR = (
+    f"one visitor asked for more than {MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE} looks a minute"
+)
+ALL_LOOKS = RateLimit(calls=MAX_LIVE_LOOKS_PER_MINUTE, window_seconds=SECONDS_PER_MINUTE)
+LOOKS_OF_ONE_VISITOR = RateLimit(calls=MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE, window_seconds=SECONDS_PER_MINUTE)
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +87,7 @@ class FallbackGateway:
         self._live = live
         self._replay = replay
         self._monotonic = monotonic
-        self._live_looks = RateLimiter(
-            RateLimit(calls=MAX_LIVE_LOOKS_PER_MINUTE, window_seconds=SECONDS_PER_MINUTE), monotonic=monotonic
-        )
+        self._live_looks = RateLimiter(ALL_LOOKS, monotonic=monotonic)
         self._lock = threading.Lock()  # guards the four fields below; never held while a gateway is asked
         self._live_paused_until: float | None = None
         self._last_source: DataSource | None = None
@@ -160,7 +171,12 @@ class FallbackGateway:
         if budget_low:
             return BUDGET_LOW
         # Asked last, so that a look the capture answers anyway does not take one of the minute's live looks.
-        return None if self._live_looks.allows(LIVE_LOOKS) else TOO_MANY_LOOKS
+        # The visitor is the one of the request being served (`tta.api.limits.ClientKeyMiddleware`).
+        visitors = Counted(f"{LIVE_LOOKS} {current_client_key()}", LOOKS_OF_ONE_VISITOR)
+        full = self._live_looks.full_window((Counted(LIVE_LOOKS, ALL_LOOKS), visitors))
+        if full is None:
+            return None
+        return TOO_MANY_LOOKS_OF_ONE_VISITOR if full is visitors else TOO_MANY_LOOKS
 
     def _pause_live(self) -> None:
         with self._lock:
