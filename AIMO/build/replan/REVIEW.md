@@ -49,5 +49,24 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 | P13 | LOW | several | `sandbox.KITCHEN_SETTINGS` lacks the two new settings; `shop_api._body` parses before the guard; Valio's reader is rendered "A human at the buyer"; `_claim_note` can overstate; more than 1,000 ids in one lookup; three field words missing in `audit/phrases.py` | read | L4-2d, FX-K, FX-O | open |
 | P14 | LOW | `audit/supplier_decisions.py` | Valio's view shows the product id for F-03 fired by an allergen outcome, which hints that the buyer excludes an allergen (the same information is masked for P-04) | read | wave 4 (audit) | open |
 
-## Security (`security-reviewer`)
-Not in yet.
+## Security (`security-reviewer`, in at Sat 14 Nov about 21:10)
+
+0 critical, 2 high, 4 medium, 4 low. It called every route with no token and with the supplier's, an approver's and an agent's token.
+
+| # | Sev | Where | What | Basis | Sent to | State |
+|---|---|---|---|---|---|---|
+| H1 | HIGH | `ui/shop_api.py` | The shop's routes block the event loop: one slow call freezes the whole app, `/healthz` included (same as P4) | confirmed | L4-2d | open |
+| H2 | HIGH | `api/service.py`, `contracts/request.py:16` | Total growth is unbounded: one offer with 5 lines of 2,000 characters stores about 262 kB; at the address cap that is about 0.9 GB an hour, in a trail that cannot be deleted | confirmed (size) | FX-S, after L4-2d | open |
+| M1 | MED | `audit/supplier_decisions.py:144`, `audit/facts.py:98`, `ui/supplier_view.py` | Valio's view leaks the buyer's allergen exclusions through counts ("18 declaring / 5 stating nothing"), and the strict or declared-only rule | confirmed | FX-M1 | open |
+| M2 | MED | `api/signing.py:117,152,164` | The "demo key" marker is outside the signature: a demo-signed record can be relabelled as signed with a set key and still verifies | confirmed | FX-S | open |
+| M3 | MED | `api/service.py:163` | Product search has no rate limit and costs about 0.9 s of CPU with 10 terms | confirmed | FX-S | open |
+| M4 | MED | `deploy/modal_app.py:144`, `orders/service.py` | Any visitor of the public link can spend the Context.dev budget (up to 40 calls of 100 credits), and the lookup is held under the order book's lock | read | FX-EV (the key stays off the link), FX-O (the lock) | open |
+| L1 | LOW | `policy/facts.py:396` | `stands_in_for` is still free text that reaches F-09's sentence (A3 F4 half closed) | read | FX-S | open |
+| L2 | LOW | `evidence/reading.py`, `wording.py:73`, `alignment.py:165` | A web page's name can close the quotation marks in the sentence shown to the person who signs | read | FX-EV | open |
+| L3 | LOW | `standing/service.py:215` | The supplier's token gets 403 for an existing standing order and 404 for an unknown one | read | FX-O | open |
+| L4 | LOW | `api/discovery.py:126` | Host and forwarded-proto headers go into the discovery documents; not exploitable without a shared cache | read | — | accepted |
+| F3 | — | `deploy/modal_app.py` | From the earlier review, still open: no `TTA_TRUSTED_PROXY_HOPS`; if Modal shows one peer address, all visitors share one rate-limit bucket. Can only be checked on the deployed copy | read | the redeploy check | open |
+
+Found sound: authorisation on every REST route and MCP tool (no approval tool; the supplier refused on everything but audit, recipes and schemas); the MCP `Origin` check; the customers route; the signing's canonical form and key handling; the shop's cross-site guards and its JavaScript escaping; idempotency keys; the demo-clock guard; no secret printed by any script; parameterised SQL. Earlier findings F1, F2, F5, F6 hold.
+
+Not checked by any reviewer: live Gemini and Context.dev answers, PostgreSQL on Aiven, the deployed app's peer address, races between two approvers.
