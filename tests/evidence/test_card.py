@@ -91,7 +91,8 @@ def test_page_text_containing_a_script_is_rendered_escaped(
 
     assert hostile.found
     assert bodies.hostile not in page
-    assert "&lt;script&gt;alert(&#34;page&#34;)&lt;/script&gt;" in page
+    # Escaped by the page, and its double quotation marks made single by the reader (security review L2).
+    assert "&lt;script&gt;alert(&#39;page&#39;)&lt;/script&gt;" in page
 
 
 def test_a_card_without_evidence_found_says_so_and_links_nothing(

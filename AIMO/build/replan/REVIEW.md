@@ -6,23 +6,23 @@ Three reviewers read `overnight-build..HEAD` at high effort with the question "w
 
 | # | Sev | Where | What | Basis | Sent to | State |
 |---|---|---|---|---|---|---|
-| S1 | HIGH | `evidence/matching.py:119` | A product with no brand passes the "page shows the brand" check for any page. 3,083 of 17,546 products have no brand, and all of them also have no allergen statement (whole catalog) | confirmed | FX-EV | open |
-| S2 | HIGH | `evidence/reading.py:44`, `alignment.py:177` | Page terms over 80 characters or past 20 are dropped without a trace; the allergen is then answered "the page does not name it" | confirmed | FX-EV | open |
+| S1 | HIGH | `evidence/matching.py:119` | A product with no brand passes the "page shows the brand" check for any page. 3,083 of 17,546 products have no brand, and all of them also have no allergen statement (whole catalog) | confirmed | FX-EV | fixed (FX-EV) |
+| S2 | HIGH | `evidence/reading.py:44`, `alignment.py:177` | Page terms over 80 characters or past 20 are dropped without a trace; the allergen is then answered "the page does not name it" | confirmed | FX-EV | fixed (FX-EV) |
 | S3 | HIGH | `agent/rules_reader.py:166` | A trailing sentence part with no quantity is dropped without a question: "500 kg of butter, unsalted", "200 litres of milk, cancel the order" | confirmed | L1-3 | fixed (L1-3) |
 | S4 | HIGH | `agent/days.py:114` | A date that cannot exist ("31 February") makes the request undated; "before noon" is dropped; "next Friday" is guessed | confirmed | L1-3 | fixed (L1-3) |
 | S5 | MED | `api/suggesting.py:151` | A failure to compute suggestions leaves an offer note and a log line but no audit event; a supplier failure leaves no log line | read | L4-2d | open |
 | S6 | MED | `api/service.py`, `suggesting.py:215` | An accepted suggestion in live mode is ignored without a note; a failed lookup says "no earlier offer showed it" | read | L4-2d | open |
 | S7 | MED | `api/wiring.py:147`, `store/postgres.py:373`, `api/health.py:105` | The fall-back from PostgreSQL to SQLite hides the cause, and applies in prod, where orders and the trail would be lost at restart | read | L4-2d | open |
 | S8 | MED | `api/signing.py:134`, `deploy/modal_app.py` | The deployed gateway can only sign with a throwaway key: `TTA_SIGNING_KEY` is not passed to the container; `/healthz` stays "ok" | read | FX-EV (deploy), L4-2d (health) | open |
-| S9 | MED | `deploy/witness.py:73` | The witness reads an unmoved head as healthy, so it cannot see a gateway that fell back to SQLite | read | FX-EV | open |
-| S10 | MED | `deploy/evidence_batch.py:154`, `scripts/record_evidence.py:104` | The scripts exit 0 after total failure; an unreadable paid answer is not stored | read | FX-EV | open |
+| S9 | MED | `deploy/witness.py:73` | The witness reads an unmoved head as healthy, so it cannot see a gateway that fell back to SQLite | read | FX-EV | fixed (FX-EV) |
+| S10 | MED | `deploy/evidence_batch.py:154`, `scripts/record_evidence.py:104` | The scripts exit 0 after total failure; an unreadable paid answer is not stored | read | FX-EV | fixed (FX-EV) |
 | S11 | MED | `catalog/kinds.py`, `offers/substitutes.py:288` | A flavour no word list knows reads as plain ("Rum & Raisin", "Tiramisu", "Cookies & Cream", honey), and 14,685 of 17,546 products have none of our 32 types, so type is not judged for them (whole catalog): such a swap reads "Replaceable" and F-12 does not fire | confirmed | FX-K | open |
 | S12 | LOW | `offers/substitutes.py:215` | A listed substitute missing from the catalog is dropped without a note | read | FX-K | open |
 | S13 | LOW | `api/app.py:114` | A customer whose standing orders cannot be built at start is skipped; `/healthz` does not say | read | L4-2d | open |
 | S14 | LOW | `customers/checks.py` | The docstring says the checks run at start-up; nothing calls them | read | FX-K | open |
 | S15 | LOW | `suggestions/alternatives.py:112`, `supplier.py:142` | An unknown product type in a customer file gives silent "no related product" | read | FX-K | open |
 | S16 | LOW | `api/suggesting.py:176` | After a validation error the buyer's view says nothing was dropped | read | L4-2d | open |
-| S17 | LOW | `evidence/answers.py:142` | The on-disk request count is used only when passed in; the scripts pass none, so the approved total is not enforced across runs | read | FX-EV | open |
+| S17 | LOW | `evidence/answers.py:142` | The on-disk request count is used only when passed in; the scripts pass none, so the approved total is not enforced across runs | read | FX-EV | fixed (FX-EV) |
 | S18 | LOW | `store/postgres.py`, `api/mcp_origin.py`, `deploy/modal_app.py` | Left-over `getattr(settings, name, default)` for settings that now exist | read | FX-EV, L4-2d | open |
 | S19 | LOW | `policy/premium_facts.py` | A missing premium reads as 0; documented | read | — | accepted |
 
@@ -62,7 +62,7 @@ Its overall reading: nothing in the code read breaks the audit hash chain or the
 | M3 | MED | `api/service.py:163` | Product search has no rate limit and costs about 0.9 s of CPU with 10 terms | confirmed | FX-S | open |
 | M4 | MED | `deploy/modal_app.py:144`, `orders/service.py` | Any visitor of the public link can spend the Context.dev budget (up to 40 calls of 100 credits), and the lookup is held under the order book's lock | read | FX-EV (the key stays off the link), FX-O (the lock) | open |
 | L1 | LOW | `policy/facts.py:396` | `stands_in_for` is still free text that reaches F-09's sentence (A3 F4 half closed) | read | FX-S | open |
-| L2 | LOW | `evidence/reading.py`, `wording.py:73`, `alignment.py:165` | A web page's name can close the quotation marks in the sentence shown to the person who signs | read | FX-EV | open |
+| L2 | LOW | `evidence/reading.py`, `wording.py:73`, `alignment.py:165` | A web page's name can close the quotation marks in the sentence shown to the person who signs | read | FX-EV | fixed (FX-EV) |
 | L3 | LOW | `standing/service.py:215` | The supplier's token gets 403 for an existing standing order and 404 for an unknown one | read | FX-O | fixed (FX-O) |
 | L4 | LOW | `api/discovery.py:126` | Host and forwarded-proto headers go into the discovery documents; not exploitable without a shared cache | read | — | accepted |
 | F3 | — | `deploy/modal_app.py` | From the earlier review, still open: no `TTA_TRUSTED_PROXY_HOPS`; if Modal shows one peer address, all visitors share one rate-limit bucket. Can only be checked on the deployed copy | read | the redeploy check | open |

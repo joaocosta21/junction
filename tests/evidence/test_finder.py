@@ -60,7 +60,7 @@ def test_without_a_key_only_stored_answers_are_read(
     assert not nothing.found
     assert nothing.sentence == (
         "No evidence was found on the web for product 469512: no recorded page of this product is stored and no "
-        "Context.dev key is set, so nothing was looked up."
+        "lookup is made on this link (no Context.dev key is set)."
     )
     assert stored.found
 
@@ -208,3 +208,63 @@ def test_the_factory_builds_a_finder_over_the_data_directory_and_the_recordings(
     assert finder.find_evidence(catalog.get_product(ids.elovena)).found
     assert not (tmp_path / "evidence" / f"{ids.elovena}.json").exists()
     finder.close()
+
+
+# --- S2: the reviewer's reproduction, through the finder ------------------------------------------------------------
+
+LONG_MILK = (
+    "The product is made from pasteurised cow's milk and cream, and it is produced in a factory handling nuts"
+)
+
+
+def test_a_long_entry_that_names_milk_is_answered_contains_and_never_not_named(
+    make_stack: Make, make_finder: Make, fake_answers: Make, requests: SimpleNamespace, agent_hotel: Identity,
+    bodies: SimpleNamespace,
+) -> None:
+    option = _elovena_option(make_stack, requests, agent_hotel)
+    content = {**bodies.elovena["json_content"], "contains": [LONG_MILK], "free_from": []}
+
+    (evidence,) = make_finder(fake_answers({**bodies.elovena, "json_content": content})).for_approval(
+        option, option.decision
+    )
+
+    assert len(LONG_MILK) == 104
+    assert "Asked about milk (AM): Valio Aimo's data states nothing; the page says it contains it, in its words " \
+        "“The product is made from pasteurised cow's milk”" in evidence.sentence
+    assert "does not name it" not in evidence.sentence
+
+
+def test_an_entry_that_cannot_be_read_is_said_on_the_approval_and_nothing_is_concluded(
+    make_stack: Make, make_finder: Make, fake_answers: Make, requests: SimpleNamespace, agent_hotel: Identity,
+    bodies: SimpleNamespace,
+) -> None:
+    option = _elovena_option(make_stack, requests, agent_hotel)
+    content = {**bodies.elovena["json_content"], "contains": ["KAURA", "m" * 81], "free_from": ["Maidoton"]}
+
+    (evidence,) = make_finder(fake_answers({**bodies.elovena, "json_content": content})).for_approval(
+        option, option.decision
+    )
+
+    assert "1 of the entries the page lists could not be read and are not shown." in evidence.sentence
+    assert evidence.sentence.endswith(
+        "some of the page's words could not be read, so nothing is concluded about milk (AM)."
+    )
+    assert "does not name it" not in evidence.sentence and "the page says free from" not in evidence.sentence
+
+
+# --- security review M4: a link that holds no key says of an unrecorded product that no lookup is made --------------
+
+
+def test_without_a_key_an_unrecorded_product_reads_that_no_lookup_is_made_and_a_recorded_one_is_still_shown(
+    catalog: ProductCatalog, tmp_path: Path
+) -> None:
+    finder = build_evidence_finder(Settings.for_tests(), tmp_path, catalog)  # the public link: no Context.dev key
+
+    unrecorded = finder.find_evidence(catalog.get_product("464013"))
+    recorded = finder.find_evidence(catalog.get_product(ELOVENA_ID))
+
+    assert unrecorded.sentence == (
+        "No evidence was found on the web for product 464013: no recorded page of this product is stored and no "
+        "lookup is made on this link (no Context.dev key is set)."
+    )
+    assert recorded.found and finder._answers is None  # nothing that could send a request exists

@@ -44,6 +44,10 @@ class EvidenceCache:
         self._directory = directory
         self._recorded = recorded
 
+    @property
+    def directory(self) -> Path:
+        return self._directory
+
     def get(self, product_id: str) -> AnswerRecord | None:
         """The stored answer, else the recorded one, else `None`. Raises `EvidenceUnavailable` for a file that
         cannot be read."""

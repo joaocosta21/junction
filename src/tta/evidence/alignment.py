@@ -16,6 +16,9 @@ How a page's words are read:
 - Oats asked about the gluten cereals are read as the allergen rule reads them (`tta.allergens.statements`): not
   ruled out, unless the page says gluten-free.
 - A term no table reads is never guessed: the allergen is then answered "the page's words could not be matched".
+- An entry of the page that could not be read at all (`reading._terms` counts them) may have named anything: every
+  allergen the read terms do not name is then answered "some of the page's words could not be read, so nothing is
+  concluded", never "not named" and never "free from". A page whose three lists are empty "lists nothing".
 """
 
 from __future__ import annotations
@@ -62,7 +65,9 @@ class PageAnswer(StrEnum):
     MAY_CONTAIN = "MAY_CONTAIN"
     FREE_FROM = "FREE_FROM"
     NOT_NAMED = "NOT_NAMED"  # every word of the page was read, and none names this allergen
-    UNMATCHED = "UNMATCHED"  # the page has words no table reads: nothing is said about this allergen
+    NOTHING_LISTED = "NOTHING_LISTED"  # the page's three lists are empty: it says nothing about any allergen
+    # The page has words no table reads, or entries that could not be read at all (S2): nothing is concluded.
+    UNMATCHED = "UNMATCHED"
 
 
 class AllergenAnswer(Contract):
@@ -129,7 +134,8 @@ def _is_oats_only(code: str, named: Iterable[str]) -> bool:
 class _Page:
     """The three lists of one page, each term read once."""
 
-    def __init__(self, evidence: Evidence) -> None:
+    def __init__(self, evidence: Evidence, unread_entries: int = 0) -> None:
+        self.unread_entries = unread_entries  # entries of the lists that `reading` could not read
         self.contains = tuple((term, *_named(term)) for term in evidence.contains)
         self.may_contain = tuple((term, *_named(term)) for term in evidence.may_contain)
         self.free_from = tuple((term, _freed(term)) for term in evidence.free_from)
@@ -138,6 +144,9 @@ class _Page:
         """The terms no table reads."""
         listed = [term for term, certain, maybe in (*self.contains, *self.may_contain) if not certain | maybe]
         return (*listed, *(term for term, codes in self.free_from if not codes))
+
+    def lists_nothing(self) -> bool:
+        return not (self.contains or self.may_contain or self.free_from)
 
     def naming(self, asked: frozenset[str]) -> tuple[tuple[str, ...], tuple[str, ...], frozenset[str]]:
         """(terms under contains, terms under may contain, the codes those terms name) for the asked codes."""
@@ -157,7 +166,7 @@ def _quoted(terms: Sequence[str]) -> str:
     return ", ".join(terms)
 
 
-def _page_answer(code: str, page: _Page) -> tuple[PageAnswer, tuple[str, ...], str]:
+def _page_answer(code: str, page: _Page, allergen: str) -> tuple[PageAnswer, tuple[str, ...], str]:
     sure, maybe, named = page.naming(_asked_codes(code))
     free = page.free(code)
     also = wording.ALSO_FREE_FROM.format(words=_quoted(free)) if free else ""
@@ -169,26 +178,33 @@ def _page_answer(code: str, page: _Page) -> tuple[PageAnswer, tuple[str, ...], s
         return PageAnswer.CONTAINS, sure, wording.PAGE_CONTAINS.format(words=_quoted(sure)) + also
     if maybe:
         return PageAnswer.MAY_CONTAIN, maybe, wording.PAGE_MAY_CONTAIN.format(words=_quoted(maybe)) + also
+    if page.unread_entries:
+        # An entry that was not read may name this allergen: neither "free from" nor "not named" is said.
+        return PageAnswer.UNMATCHED, (), wording.PAGE_UNREAD.format(allergen=allergen)
     if free:
         return PageAnswer.FREE_FROM, free, wording.PAGE_FREE_FROM.format(words=_quoted(free))
     unread = page.unread()
     if unread:
         return PageAnswer.UNMATCHED, unread, wording.PAGE_UNMATCHED.format(words=_quoted(unread))
+    if page.lists_nothing():
+        return PageAnswer.NOTHING_LISTED, (), wording.PAGE_LISTS_NOTHING
     return PageAnswer.NOT_NAMED, (), wording.PAGE_NOT_NAMED
 
 
-def align(evidence: Evidence, findings: Sequence[AllergenFinding]) -> tuple[AllergenAnswer, ...]:
+def align(
+    evidence: Evidence, findings: Sequence[AllergenFinding], unread_entries: int = 0
+) -> tuple[AllergenAnswer, ...]:
     """One answer per excluded allergen the product was sent to a person for. Empty when no page was found: a
-    page that is missing answers nothing."""
+    page that is missing answers nothing. `unread_entries` is the count `reading.read_page` gives."""
     if not evidence.found:
         return ()
-    page = _Page(evidence)
+    page = _Page(evidence, unread_entries)
     answers = []
     for finding in findings:
         if finding.outcome is not AllergenOutcome.TO_HUMAN:
             continue
         allergen = describe(finding.excluded_code)
-        answer, words, said = _page_answer(finding.excluded_code, page)
+        answer, words, said = _page_answer(finding.excluded_code, page, allergen)
         answers.append(AllergenAnswer(
             product_id=evidence.product_id, excluded_code=finding.excluded_code, allergen=allergen,
             valio=finding.relation, page=answer, page_words=words,
@@ -203,10 +219,10 @@ def reason_for_the_signer(answers: Sequence[AllergenAnswer]) -> str | None:
     return wording.PAGE_NAMES_EXCLUDED.format(allergens=" and ".join(named)) if named else None
 
 
-def with_answers(evidence: Evidence, findings: Sequence[AllergenFinding]) -> Evidence:
+def with_answers(evidence: Evidence, findings: Sequence[AllergenFinding], unread_entries: int = 0) -> Evidence:
     """The evidence with its sentence extended by the answers and, when the page names an excluded allergen, by
     the reason. The lists, the link and the hash stay as they were read."""
-    answers = align(evidence, findings)
+    answers = align(evidence, findings, unread_entries)
     if not answers:
         return evidence
     reason = reason_for_the_signer(answers)

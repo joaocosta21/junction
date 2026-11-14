@@ -2,7 +2,9 @@
 
     .venv/bin/python deploy/check.py https://<workspace>--trusted-trade-agents.modal.run
 
-1. `GET /healthz`: answers, `environment` is demo, `mode` is the one expected (live by default).
+1. `GET /healthz`: answers, `environment` is demo, and `mode` is the one given with `--mode`. Without `--mode`
+   the link's own mode is read from `/healthz` and reported (the public link is replay since 14 Nov); a mode that
+   is neither replay nor live fails.
 2. `GET /`: the request page answers as HTML.
 3. Scenario 2 by HTTP as the allergy ward's demo agent: `POST /v1/offers` answers 201 with at least one option.
 4. Unless `--no-order`: `POST /v1/orders` on the first option answers 201, ordered or sent for approval, then the
@@ -13,8 +15,11 @@
    Streamable HTTP; P12 W3).
 7. `GET /.well-known/api-catalog` answers an RFC 9727 linkset (`application/linkset+json`) that links the OpenAPI
    document and the MCP endpoint (P12 W2).
+8. `GET /.well-known/jwks.json` answers a key set (RFC 7517) with exactly one Ed25519 key, and the check says
+   whether `/healthz` calls it a demo key (generated at start, gone at the next) or a key that was set.
 
 The token sent is the public demonstration token of `src/tta/api/demo_tokens.yaml`. Exit status 0 when all pass.
+The last line of the output counts the checks that ran; the number comes from the run, never from this text.
 """
 
 from __future__ import annotations
@@ -47,6 +52,8 @@ SCENARIO_2 = {
 ORDER_STATUSES = ("ORDERED", "PENDING_APPROVAL")
 FOREIGN_ORIGIN = "https://deploy-check.invalid"  # a name that can never be a real site (RFC 2606, ".invalid")
 API_CATALOG = "/.well-known/api-catalog"
+JWKS = "/.well-known/jwks.json"
+MODES = ("replay", "live")
 LINKSET = "application/linkset+json"
 WEB_SCHEMES = ("https://", "http://")
 FAILURES = (OSError, ValueError, KeyError, TypeError, IndexError)  # a failed check is reported, never raised
@@ -99,7 +106,7 @@ def _post(fetch: Fetch, path: str, payload: object, headers: Mapping[str, str]) 
     return fetch("POST", path, headers, json.dumps(payload).encode("utf-8"))
 
 
-def check_health(fetch: Fetch, expected_mode: str) -> Result:
+def check_health(fetch: Fetch, expected_mode: str | None) -> Result:
     reply = fetch("GET", "/healthz", {"Accept": "application/json"}, None)
     if reply.status != 200:
         return Result("health", False, f"status {reply.status}")
@@ -107,13 +114,15 @@ def check_health(fetch: Fetch, expected_mode: str) -> Result:
     settings = health.get("settings", {})
     reasons = "; ".join(health.get("reasons") or ())
     detail = (
-        f"environment {health['environment']}, mode {health['mode']}, status {health['status']}"
+        f"environment {health['environment']}, mode {health['mode']} "
+        f"({f'--mode {expected_mode} was asked for' if expected_mode else 'read from /healthz: no --mode was given'}), "
+        f"status {health['status']}"
         f"{f' ({reasons})' if reasons else ''}, source {health['source']}, "
         f"valio_key_set {settings.get('valio_key_set')}, gemini_key_set {settings.get('gemini_key_set')}, "
         f"audit events {health['audit_head']['events']}"
     )
-    ok = health["environment"] == "demo" and health["mode"] == expected_mode
-    return Result("health", ok, detail)
+    mode_ok = health["mode"] == expected_mode if expected_mode else health["mode"] in MODES
+    return Result("health", health["environment"] == "demo" and mode_ok, detail)
 
 
 def check_page(fetch: Fetch) -> Result:
@@ -201,6 +210,27 @@ def check_api_catalog(fetch: Fetch) -> Result:
     return Result("api catalog", len(found) == 2, f"{len(links)} links, among them {', '.join(found) or 'none'}")
 
 
+def check_signing_key(fetch: Fetch) -> Result:
+    reply = fetch("GET", JWKS, {"Accept": "application/json"}, None)
+    if reply.status != 200:
+        return Result("signing key", False, f"status {reply.status}")
+    keys = reply.json()["keys"]
+    ed25519 = [key for key in keys if key.get("kty") == "OKP" and key.get("crv") == "Ed25519" and key.get("x")]
+    if len(keys) != 1 or len(ed25519) != 1:
+        return Result("signing key", False, f"{len(keys)} key(s), {len(ed25519)} of them Ed25519: one was expected")
+    health = fetch("GET", "/healthz", {"Accept": "application/json"}, None)
+    signing = health.json().get("signing") if health.status == 200 else None
+    if not isinstance(signing, dict) or not isinstance(signing.get("demo_key"), bool):
+        said = "/healthz does not say whether it is a demo key"
+    elif signing.get("key_id") != ed25519[0].get("kid"):
+        return Result("signing key", False, "the key at /healthz is not the key of the key set")
+    elif signing["demo_key"]:
+        said = "/healthz says it is a demo key: generated at start, so signatures stop verifying at the next start"
+    else:
+        said = "/healthz says it is a key that was set"
+    return Result("signing key", True, f"one Ed25519 key, kid {ed25519[0].get('kid')}; {said}")
+
+
 def _guarded(name: str, step: Callable[[], Any]) -> Any:
     """The step's own answer, or a failed result naming what went wrong."""
     try:
@@ -214,7 +244,10 @@ def _unpack(answer: Any) -> tuple[Result, Any]:
     return (answer, None) if isinstance(answer, Result) else answer
 
 
-def run_checks(fetch: Fetch, *, expected_mode: str = "live", place_order: bool = True) -> tuple[Result, ...]:
+def run_checks(
+    fetch: Fetch, *, expected_mode: str | None = None, place_order: bool = True
+) -> tuple[Result, ...]:
+    """Every check, in order. `expected_mode` of `None` takes the link's own mode from `/healthz`."""
     results = [
         _guarded("health", lambda: check_health(fetch, expected_mode)),
         _guarded("page", lambda: check_page(fetch)),
@@ -236,20 +269,22 @@ def run_checks(fetch: Fetch, *, expected_mode: str = "live", place_order: bool =
     results.append(_guarded("mcp tools", lambda: check_mcp_tools(fetch)))
     results.append(_guarded("mcp foreign origin", lambda: check_mcp_origin(fetch)))
     results.append(_guarded("api catalog", lambda: check_api_catalog(fetch)))
+    results.append(_guarded("signing key", lambda: check_signing_key(fetch)))
     return tuple(results)
 
 
 def report(results: Sequence[Result]) -> str:
     lines = [f"{'PASS' if result.ok else 'FAIL'}  {result.name}: {result.detail}" for result in results]
     failed = sum(not result.ok for result in results)
-    lines.append("All checks passed." if not failed else f"{failed} of {len(results)} checks failed.")
+    lines.append(f"All {len(results)} checks passed." if not failed else f"{failed} of {len(results)} checks failed.")
     return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check a deployment of the gateway.")
     parser.add_argument("url", help="the address of the deployment, for example https://<workspace>--...modal.run")
-    parser.add_argument("--mode", default="live", choices=("live", "replay"), help="the mode /healthz should show")
+    parser.add_argument("--mode", default=None, choices=MODES,
+                        help="the mode /healthz should show; without it the link's own mode is read and reported")
     parser.add_argument("--no-order", action="store_true", help="stop after the offer: place no order")
     arguments = parser.parse_args(argv)
     results = run_checks(http_fetch(arguments.url), expected_mode=arguments.mode, place_order=not arguments.no_order)

@@ -13,6 +13,14 @@ computed on the machine that starts the run. Each call receives a product id and
 English name, Finnish name and brand; nothing about a buyer), sends it once, and returns the answer; the starting
 machine writes each answer to `fixtures/evidence/<id>.json` as it arrives and prints a summary table.
 
+`--total-cap` (default 60, the total the team approved) is a cap across runs, counted on the starting machine as
+`scripts/record_evidence.py` counts it (`tta.evidence.batch.requests_used`): the count is written with the run's
+requests before the fan-out starts, because a container holds no count file. Every run prints "N used of 60".
+
+Exit status: 0 every product asked was answered (or nothing was to ask); 4 nothing was answered; 5 some products
+were not answered; 7 the total is spent; 8 the count of requests could not be read or written. Each product's
+line says how its answer reads or why there is none.
+
 The dry run through plain Python touches no network at all. `modal run … --dry-run` prints the same and sends
 nothing to Context.dev, but `modal run` itself builds this app on Modal, with the Secret.
 
@@ -30,6 +38,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,7 +59,17 @@ SECRET_NAME = "CONTEXT_DEV_API_KEY"  # noqa: S105 - the name of the value, not t
 # What `tta.evidence.batch` imports, at the versions of deploy/modal_app.py (tests/deploy checks they agree).
 PINNED = ("pydantic==2.14.3", "pydantic-settings==2.16.3", "httpx==0.28.1")
 IMAGE_ENV = {"PYTHONPATH": f"{APP_ROOT}/src", "TTA_ENV": "demo", "TTA_MODE": "replay"}
+DEFAULT_TOTAL_CAP = 60  # tta.evidence.batch.DEFAULT_TOTAL_CAP (tests/deploy checks they agree)
+EXIT_OK, EXIT_NOTHING_ANSWERED, EXIT_SOME_FAILED, EXIT_TOTAL_SPENT, EXIT_COUNT_UNREADABLE = 0, 4, 5, 7, 8
 Printer = Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class Run:
+    """What one run did: the requests handed to the fan-out, and the status the process exits with."""
+
+    asked: int
+    exit_code: int
 
 
 def secret_env(*, is_local: bool, read_settings: Callable[[], Settings] | None = None) -> dict[str, str]:
@@ -116,20 +135,34 @@ def run(
     settings: Settings | None = None,
     catalog: Any = None,
     directory: Path | None = None,
-) -> int:
+    counter: Path | None = None,
+    total_cap: int = DEFAULT_TOTAL_CAP,
+) -> Run:
     """Plan, then print (dry run) or ask and keep. `ask_all` is `ask_page.map` on Modal, and a stand-in in a
-    test. Returns the number of requests that were handed to `ask_all`."""
+    test. `counter` is the count file (default: beside the gateway's stored answers)."""
     from tta.catalog import ProductCatalog
     from tta.config import get_settings
     from tta.evidence import batch
+    from tta.evidence.answers import EvidenceUnavailable
     from tta.evidence.cache import EvidenceCache
-    from tta.evidence.finder import RECORDINGS_FOLDER
+    from tta.evidence.finder import CACHE_FOLDER, COUNT_FILE, RECORDINGS_FOLDER
 
     settings = settings or get_settings()
     catalog = catalog or ProductCatalog.from_settings(settings)
     directory = directory or settings.tta_fixtures_dir / RECORDINGS_FOLDER
+    counter = counter or settings.tta_data_dir / CACHE_FOLDER / COUNT_FILE
+    try:
+        used = batch.requests_used(directory, counter)
+    except EvidenceUnavailable as unavailable:
+        out(f"Nothing was sent: {unavailable.reason} ({counter}).")
+        return Run(0, EXIT_COUNT_UNREADABLE)
+    out(batch.used_line(used, total_cap))
+    left = total_cap - used.total
+    if left < 1:
+        out("The total is spent: nothing can be sent. Going past it is the team's decision (--total-cap).")
+        return Run(0, EXIT_TOTAL_SPENT)
     silent = batch.stating_nothing(batch.capture_ids(settings.replay_capture_dir), catalog)
-    planned = batch.plan(silent, catalog, batch.recorded_ids(directory), limit)
+    planned = batch.plan(silent, catalog, batch.recorded_ids(directory), min(limit, left))
     out(
         f"{len(silent)} products of the capture {settings.replay_capture_dir.name} hold no allergen statement; "
         f"{len(planned.already_recorded)} of them already have a recorded page."
@@ -137,18 +170,30 @@ def run(
     if dry_run:
         out(
             f"Dry run: {len(planned.to_ask)} request(s) would be sent to Context.dev, at most {MAX_AT_ONCE} at a "
-            f"time, {batch.CREDITS_PER_REQUEST} credits each, {planned.credits} credits in all (limit {limit}). "
-            "Nothing was sent."
+            f"time, {batch.CREDITS_PER_REQUEST} credits each, {planned.credits} credits in all (limit "
+            f"{planned.limit}). Nothing was sent."
         )
-        return 0
+        return Run(0, EXIT_OK)
     if not planned.to_ask:
         out("Nothing to ask. Nothing was sent.")
-        return 0
+        return Run(0, EXIT_OK)
+    try:
+        batch.count_before_sending(counter, used, len(planned.to_ask))
+    except EvidenceUnavailable as unavailable:
+        out(f"Nothing was sent: {unavailable.reason} ({counter}).")
+        return Run(0, EXIT_COUNT_UNREADABLE)
     out(f"Asking for {len(planned.to_ask)} product(s), at most {MAX_AT_ONCE} at a time, {planned.credits} credits.")
     outcomes = batch.record(planned, EvidenceCache(directory), ask_all)
+    for line in batch.outcome_lines(outcomes, directory):
+        out(line)
     out(batch.table(batch.summarise(outcomes)))
     out(f"Answers were written to {directory}. Figures of this run only: a sample, not a catalog fact.")
-    return len(outcomes)
+    failure = batch.failure_line(outcomes)
+    if failure is None:
+        return Run(len(outcomes), EXIT_OK)
+    out(failure)
+    nothing = all(outcome.failed for outcome in outcomes)
+    return Run(len(outcomes), EXIT_NOTHING_ANSWERED if nothing else EXIT_SOME_FAILED)
 
 
 def on_modal(calls: Sequence[dict[str, Any]]) -> Iterable[Any]:
@@ -157,8 +202,10 @@ def on_modal(calls: Sequence[dict[str, Any]]) -> Iterable[Any]:
 
 
 @app.local_entrypoint()
-def main(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> None:
-    run(limit=limit, dry_run=dry_run, ask_all=on_modal)
+def main(limit: int = DEFAULT_LIMIT, dry_run: bool = False, total_cap: int = DEFAULT_TOTAL_CAP) -> None:
+    done = run(limit=limit, dry_run=dry_run, ask_all=on_modal, total_cap=total_cap)
+    if done.exit_code != EXIT_OK:
+        raise SystemExit(done.exit_code)
 
 
 def _refuse_to_send(calls: Sequence[dict[str, Any]]) -> Iterable[Any]:
@@ -168,7 +215,11 @@ def _refuse_to_send(calls: Sequence[dict[str, Any]]) -> Iterable[Any]:
 if __name__ == "__main__":  # plain Python: the offline dry run only
     parser = argparse.ArgumentParser(description="The evidence batch: the offline dry run.")
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
+    parser.add_argument("--total-cap", type=int, default=DEFAULT_TOTAL_CAP)
     parser.add_argument("--dry-run", action="store_true", required=True)
     arguments = parser.parse_args()
-    run(limit=arguments.limit, dry_run=True, ask_all=_refuse_to_send)
-    sys.exit(0)
+    if arguments.limit < 1 or arguments.total_cap < 1:
+        parser.error("--limit and --total-cap must be at least 1.")
+    sys.exit(run(
+        limit=arguments.limit, dry_run=True, ask_all=_refuse_to_send, total_cap=arguments.total_cap,
+    ).exit_code)

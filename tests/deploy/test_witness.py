@@ -7,7 +7,7 @@ import importlib.util
 import logging
 import sys
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -110,7 +110,9 @@ def test_one_run_reads_only_the_suppliers_view_and_notes_the_head(witness: Modul
     verdict = witness.witness_once(trail, notes, "tta", NOW)
 
     assert verdict.finding is witness.Finding.FIRST
-    assert notes == {"tta": {"count": 2, "seq": 2, "hash": B, "noted_at": NOW.isoformat(), "finding": "FIRST"}}
+    assert notes == {"tta": {
+        "count": 2, "seq": 2, "hash": B, "noted_at": NOW.isoformat(), "moved_at": NOW.isoformat(), "finding": "FIRST",
+    }}
     assert all('FROM "tta".audit_supplier' in statement for statement in trail.statements)
     assert all(statement.startswith("SELECT ") for statement in trail.statements)  # a reader: it writes nothing
 
@@ -205,7 +207,7 @@ def test_the_witness_reads_the_schema_the_deployment_chose(modal_app: ModuleType
     chosen = SimpleNamespace(supplier_database_url=URL, tta_db_schema="tta_nov15")
 
     assert modal_app.witness_secret_values(chosen, {}) == {"SUPPLIER_DATABASE_URL": URL, "TTA_DB_SCHEMA": "tta_nov15"}
-    assert modal_app.witness_secret_values(SimpleNamespace(), {"SUPPLIER_DATABASE_URL": f" {URL} "}) == {
+    assert modal_app.witness_secret_values(Settings.for_tests(), {"SUPPLIER_DATABASE_URL": f" {URL} "}) == {
         "SUPPLIER_DATABASE_URL": URL,
     }
 
@@ -264,3 +266,87 @@ def test_the_notes_are_kept_through_a_modal_dict(modal_app: ModuleType) -> None:
     assert (notes.get("tta"), notes.get("other"), list(notes), len(notes)) == ({"count": 1}, None, ["tta"], 1)
     with pytest.raises(TypeError, match="never removed"):
         del notes["tta"]
+
+
+# --- S9: a head that does not move is not proof of health -------------------------------------------------------
+
+
+def _hours(count: float) -> datetime:
+    return NOW + timedelta(hours=count)
+
+
+def test_the_same_head_within_the_threshold_is_healthy_and_keeps_the_time_it_last_moved(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {}
+    witness.witness_once(Trail([(1, A)]), notes, "tta", NOW)
+
+    verdict = witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(5.9))
+
+    assert (verdict.finding, verdict.ok, verdict.warning) == (witness.Finding.SAME, True, False)
+    assert (notes["tta"]["moved_at"], notes["tta"]["noted_at"]) == (NOW.isoformat(), _hours(5.9).isoformat())
+
+
+def test_a_head_that_has_not_moved_for_six_hours_is_a_warning_that_says_so(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {}
+    witness.witness_once(Trail([(1, A)]), notes, "tta", NOW)
+    for hour in range(1, 6):  # the hourly runs in between do not restart the clock
+        witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(hour))
+
+    verdict = witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(6))
+
+    assert witness.STALE_AFTER_HOURS == 6
+    assert (verdict.finding, verdict.ok, verdict.warning) == (witness.Finding.STALE, True, True)
+    assert verdict.sentence == (
+        "No new audit event for 6 hours: the gateway may be writing elsewhere; check /healthz store. The noted head "
+        "is still at its place (1 events, last number 1, hash aaaaaaaaaaaa…)."
+    )
+    assert notes["tta"]["moved_at"] == NOW.isoformat() and notes["tta"]["finding"] == "STALE"
+
+
+def test_a_new_event_ends_the_warning_and_restarts_the_clock(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {}
+    witness.witness_once(Trail([(1, A)]), notes, "tta", NOW)
+    witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(7))
+
+    grown = witness.witness_once(Trail([(1, A), (2, B)]), notes, "tta", _hours(8))
+    same = witness.witness_once(Trail([(1, A), (2, B)]), notes, "tta", _hours(13))
+
+    assert (grown.finding, same.finding) == (witness.Finding.GROWN, witness.Finding.SAME)
+    assert notes["tta"]["moved_at"] == _hours(8).isoformat()
+
+
+def test_a_stale_trail_that_was_also_cut_is_still_found_cut(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {}
+    witness.witness_once(Trail([(1, A), (2, B)]), notes, "tta", NOW)
+
+    verdict = witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(9))
+
+    assert (verdict.finding, verdict.ok, verdict.warning) == (witness.Finding.SHORTENED, False, False)
+
+
+def test_a_note_written_before_the_field_existed_counts_from_its_noted_time(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {"tta": {"count": 1, "seq": 1, "hash": A, "noted_at": NOW.isoformat(), "finding": "SAME"}}
+
+    verdict = witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(6))
+
+    assert verdict.finding is witness.Finding.STALE and notes["tta"]["moved_at"] == NOW.isoformat()
+
+
+def test_a_note_with_no_readable_time_is_not_guessed_stale_and_starts_counting_now(witness: ModuleType) -> None:
+    notes: dict[str, Any] = {"tta": {"count": 1, "seq": 1, "hash": A, "noted_at": "yesterday"}}
+
+    verdict = witness.witness_once(Trail([(1, A)]), notes, "tta", _hours(100))
+
+    assert verdict.finding is witness.Finding.SAME and notes["tta"]["moved_at"] == _hours(100).isoformat()
+
+
+def test_the_scheduled_run_logs_the_warning_and_does_not_fail(
+    modal_app: ModuleType, witness: ModuleType, caplog: pytest.LogCaptureFixture
+) -> None:
+    long_ago = (datetime.now(UTC) - timedelta(hours=7)).isoformat()
+    notes: dict[str, Any] = {"tta": {"count": 1, "seq": 1, "hash": A, "noted_at": long_ago, "moved_at": long_ago}}
+
+    with caplog.at_level(logging.INFO):
+        sentence = modal_app.run_witness(lambda: Trail([(1, A)]), notes, {})
+
+    assert sentence.startswith("No new audit event for 7 hours: the gateway may be writing elsewhere; check /healthz")
+    assert [record.levelname for record in caplog.records if "Audit witness" in record.message] == ["WARNING"]

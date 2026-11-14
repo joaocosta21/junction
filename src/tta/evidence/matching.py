@@ -5,7 +5,12 @@ another variant, another pack) can state other allergens. So a page is kept only
 speaks against it, and a false match is treated as worse than a missing page. `why_not_this_product` returns the
 first reason below that holds, in words for that person, or `None`:
 
-1. The brand is in the page's name, its title or the address's host name.
+1. The brand is in the page's name, its title or the address's host name. A product with no brand in Valio
+   Aimo's data (3,083 of 17,546 products, whole catalog; none of them holds an allergen statement) has no maker a
+   page can be shown to belong to, and a brand that is not stated is never read as the same brand: its page is
+   dropped. One exception, ours: a product sold under Valio Aimo's own label (its name starts with "AIMO"; 114 of
+   the 3,083) on Valio Aimo's own site (`OWN_LABEL_HOSTS`), because the owner of that label is the seller itself
+   and the host is the one its API is served from (AIMO/docs/API.md). Steps 2 to 5 apply to that page as to any.
 2. What makes a variant is the same on both sides (the product's English and Finnish names together, against the
    page's product name): every percentage ("15%"), each mark of `MARKS` (lactose-free, low-lactose, fat-free,
    whole milk, UHT, organic) and the flavours the catalog's own reader finds (`tta.catalog.kinds.flavours_of`).
@@ -24,6 +29,7 @@ only ever drop a page. The word lists are ours, written from the recorded pages 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from decimal import Decimal
 from urllib.parse import urlsplit
 
@@ -52,6 +58,10 @@ BRAND_OWNER_HOSTS: dict[str, tuple[str, ...]] = {
     "arla": ("arla.fi", "arla.com", "arlapro.com"),
     "alpro": ("alpro.com",),  # recording 465793: the brand's own name
 }
+# Valio Aimo's own label: the first word of the product's name, and the hosts that are Valio Aimo's own. Ours, read
+# from the catalog's names; the data has no own-label mark.
+OWN_LABEL_WORD = "aimo"
+OWN_LABEL_HOSTS = ("valioaimo.fi",)
 # What makes a variant of a product, read in English and in Finnish: label -> pattern. Each must be said by both
 # the product's names and the page's name, or by neither.
 MARKS: dict[str, re.Pattern[str]] = {
@@ -119,6 +129,18 @@ def _host_words(url: str) -> frozenset[str]:
 def _brand_shown(brand: frozenset[str], page_name: str, page_title: str | None, url: str) -> bool:
     shown = _words(page_name) | _words(page_title) | _host_words(url)
     return brand <= shown
+
+
+def _host_is(url: str, domains: Iterable[str]) -> bool:
+    """True when the address's host is one of the domains, or a subdomain of one."""
+    host = (urlsplit(url).hostname or "").casefold()
+    return any(host == domain or host.endswith(f".{domain}") for domain in domains)
+
+
+def _is_own_label_page(url: str, product: Product) -> bool:
+    """A product sold under Valio Aimo's own label, on Valio Aimo's own site (module docstring, step 1)."""
+    first_words = {(_WORD.findall((name or "").casefold()) or [""])[0] for name in (product.name_en, product.name_fi)}
+    return OWN_LABEL_WORD in first_words and _host_is(url, OWN_LABEL_HOSTS)
 
 
 def _listed(values: frozenset[Decimal]) -> str:
@@ -196,7 +218,10 @@ def why_not_this_product(
     if not page_name:
         return wording.NOTHING_TO_COMPARE
     brand = _words(product.brand)
-    if not _brand_shown(brand, page_name, page_title, url):
+    if not brand:
+        if not _is_own_label_page(url, product):
+            return wording.NO_BRAND
+    elif not _brand_shown(brand, page_name, page_title, url):
         return wording.BRAND_NOT_SHOWN.format(brand=product.brand)
     ours = " | ".join(name for name in (product.name_en, product.name_fi) if name)
     differs = (
@@ -220,6 +245,4 @@ def names_match(
 
 def is_brand_owner_page(url: str, product: Product) -> bool:
     """True when the page's host is one listed for a word of the product's brand, or a subdomain of it."""
-    host = (urlsplit(url).hostname or "").casefold()
-    listed = (domain for word in _words(product.brand) for domain in BRAND_OWNER_HOSTS.get(word, ()))
-    return any(host == domain or host.endswith(f".{domain}") for domain in listed)
+    return _host_is(url, (domain for word in _words(product.brand) for domain in BRAND_OWNER_HOSTS.get(word, ())))

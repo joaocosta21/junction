@@ -55,6 +55,8 @@ def _load(path: Path, name: str) -> ModuleType:
 def no_supplier_login_in_the_shell(monkeypatch: pytest.MonkeyPatch) -> None:
     """The witness reads `SUPPLIER_DATABASE_URL` from the shell: no test depends on the developer's own."""
     monkeypatch.delenv("SUPPLIER_DATABASE_URL", raising=False)
+    monkeypatch.delenv("TTA_DEPLOY_WITH_MODEL", raising=False)  # the model key's opt-in, likewise
+    monkeypatch.delenv("TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS", raising=False)  # and the Context.dev key's
 
 
 @pytest.fixture

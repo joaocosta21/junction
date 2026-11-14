@@ -60,8 +60,8 @@ def test_a_contradiction_gets_the_recorded_page_with_an_answer_for_the_excluded_
     (evidence,) = approval.evidence
     assert (evidence.product_id, evidence.found) == (ALMOND_DRINK, True)
     assert evidence.sentence == (
-        "The manufacturer's page “Barista Mantelijuoma” on alpro.com says: contains manteli; may contain "
-        "pähkinöistä (ei maapähkinästä); free from laktoositon, Maidoton, Gluteeniton. "
+        "The manufacturer's page “Barista Mantelijuoma” on alpro.com says: contains “manteli”; may contain "
+        "“pähkinöistä (ei maapähkinästä)”; free from “laktoositon”, “Maidoton”, “Gluteeniton”. "
         "Asked about tree nuts (AN): Valio Aimo's data does not rule it out; the page says it contains it, in its "
         "words “manteli”. "
         "The page names tree nuts (AN), which this order excludes: check the product before approving. "
@@ -79,7 +79,7 @@ def test_a_product_with_no_recorded_page_says_so(catalog: ProductCatalog, tmp_pa
     assert not evidence.found
     assert evidence.sentence == (
         f"No evidence was found on the web for product {NOT_RECORDED}: no recorded page of this product is stored "
-        "and no Context.dev key is set, so nothing was looked up."
+        "and no lookup is made on this link (no Context.dev key is set)."
     )
     assert not list(tmp_path.rglob("*.json"))
 
@@ -114,9 +114,10 @@ def test_the_heading_says_manufacturers_page_only_for_a_host_listed_for_the_bran
     assert not is_brand_owner_page("https://elovena.fi.example.com/x", elovena)  # a look-alike host
     assert not is_brand_owner_page("https://www.oddlygood.com/x", elovena)  # another brand's site
     assert not is_brand_owner_page("https://shop.example/elovena", elovena)
-    assert wording.heading(True) == "Manufacturer's page, not Valio Aimo data"
-    assert wording.heading(False) == (
-        "A web page that names this product, not Valio Aimo data (its owner was not checked)"
+    # The sentence is the one place that says whose page it is: no separate heading text exists to disagree with it.
+    assert not hasattr(wording, "heading") and not hasattr(wording, "HEADING_UNCHECKED")
+    assert (wording.PAGE_OWNER, wording.PAGE_UNCHECKED) == (
+        "The manufacturer's page", "A web page whose owner was not checked,",
     )
 
 

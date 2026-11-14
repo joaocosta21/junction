@@ -4,17 +4,19 @@ opened here."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from tta.config import Settings
-from tta.store.postgres import SCHEMA_SETTING, schema_for
+from tta.store.postgres import schema_for
 
 
-def _settings(env: str, schema: object) -> SimpleNamespace:
-    """Stands for `Settings` once it carries the setting (`tta_db_schema`, added by the lane that owns the file)."""
-    return SimpleNamespace(tta_env=env, **{SCHEMA_SETTING: schema})
+def _settings(env: str, schema: str) -> Settings:
+    """The real settings: `tta_db_schema` is a field of `tta.config` and is read directly (S18)."""
+    return Settings.for_tests(tta_env=env, tta_db_schema=schema)
+
+
+def test_the_setting_is_a_field_of_the_settings_and_blank_by_default() -> None:
+    assert Settings.for_tests().tta_db_schema == ""
 
 
 @pytest.mark.parametrize(("env", "schema"), [("dev", "tta_dev"), ("demo", "tta"), ("prod", "tta")])
@@ -22,8 +24,8 @@ def test_without_the_setting_the_schema_is_the_environments(env: str, schema: st
     assert schema_for(Settings.for_tests(tta_env=env)) == schema
 
 
-@pytest.mark.parametrize("blank", [None, "", "   "])
-def test_a_blank_setting_is_no_setting(blank: object) -> None:
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_setting_is_no_setting(blank: str) -> None:
     assert schema_for(_settings("demo", blank)) == "tta"
     assert schema_for(_settings("dev", blank)) == "tta_dev"
 

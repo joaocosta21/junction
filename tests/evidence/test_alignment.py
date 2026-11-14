@@ -92,7 +92,7 @@ def test_a_page_that_names_an_excluded_allergen_adds_a_reason_for_the_person_who
     (_page(contains=("KAURA",)), "AW", PageAnswer.MAY_CONTAIN, ("KAURA",)),  # oats, and no gluten-free wording
     (_page(contains=("gluteeniton kaura",), free_from=("Gluteeniton",)), "AW", PageAnswer.FREE_FROM, ("Gluteeniton",)),
     (_page(contains=("VEHNÄ",), free_from=("Gluteeniton",)), "AW", PageAnswer.CONTAINS, ("VEHNÄ",)),
-    (_page(), "AM", PageAnswer.NOT_NAMED, ()),
+    (_page(), "AM", PageAnswer.NOTHING_LISTED, ()),  # empty lists: "lists nothing", never "does not name it"
 ])
 def test_how_a_pages_words_answer_one_excluded_allergen(
     page: Evidence, code: str, expected: PageAnswer, words: tuple[str, ...]
@@ -165,3 +165,45 @@ def test_a_page_that_names_the_excluded_allergen_reaches_the_approvals_reasons_a
         exclude={"evaluated_at"}
     )
     assert names.required_roles == frees.required_roles
+
+
+# --- S2: entries of the page that could not be read ------------------------------------------------------------------
+
+UNREAD = "some of the page's words could not be read, so nothing is concluded about {allergen}."
+
+
+@pytest.mark.parametrize("page", [
+    _page(),  # the only entry was unreadable: the lists are empty, and that is not "lists nothing"
+    _page(contains=("KAURA",)),  # would read "does not name it"
+    _page(free_from=("Maidoton",)),  # would read "free from": an unread entry may say "contains milk"
+])
+def test_with_an_unread_entry_the_page_is_never_answered_not_named_or_free_from(page: Evidence) -> None:
+    (answer,) = align(page, (_finding("AM"),), unread_entries=1)
+
+    assert (answer.page, answer.page_words) == (PageAnswer.UNMATCHED, ())
+    assert answer.sentence == "Asked about milk (AM): Valio Aimo's data states nothing; " + UNREAD.format(
+        allergen="milk (AM)"
+    )
+    assert not answer.names_excluded
+
+
+def test_an_unread_entry_never_hides_an_allergen_the_read_terms_name() -> None:
+    (answer,) = align(_page(contains=("Maito",)), (_finding("AM"),), unread_entries=2)
+
+    assert (answer.page, answer.page_words) == (PageAnswer.CONTAINS, ("Maito",))
+
+
+def test_empty_lists_read_lists_nothing() -> None:
+    (answer,) = align(_page(), (_finding("AM"),))
+
+    assert answer.page is PageAnswer.NOTHING_LISTED
+    assert answer.sentence == (
+        "Asked about milk (AM): Valio Aimo's data states nothing; the page lists nothing under contains, may "
+        "contain or free from, so it says nothing about it."
+    )
+
+
+def test_with_answers_carries_the_count_into_the_sentence() -> None:
+    answered = with_answers(_page(contains=("KAURA",)), (_finding("AM"),), unread_entries=1)
+
+    assert answered.sentence.endswith(UNREAD.format(allergen="milk (AM)"))

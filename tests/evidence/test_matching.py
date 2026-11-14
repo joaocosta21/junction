@@ -59,12 +59,6 @@ def test_the_page_title_can_carry_the_brand(catalog: ProductCatalog) -> None:
     assert not names_match("Kaurajuoma kahviin", "Kaurajuoma kahviin", "https://example.org/x", product)
 
 
-def test_a_product_without_a_brand_is_matched_on_its_name_alone(catalog: ProductCatalog) -> None:
-    product = catalog.get_product("469512").model_copy(update={"brand": None})
-
-    assert names_match("Elovena Kaurajuoma kahviin", None, "https://example.org/x", product)
-
-
 # --- near misses: a sibling is never evidence (EV) ---------------------------------------------------------------
 
 ARLA_PRO_RUOKA_15 = "463975"  # Arla Pro Ruoka 1 L 15% laktoositon kasvirasvasekoite Uht
@@ -214,3 +208,46 @@ def test_the_list_of_brand_owner_hosts_is_pinned() -> None:
         "arla": ("arla.fi", "arla.com", "arlapro.com"),
         "alpro": ("alpro.com",),
     }
+
+
+# --- S1: a product with no brand in Valio Aimo's data ---------------------------------------------------------------
+
+AIMO_YOGURT = "464517"  # "AIMO NATURAL YOGURT 5KG 2% LACTOSE FREE": Valio Aimo's own label, no brand in the data
+AIMO_PAGE = "AIMO Natural Yogurt 5kg 2% lactose free"
+NO_BRAND = "the product has no brand in Valio Aimo's data, so a page cannot be shown to be its maker's"
+
+
+def test_the_product_of_the_reproduction_has_no_brand(catalog: ProductCatalog) -> None:
+    assert catalog.get_product(AIMO_YOGURT).brand is None
+
+
+@pytest.mark.parametrize("url", [
+    "https://random-shop.example/aimo-natural-yogurt",
+    "https://valioaimo.fi.random-shop.example/x",  # the supplier's host as a label of another host
+    "https://notvalioaimo.fi/x",
+])
+def test_with_no_brand_a_page_on_any_other_host_is_never_evidence(catalog: ProductCatalog, url: str) -> None:
+    product = catalog.get_product(AIMO_YOGURT)
+
+    assert why_not_this_product(AIMO_PAGE, AIMO_PAGE, url, product) == NO_BRAND
+    assert not names_match(AIMO_PAGE, AIMO_PAGE, url, product)
+
+
+@pytest.mark.parametrize("brand", [None, "", "   ", "®"])
+def test_a_blank_brand_is_no_brand(catalog: ProductCatalog, brand: str | None) -> None:
+    product = catalog.get_product("469512").model_copy(update={"brand": brand})
+
+    assert why_not_this_product("Elovena Kaurajuoma kahviin", None, "https://elovena.fi/x/", product) == NO_BRAND
+
+
+def test_an_own_label_product_on_valio_aimos_own_site_is_kept_when_everything_else_agrees(
+    catalog: ProductCatalog,
+) -> None:
+    product = catalog.get_product(AIMO_YOGURT)
+
+    assert names_match(AIMO_PAGE, None, "https://www.valioaimo.fi/tuotteet/x", product)
+    # The other checks still hold on that host: another percentage, and a product that is not own label.
+    assert why_not_this_product("AIMO Natural Yogurt 5kg 10% lactose free", None, "https://valioaimo.fi/x", product) \
+        == "the page is for the 10% product; the product asked for is 2%"
+    other = catalog.get_product("469512").model_copy(update={"brand": None})
+    assert why_not_this_product("Elovena Kaurajuoma kahviin", None, "https://valioaimo.fi/x", other) == NO_BRAND

@@ -78,13 +78,25 @@ def _locally(module: ModuleType) -> Any:
     return lambda calls: [module.ask_page.local(call) for call in calls]
 
 
-def _run(module: ModuleType, catalog: ProductCatalog, tmp_path: Path, **options: Any) -> tuple[int, list[str]]:
+USED = (
+    "Requests to Context.dev: 12 used of 60 (0 recordings that carry a paid answer, 12 requests of the team's log "
+    "that left no recording; the count file holds 0). 48 left."
+)
+COUNT_FILE = "request-count.json"
+
+
+def _done(module: ModuleType, catalog: ProductCatalog, tmp_path: Path, **options: Any) -> tuple[Any, list[str]]:
     lines: list[str] = []
-    asked = module.run(
+    done = module.run(
         out=lines.append, settings=Settings.for_tests(), catalog=catalog, directory=tmp_path / "evidence",
-        **options,
+        counter=tmp_path / COUNT_FILE, **options,
     )
-    return asked, lines
+    return done, lines
+
+
+def _run(module: ModuleType, catalog: ProductCatalog, tmp_path: Path, **options: Any) -> tuple[int, list[str]]:
+    done, lines = _done(module, catalog, tmp_path, **options)
+    return done.asked, lines
 
 
 def test_a_dry_run_prints_the_count_and_the_cost_and_sends_nothing(
@@ -97,10 +109,12 @@ def test_a_dry_run_prints_the_count_and_the_cost_and_sends_nothing(
 
     assert (asked, stand_in.sent) == (0, [])
     assert lines == [
+        USED,
         f"{SILENT_IN_THE_CAPTURE} products of the capture 2026-11-14-demo hold no allergen statement; 0 of them "
         "already have a recorded page.",
-        f"Dry run: {SILENT_IN_THE_CAPTURE} request(s) would be sent to Context.dev, at most 40 at a time, 100 "
-        f"credits each, {SILENT_IN_THE_CAPTURE * 100} credits in all (limit 200). Nothing was sent.",
+        # S17: 200 were asked for; the team's total leaves 48.
+        "Dry run: 48 request(s) would be sent to Context.dev, at most 40 at a time, 100 "
+        "credits each, 4800 credits in all (limit 48). Nothing was sent.",
     ]
     assert not (tmp_path / "evidence").exists()
 
@@ -110,6 +124,7 @@ def test_the_limit_bounds_what_a_dry_run_would_send(
 ) -> None:
     _, lines = _run(module, catalog, tmp_path, limit=5, dry_run=True, ask_all=lambda calls: [])
 
+    assert lines[0] == USED
     assert lines[-1].startswith("Dry run: 5 request(s) would be sent to Context.dev, at most 40 at a time, 100 credits "
                                 "each, 500 credits in all (limit 5).")
 
@@ -144,9 +159,12 @@ def test_a_run_asks_at_most_the_limit_and_writes_each_answer_and_a_summary(
 
     assert asked == 3 and len(stand_in.sent) == 3
     assert len(list((tmp_path / "evidence").glob("*.json"))) == 3
-    assert lines[1] == "Asking for 3 product(s), at most 40 at a time, 300 credits."
-    assert "Products asked                                               3" in lines[2]
-    assert "A page was found                                             0" in lines[2]
+    assert lines[2] == "Asking for 3 product(s), at most 40 at a time, 300 credits."
+    assert all(": no manufacturer's page of this product was found. (evidence/" in line for line in lines[3:6])
+    assert "Products asked                                               3" in lines[6]
+    assert "A page was found                                             0" in lines[6]
+    # The count is written before the fan-out: the 12 counted and this run's 3.
+    assert json.loads((tmp_path / COUNT_FILE).read_text(encoding="utf-8")) == {"requests_sent": 15}
     assert lines[-1].endswith("Figures of this run only: a sample, not a catalog fact.")
 
     again, _ = _run(module, catalog, tmp_path, limit=3, dry_run=False, ask_all=_locally(module))
@@ -159,10 +177,61 @@ def test_a_call_that_failed_on_modal_is_said_and_the_other_answers_are_kept(
     def one_fails(calls: Any) -> Any:
         return [TimeoutError("container"), *(module.ask_page.local(call) for call in calls[1:])]
 
-    asked, lines = _run(module, catalog, tmp_path, limit=2, dry_run=False, ask_all=one_fails)
+    done, lines = _done(module, catalog, tmp_path, limit=2, dry_run=False, ask_all=one_fails)
 
-    assert asked == 2 and len(list((tmp_path / "evidence").glob("*.json"))) == 1
-    assert "Answers received and stored                                  1" in lines[2]
+    assert done.asked == 2 and len(list((tmp_path / "evidence").glob("*.json"))) == 1
+    assert "Answers received and stored                                  1" in lines[5]
+    # S10: the product and its reason are printed, and the run does not exit 0.
+    assert lines[3].endswith(": the batch call for this product failed (TimeoutError). (no file written)")
+    assert lines[-1].startswith("FAILED for 1 of 2 product(s), each with its reason above: ")
+    assert done.exit_code == module.EXIT_SOME_FAILED == 5
+
+
+def test_a_run_in_which_every_call_failed_exits_with_its_own_status(
+    module: ModuleType, catalog: ProductCatalog, tmp_path: Path, stand_in: StandIn
+) -> None:
+    done, lines = _done(
+        module, catalog, tmp_path, limit=2, dry_run=False, ask_all=lambda calls: [TimeoutError("c") for _ in calls],
+    )
+
+    assert (done.asked, done.exit_code) == (2, module.EXIT_NOTHING_ANSWERED) and module.EXIT_NOTHING_ANSWERED == 4
+    assert lines[-1] == "FAILED: none of the 2 product(s) asked was answered."
+    assert not list((tmp_path / "evidence").glob("*.json"))
+
+
+def test_a_run_that_answers_every_product_exits_zero(
+    module: ModuleType, catalog: ProductCatalog, tmp_path: Path, stand_in: StandIn
+) -> None:
+    done, _ = _done(module, catalog, tmp_path, limit=2, dry_run=False, ask_all=_locally(module))
+
+    assert (done.asked, done.exit_code) == (2, 0)
+
+
+def test_the_total_cap_is_counted_across_runs_and_a_spent_total_sends_nothing(
+    module: ModuleType, catalog: ProductCatalog, tmp_path: Path, stand_in: StandIn
+) -> None:
+    first, _ = _done(module, catalog, tmp_path, limit=5, dry_run=False, ask_all=_locally(module), total_cap=14)
+    second, lines = _done(module, catalog, tmp_path, limit=5, dry_run=False, ask_all=_locally(module), total_cap=14)
+
+    assert (first.asked, first.exit_code, len(stand_in.sent)) == (2, 0, 2)  # 12 counted, 2 left of 14
+    assert (second.asked, second.exit_code) == (0, module.EXIT_TOTAL_SPENT) and module.EXIT_TOTAL_SPENT == 7
+    assert lines[0].startswith("Requests to Context.dev: 14 used of 14 ")
+    assert lines[-1].startswith("The total is spent: nothing can be sent.")
+
+
+def test_a_count_that_cannot_be_read_sends_nothing(
+    module: ModuleType, catalog: ProductCatalog, tmp_path: Path, stand_in: StandIn
+) -> None:
+    (tmp_path / COUNT_FILE).write_text("{", encoding="utf-8")
+
+    done, lines = _done(module, catalog, tmp_path, limit=2, dry_run=False, ask_all=_locally(module))
+
+    assert (done.asked, done.exit_code, stand_in.sent) == (0, 8, [])
+    assert lines[0].startswith("Nothing was sent: the count of web lookups already made could not be read")
+
+
+def test_the_total_cap_is_the_evidence_packages(module: ModuleType) -> None:
+    assert module.DEFAULT_TOTAL_CAP == batch.DEFAULT_TOTAL_CAP == 60
 
 
 def test_the_function_is_a_modal_function_capped_at_forty_and_never_retried(module: ModuleType) -> None:

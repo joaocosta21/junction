@@ -22,7 +22,12 @@ from tta.config import REPO_ROOT, Settings
 from tta.contracts.common import DataSource
 
 THURSDAY = 4
-THREE_NAMES = {"VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY", "DATABASE_URL", "CONTEXT_DEV_API_KEY"}
+THREE_NAMES = {
+    "VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "DATABASE_URL", "TTA_SIGNING_KEY",
+    "TTA_SUPPLIER_SUGGESTIONS", "TTA_DB_SCHEMA",
+}
+# `Settings.for_tests` sets the suggestions switch itself, so it counts as set on the deploying machine and travels.
+SUGGESTIONS_ON = {"TTA_SUPPLIER_SUGGESTIONS": "true"}
 NEVER_IN_THE_IMAGE = (".env", ".claude", "var", ".git", ".venv")
 PRODUCT_FILE = "valio_aimo_junction26_product_data.json"
 RELIABILITY_FILE = "valio_aimo_junction26_delivery_reliability.csv"
@@ -80,25 +85,31 @@ def test_the_secret_holds_exactly_the_three_values_the_app_reads(modal_app: Modu
     assert values == {
         "VALIO_AIMO_API_KEY": sentinels.valio_key,
         "VALIO_AIMO_BASE_URL": sentinels.base_url,
-        "GEMINI_API_KEY": sentinels.gemini_key,
         "DATABASE_URL": "sentinel-database-url",
-        "CONTEXT_DEV_API_KEY": "sentinel-context-key",
+        **SUGGESTIONS_ON,
     }
+    assert "sentinel-context-key" not in values.values()  # nor the Context.dev key (security review M4)
+    assert modal_app.secret_values(settings, evidence_lookups=True)["CONTEXT_DEV_API_KEY"] == "sentinel-context-key"
+    assert sentinels.gemini_key not in values.values()  # the model key stays on the deploying machine
     assert "tta_tokens" not in str(values) and '{"t": 1}' not in values.values()  # never the whole environment
     assert set(modal_app.SECRET_NAMES) == THREE_NAMES
 
 
 def test_a_value_that_is_not_set_is_left_out(modal_app: ModuleType) -> None:
-    assert modal_app.secret_values(Settings.for_tests()) == {}
-    assert modal_app.secret_values(Settings.for_tests(valio_aimo_api_key="  ", gemini_api_key="")) == {}
+    assert modal_app.secret_values(Settings.for_tests()) == SUGGESTIONS_ON
+    assert modal_app.secret_values(Settings.for_tests(valio_aimo_api_key="  ", gemini_api_key="")) == SUGGESTIONS_ON
+    assert modal_app.secret_values(Settings.for_tests(tta_signing_key="  "), model=True) == SUGGESTIONS_ON
 
 
 def test_the_base_url_goes_only_when_it_was_set(modal_app: ModuleType, sentinels: Any) -> None:
     only_url = Settings.for_tests(valio_aimo_base_url=sentinels.base_url)
     only_gemini = Settings.for_tests(gemini_api_key=sentinels.gemini_key)
 
-    assert modal_app.secret_values(only_url) == {"VALIO_AIMO_BASE_URL": sentinels.base_url}
-    assert modal_app.secret_values(only_gemini) == {"GEMINI_API_KEY": sentinels.gemini_key}
+    assert modal_app.secret_values(only_url) == {"VALIO_AIMO_BASE_URL": sentinels.base_url, **SUGGESTIONS_ON}
+    assert modal_app.secret_values(only_gemini) == SUGGESTIONS_ON
+    assert modal_app.secret_values(only_gemini, model=True) == {
+        "GEMINI_API_KEY": sentinels.gemini_key, **SUGGESTIONS_ON,
+    }
 
 
 def test_on_the_deploying_machine_the_values_come_through_tta_config(modal_app: ModuleType, sentinels: Any) -> None:
@@ -264,14 +275,176 @@ def test_the_deployed_app_spends_at_most_120_live_calls(modal_app: ModuleType) -
 
 
 def test_a_schema_chosen_on_the_deploying_machine_travels_to_the_container(modal_app: ModuleType) -> None:
-    chosen = SimpleNamespace(
-        has_valio_key=False, has_gemini_key=False, has_database_url=False, has_context_dev_key=False,
-        model_fields_set=set(), tta_db_schema=" tta_nov15 ",
-    )
+    chosen = Settings.for_tests(tta_db_schema=" tta_nov15 ")
 
-    assert modal_app.secret_values(chosen) == {"TTA_DB_SCHEMA": "tta_nov15"}
+    assert modal_app.secret_values(chosen) == {"TTA_DB_SCHEMA": "tta_nov15", **SUGGESTIONS_ON}
 
 
 def test_without_a_chosen_schema_none_is_sent_and_the_default_stays(modal_app: ModuleType) -> None:
     assert "TTA_DB_SCHEMA" not in modal_app.secret_values(Settings.for_tests())
     assert "TTA_DB_SCHEMA" not in modal_app.IMAGE_ENV
+
+
+# --- S8: the signing key and the suggestions switch travel when they are set ------------------------------------
+
+SIGNING_KEY = "sentinel-signing-key-not-a-real-one"
+MODEL_NOT_SENT = "The model key is not sent: requests are read by the recordings and the fixed rules."
+EVIDENCE_NOT_SENT = (
+    "The Context.dev key is not sent: the public link shows recorded pages only, makes no lookup and spends no "
+    "credit."
+)
+
+
+def test_a_signing_key_set_on_the_deploying_machine_travels_in_the_secret_and_nowhere_else(
+    modal_app: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settings = Settings.for_tests(tta_signing_key=SIGNING_KEY)
+
+    values = modal_app.secret_values(settings)
+    notes = modal_app.deploy_notes(values, {}, model=False)
+
+    assert values["TTA_SIGNING_KEY"] == SIGNING_KEY
+    assert "TTA_SIGNING_KEY" not in modal_app.IMAGE_ENV and SIGNING_KEY not in str(modal_app.IMAGE_ENV)
+    assert "TTA_SIGNING_KEY is sent in the Secret." in notes
+    assert SIGNING_KEY not in "\n".join(notes)  # named, never printed
+
+
+def test_the_suggestions_switch_travels_as_it_was_set_and_not_at_all_when_it_was_not(modal_app: ModuleType) -> None:
+    off = Settings.for_tests(tta_supplier_suggestions=False)
+    never_set = SimpleNamespace(
+        has_valio_key=False, has_gemini_key=False, has_database_url=False, has_context_dev_key=False,
+        has_signing_key=False, model_fields_set=set(), tta_supplier_suggestions=True, tta_db_schema="",
+    )
+
+    assert modal_app.secret_values(off)["TTA_SUPPLIER_SUGGESTIONS"] == "false"
+    assert modal_app.secret_values(never_set) == {}
+
+
+def test_the_deploy_output_names_each_optional_setting_that_was_not_set(modal_app: ModuleType) -> None:
+    assert modal_app.deploy_notes({}, {}, model=False) == (
+        MODEL_NOT_SENT,
+        EVIDENCE_NOT_SENT,
+        "TTA_SIGNING_KEY is not set: the public link signs with a demo key that changes at every cold start.",
+        "TTA_SUPPLIER_SUGGESTIONS is not set: the gateway's own default applies.",
+        "TTA_DB_SCHEMA is not set: the audit trail is in the environment's schema.",
+        "SUPPLIER_DATABASE_URL is not set: no witness of the audit head is scheduled.",
+    )
+    everything = {"TTA_SIGNING_KEY": "k", "TTA_SUPPLIER_SUGGESTIONS": "true", "TTA_DB_SCHEMA": "tta_nov15"}
+    assert modal_app.deploy_notes(everything, {"SUPPLIER_DATABASE_URL": "u"}, model=False) == (
+        MODEL_NOT_SENT, EVIDENCE_NOT_SENT, "TTA_SIGNING_KEY is sent in the Secret.",
+        "TTA_SUPPLIER_SUGGESTIONS is sent in the Secret.", "TTA_DB_SCHEMA is sent in the Secret.",
+    )
+
+
+# --- the model key is not carried unless the deploying shell asks for it ---------------------------------------------
+
+
+def test_by_default_the_model_key_is_not_sent_and_the_deploy_says_so(
+    modal_app: ModuleType, sentinels: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert "GEMINI_API_KEY" not in modal_app.SECRET_ENV  # the deploying machine has one (the sentinel)
+    assert sentinels.gemini_key not in str(modal_app.SECRET_ENV)
+    assert modal_app.with_model({}) is False and modal_app.with_model({"TTA_DEPLOY_WITH_MODEL": "true"}) is False
+    assert modal_app.deploy_notes(modal_app.SECRET_ENV, {}, model=False)[0] == MODEL_NOT_SENT
+
+
+def test_with_the_opt_in_the_model_key_is_sent_and_the_deploy_says_so(
+    monkeypatch: pytest.MonkeyPatch, sentinels: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import importlib.util
+
+    import tta.config
+
+    monkeypatch.setattr(tta.config, "get_settings", sentinels.settings)
+    monkeypatch.setenv("TTA_DEPLOY_WITH_MODEL", "1")
+    spec = importlib.util.spec_from_file_location("tta_deploy_modal_app_model", REPO_ROOT / "deploy" / "modal_app.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["tta_deploy_modal_app_model"] = module
+    try:
+        spec.loader.exec_module(module)
+        printed = capsys.readouterr().err
+    finally:
+        sys.modules.pop("tta_deploy_modal_app_model", None)
+
+    assert module.SECRET_ENV["GEMINI_API_KEY"] == sentinels.gemini_key
+    assert "The model key is sent (TTA_DEPLOY_WITH_MODEL=1): the public link may call the model." in printed
+    assert MODEL_NOT_SENT not in printed and sentinels.gemini_key not in printed
+
+
+def test_the_opt_in_without_a_key_sends_none_and_says_so(modal_app: ModuleType) -> None:
+    values = modal_app.secret_values(Settings.for_tests(), model=True)
+
+    assert "GEMINI_API_KEY" not in values
+    assert modal_app.deploy_notes(values, {}, model=True)[0] == (
+        "TTA_DEPLOY_WITH_MODEL=1 is set but no GEMINI_API_KEY is: no model key is sent."
+    )
+
+
+def test_loading_the_module_on_the_deploying_machine_prints_the_notes_and_no_value(
+    monkeypatch: pytest.MonkeyPatch, sentinels: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import tta.config
+
+    monkeypatch.setattr(tta.config, "get_settings", sentinels.settings)
+    _loaded("tta_deploy_modal_app_notes")
+    captured = capsys.readouterr()
+    printed = captured.err
+    assert captured.out == ""  # stdout stays clean for whoever reads the command's output
+
+    assert MODEL_NOT_SENT in printed and "TTA_SIGNING_KEY is not set" in printed
+    for value in (sentinels.valio_key, sentinels.gemini_key, sentinels.base_url):
+        assert value not in printed
+
+
+# --- security review M4: the Context.dev key is not carried unless the deploying shell asks for it ------------------
+
+CONTEXT_KEY = "sentinel-context-key-not-a-real-one"
+
+
+def _loaded(name: str) -> ModuleType:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / "deploy" / "modal_app.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(name, None)
+    return module
+
+
+@pytest.mark.parametrize(("opt_in", "sent", "line"), [
+    (None, False, EVIDENCE_NOT_SENT),
+    ("0", False, EVIDENCE_NOT_SENT),
+    ("1", True, "The Context.dev key is sent (TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS=1): the public link may send "
+                "lookups, 100 credits each, up to the gateway's own count."),
+])
+def test_the_context_dev_key_reaches_the_public_link_only_with_the_opt_in_and_the_deploy_says_which(
+    monkeypatch: pytest.MonkeyPatch, sentinels: Any, capsys: pytest.CaptureFixture[str],
+    opt_in: str | None, sent: bool, line: str,
+) -> None:
+    import tta.config
+
+    monkeypatch.setattr(tta.config, "get_settings", lambda: sentinels.settings(context_dev_api_key=CONTEXT_KEY))
+    if opt_in is not None:
+        monkeypatch.setenv("TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS", opt_in)
+
+    module = _loaded("tta_deploy_modal_app_evidence")
+    printed = capsys.readouterr().err
+
+    assert (module.SECRET_ENV.get("CONTEXT_DEV_API_KEY") == CONTEXT_KEY) is sent
+    assert (CONTEXT_KEY in str(module.SECRET_ENV)) is sent
+    assert line in printed and CONTEXT_KEY not in printed
+    assert "CONTEXT_DEV_API_KEY" not in module.IMAGE_ENV
+
+
+def test_the_opt_in_without_a_context_dev_key_sends_none_and_says_so(modal_app: ModuleType) -> None:
+    values = modal_app.secret_values(Settings.for_tests(), evidence_lookups=True)
+
+    assert "CONTEXT_DEV_API_KEY" not in values
+    assert modal_app.deploy_notes(values, {}, model=False, evidence_lookups=True)[1] == (
+        "TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS=1 is set but no CONTEXT_DEV_API_KEY is: no Context.dev key is sent."
+    )

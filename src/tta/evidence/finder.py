@@ -30,7 +30,7 @@ from tta.evidence import wording
 from tta.evidence.alignment import with_answers
 from tta.evidence.answers import AnswerRecord, AnswersClient, EvidenceUnavailable
 from tta.evidence.cache import EvidenceCache
-from tta.evidence.reading import read_answer
+from tta.evidence.reading import read_page
 
 logger = logging.getLogger(__name__)
 
@@ -89,20 +89,24 @@ class EvidenceFinder:
 
     def find_evidence(self, product: Product) -> Evidence:
         """What the manufacturer's page says about this product, or why nothing can be shown."""
+        return self._read(product)[0]
+
+    def _read(self, product: Product) -> tuple[Evidence, int]:
+        """(the evidence, the entries of the page's lists that could not be read)."""
         try:
             with self._lock:
                 record = self._cache.get(product.id) or self._asked(product)
         except EvidenceUnavailable as unavailable:
             logger.warning("No web evidence for product %s: %s", product.id, unavailable.reason)
-            return _none_found(product.id, unavailable.reason)
-        return read_answer(record, product)
+            return _none_found(product.id, unavailable.reason), 0
+        return read_page(record, product)
 
     def for_approval(self, option: OfferOption, decision: PolicyDecision) -> tuple[Evidence, ...]:
         """One evidence per product that needs it, in the order of the option's lines. Never raises for a lookup
         that fails: the approval goes on, and the evidence says what happened."""
         wanted = _doubts_by_product(option, decision)
         return tuple(
-            with_answers(self._for_id(product_id), findings) if index < MAX_PRODUCTS_PER_APPROVAL
+            self._answered(product_id, findings) if index < MAX_PRODUCTS_PER_APPROVAL
             else _none_found(product_id, wording.TOO_MANY.format(limit=MAX_PRODUCTS_PER_APPROVAL))
             for index, (product_id, findings) in enumerate(wanted.items())
         )
@@ -119,15 +123,19 @@ class EvidenceFinder:
         self._cache.put(record)  # stored whatever it says: it cost credits, and asking again costs as much
         return record
 
-    def _for_id(self, product_id: str) -> Evidence:
+    def _answered(self, product_id: str, findings: tuple[AllergenFinding, ...]) -> Evidence:
+        evidence, unread_entries = self._for_id(product_id)
+        return with_answers(evidence, findings, unread_entries)
+
+    def _for_id(self, product_id: str) -> tuple[Evidence, int]:
         product = self._catalog.get_product(product_id)
         if product is None:
-            return _none_found(product_id, wording.NOT_IN_CATALOG)
+            return _none_found(product_id, wording.NOT_IN_CATALOG), 0
         try:
-            return self.find_evidence(product)
+            return self._read(product)
         except (OSError, ValueError) as error:  # a cache that cannot be written, or data that cannot be read
             logger.error("Web evidence for product %s failed: %s", product_id, type(error).__name__, exc_info=error)
-            return _none_found(product_id, wording.LOOKUP_FAILED)
+            return _none_found(product_id, wording.LOOKUP_FAILED), 0
 
 
 def build_evidence_finder(settings: Settings, data_dir: Path, catalog: Catalog) -> EvidenceFinder:

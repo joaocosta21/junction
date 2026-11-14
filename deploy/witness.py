@@ -6,6 +6,11 @@ earlier head (`src/tta/audit/chain.py`). This is that other party, in the suppli
 view with the supplier's read-only login, notes the head, and at the next run checks that the head it noted is
 still where it was.
 
+A head that does not move is not proof of health (S9): a gateway that fell back to another store (SQLite on its
+own disk) leaves this trail intact and silent. So each note also holds `moved_at`, the time the head last changed,
+and a head that has stayed the same for `STALE_AFTER_HOURS` reads as a warning that says so. It is a warning and
+not a failure: a quiet night moves no head either.
+
 Nothing here runs by itself. `check` is pure. `read_head` sends three `SELECT`s over a connection it is given.
 `witness_once` joins them around a note store (a `modal.Dict` on Modal, a plain dict in a test). The module
 imports no Modal name and no part of the gateway, so the container needs only this file and psycopg.
@@ -16,7 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import MutableMapping
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -26,11 +31,15 @@ VIEW = "audit_supplier"
 # Three reads of the supplier's view; `{view}` is the checked schema and the view, quoted by `qualified_view`.
 COUNT_AND_LAST = "SELECT count(*), max(seq) FROM {view}"  # noqa: S105 - not a password
 HASH_AT = "SELECT hash FROM {view} WHERE seq = %s"
+# How long the head may stay the same before the witness says so. Ours: the demo is used through the day, so six
+# hours without one audit event is worth a look; it is not a figure of Valio Aimo's.
+STALE_AFTER_HOURS = 6
 
 
 class Finding(StrEnum):
     FIRST = "FIRST"  # nothing was noted before: the head is noted
     SAME = "SAME"  # the head is the one noted last time
+    STALE = "STALE"  # the same head for `STALE_AFTER_HOURS` or longer: intact, and nothing new was written
     GROWN = "GROWN"  # events were appended; the noted head is still at its place
     SHORTENED = "SHORTENED"  # the trail holds fewer events than were noted
     REWRITTEN = "REWRITTEN"  # the event at the noted place has another hash, or is gone
@@ -54,10 +63,18 @@ class Verdict:
     def ok(self) -> bool:
         return self.finding not in (Finding.SHORTENED, Finding.REWRITTEN)
 
+    @property
+    def warning(self) -> bool:
+        """True when the trail is intact but the verdict is not "healthy": it has not moved for too long."""
+        return self.finding is Finding.STALE
 
-def check(noted: Head | None, head: Head, hash_at_noted_seq: str | None) -> Verdict:
+
+def check(
+    noted: Head | None, head: Head, hash_at_noted_seq: str | None, unmoved_for: timedelta | None = None
+) -> Verdict:
     """Compare the head noted at the last run with the trail now. `hash_at_noted_seq` is the hash the trail holds
-    today at the noted head's place, or `None` when no event is there."""
+    today at the noted head's place, or `None` when no event is there. `unmoved_for` is how long the head has been
+    the noted one, when that is known."""
     if noted is None:
         return Verdict(Finding.FIRST, f"First run: the head was noted ({_described(head)}).")
     if head.count < noted.count or (noted.seq is not None and (head.seq is None or head.seq < noted.seq)):
@@ -71,6 +88,12 @@ def check(noted: Head | None, head: Head, hash_at_noted_seq: str | None) -> Verd
             f"and that place holds {_short(hash_at_noted_seq)} now. The earlier note is kept."
         ))
     if (head.count, head.seq, head.hash) == (noted.count, noted.seq, noted.hash):
+        if unmoved_for is not None and unmoved_for >= timedelta(hours=STALE_AFTER_HOURS):
+            hours = int(unmoved_for.total_seconds() // 3600)
+            return Verdict(Finding.STALE, (
+                f"No new audit event for {hours} hours: the gateway may be writing elsewhere; check /healthz store. "
+                f"The noted head is still at its place ({_described(head)})."
+            ))
         return Verdict(Finding.SAME, f"The head is the one noted last time ({_described(head)}).")
     return Verdict(Finding.GROWN, (
         f"{head.count - noted.count} event(s) were appended since the last run and the noted head is still at its "
@@ -142,14 +165,36 @@ def _noted(value: Any) -> Head | None:
     return Head(count=count, seq=seq, hash=digest)
 
 
+def _moved_at(value: Any) -> datetime | None:
+    """When the noted head last changed: the note's `moved_at`, or its `noted_at` for a note written before that
+    field existed. `None` when neither can be read: the witness then cannot say how long, and does not guess."""
+    if not isinstance(value, dict):
+        return None
+    for key in ("moved_at", "noted_at"):
+        try:
+            moment = datetime.fromisoformat(value[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if moment.tzinfo is not None:
+            return moment
+    return None
+
+
 def witness_once(
     connection: Connection, notes: MutableMapping[str, Any], schema: str, now: datetime
 ) -> Verdict:
     """One run: read the note for this schema, read the trail, compare, and note the new head when the trail is
-    intact. A shortened or rewritten trail leaves the earlier note as it is: it is the proof."""
-    noted = _noted(notes.get(schema))
+    intact. A shortened or rewritten trail leaves the earlier note as it is: it is the proof. `now` carries its
+    offset."""
+    earlier = notes.get(schema)
+    noted = _noted(earlier)
     head, at_noted = read_head(connection, schema, noted.seq if noted else None)
-    verdict = check(noted, head, at_noted)
+    moved_at = _moved_at(earlier)
+    verdict = check(noted, head, at_noted, now - moved_at if moved_at else None)
     if verdict.ok:
-        notes[schema] = {**asdict(head), "noted_at": now.isoformat(), "finding": verdict.finding.value}
+        unmoved = verdict.finding in (Finding.SAME, Finding.STALE) and moved_at is not None
+        notes[schema] = {
+            **asdict(head), "noted_at": now.isoformat(), "moved_at": (moved_at if unmoved else now).isoformat(),
+            "finding": verdict.finding.value,
+        }
     return verdict

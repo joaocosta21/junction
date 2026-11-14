@@ -37,7 +37,8 @@ HTTP_TIMEOUT_SECONDS = 50.0  # longer than the deadline, as the documentation as
 CONNECT_TIMEOUT_SECONDS = 5.0
 MAX_BODY_BYTES = 1_000_000  # the answers recorded on 14 Nov are under 1 kB
 # Lookups one gateway may send: a public demo cannot spend the team's credits without bound. With a `counter` file
-# the count is kept on disk and a restart goes on from it (AP-4); without one it is per process.
+# the count is kept on disk and a restart goes on from it (AP-4); without one it is per process. The two recording
+# scripts always pass the file and a floor (`batch.requests_used`), with the team's approved total as the cap.
 DEFAULT_MAX_CALLS = 40
 CREDITS_PER_REQUEST = 100  # mode `ultra` (docs/CONTEXTDEV.md); a cached answer costs the same
 COUNT_KEY = "requests_sent"
@@ -74,11 +75,14 @@ _REFUSALS = {
 
 
 class EvidenceUnavailable(Exception):
-    """No answer could be had. `reason` completes "No evidence was found on the web for product …: <reason>"."""
+    """No answer could be had. `reason` completes "No evidence was found on the web for product …: <reason>".
+    `raw` is the text of an answer that was received (HTTP 200, so it cost credits) and could not be read: the
+    caller stores it (S10). It is never put into a sentence or a log line."""
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, raw: str | None = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.raw = raw
 
 
 @dataclass(frozen=True)
@@ -150,12 +154,15 @@ class AnswersClient:
         now: Callable[[], datetime] = _utc_now,
         max_calls: int = DEFAULT_MAX_CALLS,
         counter: Path | None = None,
+        floor: int = 0,
     ) -> None:
         self._settings = settings
         self._now = now
         self._max_calls = max_calls
         self._calls = 0
         self._counter = counter  # a JSON file; one process writes it (the deployment runs one container)
+        # Requests known to have been sent before, whatever the file says (S17): a deleted file restarts here.
+        self._floor = floor
         self._lock = threading.Lock()
         timeout = httpx.Timeout(HTTP_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS)
         self._http = httpx.Client(timeout=timeout, transport=transport, headers={"User-Agent": USER_AGENT})
@@ -186,44 +193,48 @@ class AnswersClient:
         """Requests counted so far: this process's, or the file's when it holds more. Raises `EvidenceUnavailable`
         when the file cannot be read."""
         with self._lock:
-            return max(self._calls, self._stored_count())
+            return max(self._calls, stored_count(self._counter), self._floor)
 
     def _spend_one_call(self) -> None:
         """Count the request before it is sent, and write the count before the request goes out: a request whose
         count could not be kept is not sent."""
         with self._lock:
-            made = max(self._calls, self._stored_count())
+            made = max(self._calls, stored_count(self._counter), self._floor)
             if made >= self._max_calls:
                 raise EvidenceUnavailable(wording.BUDGET_SPENT.format(limit=self._max_calls))
-            self._store_count(made + 1)
+            store_count(self._counter, made + 1)
             self._calls = made + 1
 
-    def _stored_count(self) -> int:
-        if self._counter is None or not self._counter.is_file():
-            return 0
-        try:
-            count = json.loads(self._counter.read_text(encoding="utf-8")).get(COUNT_KEY)
-        except (OSError, ValueError, AttributeError) as error:
-            raise EvidenceUnavailable(wording.COUNT_UNREADABLE) from error
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise EvidenceUnavailable(wording.COUNT_UNREADABLE)
-        return count
 
-    def _store_count(self, count: int) -> None:
-        if self._counter is None:
-            return
+def stored_count(counter: Path | None) -> int:
+    """The count of requests the file holds; 0 without a file. Raises `EvidenceUnavailable` when it cannot be read."""
+    if counter is None or not counter.is_file():
+        return 0
+    try:
+        count = json.loads(counter.read_text(encoding="utf-8")).get(COUNT_KEY)
+    except (OSError, ValueError, AttributeError) as error:
+        raise EvidenceUnavailable(wording.COUNT_UNREADABLE) from error
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        raise EvidenceUnavailable(wording.COUNT_UNREADABLE)
+    return count
+
+
+def store_count(counter: Path | None, count: int) -> None:
+    """Write the count whole, or not at all. Raises `EvidenceUnavailable` when it cannot be written."""
+    if counter is None:
+        return
+    try:
+        counter.parent.mkdir(parents=True, exist_ok=True)
+        handle, temporary = tempfile.mkstemp(dir=counter.parent, suffix=".tmp")
         try:
-            self._counter.parent.mkdir(parents=True, exist_ok=True)
-            handle, temporary = tempfile.mkstemp(dir=self._counter.parent, suffix=".tmp")
-            try:
-                with os.fdopen(handle, "w", encoding="utf-8") as stream:
-                    stream.write(json.dumps({COUNT_KEY: count}) + "\n")
-                os.replace(temporary, self._counter)
-            except BaseException:
-                Path(temporary).unlink(missing_ok=True)
-                raise
-        except OSError as error:
-            raise EvidenceUnavailable(wording.COUNT_UNREADABLE) from error
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps({COUNT_KEY: count}) + "\n")
+            os.replace(temporary, counter)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    except OSError as error:
+        raise EvidenceUnavailable(wording.COUNT_UNREADABLE) from error
 
 
 def _body(response: httpx.Response) -> JsonDict:
@@ -231,12 +242,14 @@ def _body(response: httpx.Response) -> JsonDict:
     if response.status_code != OK:
         reason = _REFUSALS.get(response.status_code, wording.ANSWERED_STATUS.format(status=response.status_code))
         raise EvidenceUnavailable(reason)
+    # From here on the service answered 200: the answer cost credits, so what cannot be read is handed on as text.
+    raw = response.content[:MAX_BODY_BYTES].decode("utf-8", errors="replace")
     if len(response.content) > MAX_BODY_BYTES:
-        raise EvidenceUnavailable(wording.UNREADABLE)
+        raise EvidenceUnavailable(wording.UNREADABLE, raw=raw)
     try:
         body = json.loads(response.content)
     except ValueError as error:
-        raise EvidenceUnavailable(wording.UNREADABLE) from error
+        raise EvidenceUnavailable(wording.UNREADABLE, raw=raw) from error
     if not isinstance(body, dict):
-        raise EvidenceUnavailable(wording.UNREADABLE)
+        raise EvidenceUnavailable(wording.UNREADABLE, raw=raw)
     return body

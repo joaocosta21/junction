@@ -15,13 +15,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api import create_app
+from tta.api.mcp_surface import TOOL_NAMES
 from tta.config import Settings
 from tta.contracts.common import DataSource
 
 WARD_TOKEN = "demo-agent-allergy-ward"
 EVERY_CHECK = (
     "health", "page", "offer", "order", "audit", "mcp without a token", "mcp tools", "mcp foreign origin",
-    "api catalog",
+    "api catalog", "signing key",
 )
 
 
@@ -48,7 +49,7 @@ def test_every_check_passes_against_the_gateway(check: ModuleType, client: TestC
     by_name = {result.name: result.detail for result in results}
     assert "PENDING_APPROVAL" in by_name["order"]  # every order waits for a person (F-10)
     assert "replay" in by_name["offer"]
-    assert "8 tools" in by_name["mcp tools"]
+    assert f"{len(TOOL_NAMES)} tools" in by_name["mcp tools"]  # counted from the surface (13 since L4-2b)
     assert by_name["mcp foreign origin"] == "status 403"  # P12 W3
     assert "/openapi.json" in by_name["api catalog"] and "/mcp/" in by_name["api catalog"]  # P12 W2, before the pages
 
@@ -58,6 +59,7 @@ def test_with_no_order_asked_for_none_is_placed(check: ModuleType, client: TestC
 
     assert [result.name for result in results] == [
         "health", "page", "offer", "mcp without a token", "mcp tools", "mcp foreign origin", "api catalog",
+        "signing key",
     ]
     assert all(result.ok for result in results)
     assert client.get("/v1/orders", headers={"Authorization": f"Bearer {WARD_TOKEN}"}).json() == []
@@ -68,7 +70,7 @@ def test_a_gateway_in_the_wrong_mode_fails_the_health_check(check: ModuleType, c
 
     health = results[0]
     assert (health.name, health.ok) == ("health", False)
-    assert "mode replay" in health.detail
+    assert "mode replay (--mode live was asked for)" in health.detail
     assert all(result.ok for result in results[1:])
 
 
@@ -92,6 +94,9 @@ def test_the_report_has_one_line_per_check_and_says_whether_all_passed(check: Mo
     results = (check.Result("health", True, "ok"), check.Result("page", False, "status 500"))
 
     assert check.report(results) == "PASS  health: ok\nFAIL  page: status 500\n1 of 2 checks failed."
+    # The count comes from the results, never from a typed number.
+    assert check.report(results[:1]) == "PASS  health: ok\nAll 1 checks passed."
+    assert check.report(results[:1] * 9).endswith("All 9 checks passed.")
 
 
 def _scripted(check: ModuleType, replies: Mapping[tuple[str, str], Any]) -> Any:
@@ -159,7 +164,7 @@ def test_a_catalog_that_is_not_the_rfc_9727_linkset_fails(check: ModuleType) -> 
     page = check.Reply(404, "text/html; charset=utf-8", b"<html>Not found</html>")  # what demo answered before W2
     fetch = _scripted(check, {("GET", "/.well-known/api-catalog"): page})
 
-    catalog = check.run_checks(fetch, place_order=False)[-1]
+    catalog = next(r for r in check.run_checks(fetch, place_order=False) if r.name == "api catalog")
 
     assert (catalog.name, catalog.ok) == ("api catalog", False)
     assert catalog.detail.startswith("status 404")
@@ -172,3 +177,89 @@ def test_an_mcp_endpoint_that_serves_a_foreign_origin_fails(check: ModuleType) -
     results = {result.name: result for result in check.run_checks(fetch, place_order=False)}
 
     assert (results["mcp foreign origin"].ok, results["mcp foreign origin"].detail) == (False, "status 200")
+
+
+# --- the mode is the link's own unless one is asked for ---------------------------------------------------------------
+
+
+def test_without_a_mode_the_links_own_mode_is_read_from_healthz_and_said(check: ModuleType, client: TestClient) -> None:
+    results = check.run_checks(_fetch(check, client), place_order=False)
+
+    assert results[0].ok
+    assert "mode replay (read from /healthz: no --mode was given)" in results[0].detail
+    assert check.report(results).endswith(f"All {len(results)} checks passed.")
+
+
+def test_the_command_line_has_no_default_mode(check: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def noting(fetch: Any, **options: Any) -> tuple[Any, ...]:
+        seen.update(options)
+        return ()
+
+    monkeypatch.setattr(check, "run_checks", noting)
+    monkeypatch.setattr(check, "http_fetch", lambda url: None)
+
+    check.main(["https://example.invalid"])
+    assert seen == {"expected_mode": None, "place_order": True}
+    check.main(["https://example.invalid", "--mode", "replay", "--no-order"])
+    assert seen == {"expected_mode": "replay", "place_order": False}
+
+
+def test_a_mode_that_is_neither_replay_nor_live_fails(check: ModuleType) -> None:
+    body = {"environment": "demo", "mode": "mock", "status": "ok", "source": "x", "audit_head": {"events": 0}}
+    fetch = _scripted(check, {("GET", "/healthz"): check.Reply(200, "application/json", json.dumps(body).encode())})
+
+    assert not check.run_checks(fetch, place_order=False)[0].ok
+
+
+# --- the signing key -------------------------------------------------------------------------------------------------
+
+KEY = {"kty": "OKP", "crv": "Ed25519", "x": "abc", "kid": "kid-1"}
+
+
+def _signing(check: ModuleType, keys: list[dict[str, Any]], health: dict[str, Any] | None) -> Any:
+    key_set = check.Reply(200, "application/json", json.dumps({"keys": keys}).encode())
+    replies = {("GET", "/.well-known/jwks.json"): key_set}
+    if health is not None:
+        replies[("GET", "/healthz")] = check.Reply(200, "application/json", json.dumps(health).encode())
+    return check.check_signing_key(_scripted(check, replies))
+
+
+def test_the_gateways_key_set_holds_one_ed25519_key_and_the_check_says_it_is_a_demo_key(
+    check: ModuleType, client: TestClient
+) -> None:
+    result = check.check_signing_key(_fetch(check, client))  # no TTA_SIGNING_KEY in the test settings
+
+    assert result.ok and result.detail.startswith("one Ed25519 key, kid ")
+    assert result.detail.endswith("/healthz says it is a demo key: generated at start, so signatures stop verifying "
+                                  "at the next start")
+
+
+def test_a_key_that_was_set_is_said_so(check: ModuleType) -> None:
+    result = _signing(check, [KEY], {"signing": {"key_id": "kid-1", "demo_key": False}})
+
+    assert (result.ok, result.detail) == (True, "one Ed25519 key, kid kid-1; /healthz says it is a key that was set")
+
+
+@pytest.mark.parametrize(("keys", "health", "detail"), [
+    ([], None, "0 key(s), 0 of them Ed25519: one was expected"),
+    ([KEY, {**KEY, "kid": "kid-2"}], None, "2 key(s), 2 of them Ed25519: one was expected"),
+    ([{"kty": "RSA", "kid": "r"}], None, "1 key(s), 0 of them Ed25519: one was expected"),
+    ([KEY], {"signing": {"key_id": "another", "demo_key": True}}, "the key at /healthz is not the key of the key set"),
+])
+def test_a_key_set_that_is_not_one_ed25519_key_fails(
+    check: ModuleType, keys: list[dict[str, Any]], health: dict[str, Any] | None, detail: str
+) -> None:
+    result = _signing(check, keys, health)
+
+    assert (result.ok, result.detail) == (False, detail)
+
+
+def test_a_health_answer_that_does_not_say_is_reported_and_no_key_set_fails(check: ModuleType) -> None:
+    silent = _signing(check, [KEY], None)
+    missing = check.check_signing_key(_scripted(check, {}))
+
+    assert (silent.ok, silent.detail) == (True, "one Ed25519 key, kid kid-1; /healthz does not say whether it is a "
+                                                "demo key")
+    assert (missing.ok, missing.detail) == (False, "status 500")

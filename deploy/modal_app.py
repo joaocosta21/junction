@@ -38,6 +38,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator, Mapping, MutableMapping
@@ -110,12 +111,27 @@ DEMO_CLOCK = "2026-11-12T14:15:00+02:00"
 # Settings that are no secret and are the deploying machine's to choose: they travel with the Secret because that is
 # the one channel from that machine's environment to the container. `TTA_DB_SCHEMA` names a new PostgreSQL schema
 # when the deployed audit trail can no longer be read by this build (the old trail stays, untouched).
-OPTIONAL_SETTINGS = {"TTA_DB_SCHEMA": "tta_db_schema"}
+SCHEMA_NAME_IN_CONTAINER = "TTA_DB_SCHEMA"
+# The key offers and orders are signed with (S8). Without it the container generates a demo key at every cold
+# start, so a signature made before a restart no longer verifies against `/.well-known/jwks.json`.
+SIGNING_KEY_NAME = "TTA_SIGNING_KEY"  # noqa: S105 - the name of the value, not the value
+# Valio Aimo's own suggestion on an offer, on or off: sent only when the deploying machine set it.
+SUGGESTIONS_NAME = "TTA_SUPPLIER_SUGGESTIONS"
+SUGGESTIONS_FIELD = "tta_supplier_suggestions"
+# The model key stays on the deploying machine unless its shell says otherwise: the owner dropped the model on
+# 14 Nov, and the public link reads requests with the recordings and the fixed rules.
+MODEL_KEY_NAME = "GEMINI_API_KEY"
+MODEL_OPT_IN = "TTA_DEPLOY_WITH_MODEL"
+MODEL_OPT_IN_VALUE = "1"
+# The Context.dev key stays on the deploying machine too (security review M4): with it, any visitor of the public
+# link could make the gateway send 100-credit lookups until its count is spent. The link shows the recorded pages
+# (fixtures/evidence/) and says of any other product that no lookup is made.
+EVIDENCE_KEY_NAME = "CONTEXT_DEV_API_KEY"  # noqa: S105 - the name of the value, not the value
+EVIDENCE_OPT_IN = "TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS"
 # The witness of the audit head (AP-10). The supplier's read-only login is read from `tta.config` when it carries
 # the field, else from the deploying shell's environment; `.env` is never opened here.
 SUPPLIER_URL_NAME = "SUPPLIER_DATABASE_URL"
 SUPPLIER_URL_FIELD = "supplier_database_url"
-SCHEMA_NAME_IN_CONTAINER = "TTA_DB_SCHEMA"
 WITNESS_NOTES = "trusted-trade-agents-witness"  # a modal.Dict: one note per schema
 WITNESS_EVERY_HOURS = 1
 WITNESS_CPU_CORES = 0.25
@@ -139,11 +155,12 @@ IMAGE_ENV = {
     "TTA_VALIO_CALL_BUDGET": str(DEPLOYED_CALL_BUDGET),
 }
 
-# The values the app reads from its environment, as the human approved for the deployment: the Valio key and base
-# URL, the Gemini key, and the Aiven database URL and the Context.dev key now that S1 and S2 are built.
+# The values the public link may receive from the deploying machine's settings: the Valio key and base URL, the
+# Aiven database URL, the signing key, and the two settings that are no secret.
 SECRET_NAMES = (
-    "VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY", "DATABASE_URL", "CONTEXT_DEV_API_KEY",
-)
+    "VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "DATABASE_URL", SIGNING_KEY_NAME, SUGGESTIONS_NAME,
+    SCHEMA_NAME_IN_CONTAINER,
+)  # and `MODEL_KEY_NAME` and `EVIDENCE_KEY_NAME`, each only with its opt-in
 
 
 # --- the secret ---------------------------------------------------------------------------------------------------
@@ -151,7 +168,8 @@ SECRET_NAMES = (
 
 def supplier_url(settings: Settings, environ: Mapping[str, str]) -> str | None:
     """The supplier's read-only database URL, when one is set: the setting first, then the shell's environment."""
-    chosen = getattr(settings, SUPPLIER_URL_FIELD, None)  # the field may not exist yet in `tta.config`
+    # The one guarded read left (S18): `supplier_database_url` is not a field of `tta.config` on 14 Nov.
+    chosen = getattr(settings, SUPPLIER_URL_FIELD, None)
     value = chosen.get_secret_value() if hasattr(chosen, "get_secret_value") else chosen
     if not isinstance(value, str) or not value.strip():
         value = environ.get(SUPPLIER_URL_NAME, "")
@@ -164,8 +182,8 @@ def witness_secret_values(settings: Settings, environ: Mapping[str, str]) -> dic
     url = supplier_url(settings, environ)
     if url is None:
         return {}
-    chosen = {name: getattr(settings, field, None) for name, field in OPTIONAL_SETTINGS.items()}
-    return {SUPPLIER_URL_NAME: url, **{n: v.strip() for n, v in chosen.items() if isinstance(v, str) and v.strip()}}
+    schema = settings.tta_db_schema.strip()
+    return {SUPPLIER_URL_NAME: url, **({SCHEMA_NAME_IN_CONTAINER: schema} if schema else {})}
 
 
 def witness_env(*, is_local: bool, read_settings: Callable[[], Settings] | None = None) -> dict[str, str]:
@@ -179,26 +197,80 @@ def witness_env(*, is_local: bool, read_settings: Callable[[], Settings] | None 
     return witness_secret_values(read_settings(), os.environ)
 
 
-def secret_values(settings: Settings) -> dict[str, str]:
+def with_model(environ: Mapping[str, str]) -> bool:
+    """True when the deploying shell asked for the model key to travel (`TTA_DEPLOY_WITH_MODEL=1`)."""
+    return environ.get(MODEL_OPT_IN, "").strip() == MODEL_OPT_IN_VALUE
+
+
+def with_evidence_lookups(environ: Mapping[str, str]) -> bool:
+    """True when the deploying shell asked for the Context.dev key to travel
+    (`TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS=1`)."""
+    return environ.get(EVIDENCE_OPT_IN, "").strip() == MODEL_OPT_IN_VALUE
+
+
+def secret_values(settings: Settings, *, model: bool = False, evidence_lookups: bool = False) -> dict[str, str]:
     """The values the app reads from its environment, as the deploying machine has them. A value that is not
-    set is left out: without the supplier key the app answers from the recorded capture, without the Gemini key
-    from the recorded model answers, and without the address it uses its default."""
+    set is left out: without the supplier key the app answers from the recorded capture, without the address it
+    uses its default, and without the signing key it signs with a demo key of its own. The model key and the
+    Context.dev key are left out even when they are set, unless `model` or `evidence_lookups` is true."""
     values: dict[str, str] = {}
     if settings.has_valio_key and settings.valio_aimo_api_key is not None:
         values["VALIO_AIMO_API_KEY"] = settings.valio_aimo_api_key.get_secret_value()
     if "valio_aimo_base_url" in settings.model_fields_set:
         values["VALIO_AIMO_BASE_URL"] = settings.valio_aimo_base_url
-    if settings.has_gemini_key and settings.gemini_api_key is not None:
-        values["GEMINI_API_KEY"] = settings.gemini_api_key.get_secret_value()
+    if model and settings.has_gemini_key and settings.gemini_api_key is not None:
+        values[MODEL_KEY_NAME] = settings.gemini_api_key.get_secret_value()
     if settings.has_database_url and settings.database_url is not None:
         values["DATABASE_URL"] = settings.database_url.get_secret_value()
-    if settings.has_context_dev_key and settings.context_dev_api_key is not None:
-        values["CONTEXT_DEV_API_KEY"] = settings.context_dev_api_key.get_secret_value()
-    for name, field in OPTIONAL_SETTINGS.items():
-        chosen = getattr(settings, field, None)  # the field may not exist yet in `tta.config`
-        if isinstance(chosen, str) and chosen.strip():
-            values[name] = chosen.strip()
+    if evidence_lookups and settings.has_context_dev_key and settings.context_dev_api_key is not None:
+        values[EVIDENCE_KEY_NAME] = settings.context_dev_api_key.get_secret_value()
+    if settings.has_signing_key and settings.tta_signing_key is not None:
+        values[SIGNING_KEY_NAME] = settings.tta_signing_key.get_secret_value()
+    if SUGGESTIONS_FIELD in settings.model_fields_set:
+        values[SUGGESTIONS_NAME] = "true" if settings.tta_supplier_suggestions else "false"
+    if settings.tta_db_schema.strip():
+        values[SCHEMA_NAME_IN_CONTAINER] = settings.tta_db_schema.strip()
     return values
+
+
+def _evidence_note(values: Mapping[str, str], evidence_lookups: bool) -> str:
+    if EVIDENCE_KEY_NAME in values:
+        return (
+            f"The Context.dev key is sent ({EVIDENCE_OPT_IN}={MODEL_OPT_IN_VALUE}): the public link may send lookups, "
+            "100 credits each, up to the gateway's own count."
+        )
+    if evidence_lookups:
+        return (
+            f"{EVIDENCE_OPT_IN}={MODEL_OPT_IN_VALUE} is set but no {EVIDENCE_KEY_NAME} is: no Context.dev key is "
+            "sent."
+        )
+    return (
+        "The Context.dev key is not sent: the public link shows recorded pages only, makes no lookup and spends "
+        "no credit."
+    )
+
+
+def deploy_notes(
+    values: Mapping[str, str], witness_values: Mapping[str, str], *, model: bool, evidence_lookups: bool = False
+) -> tuple[str, ...]:
+    """What a deployment says about its optional settings, by name only: never a value."""
+    if MODEL_KEY_NAME in values:
+        model_line = f"The model key is sent ({MODEL_OPT_IN}={MODEL_OPT_IN_VALUE}): the public link may call the model."
+    elif model:
+        model_line = f"{MODEL_OPT_IN}={MODEL_OPT_IN_VALUE} is set but no {MODEL_KEY_NAME} is: no model key is sent."
+    else:
+        model_line = "The model key is not sent: requests are read by the recordings and the fixed rules."
+    not_set = {
+        SIGNING_KEY_NAME: "the public link signs with a demo key that changes at every cold start",
+        SUGGESTIONS_NAME: "the gateway's own default applies",
+        SCHEMA_NAME_IN_CONTAINER: "the audit trail is in the environment's schema",
+    }
+    lines = [model_line, _evidence_note(values, evidence_lookups)]
+    lines += [f"{name} is not set: {effect}." for name, effect in not_set.items() if name not in values]
+    lines += [f"{name} is sent in the Secret." for name in not_set if name in values]
+    if SUPPLIER_URL_NAME not in witness_values:
+        lines.append(f"{SUPPLIER_URL_NAME} is not set: no witness of the audit head is scheduled.")
+    return tuple(lines)
 
 
 def secret_env(*, is_local: bool, read_settings: Callable[[], Settings] | None = None) -> dict[str, str]:
@@ -211,7 +283,9 @@ def secret_env(*, is_local: bool, read_settings: Callable[[], Settings] | None =
         from tta.config import get_settings  # looked up when called, so a test can replace it
 
         read_settings = get_settings
-    return secret_values(read_settings())
+    return secret_values(
+        read_settings(), model=with_model(os.environ), evidence_lookups=with_evidence_lookups(os.environ),
+    )
 
 
 # --- the image ----------------------------------------------------------------------------------------------------
@@ -400,7 +474,8 @@ class SaveAfterRequests:
 
 app = modal.App(APP_NAME)
 volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
-secret = modal.Secret.from_dict(secret_env(is_local=modal.is_local()))
+SECRET_ENV = secret_env(is_local=modal.is_local())
+secret = modal.Secret.from_dict(SECRET_ENV)
 
 
 @app.function(
@@ -475,6 +550,9 @@ def run_witness(connect: Callable[[], Any], notes: MutableMapping[str, Any], env
     if not verdict.ok:
         logger.error("Audit witness, schema %s: %s", schema, verdict.sentence)
         raise RuntimeError(verdict.sentence)
+    if verdict.warning:  # the trail is intact and has not moved for long: said, and the run does not fail
+        logger.warning("Audit witness, schema %s: %s", schema, verdict.sentence)
+        return verdict.sentence
     logger.info("Audit witness, schema %s: %s", schema, verdict.sentence)
     return verdict.sentence
 
@@ -494,6 +572,11 @@ def _supplier_connection() -> Any:
 
 
 WITNESS_ENV = witness_env(is_local=modal.is_local())
+if modal.is_local():  # on the deploying machine only: what this deployment carries, by name
+    for _note in deploy_notes(
+        SECRET_ENV, WITNESS_ENV, model=with_model(os.environ), evidence_lookups=with_evidence_lookups(os.environ),
+    ):
+        print(_note, file=sys.stderr)  # noqa: T201 - beside the output of `modal deploy`, never on stdout
 WITNESS_WANTED = witness_is_wanted(is_local=modal.is_local(), secret_env=WITNESS_ENV, environ=os.environ)
 
 if WITNESS_WANTED:
