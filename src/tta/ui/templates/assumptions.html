@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Assumptions and next steps{% endblock %}
+{% block main %}
+{% if document %}
+<article class="document">
+{{ document }}
+</article>
+{% else %}
+<h1>Assumptions and next steps</h1>
+<p class="lead">The assumptions page has not been written yet. It is rendered from <code>{{ document_name }}</code>
+in the repository as soon as that file exists.</p>
+<p>What is already said on every page: buyer profiles, spend limits and approver names are illustrative and ours;
+the Valio Aimo mock has no customer limits and no order endpoint; a very large stock figure means the quantity
+is not confirmed.</p>
+{% endif %}
+{% endblock %}

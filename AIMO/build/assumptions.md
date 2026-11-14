@@ -230,3 +230,11 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - Tokens from the environment must be at least 24 characters, unique, and map to distinct identity ids.
 - Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`; every `/v1` response also `Cache-Control: no-store`.
 - The exact paths `/v1` and `/mcp` belong to the API and to the MCP surface, never to the pages.
+
+## Pages (T12)
+- Four pages: `/` (paste a request or click one of three examples, choose who is asking, run), `/approvals`, `/orders/{id}` (buyer and supplier views of the trail, with the chain state), `/assumptions`. Server-rendered, no external asset, a Content-Security-Policy with no external source and no inline script, CSRF tokens on every form, the demo identity in a cookie.
+- The pages act as a demo identity chosen on the page, with no login; they exist only in dev and demo.
+- The three examples carry their typed requests, so the demo never depends on the model: when the model cannot read a sentence, the example's typed request is used and the page says so.
+- Every piece of dynamic text is escaped; the assumptions page renders a small Markdown subset in which every character is escaped and only `http(s)` links are made.
+- The page keeps the last 200 agent runs in memory (question T12-4). One server process is assumed: the run log, the rate limiter and the SQLite file are per process.
+- In replay the day's spend never resets (question T12-1).

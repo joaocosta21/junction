@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} · Trusted Trade Agents</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">Trusted Trade Agents</a>
+  <nav aria-label="Pages">
+    <a href="/"{% if path == "/" %} aria-current="page"{% endif %}>Request</a>
+    <a href="/approvals"{% if path == "/approvals" %} aria-current="page"{% endif %}>Approvals</a>
+    <a href="/assumptions"{% if path == "/assumptions" %} aria-current="page"{% endif %}>Assumptions</a>
+  </nav>
+  <p class="mode">{{ mode_label }}</p>
+</header>
+<main>
+{% block main %}{% endblock %}
+</main>
+<footer class="bottom">
+  <p>A gateway that lets a buyer's purchasing agent read Valio Aimo's prices and availability, get an offer and
+  order within its authority or with human approval. The same functions are open as REST and as MCP tools:
+  <a href="/openapi.json">OpenAPI document</a> · <a href="/v1/schemas">JSON Schemas</a> · <a href="/healthz">health</a>.</p>
+  <p>Buyer profiles, spend limits and approver names on these pages are illustrative: they are ours, chosen for
+  the demonstration. An order here is a record in the gateway's order book; the Valio Aimo mock has no order endpoint.</p>
+</footer>
+</body>
+</html>

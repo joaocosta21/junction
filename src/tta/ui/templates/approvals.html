@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_marks.html" import mark, source_label %}
+{% block title %}Approvals{% endblock %}
+{% block main %}
+<h1>Approvals</h1>
+<p class="lead">Orders the agent could not place alone. A human with the role asked for approves, picking any
+option of the same offer, or rejects. An agent can never approve: the gateway refuses agent tokens here (rule F-06).</p>
+
+<form method="post" action="/approvals/as" class="acting">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label class="field-label" for="approver">Deciding as</label>
+  <select id="approver" name="approver" data-autosubmit>
+    {% for person in approvers %}
+    <option value="{{ person.id }}"{% if person.id == approver.id %} selected{% endif %}>{{ person.display_name }} · {{ person.roles|map("words")|join(", ") }} · {{ person.profile_id }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Switch</button>
+  <span class="tag">Demo approvers: invented names, illustrative roles</span>
+</form>
+
+{% if problem %}
+<div class="banner banner-bad" role="alert" id="problem">
+  <p><strong>{{ problem.title }}.</strong> {{ problem.detail }}</p>
+</div>
+{% endif %}
+
+{% if not cards %}
+<p class="empty">Nothing is waiting for buyer <code>{{ approver.profile_id }}</code>.</p>
+{% endif %}
+
+{% for card in cards %}
+{% set approval = card.approval %}
+<article class="card approval">
+  <header>
+    <h2>Order <a href="/orders/{{ approval.order_id }}">{{ approval.order_id }}</a></h2>
+    <p class="deadline">{{ mark("warn", "Waiting for approval") }}
+      {% if approval.valid_until %}<strong>Order by {{ approval.valid_until|moment }}</strong>: after that the order expires.{% else %}No "order by" time is stated.{% endif %}</p>
+  </header>
+
+  {% if card.offer %}
+  <p>Asked: {% for line in card.offer.request.lines %}<q>{{ line.text }}</q>{% if not loop.last %}; {% endif %}{% endfor %}
+    {{ source_label(card.offer.source) }}</p>
+  {% endif %}
+
+  <h3>Why a human is needed</h3>
+  <ul class="reasons">
+    {% for reason in approval.reasons %}<li>{{ reason }}</li>{% endfor %}
+  </ul>
+  <p class="roles">Needs: {{ approval.roles_missing|map("words")|join(", ") }}
+    {%- if approval.roles_obtained %} · already approved by: {{ approval.roles_obtained|map("words")|join(", ") }}{% endif %}</p>
+  {% for decision in approval.decisions %}
+  <p class="small">{{ decision.approver_name }} ({{ decision.roles|map("words")|join(", ") }}): {{ decision.decision.value|words }}{% if decision.note %}. Note: <q>{{ decision.note }}</q>{% endif %}</p>
+  {% endfor %}
+  {% for found in approval.evidence %}
+  <p class="small">Found outside Valio Aimo's data, for product {{ found.product_id }}: {{ found.sentence }}{% if found.source_url %} Source: {{ found.source_url }}{% endif %}</p>
+  {% endfor %}
+
+  {% if card.can_decide %}
+  <form method="post" action="/approvals/{{ approval.approval_id }}/decision" class="decision">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3>The options</h3>
+    {% if card.offer %}
+    <div class="options">
+      {% for option in card.offer.options %}
+      <label class="option option-{{ option.kind|tone }}">
+        <span class="rank"><input type="radio" name="option" value="{{ option.option_id }}"{% if option.option_id == approval.option_id %} checked{% endif %}>
+          Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}{% if option.option_id == approval.option_id %} <span class="tag">proposed by the agent</span>{% endif %}</span>
+        <span class="option-title">{{ option.title }}</span>
+        <span class="total"><strong>{{ option.totals.net|money }}</strong> before tax</span>
+        <span class="summary">{{ option.summary }}</span>
+        {% for line in option.lines %}
+        <span class="line-head">{{ line.quantity|quantity }} × {{ line.name }} <span class="id">({{ line.product_id }})</span></span>
+        {% endfor %}
+        {% if option.decision %}
+        <span class="sentence">{{ mark(option.decision.verdict|tone, option.decision.verdict|words) }} {{ option.decision.sentence }}</span>
+        {% endif %}
+      </label>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">The offer of this order can no longer be read, so only the proposed option can be decided.</p>
+    {% endif %}
+    <label class="field-label" for="note-{{ approval.approval_id }}">Note (kept in the buyer's audit trail, never shown to the supplier)</label>
+    <textarea id="note-{{ approval.approval_id }}" name="note" rows="2" maxlength="{{ max_note_length }}"></textarea>
+    <p class="actions">
+      <button type="submit" name="decision" value="APPROVE" class="primary approve">Approve the chosen option</button>
+      <button type="submit" name="decision" value="REJECT" class="reject">Reject the order</button>
+    </p>
+  </form>
+  {% else %}
+  <div class="banner banner-warn">
+    <p>{{ approver.display_name }} holds {{ approver.roles|map("words")|join(", ") }}, and this approval still needs
+    {{ approval.roles_missing|map("words")|join(", ") }}. The gateway would refuse the decision.</p>
+    {% for person in card.holders %}
+    <form method="post" action="/approvals/as" class="inline-form">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="approver" value="{{ person.id }}">
+      <button type="submit">Switch to {{ person.display_name }} ({{ person.roles|map("words")|join(", ") }})</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</article>
+{% endfor %}
+{% endblock %}

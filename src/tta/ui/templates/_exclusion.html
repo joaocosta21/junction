@@ -1,0 +1,2 @@
+{% from "_marks.html" import mark %}
+<li class="exclusion">{{ mark("bad", entry.reason|words) }} <strong>{{ entry.name }}</strong> <span class="id">({{ entry.product_id }})</span> <span class="sentence">{{ entry.sentence }}</span></li>

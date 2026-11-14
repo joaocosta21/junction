@@ -1,0 +1,213 @@
+{% from "_marks.html" import mark, decide_as, source_label %}
+{# The result of one request, top to bottom: the request as read, the options side by side (each with its
+   claim marks, constraint checks and verdict), the exclusions with reasons, then the outcome. #}
+{% set offer = result.offer %}
+{% set order = result.order %}
+{% set outcome = result.outcome %}
+{% set dated = offer.request.needed_by is not none %}
+
+<section id="glance" class="glance" aria-label="At a glance">
+  <div id="glance-confirmed" class="glance-cell glance-ok">
+    <h2>Confirmed</h2>
+    {% for option in result.confirmed %}<p>{{ option.summary }}</p>{% else %}<p>No option rests on confirmed data only.</p>{% endfor %}
+  </div>
+  <div id="glance-unconfirmed" class="glance-cell glance-warn">
+    <h2>Not confirmed</h2>
+    {% for option in result.unconfirmed %}<p>{{ option.summary }}</p>{% else %}<p>Nothing unconfirmed is offered.</p>{% endfor %}
+  </div>
+  <div id="glance-excluded" class="glance-cell glance-bad">
+    <h2>Excluded</h2>
+    {% if result.excluded %}
+    <p>{{ result.excluded|length }} products, each with its reason:
+    {% for reason, count in result.reason_counts %}{{ count }} × {{ reason|words }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+    {% else %}<p>No product was excluded.</p>{% endif %}
+  </div>
+  <div id="glance-outcome" class="glance-cell glance-{{ outcome.tone }}">
+    <h2>Outcome</h2>
+    <p class="headline">{{ mark(outcome.tone, outcome.headline) }}</p>
+  </div>
+</section>
+
+<section id="request">
+  <h2>The request, as the gateway read it</h2>
+  <p>Asked by <strong>{{ result.asker.display_name }}</strong> for buyer profile <code>{{ offer.profile_id }}</code>
+  <span class="tag">illustrative profile</span></p>
+  <ul class="request-lines">
+    {% for line in offer.request.lines %}
+    <li>
+      <q>{{ line.text }}</q>
+      <span class="read-as">read as <strong>{{ line.quantity|quantity }} {{ line.unit.value }}</strong>
+      {%- if line.product_type %} of product type <code>{{ line.product_type }}</code>{% endif %}
+      {%- if line.product_ids %} of product {{ line.product_ids|join(", ") }}{% endif %}
+      {%- if line.name_terms %}, name contains {{ line.name_terms|join(", ") }}{% endif %}
+      {%- if line.required_claims %}, with claim {{ line.required_claims|join(", ") }}{% endif %}
+      {%- if line.exclude_allergens %}, excluding allergens {{ line.exclude_allergens|join(", ") }}{% if line.allergen_strictness %} ({{ line.allergen_strictness|words|lower }}){% endif %}{% endif -%}
+      , pack: {{ line.pack|words|lower }}.</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <p>Needed by: <strong>{% if dated %}{{ offer.request.needed_by|day }}{% else %}no date given{% endif %}</strong>
+  · Confirmed data only: <strong>{{ "yes" if offer.request.require_confirmed else "no" }}</strong>
+  · Products looked up: <strong>{{ offer.candidates_considered }}</strong></p>
+  {% if result.record %}
+  <ul class="how">
+    {% for note in result.record.notes %}<li>{{ note }}</li>{% endfor %}
+    {% if result.record.read_by.value == "agent" %}<li>The text was read and run by the buyer agent; its steps are at the end of this page.</li>{% endif %}
+    {% if result.record.read_by.value == "parser" %}<li>The text was read by the request parser; the page then asked for the offer and ordered the top option.</li>{% endif %}
+  </ul>
+  {% endif %}
+  <p class="source">{{ source_label(offer.source) }}
+  {% if offer.source.value == "replay" %}Built from a recorded copy of Valio Aimo's data, as it stood on {{ offer.time_now|moment }}. Cut-offs are judged against that time.
+  {% else %}Built from live answers of the Valio Aimo mock API, server time {{ offer.time_now|moment }}.{% endif %}</p>
+</section>
+
+<section id="options">
+  <h2>Options</h2>
+  {% if not offer.options %}<p class="empty">No option could be built. The reasons are below.</p>{% endif %}
+  <div class="options">
+  {% for option in offer.options %}
+  <article class="option option-{{ option.kind|tone }}">
+    <header>
+      <p class="rank">Option {{ option.rank }} {{ mark(option.kind|tone, option.kind|words) }}</p>
+      <h3>{{ option.title }}</h3>
+    </header>
+    <p class="summary">{{ option.summary }}</p>
+    <p class="total"><strong>{{ option.totals.net|money }}</strong> before tax · {{ option.totals.gross|money }} with tax
+      {%- if option.totals.is_ceiling %} · a ceiling: variable weight, the invoice can be lower, never higher{% endif %}
+      {%- if option.totals.excludes_deposits %} · deposits not included{% endif %}</p>
+    <p class="coverage">
+      {% for part in option.coverage %}Covers {{ part.covered|quantity }} of {{ part.requested|quantity }} {{ part.unit.value }} ({{ part.fill_ratio|percent }}){% if part.missing > 0 %}, {{ part.missing|quantity }} {{ part.unit.value }} missing{% endif %}. {% endfor %}
+      {% if option.valid_until %}Order by {{ option.valid_until|moment }}.{% endif %}
+    </p>
+
+    <h4>Products, and what Valio Aimo's data confirms</h4>
+    <ul class="lines">
+      {% for line in option.lines %}
+      <li class="line">
+        <p class="line-head"><strong>{{ line.quantity|quantity }} × {{ line.name }}</strong> <span class="id">({{ line.product_id }})</span></p>
+        <p class="line-price">{{ line.unit_net_price|unit_price }} per {{ line.sales_unit }} · {{ line.net|money }} before tax</p>
+        {% if line.substitute %}
+        <p class="substitute">{{ mark("warn", "Substitute") }} In place of {{ line.substitute.original_name or "the product asked for" }} ({{ line.substitute.original_id }}). {{ line.substitute.gives_up }}</p>
+        {% endif %}
+        <p class="marks">
+          {% for check in line.claims %}{{ mark(check.status|tone, (check.claim|words) ~ ": " ~ (check.status|words)) }} {% endfor %}
+        </p>
+        <p class="sentence">{{ line.availability.sentence }}</p>
+        {% if line.allergen_check %}
+        <ul class="findings">
+          {% for finding in line.allergen_check.findings %}<li>{{ finding.sentence }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <details>
+          <summary>What the data says, claim by claim</summary>
+          <ul>
+            {% for check in line.claims %}<li><strong>{{ check.claim|words }}, {{ check.status|words }}:</strong> {{ check.sentence }}</li>{% endfor %}
+          </ul>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+
+    <h4>What the buyer asked for</h4>
+    <ul class="checks">
+      {% for check in option.constraint_checks %}
+      <li>{{ mark(check.result|tone, (check.kind|words) ~ ": " ~ (check.result|words)) }} <span class="sentence">{{ check.sentence }}</span></li>
+      {% endfor %}
+    </ul>
+
+    <h4>What the agent may do</h4>
+    {% if option.decision %}
+    <div class="verdict verdict-{{ option.decision.verdict|tone }}">
+      <p class="headline">{{ mark(option.decision.verdict|tone, option.decision.verdict|words) }}</p>
+      <p>{{ option.decision.sentence }}</p>
+      {% if option.decision.fired %}
+      <ul class="rules">
+        {% for rule in option.decision.fired %}
+        <li><strong>{{ rule.rule_id }}</strong>
+          <span class="tag">{% if rule.fixed %}fixed rule: no profile can switch it off{% else %}profile rule: illustrative value{% endif %}</span>
+          {{ rule.sentence }}{% if rule.approver_role %} Goes to: {{ rule.approver_role|words }}.{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="empty">The policy verdict for this option is not stated.</p>
+    {% endif %}
+  </article>
+  {% endfor %}
+  </div>
+</section>
+
+{% if result.substitutes or result.substitutes_problem %}
+<section id="substitutes">
+  <h2>Substitutes, ranked</h2>
+  <p>Every candidate was checked again for price, availability and allergens. A substitute that adds an
+  allergen the original does not declare can never be ordered, for any buyer.</p>
+  {% if result.substitutes_problem %}
+  <div class="banner banner-bad"><p><strong>{{ result.substitutes_problem.title }}.</strong> {{ result.substitutes_problem.detail }}</p></div>
+  {% endif %}
+  {% for found in result.substitutes %}
+  {% set listed = found.candidates|selectattr("listed_by_supplier")|list %}
+  {% set others = found.candidates|rejectattr("listed_by_supplier")|list %}
+  <h3>In place of {{ found.original_name or "the product" }} <span class="id">({{ found.original_id }})</span></h3>
+  {% if not found.candidates %}<p class="empty">No candidate was found.</p>{% endif %}
+  {% if listed %}
+  <h4>Listed by Valio Aimo as substitutes: {{ listed|length }}</h4>
+  <ul class="candidates">{% for candidate in listed %}{% include "_candidate.html" %}{% endfor %}</ul>
+  {% endif %}
+  {% if others %}
+  <h4>Other products of the same category: {{ others|length }}</h4>
+  <ul class="candidates">{% for candidate in others[:candidates_shown] %}{% include "_candidate.html" %}{% endfor %}</ul>
+  {% if others|length > candidates_shown %}
+  <details>
+    <summary>Show the other {{ others|length - candidates_shown }}</summary>
+    <ul class="candidates">{% for candidate in others[candidates_shown:] %}{% include "_candidate.html" %}{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endif %}
+  {% if found.notes %}<ul class="notes">{% for note in found.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+  {% endfor %}
+</section>
+{% endif %}
+
+<section id="excluded">
+  <h2>Excluded products, with reasons</h2>
+  {% if result.excluded %}
+  <p class="counts"><strong>{{ result.excluded|length }} excluded</strong>:
+    {% for reason, count in result.reason_counts %}{{ count }} × {{ reason|words }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <ul class="exclusions">
+    {% for entry in result.excluded[:exclusions_shown] %}{% include "_exclusion.html" %}{% endfor %}
+  </ul>
+  {% if result.excluded|length > exclusions_shown %}
+  <details>
+    <summary>Show the other {{ result.excluded|length - exclusions_shown }}</summary>
+    <ul class="exclusions">
+      {% for entry in result.excluded[exclusions_shown:] %}{% include "_exclusion.html" %}{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  {% else %}
+  <p class="empty">No product was excluded.</p>
+  {% endif %}
+  {% if offer.notes %}
+  <ul class="notes">{% for note in offer.notes %}<li>{{ note }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+
+<section id="outcome" class="outcome outcome-{{ outcome.tone }}">
+  <h2>Outcome</h2>
+  <p class="headline">{{ mark(outcome.tone, outcome.headline) }}</p>
+  <p>{{ outcome.sentence }}</p>
+  {% if order %}
+  <p>{{ order.record_note }}</p>
+  <p class="actions">
+    <a class="button" href="/orders/{{ order.order_id }}">Open the order record and its audit trail</a>
+  </p>
+  {% if result.decider %}{{ decide_as(result.decider, csrf) }}{% endif %}
+  {% endif %}
+</section>
+
+{% if result.record and result.record.agent_run %}
+{% set run = result.record.agent_run %}
+{% include "_agent.html" %}
+{% endif %}

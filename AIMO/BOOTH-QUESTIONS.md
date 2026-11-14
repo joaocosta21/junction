@@ -469,6 +469,22 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Built overnight:** it serves the recorded capture and `/healthz` says `degraded`. A configuration that is wrong in another way (a base URL that is not https) stops the start.
 - **Ask:** "Should a missing key stop the start too?"
 
+**T12-1 · Repeated demos on one database change the outcome — decide before the public link is shared** (from the pages)
+- **Context:** the daily spend limit counts the buyer's orders of the data clock's date. In replay the clock is pinned to the capture (Saturday 14 Nov 02:52), so that day never ends.
+- **We got:** scenario 2 is "Ordered by the agent" three times; the fourth run goes to finance, because 4 × €402.00 is above the ward's €1,500 a day. Scenario 1 a second time needs finance too. The gateway is right each time — it shows rule P-02 working — but on a public demo link every visitor adds to the same day.
+- **Built overnight:** nothing in the gateway. The demo script starts from an empty database and runs each scenario once, in the order 1, 2, 3.
+- **Ask:** "For the deployed link, do we accept that later visitors may see the daily limit apply, or do we want a demo-only reset (which would break 'append-only' on a public link)?" Orchestrator's view: accept it and say so on the page; the sentence on screen explains it.
+
+**T12-2 · The beef backup has no one-click example**
+- **Built overnight:** three examples (scenarios 1, 2, 3). Without a Gemini key the backup sentence cannot be read from the page. A fourth button is one entry in `EXAMPLES` of `src/tta/ui/examples.py`.
+
+**T12-3 · Scenario 3 ends with the hotel's agent ordering a substitute alone**
+- **Built overnight:** scenario 3 is "100 litres of Oddlygood Barista oat drink, product 473609, by Monday", asked by the hotel kitchen. Tonight option 1 is the substitute `475224` (€174.00), and the hotel's profile allows a substitute in the same category, so the agent orders it alone; `473609` itself is option 2 (quantity not confirmed). The ranked substitutes are shown below: `471690` passes but its cut-off has passed; `464320` and `471881` add gluten and can never be ordered.
+- **Ask:** "Is that the story, or should the allergy ward ask it (its profile allows no substitute without a human)?" Changing who asks is one field of the example.
+
+**T12-4 · The agent's steps are not stored**
+- **Built overnight:** the page keeps the last 200 agent runs in memory; after a restart the offer, the order and the outcome are still there, the agent's steps are not.
+
 ---
 
 ## Claims we no longer make

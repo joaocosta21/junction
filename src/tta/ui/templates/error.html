@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ problem.title }}{% endblock %}
+{% block main %}
+<h1>{{ problem.title }}</h1>
+<div class="banner banner-bad" role="alert">
+  <p>{{ problem.detail }}</p>
+</div>
+<p><a class="button" href="/">Back to the request page</a></p>
+{% endblock %}

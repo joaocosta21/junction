@@ -1,0 +1,278 @@
+"""`run_request` and the run log against a stub of the service: the branches replay data cannot reach."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from tta.contracts.agent import AgentRun
+from tta.contracts.common import Identity, IdentityKind
+from tta.contracts.errors import (
+    InvalidRequest,
+    OfferStale,
+    PolicyBlocked,
+    RateLimited,
+    SupplierUnavailable,
+    TtaError,
+)
+from tta.ui.examples import EXAMPLES, example_by_key, example_for_text
+from tta.ui.run import ReadBy, RunLog, RunRecord, run_request
+
+AGENT = Identity(kind=IdentityKind.AGENT, id="agent:hotel-kitchen", display_name="Agent", profile_id="hotel-kitchen")
+SCENARIO_2 = example_by_key("scenario-2")
+OFFER = SimpleNamespace(offer_id="off_1", options=(SimpleNamespace(option_id="opt_1"),))
+EMPTY_OFFER = SimpleNamespace(offer_id="off_2", options=())
+ORDER = SimpleNamespace(order_id="ord_1")
+
+
+class StubService:
+    """Answers what a test sets; an exception set in place of an answer is raised."""
+
+    def __init__(self, **answers: Any) -> None:
+        self.answers = {"create_offer": OFFER, "place_order": ORDER, **answers}
+        self.has_agent_runner = "run_agent" in answers
+        self.has_request_parser = "parse_request" in answers
+        self.calls: list[str] = []
+
+    def _answer(self, name: str) -> Any:
+        self.calls.append(name)
+        answer = self.answers[name]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def run_agent(self, identity: Identity, text: str) -> Any:
+        return self._answer("run_agent")
+
+    def parse_request(self, identity: Identity, text: str) -> Any:
+        return self._answer("parse_request")
+
+    def create_offer(self, identity: Identity, request: Any) -> Any:
+        self.requested = request
+        return self._answer("create_offer")
+
+    def place_order(self, identity: Identity, offer_id: str, option_id: str, key: str) -> Any:
+        self.placed = (offer_id, option_id, key)
+        return self._answer("place_order")
+
+
+def _agent_run(**fields: Any) -> AgentRun:
+    return AgentRun(text="t", model="m", recorded=True, report="The agent stopped.", **fields)
+
+
+def test_the_page_orders_the_top_option_with_a_key_the_order_book_accepts() -> None:
+    service = StubService(parse_request="typed")
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert service.calls == ["parse_request", "create_offer", "place_order"]
+    assert service.requested == "typed"
+    assert service.placed[:2] == ("off_1", "opt_1")
+    assert service.placed[2].startswith("page-") and len(service.placed[2]) <= 100
+    assert (record.read_by, record.offer_id, record.order_id) == (ReadBy.PARSER, "off_1", "ord_1")
+    assert record.not_ordered is None and record.agent_id == AGENT.id
+
+
+@pytest.mark.parametrize("error", [
+    PolicyBlocked("A line declares an excluded allergen (F-02)."),
+    OfferStale("The price changed since the offer.", fresh_offer_id="off_9"),
+    RateLimited("Too many calls."),
+])
+def test_an_order_the_gateway_refuses_is_kept_as_the_outcome_with_its_reason(error: TtaError) -> None:
+    service = StubService(parse_request="typed", place_order=error)
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert (record.offer_id, record.order_id) == ("off_1", None)
+    assert record.not_ordered is not None
+    assert (record.not_ordered.title, record.not_ordered.detail) == (error.title, error.detail)
+    assert record.not_ordered.status == error.status_code
+
+
+def test_an_offer_with_no_option_is_not_ordered() -> None:
+    service = StubService(parse_request="typed", create_offer=EMPTY_OFFER)
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert "place_order" not in service.calls
+    assert (record.offer_id, record.order_id, record.not_ordered) == ("off_2", None, None)
+
+
+def test_an_offer_that_cannot_be_built_is_the_callers_error() -> None:
+    service = StubService(parse_request="typed", create_offer=InvalidRequest("An exclusion needs a strictness."))
+
+    with pytest.raises(InvalidRequest, match="strictness"):
+        run_request(service, AGENT, "free text", None)
+
+
+def test_an_example_carries_its_typed_request_when_the_parser_cannot_be_reached() -> None:
+    service = StubService(parse_request=SupplierUnavailable("No parser."))
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert service.requested == SCENARIO_2.request
+    assert record.read_by is ReadBy.EXAMPLE
+    assert any("No parser." in note for note in record.notes)
+
+
+def test_an_example_carries_its_typed_request_when_the_parser_misreads_it() -> None:
+    service = StubService(parse_request=InvalidRequest("The request names no quantity."))
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert service.requested == SCENARIO_2.request
+    assert any("The request names no quantity." in note for note in record.notes)
+
+
+def test_free_text_the_parser_cannot_read_is_the_callers_error() -> None:
+    for error in (SupplierUnavailable("No parser."), InvalidRequest("No quantity."), RateLimited("Slow down.")):
+        with pytest.raises(type(error)):
+            run_request(StubService(parse_request=error), AGENT, "free text", None)
+
+
+@pytest.mark.parametrize("step", ["run_agent", "parse_request"])
+def test_an_example_needs_no_model_so_the_ceiling_on_model_calls_does_not_stop_it(step: str) -> None:
+    service = StubService(**{step: RateLimited("Too many request readings and agent runs right now.")})
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert service.calls == [step, "create_offer", "place_order"]
+    assert (record.read_by, record.order_id) == (ReadBy.EXAMPLE, "ord_1")
+    assert any("Too many request readings and agent runs" in note for note in record.notes)
+
+
+def test_the_limit_on_offers_stops_an_example_like_any_other_request() -> None:
+    service = StubService(parse_request=SupplierUnavailable("No parser."), create_offer=RateLimited("Slow down."))
+
+    with pytest.raises(RateLimited):
+        run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+    assert "place_order" not in service.calls
+
+
+def test_free_text_is_not_sent_to_the_parser_after_the_agent_was_rate_limited() -> None:
+    service = StubService(run_agent=RateLimited("Slow down."), parse_request="typed")
+
+    with pytest.raises(RateLimited):
+        run_request(service, AGENT, "free text", None)
+    assert service.calls == ["run_agent"]
+
+
+def test_the_agents_run_is_the_result_and_the_page_orders_nothing_itself() -> None:
+    run = _agent_run(offer_id="off_7", order_id="ord_7")
+    service = StubService(run_agent=run)
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert service.calls == ["run_agent"]
+    assert (record.read_by, record.agent_run, record.offer_id, record.order_id) == (ReadBy.AGENT, run, "off_7", "ord_7")
+
+
+def test_an_agent_that_stops_without_an_offer_is_shown_as_it_is_for_free_text() -> None:
+    run = _agent_run()
+    service = StubService(run_agent=run)
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert service.calls == ["run_agent"]
+    assert (record.agent_run, record.offer_id, record.order_id) == (run, None, None)
+
+
+def test_an_example_does_not_depend_on_the_agent_reaching_an_offer() -> None:
+    service = StubService(run_agent=_agent_run())
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert service.calls == ["run_agent", "create_offer", "place_order"]  # the parser is not asked a second time
+    assert (record.read_by, record.offer_id, record.order_id) == (ReadBy.EXAMPLE, "off_1", "ord_1")
+    assert any("The agent stopped." in note for note in record.notes)
+
+
+@pytest.mark.parametrize("error", [SupplierUnavailable("Model down."), InvalidRequest("Misread.")])
+def test_an_example_does_not_depend_on_the_agent_running(error: TtaError) -> None:
+    service = StubService(run_agent=error)
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert service.calls == ["run_agent", "create_offer", "place_order"]
+    assert record.read_by is ReadBy.EXAMPLE
+    assert any(error.detail in note for note in record.notes)
+
+
+def test_free_text_goes_to_the_parser_when_the_model_behind_the_agent_cannot_be_reached() -> None:
+    service = StubService(run_agent=SupplierUnavailable("Model down."), parse_request="typed")
+
+    record = run_request(service, AGENT, "free text", None)
+
+    assert service.calls == ["run_agent", "parse_request", "create_offer", "place_order"]
+    assert record.read_by is ReadBy.PARSER
+    assert any("Model down." in note for note in record.notes)
+
+
+def test_what_the_agent_refuses_for_free_text_is_the_callers_error() -> None:
+    for error in (InvalidRequest("The request names no quantity."), RateLimited("Slow down.")):
+        with pytest.raises(type(error)):
+            run_request(StubService(run_agent=error), AGENT, "free text", None)
+
+
+def test_the_examples_are_the_three_scenarios_each_with_a_typed_request() -> None:
+    assert [example.key for example in EXAMPLES] == ["scenario-1", "scenario-2", "scenario-3"]
+    assert [example.agent_id for example in EXAMPLES] == [
+        "agent:hotel-kitchen", "agent:allergy-ward", "agent:hotel-kitchen",
+    ]
+    for example in EXAMPLES:
+        assert example.request.lines[0].text == example.text
+        assert example.request.needed_by is not None
+    assert EXAMPLES[1].request.require_confirmed and EXAMPLES[1].request.lines[0].exclude_allergens == ("AM", "AW")
+    assert EXAMPLES[2].request.lines[0].product_ids == ("473609",)
+
+
+def test_an_example_is_found_by_its_text_whatever_the_spacing_and_case() -> None:
+    assert example_for_text("  1,000 LITRES of lactose-free   milk by Monday \n") is EXAMPLES[0]
+    assert example_for_text("1,000 litres of milk by Monday") is None
+    assert example_by_key("scenario-3") is EXAMPLES[2] and example_by_key("scenario-9") is None
+
+
+def _record(offer_id: str) -> RunRecord:
+    return RunRecord(text="t", agent_id=AGENT.id, read_by=ReadBy.EXAMPLE, offer_id=offer_id)
+
+
+def test_the_run_log_runs_a_form_once_and_finds_a_run_by_its_offer() -> None:
+    log = RunLog(capacity=10)
+
+    assert log.reserve("key-1") is True
+    assert log.reserve("key-1") is False  # the same form, posted again
+    assert log.by_key("key-1") is None  # still running
+    log.finish("key-1", _record("off_1"))
+
+    assert log.by_key("key-1") == _record("off_1") == log.by_offer("off_1")
+    assert log.by_offer("off_nobody") is None and log.by_key("key-nobody") is None
+
+
+def test_a_run_that_failed_frees_its_form_for_another_try() -> None:
+    log = RunLog(capacity=10)
+    log.reserve("key-1")
+
+    log.release("key-1")
+
+    assert log.reserve("key-1") is True
+
+
+def test_the_run_log_forgets_the_oldest_runs_first() -> None:
+    log = RunLog(capacity=3)
+    for number in range(5):
+        log.reserve(f"key-{number}")
+        log.finish(f"key-{number}", _record(f"off_{number}"))
+
+    assert log.by_offer("off_0") is None and log.by_key("key-1") is None
+    assert [log.by_offer(f"off_{number}") is not None for number in (2, 3, 4)] == [True, True, True]
+
+
+def test_with_no_parser_at_all_an_example_says_only_that_no_model_was_asked() -> None:
+    service = StubService()
+    service.answers["parse_request"] = SupplierUnavailable("This gateway has no request parser running.")
+
+    record = run_request(service, AGENT, SCENARIO_2.text, SCENARIO_2)
+
+    assert record.notes == ("Read from the typed request of this example. No model was asked.",)

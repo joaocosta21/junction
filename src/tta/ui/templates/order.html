@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% from "_marks.html" import mark, decide_as, source_label %}
+{% block title %}Order {{ page.order_id }}{% endblock %}
+{% block main %}
+{% set is_supplier = page.reader == supplier %}
+{% set record = page.record if is_supplier else page.order %}
+<h1>Order {{ page.order_id }}</h1>
+
+<nav class="views" aria-label="Reader">
+  <a href="/orders/{{ page.order_id }}"{% if not is_supplier %} aria-current="true"{% endif %}>The buyer's view</a>
+  <a href="/orders/{{ page.order_id }}?view=supplier"{% if is_supplier %} aria-current="true"{% endif %}>Valio Aimo's view (supplier)</a>
+</nav>
+
+{% if is_supplier %}
+<div class="banner banner-plain">
+  <p><strong>What Valio Aimo sees.</strong> Everything below comes from the supplier's view of the audit trail
+  (<code>GET /v1/audit?reader=supplier</code>): what was asked of its data, what was offered and ordered, the
+  statements the order relied on, and whether the agent acted alone or with human approval. The buyer's spend
+  limits, allergen exclusions, approver names and notes are not in it.</p>
+</div>
+{% else %}
+<p class="small">Read as {{ page.read_as.display_name }}, for buyer profile <code>{{ page.order.profile_id }}</code>
+<span class="tag">illustrative profile</span></p>
+{% endif %}
+
+<section id="record" class="outcome outcome-{{ (record.status|tone) if record else 'plain' }}">
+  <h2>The order record</h2>
+  {% if not record %}
+  <p class="empty">The supplier's view of the trail carries no state of this order that can be read.</p>
+  {% elif is_supplier %}
+  <p class="headline">{{ mark(record.status|tone, record.status|words) }}
+    {% if record.placed_by %}<strong>{{ record.placed_by|words }}</strong>{% endif %}</p>
+  <p>Placed for agent <code>{{ record.agent_id or "not stated" }}</code>. {{ source_label(record.source) }}</p>
+  {% else %}
+  <p class="headline">{{ mark(page.outcome.tone, page.outcome.headline) }}</p>
+  <p>{{ record.status_sentence }}</p>
+  <p>Offer <a href="/?offer={{ record.offer_id }}">{{ record.offer_id }}</a>, option {{ record.option_id }},
+    asked by agent <code>{{ record.agent_id }}</code>. {{ source_label(record.source) }}</p>
+  {% if page.decider %}{{ decide_as(page.decider, csrf) }}{% endif %}
+  {% endif %}
+  {% if record and record.record_note %}<p class="small">{{ record.record_note }}</p>{% endif %}
+</section>
+
+{% if record and record.option %}
+<section id="lines">
+  <h2>What was ordered</h2>
+  <table>
+    <thead><tr><th>Product</th><th class="number">Quantity</th><th class="number">Price per sales unit, before tax</th><th class="number">Line total, before tax</th></tr></thead>
+    <tbody>
+      {% for line in record.option.lines %}
+      <tr>
+        <td>{{ line.name or "Name not stated" }} <span class="id">({{ line.product_id }})</span></td>
+        <td class="number">{{ line.quantity|quantity }} {{ line.sales_unit or "" }}</td>
+        <td class="number">{{ line.unit_net_price|unit_price }}</td>
+        <td class="number">{{ line.net|money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    {% if record.option.totals %}
+    <tfoot>
+      <tr><th colspan="3">Total before tax</th><td class="number"><strong>{{ record.option.totals.net|money }}</strong></td></tr>
+      <tr><th colspan="3">Tax</th><td class="number">{{ record.option.totals.tax|money }}</td></tr>
+      <tr><th colspan="3">Total with tax</th><td class="number">{{ record.option.totals.gross|money }}</td></tr>
+    </tfoot>
+    {% endif %}
+  </table>
+  {% if record.option.totals and record.option.totals.is_ceiling %}<p class="small">The total is a ceiling: a product is sold by variable weight, so the invoice can be lower, never higher.</p>{% endif %}
+  {% if record.option.totals and record.option.totals.excludes_deposits %}<p class="small">The total does not include deposits.</p>{% endif %}
+</section>
+{% endif %}
+
+{% if not is_supplier %}
+<section id="decision">
+  <h2>The policy decision in force</h2>
+  <div class="verdict verdict-{{ record.decision.verdict|tone }}">
+    <p class="headline">{{ mark(record.decision.verdict|tone, record.decision.verdict|words) }}</p>
+    <p>{{ record.decision.sentence }}</p>
+    {% if record.decision.fired %}
+    <ul class="rules">
+      {% for rule in record.decision.fired %}
+      <li><strong>{{ rule.rule_id }}</strong>
+        <span class="tag">{% if rule.fixed %}fixed rule: no profile can switch it off{% else %}profile rule: illustrative value{% endif %}</span>
+        {{ rule.sentence }}{% if rule.approver_role %} Goes to: {{ rule.approver_role|words }}.{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="small">Policy and profile in force: <code>{{ record.decision.policy_hash }}</code></p>
+  </div>
+</section>
+{% endif %}
+
+<section id="reliance">
+  <h2>The statements this order relied on</h2>
+  <p>What Valio Aimo's data said about each product when the order was checked. The order keeps them.</p>
+  {% if record and record.reliance %}
+  <table>
+    <thead><tr><th>Product</th><th class="number">Price, before tax</th><th>Price valid to</th><th>Availability</th><th class="number">Stock stated</th><th>Delivery date</th><th>Order by</th><th>Stated at (Valio's time)</th><th>Checked again</th><th>Source</th></tr></thead>
+    <tbody>
+      {% for statement in record.reliance %}
+      <tr>
+        <td><span class="id">{{ statement.product_id }}</span></td>
+        <td class="number">{{ statement.unit_net_price|unit_price }}</td>
+        <td>{{ statement.price_valid_to|valid_to }}</td>
+        <td>{{ mark(statement.availability_state|tone, statement.availability_state|words) }}</td>
+        <td class="number">{% if statement.available_amount is none %}not confirmed{% else %}{{ statement.available_amount|quantity }}{% endif %}</td>
+        <td>{{ statement.available_date|day }}</td>
+        <td>{{ statement.closing_time|moment }}</td>
+        <td>{{ statement.time_now|moment }}</td>
+        <td>{{ statement.rechecked_at|moment }}</td>
+        <td>{% if statement.source %}{{ statement.source.value|words }}{% else %}not stated{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">No statement is recorded for this order.</p>
+  {% endif %}
+</section>
+
+<section id="trail">
+  <h2>Audit trail: {{ "Valio Aimo's view" if is_supplier else "the buyer's view" }}</h2>
+  <div class="chain chain-{{ 'ok' if page.audit.chain.ok else 'bad' }}">
+    <p class="headline">{% if page.audit.chain.ok %}{{ mark("ok", "The hash chain verifies") }}{% else %}{{ mark("bad", "The hash chain does not verify") }}{% endif %}</p>
+    <p>{{ page.audit.chain.sentence }}</p>
+    <p class="small" data-audit-head="{{ health_path }}">Each event carries the hash of the one before it. The head of
+    the whole chain (how many events, and the last hash) is public at <a href="{{ health_path }}">{{ health_path }}</a>:
+    held by another party, it shows a trail that was cut short.</p>
+  </div>
+  <ol class="timeline">
+    {% for event in page.audit.events %}
+    <li class="event">
+      <p class="event-head"><time datetime="{{ event.time.isoformat() }}">{{ event.time|clock_time }}</time>
+        <span class="actor actor-{{ event.actor.kind.value }}">{{ event.actor.kind.value|words }}{% if event.actor.display_name %}: {{ event.actor.display_name }}{% endif %}{% if event.actor.role %} ({{ event.actor.role|words|lower }}){% endif %}</span>
+        {% for rule_id in event.rule_ids %}<span class="tag">{{ rule_id }}</span> {% endfor %}</p>
+      <p class="sentence">{{ event.sentence }}</p>
+      <p class="hash"><code>{{ event.type }}</code> · hash <code>{{ event.hash[:16] }}…</code></p>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if not page.audit.events %}<p class="empty">The trail has no event for this order.</p>{% endif %}
+</section>
+{% endblock %}

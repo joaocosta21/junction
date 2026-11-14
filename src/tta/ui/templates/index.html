@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% from "_marks.html" import mark %}
+{% block title %}Request{% endblock %}
+{% block main %}
+<h1>Ask the wholesaler as a buyer's agent</h1>
+<p class="lead">Paste a purchase request, choose whose agent is asking, and run it. The gateway looks up
+Valio Aimo's price and availability, builds an offer, and the agent orders within its authority or the order
+goes to a human.</p>
+
+{% if problem %}
+<div class="banner banner-bad" role="alert" id="problem">
+  <p><strong>{{ problem.title }}.</strong> {{ problem.detail }}</p>
+  <p>{{ use_an_example }}</p>
+</div>
+{% endif %}
+
+<form method="post" action="/run" class="request-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="run_key" value="{{ run_key }}">
+  <fieldset class="who">
+    <legend>Who is asking</legend>
+    <div class="agents">
+    {% for card in agents %}
+    {% set profile = card.authority.profile %}
+    <label class="agent">
+      <input type="radio" name="who" value="{{ card.identity.id }}"{% if card.identity.id == asker.id %} checked{% endif %}>
+      <span class="agent-name">{{ card.identity.display_name }}</span>
+      <span class="tag">Illustrative profile: {{ profile.display_name }}</span>
+      <span class="agent-limits">
+        {% if profile.auto_order_enabled %}
+        May order alone up to {{ profile.max_order_net_eur|money }} per order and {{ profile.max_daily_net_eur|money }} per day, with at least {{ profile.min_fill_ratio|percent }} of the quantity covered.
+        {% else %}
+        Every order goes to a human.
+        {% endif %}
+        {% if profile.excluded_allergens %} Excludes allergens {{ profile.excluded_allergens|join(", ") }} ({{ profile.allergen_strictness|words|lower }}).{% endif %}
+        {% if profile.require_confirmed %} Confirmed data only.{% endif %}
+      </span>
+    </label>
+    {% endfor %}
+    </div>
+    <p class="small">{{ agents[0].authority.note }}</p>
+  </fieldset>
+  <label class="field-label" for="text">The request, in the buyer's words</label>
+  <textarea id="text" name="text" rows="2" maxlength="{{ max_text_length }}">{{ text }}</textarea>
+  <button type="submit" class="primary">Run</button>
+  <fieldset class="examples">
+    <legend>Or run a scenario in one click</legend>
+    <div class="example-list">
+    {% for example in examples %}
+    <button type="submit" name="example" value="{{ example.key }}" class="example">
+      <span class="example-label">{{ example.label }}</span>
+      <span class="example-text">{{ example.text }}</span>
+      <span class="example-shows">{{ example.shows }}</span>
+    </button>
+    {% endfor %}
+    </div>
+  </fieldset>
+</form>
+
+{% if result %}
+{% include "_result.html" %}
+{% elif record %}
+<section id="outcome" class="outcome outcome-bad">
+  <h2>Outcome</h2>
+  <p class="headline">{{ mark("bad", "No offer was built") }}</p>
+  {% for note in record.notes %}<p>{{ note }}</p>{% endfor %}
+</section>
+{% set run = record.agent_run %}
+{% if run %}{% include "_agent.html" %}{% endif %}
+{% endif %}
+{% endblock %}

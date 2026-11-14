@@ -1,0 +1,12 @@
+{% from "_marks.html" import mark %}
+<li class="candidate">
+  <p class="line-head"><strong>{{ candidate.rank }}. {{ candidate.name }}</strong> <span class="id">({{ candidate.product_id }})</span>
+    {% if candidate.listed_by_supplier %}<span class="tag">Listed by Valio Aimo</span>{% endif %}</p>
+  <p class="marks">
+    {{ mark("ok" if candidate.passes else "bad", "Passes the allergen rule" if candidate.passes else "Fails the allergen rule") }}
+    {% if candidate.orderable %}{{ mark("ok", "Can be ordered") }}{% else %}{{ mark("bad", "Cannot be ordered" ~ (": " ~ (candidate.reason|words) if candidate.reason else "")) }}{% endif %}
+    {%+ if candidate.unit_net_price is not none %}<span class="price">{{ candidate.unit_net_price|unit_price }} per sales unit</span>{% endif %}
+  </p>
+  <p class="sentence">{{ candidate.sentence }}</p>
+  <p class="gives-up">{{ candidate.gives_up }}</p>
+</li>

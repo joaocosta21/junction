@@ -1,0 +1,17 @@
+{# A state is always a glyph, a word and a colour: never a colour alone. #}
+{% macro mark(tone, text) -%}
+<span class="mark mark-{{ tone }}"><span class="glyph" aria-hidden="true">{{ glyphs[tone] }}</span> {{ text }}</span>
+{%- endmacro %}
+
+{# One click from a waiting order to the queue of a demo approver who can decide it. #}
+{% macro decide_as(approver, csrf) -%}
+<form method="post" action="/approvals/as" class="inline-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="approver" value="{{ approver.id }}">
+  <button type="submit" class="primary">Decide as {{ approver.display_name }} ({{ approver.roles|map("words")|join(", ") }})</button>
+</form>
+{%- endmacro %}
+
+{% macro source_label(source) -%}
+{% if source and source.value == "replay" %}<span class="tag tag-replay">Replay: recorded data</span>{% elif source %}<span class="tag">Live data</span>{% endif %}
+{%- endmacro %}
