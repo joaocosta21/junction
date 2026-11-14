@@ -15,9 +15,66 @@ Reviewed Sunday 15 Nov 2026, from 00:30, against code commit `016cc08`. The deck
 
 1. **The deck describes Saturday morning's product.** Its demo slide carries a total (€2,580.64) and an "AUTO" outcome the code has not given since Sat 14 Nov 17:37, and its solution slide says "AI understands the request" although nothing deployed calls a model.
 2. **Every fault is text.** Of 67 statements checked, 45 are correct, 8 outdated, 9 wrong, 4 cannot be shown, 1 not verified. The structure and the look hold; three slides have a card that runs past the right margin.
-3. **It under-shows what scores.** No end-to-end flow with figures (30%), nothing on how a request is read (20%), no "never" column and no "an agent cannot approve" (20%), standards named only as "REST + MCP" (15%), nothing of the suggestions or Valio Aimo's back office. Five minutes leave room for all of it: sections 4 and 5.
+3. **It under-shows what scores.** No end-to-end flow with figures (30%), nothing on how a request is read (20%), no "never" column and no "an agent cannot approve" (20%), standards named only as "REST + MCP" (15%), nothing of the suggestions or Valio Aimo's back office. Five minutes leave room for all of it: sections 4 and 5. What sets the project apart, and the moments to play, are next (section 1a).
 
-### Change before submitting (most important first)
+## 1a. What is out of the box, and how to make the room react
+
+Asked by João at about 01:00: "focus as well on our out of the box ideas and ways to make people wow". Everything here is [M] (measured by me on `016cc08`, replay, demo clock) or cites a check of `AIMO/build/replan/REVIEW.md` ("Checks of Sunday morning", "CK3") by its id. **May move** marks a figure tonight's fixes (decisions B55 to B67) can change: re-run it on the final commit.
+
+### A. What is out of the box here
+
+Most teams will show an assistant that searches a catalog and places an order. These five are what they will not have. Left off the list on purpose: MCP and OpenAPI by themselves (many will have them), "a human in the loop" as such, a recipe turned into an order (it is the brief's own example), substitutes (see the caution under the table), and a language model (ours is switched off).
+
+| # | The idea, as a non-engineer repeats it | Why it is unusual | The proof we can show | Scores on |
+|---|---|---|---|---|
+| 1 | **"It says what it does not know."** Asked for 1,000 litres, it answers: 435 I can confirm, the rest I cannot, and here is why | A demo is built to fill the order; ours did on Saturday morning, with coffee milk. Here every line carries five statements (price, quantity, delivery date, allergens, origin), each confirmed or not, and "not known" is an answer | [M] 435 of 1,000 L, €1,083.39; the alternative's quantity reads "Valio reports 9,999,999,999 ST, a placeholder that means the stock is not known." CK2: correct against the recording, totals right to the cent. **May move:** B56 adds a third option, 1,000 L from confirmed stock with 565 L of coffee milk named as a substitute | 20% precision · 15% exceptions · innovation |
+| 2 | **"A claim is not a declaration."** A milk-allergy ward asks for lactose-free milk: 26 products checked, 26 refused, because lactose-free milk is still milk | An assistant that matches words sells "lactose-free" to a milk allergy. Ours reads the allergen declaration and never the claim, and treats "nothing stated" as unknown, not safe | [M] City Hospital, Ward 4, "100 litres of lactose-free milk by Monday": 0 options, "26 candidates checked: 26 allergen declared", each with "The product declares that it contains milk (AM), which the buyer excludes." [M] marzipan `464954`: the data says tree nuts "free from" and almonds "contains"; at the school it is excluded, "contains almonds (SA), part of the excluded tree nuts (AN)". CK3: allergen safety held against every attack tried | 20% controls · 15% exceptions · impact |
+| 3 | **"The agent cannot sign its own order, and its limit is a line you can see."** 302 litres it orders alone; 303 litres waits for Hanna | "Approval" in most demos is a button in a chat. Here the limit is the buyer's own setting, the rule is named, an agent's token is refused on the approval route, and the refused attempt is itself in the log. Of 13 MCP tools, none approves | [M] with ordering alone switched on: 302 L, €748.96, "The agent placed this order alone"; 303 L, €751.44, "above the €750 limit per order… It needs the purchasing manager." (also CK2). [M] the agent's token on the approval route: 403, and the log: "The agent tried to decide approval … and was refused: an agent cannot approve an order (F-06)." (also CK1, CK4). Say "over REST and MCP": the demo page has no login (B62) | 20% controls |
+| 4 | **"Give an agent only our address. It needs nothing else, and it need not trust us."** | Others publish an API; few make it findable and checkable by a machine with no human reading documentation: one text file leads to the typed interface, and every offer and order is signed | [M] `/llms.txt`, then 3 calls (read the sentence, offer, order): an order waiting for a person after 4 requests. [M] an offer verifies against the published key; with one digit of a price changed (2.48 → 1.48) it does not (CK4: forged or replayed proofs refused). This is Valio Aimo's own sentence answered: "before that interface gets defined by someone else's platform": written down in the open, MIT-licensed | 15% openness · innovation |
+| 5 | **"Unknown stock becomes a number Valio Aimo cares about."** The 565 litres it could not confirm appear in Valio Aimo's back office as about €1,407 it could not sell | Teams build for the buyer. This gives the wholesaler a reason to want the channel and to fix its data, and it reads the same log as the buyer without the buyer's limits, allergens or names | [M] the back office after the 1,000 L request: "565 L asked for could not be covered by confirmed stock: about €1,407 at offered prices." **May move** with B56 | impact · the brief's "proactive selling agent" |
+
+**Cautions, so that nothing is overclaimed on stage.**
+- Substitutes: a check found the ranking wrong outside milk, cream and plant drinks (egg white for egg yolk; C3-F2, being fixed, B65). [M] at the school the marzipan request still offers vanilla sugar in its place. Any substitute shown or named must be a dairy or plant-drink one, and the marzipan is a spoken line, not a screen.
+- Signatures: the signature says this gateway answered this record, with a demo key. A stored order edited in the database still gets a valid proof (C4-F3): never say "orders cannot be tampered with".
+- The log: a changed event is detected and named through `/v1/audit` (CK1, CK4); `/healthz` did not notice it at `016cc08` (C1-4, being fixed). A reader cannot recompute the chain alone.
+- Ordering alone: at `016cc08` the agent, with the setting on, could order alone a substitute its own line calls not like-for-like (C3-F1, being fixed, B64). Show ordering alone on a product asked for, as in 302 / 303.
+- A stock assistant over MCP: nobody has connected one (`docs/STANDARDS.md:104`). **To be tried on the final commit**; until it has worked once, do not promise it.
+
+### B. Moments that make a room react
+
+Ranked. Each is 10 to 25 seconds. "Fallback" is a screenshot taken from the final commit before going on stage; take all six of moments 1 to 6 in one sitting.
+
+| Rank | Moment | Exactly what is on screen or typed | The one sentence | What can go wrong → fallback | Use |
+|---|---|---|---|---|---|
+| 1 | **435 confirmed, 565 not** (25 s) | `/shop`, Harbourside Hotel. Type: `1,000 litres of lactose-free milk by Monday`. The answer: 435 L confirmed, €1,083.39; 565 L missing; the alternative, €1,010.00, "quantity not confirmed" | "Asked for a thousand litres, it does not pretend: 435 confirmed, 565 not, and it tells you why." | A third option is there after B56: say it ("and it names coffee milk as a substitute, for a person to accept"). A used order book brings the day's limit into the answer: press "Start again" before going on. → slide D | **Live** |
+| 2 | **Lactose-free is not milk-free** (25 s) | `/shop`, switch to City Hospital, Ward 4. Type: `100 litres of lactose-free milk by Monday`. The answer: nothing can be offered; 26 products, each "declares that it contains milk (AM), which the buyer excludes" | "A milk-allergy ward asks for lactose-free milk. Twenty-six products checked, twenty-six refused. Lactose-free is still milk." | I measured it over REST as the ward; how the page lays out an answer with no option was not seen in a browser: rehearse it once. → slide F, row 3, which carries "26 of 26" | **Live** |
+| 3 | **The sale Valio Aimo did not make** (20 s) | `/shop` → "Valio Aimo back office", straight after the hotel's order and **before** the ward's request (the page counts everything done in that browser). "565 L asked for could not be covered by confirmed stock: about €1,407 at offered prices." | "Valio Aimo sees those 565 litres too: about fourteen hundred euros it could not sell, because its own data did not confirm the stock." | Another request made first changes the figure; B56 may change it. → slide H's right panel | **Live** |
+| 4 | **302 litres, 303 litres** (20 s) | Two results side by side, with ordering alone switched on at the hotel: `302 litres of lactose-free milk by Monday` → "The agent placed this order alone for €748.96 net"; `303 litres…` → "€751.44 before tax is above the €750 limit per order… It needs the purchasing manager." | "302 litres, the agent orders. One litre more, and it waits for Hanna. The limit is hers, not ours." | Live it needs the setting switched on and off again and two requests: 40 seconds, not 20. → use it as a picture on slide E; live only in the questions | **Picture on slide E** |
+| 5 | **The agent tries to sign its own order** (15 s) | The agent's token sent to `POST /v1/approvals/{id}/decision`: 403, "An agent cannot approve or reject an order (F-06). A human with the role asked for decides." Then the log line: "The agent tried to decide approval … and was refused: an agent cannot approve an order (F-06)." | "We let the agent try to approve its own order. Refused, and the attempt itself is in the log." | It is a REST call, not a click: a terminal with the command prepared, or `/docs`, which loads its viewer from the internet. Say "over REST and MCP". → the two lines as a picture on slide E | **Picture on slide E**; live in the questions |
+| 6 | **Break the signature** (15 s) | A Python prompt: fetch an offer and the key at `/.well-known/jwks.json`; `verifies(offer, jwks)` → `True`; change the unit price 2.48 to 1.48; `verifies(...)` → `False` (`src/tta/api/signing.py:228`) | "Change one digit of a signed offer and it no longer verifies. Any agent can check that with our public key." | Typing in a terminal on stage; the six lines are not a script in the repository, someone prepares them. Do not extend the claim to stored orders (C4-F3). → the two outputs as a picture on slide G | **Picture on slide G**; live in the questions |
+| 7 | **A stock assistant, no code of ours** (25 s) | An MCP client pointed at `/mcp/` with the hotel's demo token, asked the brief's sentence; it lists 13 tools, gets the offer and stops at "waiting for approval" | "This assistant has never seen our code. It read the tools, asked, and stopped for a person." | **Not tried by anyone.** If it works on the final commit it is the strongest opening of the live part; if not, drop it. → [M] the same from the address alone: `/llms.txt`, then 3 calls | Back-up, unless tried |
+| 8 | **The forgotten item** (15 s) | `/shop`, hotel: `100 litres of lactose-free milk by Monday` → "With this milk you usually also order Arla Pro Cooking cream 10%: it was in 7 of your last 8 orders… Adding 10 L costs €33.10." One click: €248.00 becomes €281.10 | "It noticed what Hanna forgot: one click, and the order is right." | Low. The history is synthetic and the sentence says so. → slide H | Slide H; back-up live |
+| 9 | **A cake becomes an order** (20 s) | `/shop`, Kallio Bakery: `I want to make a chocolate cake for 20 people by Monday` → 7 ingredient lines; €15.19 for the 4 with confirmed stock | "From a dish to an order." | At `016cc08` the option's sentences are off ("Only 0%… covered" with 4 of 7 lines full, C3-F8, being fixed), and the order is small. → none | Back-up for the questions |
+| 10 | **A changed log entry is named** | One stored audit event edited; `GET /v1/audit` answers `chain.ok: false` and names the event (CK1, CK4; not re-done by me) | "Change one line of the log, and the log tells you which." | Needs a database edit on stage; `/healthz` does not show it yet. Never demonstrate it on an order row. → say it, show nothing | Questions only |
+
+**The three I would use live:** 1, 3 and 2, in that order (the back office before the ward, see moment 3), inside one run on `/shop`: 95 seconds with the confirmation and the log after moment 1. They need only typing two sentences and two clicks, they are true whatever the jury asks next, and each is a number with a meaning. **As pictures on slides:** 4 and 5 on slide E, 6 on slide G, 8 on slide H. **Back-up for the questions:** 7 (unless it has been tried and works), 9, 10.
+
+### C. Lines
+
+- **Opening:** "We asked our agent for a thousand litres of lactose-free milk by Monday. It confirmed 435, and told us why it would not promise the rest."
+- **Closing:** "Valio Aimo asked for this interface to be defined before someone else's platform defines it. Here it is, in the open: an agent that knows when to act, and when to ask."
+- Worth saying as they are:
+  1. "435 litres confirmed, 565 not. It says what it does not know."
+  2. "Twenty-six lactose-free milks, a milk-allergy ward, twenty-six refusals."
+  3. "302 litres, the agent orders. 303, it waits for Hanna."
+  4. "The agent tried to approve its own order. Refused, and the attempt is in the log."
+  5. "The stock Valio Aimo's data could not confirm is about €1,407 it could not sell. Now it can see that."
+
+Lines 1 and 5 carry figures that B56 may move; line 3 holds while the hotel's limit is €750 and the milk costs €2.48 a litre [M]; line 4 is true over REST and MCP.
+
+---
+
+## 1b. Change before submitting (most important first)
 
 Every figure in a replacement was measured [M] unless a source is given.
 
@@ -218,37 +275,45 @@ Nothing on the deck names a tech sponsor, a model vendor or a competitor: nothin
 
 ### Recommended order for 5:00 (300 seconds)
 
-Slides lettered A to J are described in section 5. "Existing n" is a slide of the current deck with the fixes of section 1.
+Slides lettered A to J are described in section 5. "Existing n" is a slide of the current deck with the fixes of section 1b.
 
-| # | Slide | Seconds | The one thing the jury must believe | First sentence the speaker says |
-|---|---|---|---|---|
-| A | Title (existing 1, fixed) | 10 | This team answered Valio Aimo's question, not another one | "Valio Aimo asked how a wholesaler can be safely and openly readable by autonomous agents. We built that gateway." |
-| B | The request (existing 2, with Valio Aimo's sentence) | 20 | The hard part is not finding products, it is knowing what an agent may be trusted with | "Hanna buys for a hotel kitchen, and soon her agent sends this for her: a thousand litres of lactose-free milk by Monday." |
-| C | What we built (existing 4, redrawn) | 25 | It is an interface for any agent, not a chatbot; rules decide; a person confirms | "This is a typed interface, not a chatbot: any agent calls it over REST or MCP, fixed rules decide, and a person confirms." |
-| D | **New:** the brief's sentence, end to end | 20 | The whole flow runs: request, lookup, offer, rules, order, log | "Here is the brief's own sentence, end to end, with the real figures." |
-| — | **Live demo on `/shop`** | 70 | It works in front of you, and it says what it does not know | "Now the same request, live." |
-| P | **New:** it asks instead of guessing | 20 | What comes back is what was asked for, or a question | "The agent orders what was asked, or it asks. It never guesses." |
-| E | **New:** the guardrails table | 35 | The line between agent and person is exact, and some things no setting can switch on | "Three columns: what the agent does alone, what a person confirms, and what nothing can switch on." |
-| F | Exceptions (existing 6, left half, with slide 3's figures as a strip) | 25 | Exceptions are the normal case here, and each has an answer | "In Valio Aimo's test data the exception is the normal case, so each one has an answer." |
-| G | **New:** the trust protocol and the standards | 25 | An outside agent can check what it is told without trusting us | "An agent should not have to trust us. Here is what it can check by itself." |
-| H | **New:** it also sells | 20 | Buyers and Valio Aimo both gain from the channel | "And it sells: for the buyer, and for Valio Aimo." |
-| I | Honest limits and next steps (existing 7, redrawn) | 20 | The team knows what is illustrative and what a pilot needs | "What is ours and illustrative, we say. Here is what a pilot needs next." |
-| J | Closing (existing 8, with the links) | 10 | — | "The future of AI purchasing isn't an agent that buys everything. It's one that knows when to act, and when to ask." |
-| | **Total** | **300** | | |
+| # | Slide | From–to | Seconds | The one thing the jury must believe | First sentence the speaker says | Moment of section 1a it carries |
+|---|---|---|---|---|---|---|
+| A | Title (existing 1, fixed) | 0:00–0:10 | 10 | This team has something to show, and answered Valio Aimo's question | "We asked our agent for a thousand litres of lactose-free milk by Monday. It confirmed 435, and told us why it would not promise the rest." | The opening line |
+| B | The request (existing 2, with Valio Aimo's sentence) | 0:10–0:30 | 20 | The hard part is not finding products, it is knowing what an agent may be trusted with | "Valio Aimo asked how a wholesaler can be safely and openly readable by autonomous agents. This is Hanna's request, and soon her agent sends it." | — |
+| C | What we built (existing 4, redrawn) | 0:30–0:50 | 20 | It is an interface for any agent, not a chatbot; rules decide; a person confirms | "This is a typed interface, not a chatbot: any agent calls it over REST or MCP, fixed rules decide, and a person confirms." | — |
+| D | **New:** the brief's sentence, end to end | 0:50–1:05 | 15 | The whole flow runs: request, lookup, offer, rules, order, log | "Here is the brief's own sentence, end to end. Now watch it." | — |
+| — | **Live on `/shop`**, four steps | 1:05–2:40 | 95 | It works in front of you, it says what it does not know, and Valio Aimo gains from it | "Harbourside Hotel, a thousand litres of lactose-free milk by Monday." | 1:05–1:30 **moment 1** (435 confirmed, 565 not) · 1:30–1:55 "Confirm order", the log, Valio Aimo's view · 1:55–2:15 **moment 3** (back office: 565 L, about €1,407) · 2:15–2:40 **moment 2** (the ward: 26 of 26 refused) |
+| P | **New:** it asks instead of guessing | 2:40–3:00 | 20 | What comes back is what was asked for, or a question | "The agent orders what was asked, or it asks. It never guesses." | — |
+| E | **New:** the guardrails table | 3:00–3:35 | 35 | The line between agent and person is exact, and some things no setting can switch on | "Three columns: what the agent does alone, what a person confirms, and what nothing can switch on." | 3:10 **moment 4** as a picture (302 L / 303 L) · 3:25 **moment 5** as a picture (the refused approval and its log line) |
+| F | Exceptions (existing 6, left half, with slide 3's figures as a strip) | 3:35–3:55 | 20 | Exceptions are the normal case here, and each has an answer | "In Valio Aimo's test data the exception is the normal case, so each one has an answer." | — |
+| G | **New:** the trust protocol and the standards | 3:55–4:20 | 25 | An outside agent can check what it is told without trusting us | "Give an agent only our address: it needs nothing else, and it need not trust us." | 4:10 **moment 6** as a picture (one digit changed: the signature fails) |
+| H | **New:** it also sells | 4:20–4:35 | 15 | Buyers gain too, not only Valio Aimo | "And for the buyer: it noticed what Hanna forgot." | 4:25 **moment 8** as a picture (the forgotten item, €248.00 → €281.10) |
+| I | Honest limits and next steps (existing 7, redrawn) | 4:35–4:50 | 15 | The team knows what is illustrative and what a pilot needs | "What is ours and illustrative, we say. Here is what a pilot needs next." | — |
+| J | Closing (existing 8, with the links) | 4:50–5:00 | 10 | — | "Valio Aimo asked for this interface to be defined before someone else's platform defines it. Here it is, in the open: an agent that knows when to act, and when to ask." | The closing line |
+| | **Total** | | **300** | | | |
+
+Against the first version of this plan: the live part grows from 70 to 95 seconds and now carries three moments instead of one flow; C, D, F, H and I each give up 5 seconds; the opening and the closing are the lines of section 1a. Moments 7, 9 and 10 stay out of the five minutes and wait for the questions.
 
 Existing slide 3 ("the data") leaves the main run: its three figures become one strip on slide F, and the slide itself, corrected, goes after J as a back-up for questions. Reason: in the first minute it shows Valio Aimo's data as a problem before showing anything we built, and it scores on no criterion by itself.
 
-### The live demo: where, how long, and the condition
+### The live part: where, how long, and the condition
 
-- **Where:** straight after slide D, for 70 seconds. D shows the figures the jury is about to see, so a slow click costs nothing.
-- **What:** on `/shop`, as Harbourside Hotel: type "1,000 litres of lactose-free milk by Monday" → the answer (435 L confirmed, €1,083.39, 565 L missing, the €1,010.00 alternative) → "Confirm order" → the log → Valio Aimo's view of the same log. Every step measured [M] through the page's own routes.
-- **Run it from a laptop, in replay** (the command is in `docs/DEMO.md:13`–`17`), so it does not depend on the venue's network or on the public link, which at 00:30 still ran Saturday morning's code.
-- **Condition:** somebody has clicked this path once in a real browser on the final commit. `DECISIONS.md` A4 says no agent had seen `/shop` rendered; a browser check was running at 23:54 and I do not know its result. If it has not been rehearsed, stay on slide D for the 70 seconds and say the figures; D is built to carry that.
-- **If the stage allows no window switch:** play the hotel block of the 2-minute video (0:15–1:05 in `AIMO/SUBMISSION.md:105`–`106`, 50 seconds) in its place and give the 20 seconds to slide E. The video was not recorded when that file was written.
+- **Where:** straight after slide D, from 1:05 to 2:40. D shows the figures the jury is about to see, so a slow click costs nothing.
+- **The four steps, on `/shop`** (each measured [M] through the page's own routes, except where said):
+  1. 1:05–1:30, as Harbourside Hotel: type `1,000 litres of lactose-free milk by Monday` → 435 L confirmed, €1,083.39, 565 L missing, the €1,010.00 alternative "quantity not confirmed" (moment 1).
+  2. 1:30–1:55: "Confirm order" → "Ordered for €1,083.39 net with approval by Hanna Laine…" → the log, 10 events → Valio Aimo's view of the same log, without the limit, the name or the note.
+  3. 1:55–2:15: the menu entry "Valio Aimo back office" → "565 L asked for could not be covered by confirmed stock: about €1,407 at offered prices." (moment 3). It comes here, before the ward, because the page counts everything done in that browser.
+  4. 2:15–2:40: switch to City Hospital, Ward 4: type `100 litres of lactose-free milk by Monday` → nothing can be offered: 26 products, each declares milk (moment 2; [M] over REST as the ward, not through the page).
+- **Run it from a laptop, in replay** (the command is in `docs/DEMO.md:13`–`17`), from an empty order book ("Start again"), so it does not depend on the venue's network or on the public link, which at 00:30 still ran Saturday morning's code.
+- **Condition:** somebody has clicked these four steps once in a real browser on the final commit, and taken the six screenshots of section 1a. `DECISIONS.md` A4 says no agent had seen `/shop` rendered; a browser check was running at 23:54 and I do not know its result. Not rehearsed: stay on slide D for the 95 seconds, say moments 1 and 3 from it, and moment 2 from slide F.
+- **If one step fails on stage:** go on to the next slide; every moment has its picture (D for 1, H for 3, F for 2).
+- **If the stage allows no window switch:** play the hotel block of the 2-minute video (0:15–1:05 in `AIMO/SUBMISSION.md:105`–`106`, 50 seconds) in place of steps 1 and 2, and say steps 3 and 4 over slides H and F. The video was not recorded when that file was written.
+- **After B56 lands:** step 1 shows a third option (1,000 L from confirmed stock, 565 L of it coffee milk named as a substitute). The sentence then is: "435 litres of the milk you asked for; the rest only as a named substitute, or unconfirmed: a person chooses." Check what the back office says in step 3 on that commit.
 
 ### If there is no time to build new slides
 
-Keep the eight slides, apply section 1, and use this order and timing: 1 (10 s) · 2 (25 s) · 3 (20 s) · 4 (40 s) · 5 (45 s) · live demo (75 s) · 6 (40 s) · 7 (35 s) · 8 (10 s) = 300 s. Of the new slides, build in this order as time allows: **D, E, G, H, P**.
+Keep the eight slides, apply section 1b, and use this order and timing: 1 (10 s) · 2 (25 s) · 3 (15 s) · 4 (35 s) · 5 (35 s) · live part (95 s, the four steps above) · 6 (40 s) · 7 (35 s) · 8 (10 s) = 300 s. Of the new slides, build in this order as time allows: **D, E, G, H, P**.
 
 ### What to cut
 
@@ -335,9 +400,10 @@ Each slide below can be shown live on the running gateway; the place is named. E
 | Default for all four demo customers: **off**. A person confirms every order | An excluded allergen the data does not rule out: the dietitian, where the customer has one | An agent approving an order: over REST and MCP its token is refused (403) |
 | | A substitute that loses a dietary claim, does not keep the recipe, or is a last resort | |
 
+- **Two pictures under the table (moments 4 and 5 of section 1a), each a screenshot or a drawn card:** left, two results side by side: "302 L · €748.96 · The agent placed this order alone" and "303 L · €751.44 · above the €750 limit per order → the purchasing manager" (hotel, ordering alone switched on; [M], also CK2). Right, two lines: "403 · An agent cannot approve or reject an order (F-06)." and, from the log, "The agent tried to decide approval … and was refused: an agent cannot approve an order (F-06)." ([M] over REST). If the pictures are in, shorten the first column's example row to "See 302 L / 303 L below."
 - **Strip:** "Limits are the buyer's settings (illustrative here). The fixed rules hold for every buyer: no profile can switch one off. Every decision is one sentence in the log, with the rule that fired and who confirmed."
 - **Shown live:** `/shop` → Settings ("Let the agent place orders alone"; "What the agent never does on its own, whatever you set"); `GET /v1/authority` on `/docs`.
-- **Sources:** [M] `GET /v1/authority` as the ward: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; … a substitute that lacks a dietary claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing." and "Never, even with approval: a product that contains an excluded allergen, a substitute that declares an allergen the product asked for does not, and an option that expired or changed before the order." [M] ward with the setting on: ORDERED, placed by the agent, €402.00. [M] agent token on the decision route: 403 "An agent cannot approve or reject an order (F-06)." Fixed rules cannot be weakened by a profile: `src/tta/policy/rules.yaml:11`–`14`. "Over REST and MCP" is deliberate: the demo page has no login (decision B62).
+- **Sources:** [M] `GET /v1/authority` as the ward: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; … a substitute that lacks a dietary claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing." and "Never, even with approval: a product that contains an excluded allergen, a substitute that declares an allergen the product asked for does not, and an option that expired or changed before the order." [M] ward with the setting on: ORDERED, placed by the agent, €402.00. [M] agent token on the decision route: 403 "An agent cannot approve or reject an order (F-06)." Fixed rules cannot be weakened by a profile: `src/tta/policy/rules.yaml:11`–`14`. "Over REST and MCP" is deliberate: the demo page has no login (decision B62). At `016cc08`, with ordering alone on, the agent could order alone a substitute its own line calls not like-for-like (C3-F1; being fixed, B64): keep the examples to a product asked for by the buyer.
 
 ### F. Existing slide 6, left half, as the exceptions slide
 
@@ -346,11 +412,11 @@ Each slide below can be shown live on the running gateway; the place is named. E
 - **Four rows, full width** (the right dark panel moves to slide G):
   1. "Partial availability" — "435 of 1,000 L confirmed. The 565 L missing are said, never hidden."
   2. "Substitutes, ranked" — "A barista oat drink out of confirmed stock: first a confirmed like-for-like product (€174.00), then the product asked for as “quantity not confirmed” (€137.00), then the substitute Valio Aimo lists (€155.50, not confirmed). Two listed substitutes add gluten: never offered."
-  3. "Allergen doubt" — "Milk excluded: the product whose data rules milk out comes first (€236.00). The cheaper one whose data says nothing (€208.00) is a labelled alternative, and a person decides."
+  3. "Allergens: the declaration, never the claim" — "A milk-allergy ward asks for lactose-free milk: 26 products checked, 26 refused. Where the data says nothing: the product whose data rules milk out comes first (€236.00); the cheaper one (€208.00) is a labelled alternative, and a person decides."
   4. "Delivery constraints" — "A product that cannot be delivered is left out, with the reason. Every line shows its order deadline: “if ordered by Sunday 15 Nov at 17:00”."
 - **Strip at the bottom (slide 3's figures):** "WHY THIS IS THE NORMAL CASE · 1,000 products sampled from Valio Aimo's test API, Fri 13 Nov 23:00: 25% with confirmed stock and an open cut-off, 9% orderable with a quantity not confirmed · whole catalog, 17,546 products: 46.2% with no allergen statement"
 - **Shown live:** `/shop`, Harbourside Hotel: "100 litres of Oddlygood Barista oat drink, product 473609, by Monday" (row 2); "100 litres of Elovena barista oat drink, product 469512, by Monday; no milk, strict rule" (row 3); the 1,000 L answer (rows 1 and 4).
-- **Sources:** [M] row 2: 100 × `475224` €174.00 (F-10), `473609` €137.00 (F-01), 10 × `471690` €155.50 (F-01); `471881` and `464320` "can never be ordered as a substitute" ([M] over `POST /v1/products/473609/substitutes`). [M] row 3: 100 × `473424` €236.00, `469512` €208.00 (P-04, the dietitian's role, held at the hotel by the person who orders). Strip: section 2, slide 3.
+- **Sources:** [M] row 2: 100 × `475224` €174.00 (F-10), `473609` €137.00 (F-01), 10 × `471690` €155.50 (F-01); `471881` and `464320` "can never be ordered as a substitute" ([M] over `POST /v1/products/473609/substitutes`). [M] row 3: as the ward, "100 litres of lactose-free milk by Monday" → 0 options, "26 candidates checked: 26 allergen declared" (over REST); 100 × `473424` €236.00, `469512` €208.00 (P-04, the dietitian's role, held at the hotel by the person who orders). Strip: section 2, slide 3.
 
 ### G. New: the trust protocol and the standards
 
@@ -375,6 +441,7 @@ Each slide below can be shown live on the running gateway; the place is named. E
   - "Keep the head of the log: every event carries its hash; /healthz publishes the count and the last hash"
   - "Know its authority before it acts: GET /v1/authority, with the hash of the rules in force"
   - Smaller: "Errors an agent can branch on: problem details (RFC 9457) · allergens as GS1 codes"
+- **Picture in the right panel (moment 6 of section 1a):** two lines of output: "offer as answered → verifies: True" and "one digit of the price changed (2.48 → 1.48) → verifies: False" ([M] with `tta.api.signing.verifies`, `src/tta/api/signing.py:228`, against `/.well-known/jwks.json`).
 - **Bottom strip:** "Signed by this gateway, with a demo key. Not yet signed by Valio Aimo: that is the next step."
 - **Shown live:** open the three addresses in a browser; `POST /v1/offers` on `/docs` shows `proof` (`/docs` loads its viewer from the internet, `docs/STANDARDS.md:36`).
 - **Sources:** [M] the five claims of `464306` in the offer; [M] `proof`: "algorithm": "EdDSA", "canonicalization": "RFC 8785", "demo_key": true; [M] `/.well-known/jwks.json` (Ed25519), `/.well-known/api-catalog` (profile RFC 9727), `/llms.txt`, all 200 with no token; [M] OpenAPI 3.1.0, 13 MCP tools; [M] `policy_hash` in `GET /v1/authority`; [M] errors as `type`, `title`, `status`, `detail`; [M] `/healthz` gives `audit_head` (events, last hash). A reader's view of an event carries `hash` and not the previous one (`src/tta/contracts/audit.py:120`–`130`), so a reader cannot recompute the chain alone: the gateway checks it and says so, and the reader can keep the head. Hence the wording of line 4; do not write "anyone can verify the chain". GS1 codes: `docs/STANDARDS.md:148`. Do not add "CloudEvents" (decision B63).
@@ -415,7 +482,7 @@ Each slide below can be shown live on the running gateway; the place is named. E
 
 ### J. Existing slide 8: the links
 
-As section 1, row 12. If the form's "Source Code" field points at a branch, write the same branch here (the code is on `replan-build`, pushed at 00:37 by the log).
+As section 1b, row 12. If the form's "Source Code" field points at a branch, write the same branch here (the code is on `replan-build`, pushed at 00:37 by the log).
 
 ---
 
@@ -438,6 +505,7 @@ As section 1, row 12. If the form's "Source Code" field points at a branch, writ
 - **`/shop` in a browser.** I drove the page's routes (`/shop/api/*`), not the page: the labels of buttons and views are read from the page's source, not seen.
 - **The recording's own clock.** All measurements are at the demo clock. "17 left out at the recording's clock" (`docs/DEMO.md:71`) and other figures of that clock are not re-measured, and none is used above.
 - **Three figures taken from documents, marked where used:** 30.6% of food products with no allergen statement (`AIMO/FINDINGS.md:76`); the bakery's enzyme example (`docs/DEMO.md:173`); "20,000+ professional kitchens" (`AIMO/CHALLENGE.md:8`, our summary of the brief, not verbatim) — not used in any replacement; check the challenge page before putting it on a slide.
+- **The moments of section 1a on a stage.** Moments 1 to 6 and 8 are measured through the routes; none was seen in a browser by me, and moment 2 was measured over REST, not through the page. Moment 7 (a stock MCP client) has been tried by nobody. Moment 10 (a changed audit event) is CK1's and CK4's measurement, not mine.
 - **The model test of 22:27** (Gemini Flash, three tool calls): from the log; not re-run, since it needs an outside call.
 - **The tech awards** (what ran on Modal, Aiven, Context.dev): `docs/AWARDS.md` only; the deck claims nothing about them.
 - **Whether the repository is public** and which branch the form points at.
