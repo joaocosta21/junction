@@ -48,6 +48,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B28 | Orders waiting for a person still count toward the day's spend limit, and the approval says how much is ordered and how much is waiting | PLAN decision 9; a limit that waiting orders can slip under is no limit | L4a |
 | B29 | A buyer holds at most 20 standing orders here, and nothing deletes one. On the public link the shared hotel and ward books can fill up and stay full until the data is wiped | Bounds a flood found by the security review; a delete route is not built | L4a |
 | B30 | "Leave the line out" on the dietitian's card rejects the whole order, and the card says so | The interface cannot drop one line of an order | U3 |
+| B31 | The brief's "proactive selling agent" is built as Valio Aimo's own suggestion of a related product: same type and brand as one the customer buys, never ordered by them, confirmed stock, checked like any product, shown last and apart, on by default | The product file has no "new" or "seasonal" mark, only a record-change date | L4-2a |
+| B32 | At most one suggestion per kind and three in all; Valio's own stays silent when only another pack kind passes or one unit is in stock | Three forgotten items hid the cheaper line; a portion milk for a school's bulk order is not a suggestion | L4-2d |
 
 ## C. Questions for the team (domain)
 
@@ -65,4 +67,5 @@ Last updated: Sat 14 Nov, about 19:00.
 |---|---|
 | D1 | Of your 249 listed substitute pairs in the product file, our formula comparison finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (figures from the whole catalog, before the per-100-ml change). Are listed substitutes meant to keep the formula, or only to be "close enough to offer"? |
 | D3 | Is "Delight" (`471690`, fat 1.5 g against 3 g) meant as the like-for-like replacement for the barista oat drink `473609`? Our formula check calls it a different formula; it ranks first only because you list it |
+| D4 | Your brief names a selling agent for new or seasonal products. We looked for a launch or season mark in the product file and found only `synkkaData.lastUpdated`. Is there such a mark, or did we miss it? Meanwhile we suggest a related product and label it as yours |
 | D2 | Your view of the buyer's log now shows every rule that fired, with the buyer's limit amounts and allergens masked. Is the decision without the buyer's private values what you meant by "all the steps and decisions"? |

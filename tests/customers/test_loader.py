@@ -87,12 +87,14 @@ def test_the_customers_carry_the_names_the_shop_page_shows() -> None:
     }
 
 
-def test_the_bakery_owner_holds_two_roles_and_names_no_dietitian() -> None:
+def test_the_bakery_owner_holds_every_role_the_dietitians_too() -> None:
+    """Decision B27: a bakery-café has no dietitian, so its owner also decides allergen questions."""
     bakery = shipped_customer("bakery-cafe")
 
     assert bakery is not None
     assert bakery.people == {
         ApproverRole.PURCHASING_MANAGER: "Marko Heikkinen", ApproverRole.FINANCE: "Marko Heikkinen",
+        ApproverRole.DIETITIAN: "Marko Heikkinen",
     }
 
 

@@ -88,7 +88,7 @@ def larger_pack(customer_id: str, request: PurchaseRequest, line_index: int, ori
     if not 0 <= line_index < len(request.lines):
         raise InvalidRequest(f"The request has no line {line_index + 1}.")
     line = request.lines[line_index]
-    needed = _needed(line, original)
+    needed = needed_in_measure(line, original)
     if line.pack is PackPreference.PORTION or needed is None:
         return None
     fits = [fit for fit in (_fit(candidate, original, needed) for candidate in candidates) if fit is not None]
@@ -98,7 +98,7 @@ def larger_pack(customer_id: str, request: PurchaseRequest, line_index: int, ori
     return _suggestion(customer_id, request, line_index, original, best, needed)
 
 
-def _needed(line: RequestLine, original: PackOption) -> Decimal | None:
+def needed_in_measure(line: RequestLine, original: PackOption) -> Decimal | None:
     """The line's quantity in the original's measure; None when it is asked in the other measure."""
     if line.unit is original.measure:
         return line.quantity
@@ -116,12 +116,12 @@ def _fit(candidate: PackOption, original: PackOption, needed: Decimal) -> _Fit |
     packs = candidate.packs_for(needed)
     if saving < LARGER_PACK_MIN_SAVING or packs * candidate.pack_size > needed * (1 + LARGER_PACK_MAX_OVER):
         return None
-    if not _confirmed_for(candidate.availability, packs):
+    if not confirmed_for(candidate.availability, packs):
         return None
     return _Fit(option=candidate, packs=packs, saving=saving)
 
 
-def _confirmed_for(availability: AvailabilityAssessment | None, packs: Decimal) -> bool:
+def confirmed_for(availability: AvailabilityAssessment | None, packs: Decimal) -> bool:
     return (availability is not None and availability.state is AvailabilityState.CONFIRMED
             and availability.usable_amount is not None and availability.usable_amount >= packs)
 
@@ -164,10 +164,10 @@ def _sentence(original: PackOption, fit: _Fit, needed: Decimal, effect: Suggesti
     packs = f"{number(fit.packs)} × {number(option.pack_size)} {UNIT_WORDS[unit]}"
     total = f"{packs} cover the {amount(needed, unit)} for {euros(fit.packs * option.unit_net_price_eur)}"
     total += f", {euros(change)} less." if change < 0 else "."
-    return sentence(dearer if change > 0 else "", prices, total, _stock(option.availability))
+    return sentence(dearer if change > 0 else "", prices, total, stock_words(option.availability))
 
 
-def _stock(availability: AvailabilityAssessment | None) -> str:
+def stock_words(availability: AvailabilityAssessment | None) -> str:
     """"156 are confirmed in stock for delivery on Monday 16 November."; empty when nothing is confirmed."""
     if availability is None or availability.usable_amount is None:
         return ""

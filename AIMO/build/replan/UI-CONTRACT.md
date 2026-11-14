@@ -154,6 +154,13 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 ### U3 — done on the pages
 The page's customer values equal the profile files (`tests/ui/test_shop_customers.py`); `GET /shop/api/offers/{offer_id}`; the substitute note with its table; the dietitian's three choices; F-11 and P-09 rows in "rules in force"; the old kitchen page's two new settings. Left: the suggestions box and the customers route (after L4-2d), the menu label "Cannot be sourced", a real-browser check at 390 px.
 
+### L4-2a — suggestions as a service (reach a page once L4-2d wires them)
+- `offer.suggestions[]`: `kind`, `serves`, `product_id`, `name`, `quantity`, `unit`, `sentence`, `effect.net_change_eur`, `availability`, `stock_confirmed`, `checks[]`, `evidence`, `accept_request` (the button posts it to `POST /v1/offers`; nothing is added to the current offer).
+- `kind == "FROM_SUPPLIER"`: show last and apart, under "Suggested by Valio Aimo, not from your orders". Example: "Valio Aimo suggests Oatly Oat Drink Whole 1L (470889): a plant drink of the brand Oatly, like the Oatly Oat Drink Semi 1L (470863) you usually order, and in none of your 8 past orders (a synthetic history). … 249 sales units are confirmed in stock for delivery on Monday 16 November. Adding it costs €1.40 before tax."
+- Cheaper line: "Oatly iKaffe Oat drink 1,5L (473278) costs €1.48 per litre against €2.88 for Oatly iKaffe 0,5L (468319): 49% less. It keeps the formula within our tolerance. … 20 × 1.5 L cover the 30 L for €44.40, €42.00 less."
+- Standing-order page: `standing_order_trends(...)`; school: "… a median of 84 L against 70 L for the 3 before (+20%) … The standing order still says 60 L. Store 84 L?" Standing orders at start: `so_demo_hotel_milk` (8 renewals), `so_ward_plant_drinks` (16), `so_school_weekly` (8), `so_bakery_weekly` (8); `standing.html:29` still says "six synthetic past weeks".
+- "Why not" under a list (buyer's view only): `dropped[].sentence`.
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |

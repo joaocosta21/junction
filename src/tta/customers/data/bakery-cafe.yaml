@@ -21,9 +21,11 @@ customer_number: "611 530"
 address: "Fleminginkatu 12, 00530 Helsinki"
 delivery_days: "Mon–Sat"
 contact: {name: Marko Heikkinen, title: Owner}
-people:   # the owner holds both roles; no dietitian is named
+people:   # the owner holds every role: a bakery-café has no dietitian, so the owner also decides allergen
+          # questions (decision B27 of AIMO/build/replan/DECISIONS.md; the profile names the same three roles)
   purchasing_manager: Marko Heikkinen
   finance: Marko Heikkinen
+  dietitian: Marko Heikkinen
 prefer: RELIABILITY   # P1 section 4.2
 
 usual:

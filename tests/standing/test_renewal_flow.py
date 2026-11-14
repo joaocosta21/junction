@@ -47,7 +47,7 @@ def _milk(litres: int = 100) -> PurchaseRequest:
     return PurchaseRequest(lines=(line,))
 
 
-def test_the_demo_standing_order_starts_with_six_synthetic_weeks_at_the_captures_price(book, agent_hotel) -> None:
+def test_the_demo_standing_order_starts_with_eight_synthetic_weeks_at_the_captures_price(book, agent_hotel) -> None:
     standing = load_demo(book.standing, agent_hotel, book.replay)
 
     detail = book.standing.get(agent_hotel, standing.standing_order_id)
@@ -57,7 +57,7 @@ def test_the_demo_standing_order_starts_with_six_synthetic_weeks_at_the_captures
     assert {renewal.lines[0].unit_net_price_eur for renewal in detail.renewals} == {Decimal("2.48")}
     assert load_demo(book.standing, agent_hotel, book.replay) == standing  # once only
     events = [event for event in book.store.list_audit_events() if event.type == CREATED]
-    assert len(events) == 1 and "6 past renewals made up for the demonstration" in events[0].data.sentence
+    assert len(events) == 1 and "8 past renewals made up for the demonstration" in events[0].data.sentence
 
 
 def test_renewed_at_the_usual_100_litres_the_order_waits_for_approval(book, agent_hotel) -> None:

@@ -22,6 +22,7 @@ from tta.suggestions.thresholds import (
     HISTORY_WINDOW_ORDERS,
     USUAL_PRODUCT_MIN_ORDERS,
     USUAL_PRODUCT_MIN_SHARE,
+    USUAL_QUANTITY_MIN_DIFFERENCE,
     USUAL_QUANTITY_MIN_ORDERS,
     USUAL_QUANTITY_WINDOW,
     named,
@@ -142,3 +143,28 @@ def usual_quantity(history: OrderHistory, product_id: str) -> Suggestion | None:
         kind=SuggestionKind.USUAL_QUANTITY, customer_id=history.customer_id, product_id=product_id,
         name=history.name_of(product_id), quantity=quantity, unit=unit, sentence=said, evidence=evidence,
     )
+
+
+def usual_quantities_for_request(history: OrderHistory, request: PurchaseRequest) -> tuple[Suggestion, ...]:
+    """For each line that names one product, in the unit the history holds it in, and asks for a quantity that
+    differs from the usual one by `USUAL_QUANTITY_MIN_DIFFERENCE` or more: the usual quantity. Accepting changes
+    that line's quantity and nothing else. Below the threshold it stays silent: a kitchen orders a little more or
+    less from week to week."""
+    return tuple(_quantities_for_lines(history, request))
+
+
+def _quantities_for_lines(history: OrderHistory, request: PurchaseRequest) -> Iterator[Suggestion]:
+    for index, line in enumerate(request.lines):
+        if len(line.product_ids) != 1 or history.unit_of(line.product_ids[0]) is not line.unit:
+            continue
+        found = usual_quantity(history, line.product_ids[0])
+        if found is None or abs(line.quantity - found.quantity) < USUAL_QUANTITY_MIN_DIFFERENCE * found.quantity:
+            continue
+        thresholds = {**found.evidence.thresholds,
+                      **named(USUAL_QUANTITY_MIN_DIFFERENCE=USUAL_QUANTITY_MIN_DIFFERENCE)}
+        yield found.model_copy(update={
+            "request_line_index": index,
+            "sentence": f"This line asks for {amount(line.quantity, line.unit)}. {found.sentence}",
+            "evidence": found.evidence.model_copy(update={"thresholds": thresholds}),
+            "accept_request": with_line_changed(request, index, quantity=found.quantity),
+        })

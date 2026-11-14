@@ -28,7 +28,8 @@ SuggestionId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_
 
 class SuggestionKind(StrEnum):
     """What a suggestion says, in the order a list shows them (runbook, "Suggestions": the forgotten item, the usual
-    product and quantity, a cheaper product with the same formula, a larger pack, a trend)."""
+    product and quantity, a cheaper product with the same formula, a larger pack, a trend, a new or related
+    product)."""
 
     FORGOTTEN_ITEM = "FORGOTTEN_ITEM"  # usually ordered with a product of the request, and not in it
     USUAL_PRODUCT = "USUAL_PRODUCT"  # the product the customer orders for a product type
@@ -36,7 +37,10 @@ class SuggestionKind(StrEnum):
     CHEAPER_SAME_FORMULA = "CHEAPER_SAME_FORMULA"  # P10 F6, built with the formula measure
     LARGER_PACK = "LARGER_PACK"  # the same product in a larger pack, cheaper per litre or kilogram
     QUANTITY_TREND = "QUANTITY_TREND"  # a standing order's product ordered more, or less, week after week
-    REORDER_DUE = "REORDER_DUE"  # P15 R8; not in the runbook's order, so placed last
+    REORDER_DUE = "REORDER_DUE"  # P15 R8; not in the runbook's order, so placed after the buyer's other kinds
+    # P15 R11, the brief's "proactive selling agent": a product Valio Aimo's side puts forward, not the buyer's
+    # history. Always `serves: SUPPLIER` and `evidence.source: SUPPLIER`; the last kind, and never more than one.
+    FROM_SUPPLIER = "FROM_SUPPLIER"
 
 
 KIND_ORDER: tuple[SuggestionKind, ...] = tuple(SuggestionKind)

@@ -12,12 +12,19 @@ from __future__ import annotations
 from decimal import Decimal
 from itertools import pairwise
 
+from tta.contracts.request import PurchaseRequest
+from tta.contracts.standing import StandingOrder
 from tta.contracts.suggestion import Suggestion, SuggestionEvidence, SuggestionKind, suggestion_id_for
 from tta.suggestions.history import OrderHistory
+from tta.suggestions.requests import with_line_changed
 from tta.suggestions.thresholds import TREND_MIN_CHANGE, TREND_MIN_STEPS_ONE_WAY, TREND_WINDOW, named
 from tta.suggestions.wording import amount, middle, percent, sentence, tail
 
 HALF = TREND_WINDOW // 2
+RENEWS_ONCE = (
+    "Accepting sends one renewal at this quantity, which meets every rule and a person's confirmation. The quantity "
+    "the standing order stores changes only when a person changes it."
+)
 
 
 def quantity_trend(history: OrderHistory, product_id: str, *, standing_order_id: str, stored_quantity: Decimal,
@@ -65,3 +72,28 @@ def _within(stored: Decimal, recent: Decimal, tolerance: Decimal | None) -> bool
     """True when the stored quantity is within the tolerance of the recent median, as rule P-08 measures it."""
     drift = abs(stored - recent) / recent
     return drift == 0 if tolerance is None else drift <= tolerance
+
+
+def standing_order_trends(history: OrderHistory, standing: StandingOrder, *,
+                          tolerance: Decimal | None) -> tuple[Suggestion, ...]:
+    """The trend of each line of a standing order, for the standing-order page and for an offer that renews it.
+
+    A line speaks when it names exactly one product, in the unit the history holds it in. Its `accept_request` is
+    one renewal of the standing order with that line at the recent median: a request like any other, judged by
+    every rule (P-08 among them) and confirmed by a person. Nothing here changes the stored quantity."""
+    found = []
+    for index, line in enumerate(standing.request.lines):
+        if len(line.product_ids) != 1 or history.unit_of(line.product_ids[0]) is not line.unit:
+            continue
+        trend = quantity_trend(history, line.product_ids[0], standing_order_id=standing.standing_order_id,
+                               stored_quantity=line.quantity, tolerance=tolerance)
+        if trend is None:
+            continue
+        renewal = with_line_changed(standing.request, index, quantity=trend.quantity)
+        accept = PurchaseRequest.model_validate({
+            **renewal.model_dump(exclude_unset=True), "standing_order_id": standing.standing_order_id,
+        })
+        found.append(trend.model_copy(update={
+            "request_line_index": index, "accept_request": accept, "checks": (*trend.checks, RENEWS_ONCE),
+        }))
+    return tuple(found)
