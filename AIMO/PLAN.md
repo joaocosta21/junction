@@ -139,6 +139,9 @@ Agents build the flow overnight from [SPEC.md](SPEC.md), one task file per agent
 - **One live call** for the demo product ids, to refresh the table in §2.
 - **Booth:** ask Q1, Q2 and Q7 from [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md), then the section "Raised during the overnight build", as soon as a mentor is free. Their answers feed this morning's work.
 
+### Overnight build — result (Saturday 11:15)
+Every task is done or blocked; see `build/MORNING.md`. The full flow runs on the pages, over REST and over MCP, and is deployed from `d342dfb` at https://joaocostared--trusted-trade-agents.us-east.modal.run (`deploy/check.py`: 7 of 7). The 13:00 checkpoint below is met: the milk request goes to a human, and scenario 2 is ordered by the agent alone. What Fase 1 and Fase 2 list is built, except what `build/MORNING.md` §8 marks open: a late option when no date can be met, substitutes on product-type lines, and the delivery and sustainability comparison.
+
 ### Fase 1 — 09:00–13:00 · the full flow
 - **CS:** gateway and agent, request → search → offer → order. Direct tool calls first; the MCP wrapper comes after the checkpoint. Last hour: `modal deploy` to a public URL.
 - **Bio 1:** availability normaliser and allergen check, with tests; pack size from the price ratio.
@@ -244,6 +247,8 @@ Verified against the live API and the full catalog; detail in [FINDINGS.md](FIND
 2. Delivery and sustainability comparison (keep one sentence on what the data covers)
 3. Third demo scenario → a slide
 4. Substitute ranking tiers → single best substitute
+
+**Status, Saturday 11:15:** everything under "Mandatory" and "Good to have" is built and deployed. Tier 2 is not built: reliability and carbon are loaded and shown on `GET /v1/products/{id}` only. Nothing in the cut order was cut.
 
 **Never cut:** the canonical flow, one order the agent places alone (scenario 2), the policy engine, the approval panel, the readable audit log.
 

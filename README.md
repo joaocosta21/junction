@@ -2,7 +2,7 @@
 
 A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and place an order within its own authority or send it to a human for approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
 
-**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; deployed from commit `237b37f` on 14 Nov 2026, a final redeploy is planned). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it. <!-- check: deploy -->
+**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; redeployed from commit `d342dfb` at 11:15 on 14 Nov 2026, and `deploy/check.py` passed all 7 checks against it). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
 
 ## The flow
 
@@ -128,7 +128,7 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
 - Delivery-time and sustainability comparison (an optional direction of the brief) is not built.
 - Standing orders, recipe planning and a selling agent of Valio's own are not built; standing orders with a drift check are a next step (`docs/ASSUMPTIONS.md`).
-- The deployed app runs a build from before the last commits of 14 Nov. Context.dev evidence (`7abb44e`, `f3286e1`), Aiven PostgreSQL (`67f3b00`), the ingredient list and "not in the recording" (FIX-12a, `9a1893d`), coverage per line and the trade-off on the approval card (FIX-12b, `baa4e08`), the photo and Finnish input (T18, `812de0f`) and Your kitchen (FEAT-1, `b91e135`) are committed and reach it at the final redeploy. <!-- check: deploy -->
+- The deployed app runs `d342dfb` (redeployed 11:15, 14 Nov): Context.dev evidence (`7abb44e`, `f3286e1`), Aiven PostgreSQL (`67f3b00`; `/healthz` reports no fall-back), the ingredient list and "not in the recording" (FIX-12a, `9a1893d`), coverage per line and the trade-off on the approval card (FIX-12b, `baa4e08`), the photo and Finnish input (T18, `812de0f`) and Your kitchen (FEAT-1, `b91e135`) are all on it.
 
 ## Licence
 

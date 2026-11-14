@@ -20,11 +20,11 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
 | S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | done | 110 tests against the real service; append-only audit guarded by triggers; buyer and supplier views; read-only supplier role; SQLite fallback. `/healthz` reason and a page notice left (routes.py, ui) |
 | S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | done | wired by the orchestrator (f3286e1): shared book and every sandbox; recordings answer without a key |
-| T14 | Deployment on Modal | T13 | done | **deployed** https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` all 7 checks passed; a redeploy at the end is approved |
+| T14 | Deployment on Modal | T13 | done | first deploy 237b37f (09:44); **redeployed** from d342dfb at 11:15 with the approved command: https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` 7 of 7; mode live, Aiven connected (no fall-back) |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
-| T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
+| T16 | Review and fixes | each wave | done | rounds 1–3 (FIX-1 to FIX-8), then FIX-9 to FIX-12b; T17's findings handled as listed in MORNING.md §8 |
 | T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | done | 421 agent tests; **live check blocked**: Gemini 503/504 to all 6 requests; recordings hand-written. Run `.venv/bin/python -m tta.agent.record --only finnish-1 --only finnish-2 --only photo --max-calls 10 --timeout 60` |
-| T17 | Final check against the problem statement; `MORNING.md` | all | running | | independent check started at 10:48 on a clean copy of e880ad2
+| T17 | Final check against the problem statement; `MORNING.md` | all | done | independent check on a clean copy of e880ad2: all SPEC §13 scenarios and guards pass; ten weak points, 3 fixed before it ended, 2 more after (8cd94c2, d447ac3), the rest in MORNING.md §8 |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
 | FIX-3 | Allergens and catalog: least safe wins, `milk` means milk | T02 T03 | done | 313 tests; `milk` 91 → 78, lactose-free 35 → 30 |
@@ -41,6 +41,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-12b | Coverage per line, substitutes judged like the offer, earliest date, trade-off on the approval card | T07 T12 | done | baa4e08; P-03 names the short line; substitutes route applies the buyer's own rule |
 | FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | done | b91e135; 54 new tests; `/kitchen` in the menu; profile checked as a file is; in force only in that browser's book |
 | DOCS-2 | Documents say what the code does | — | done | 8 documents aligned; 26 marks wait on S1, T18, FIX-12a, FIX-12b, FEAT-1 |
+| DOCS-3 | Documents say what is committed: marks settled, limits checked, assumptions for price and the ceiling | DOCS-2 | done | d342dfb; 26 marks settled, 8 deploy marks settled by the orchestrator after the redeploy |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -99,3 +100,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 10:54 FIX-12a done and committed (9a1893d); 10:53 FIX-12b (baa4e08).
 - 10:58 FEAT-1 done: tests, lint, scope and the key files read; committed (b91e135). Nav link added by the orchestrator. ALMOND-1 widened in the booth files (71f13f4).
 - 11:05 second booth copy of 71f13f4 on port 8001 (replay, no keys): 1,000 L milk and the almond drink checked on it.
+- 11:05 T17 handed back (reviewed e880ad2). Checked on 71f13f4: points 1, 3 and half of 5 already fixed. Fixed now: the brief's own sentence without a model (8cd94c2), the summary-strip headings (d447ac3).
+- 11:10 DOCS-3 handed back; netPriceFound is true on 50 of 769 price lines (it corrected the orchestrator's premise, taken from T17). Committed d342dfb.
+- 11:15 **redeploy** from d342dfb with the approved command; `deploy/check.py` 7 of 7; /healthz live, no fall-back; /kitchen 200; almond drink → P-04 on the deployed app.
+- 11:20 MORNING.md written; PLAN §5 and §8 updated; loop ended.

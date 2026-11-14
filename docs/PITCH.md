@@ -87,7 +87,7 @@ Fields from the checklist in `CLAUDE.md`. Fields that need a person's details ar
 >
 > Every step is written as a CloudEvents event with one readable sentence, hash-chained, with one view for the buyer and one for Valio Aimo. When Valio's data says nothing about an excluded allergen, the dietitian who must sign sees what the manufacturer's own web page says, labelled as not Valio data. A Gemini agent reads the buyer's words into the typed request, every reading checked against the text, and drives the flow through the same functions; it never sets a price, a quantity or a verdict. Every assumption we made about the mock is listed with its reason on an assumptions page.
 
-**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards (the team decides): Google DeepMind — Best Use of Gemini API; Best Use of Modal; Context.dev (write-up in `docs/AWARDS.md`); Aiven, once its part is on the deployed app. <!-- check: deploy -->
+**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards (the team decides): Google DeepMind — Best Use of Gemini API; Best Use of Modal; Context.dev (write-up in `docs/AWARDS.md`); Aiven (on the deployed app since the redeploy of `d342dfb`).
 
 **Technologies used** (draft): Python 3.13, FastAPI, Pydantic v2, Uvicorn, SQLite, Jinja2, httpx, PyYAML, Google Gemini API (`google-genai`, `gemini-3.6-flash`), Model Context Protocol (official Python SDK), Modal, Context.dev Answers API, Aiven for PostgreSQL (psycopg 3), OpenAPI 3.1, JSON Schema 2020-12, CloudEvents 1.0, RFC 9457 problem details, GS1 allergen code lists, pytest, ruff.
 

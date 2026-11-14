@@ -56,7 +56,7 @@ What the deployment does (`deploy/modal_app.py`, `docs/DEPLOY.md`):
 - One image with the package, the product file, the two CSV files and the recorded fixtures; the FastAPI app served as an ASGI web endpoint with a public URL. No Dockerfile.
 - One container at most, scaling to zero after 10 idle minutes. SQLite runs on the container's disk; a copy is saved to a Modal Volume after each change and put back at start, so the order book and the audit trail survive a restart. The Volume also holds the call budget and the recordings of live answers.
 - `TTA_ENV=demo` (only the public demo identities) and `TTA_MODE=live`, falling back to the recorded capture, labelled, when the mock cannot be reached or the budget runs low. The deployed app may make at most 120 calls to the Valio mock.
-- Only the values the app uses reach Modal, as a Modal Secret built from the local environment at deploy time with `modal.Secret.from_dict`: the Valio API key and base URL, and the Gemini key. Never the whole `.env`. Since `cf6681f` the secret also carries the database URL and the Context.dev key, and the image the evidence recordings; both take effect at the final redeploy. <!-- check: deploy -->
+- Only the values the app uses reach Modal, as a Modal Secret built from the local environment at deploy time with `modal.Secret.from_dict`: the Valio API key and base URL, and the Gemini key. Never the whole `.env`. Since `cf6681f` the secret also carries the database URL and the Context.dev key, and the image the evidence recordings; both are on the deployed app since the redeploy of `d342dfb` (11:15, 14 Nov).
 - `docs/DEPLOY.md` gives the commands to deploy, check, redeploy and stop.
 
 **What it does not do.** The Modal brief asks for heavy lifting: an open model on a GPU, agent code in Sandboxes, fine-tuning, or a fan-out batch job. We do none of these. Modal hosts the gateway, keeps its secrets and holds its data on a Volume. The model runs on Google's API. By the brief's own bar this is a light use of Modal; we use it because the judges need a link they can open, and it is the step from laptop to a public URL.
@@ -67,7 +67,7 @@ What the deployment does (`deploy/modal_app.py`, `docs/DEPLOY.md`):
 
 ## Context.dev — web evidence where Valio's allergen data says nothing
 
-**Status:** built and committed (task S2, `7abb44e`), wired into the shared order book and every page's own book (`f3286e1`); the key and the recordings are in the deploy (`cf6681f`). It reaches the deployed app at the final redeploy. Details: `docs/CONTEXTDEV.md`.
+**Status:** built and committed (task S2, `7abb44e`), wired into the shared order book and every page's own book (`f3286e1`); the key and the recordings are in the deploy (`cf6681f`). It is on the deployed app since the redeploy of `d342dfb` (11:15, 14 Nov). Details: `docs/CONTEXTDEV.md`.
 
 **The problem it serves.** 46.2% of Valio Aimo's 17,546 products state nothing about allergens (30.6% of food products; whole catalog, `AIMO/FINDINGS.md` §3). The gateway reads "no statement" as unknown, never safe. When a buyer excludes an allergen under the strict rule, rule P-04 sends such a product to the dietitian, who until now saw only "Valio's data says nothing".
 
@@ -92,7 +92,7 @@ What the deployment does (`deploy/modal_app.py`, `docs/DEPLOY.md`):
 
 ## Aiven for PostgreSQL — the order book and an audit trail the database itself guards
 
-**Status: committed.** Task S1 (`67f3b00`), green against the real Aiven service; `/healthz` names the fall-back reason since `7b93821`. Details and the SQL for each claim: `docs/AIVEN.md`. The database URL is in the deploy secret (`cf6681f`), so it reaches the deployed app at the final redeploy. <!-- check: deploy -->
+**Status: committed.** Task S1 (`67f3b00`), green against the real Aiven service; `/healthz` names the fall-back reason since `7b93821`. Details and the SQL for each claim: `docs/AIVEN.md`. The database URL is in the deploy secret (`cf6681f`); since the redeploy of `d342dfb` (11:15, 14 Nov) the deployed app keeps its shared order book and audit trail in Aiven, and its `/healthz` reports no fall-back.
 
 - **What it is.** With `DATABASE_URL` set, the shared order book and the audit trail live in Aiven for PostgreSQL (server 18.7, psycopg 3.3.9), behind the same `Store` port as SQLite (`src/tta/store/postgres.py`). The pages' own books stay in memory.
 - **History that survives a redeploy.** An order or an event is in the managed database once its transaction commits; a second gateway on the same database finds the order, the chain intact and the same audit head (`tests/store_pg/test_flow_on_postgres.py`).
