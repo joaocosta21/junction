@@ -31,7 +31,7 @@ from tta.standing.demo import DEMO_NAME, DEMO_STANDING_ORDER_ID, SYNTHETIC_WEEKS
 
 P08_290 = (
     "For standing order so_demo_hotel_milk, 290 L this week against a median of 100 L over the last 6 renewals, "
-    "more than the 25% tolerance of profile hotel-kitchen."
+    "more than the 25% tolerance of Harbourside Hotel."
 )
 RENEWED = f"tta.v1.{AuditEventType.STANDING_ORDER_RENEWED.value}"
 CREATED = f"tta.v1.{AuditEventType.STANDING_ORDER_CREATED.value}"

@@ -153,8 +153,9 @@ INSERT INTO standing_orders (standing_order_id, profile_id, body) VALUES (?, ?, 
 ON CONFLICT (standing_order_id) DO UPDATE SET profile_id = excluded.profile_id, body = excluded.body
 """
 GET_STANDING_ORDER = "SELECT body FROM standing_orders WHERE standing_order_id = ?"
+# The first 100: no caller reads more, and a list is never as large as the table (review A3, finding F1).
 LIST_STANDING_ORDERS = """
-SELECT body FROM standing_orders WHERE (:profile_id IS NULL OR profile_id = :profile_id) ORDER BY seq
+SELECT body FROM standing_orders WHERE (:profile_id IS NULL OR profile_id = :profile_id) ORDER BY seq LIMIT 100
 """
 SAVE_RENEWAL = """
 INSERT INTO standing_renewals (renewal_id, standing_order_id, body) VALUES (?, ?, ?)

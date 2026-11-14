@@ -146,7 +146,7 @@ class OrderBookService:
             profile = self._policy.get_profile(approval.profile_id)
             roles = access.roles_that_count(identity, profile)
             if not roles:
-                not_listed = wording.APPROVER_NOT_LISTED.format(profile_id=profile.profile_id)
+                not_listed = wording.APPROVER_NOT_LISTED.format(profile_id=profile.display_name)
                 raise self._refused(identity, approval, NotAuthorised(not_listed))
             order = self._still_waiting(approval)
             if decision.decision is DecisionKind.REJECT:

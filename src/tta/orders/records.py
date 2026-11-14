@@ -9,6 +9,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from tta.contracts.availability import RevalidationResult
 from tta.contracts.common import (
@@ -21,12 +22,24 @@ from tta.contracts.common import (
     Verdict,
 )
 from tta.contracts.offer import Offer, OfferOption
-from tta.contracts.order import Approval, ApprovalDecision, DecisionRequest, Evidence, Order, RelianceStatement
+from tta.contracts.order import (
+    ORDER_RECORD_NOTE,
+    Approval,
+    ApprovalDecision,
+    DecisionRequest,
+    Evidence,
+    Order,
+    RelianceStatement,
+)
 from tta.contracts.policy import PolicyDecision
 from tta.orders import wording
 from tta.policy.human_approval import let_a_named_role_sign
 
+if TYPE_CHECKING:
+    from tta.orders.spend import DaySpend  # spend imports this module
+
 ORDER_ID_PREFIX = "ord_"
+DAY_RULE_ID = "P-02"  # src/tta/policy/rules.yaml: the day's spend would pass the limit per day
 APPROVAL_ID_PREFIX = "apr_"
 ID_RANDOM_BYTES = 6  # 12 hex characters
 # Kept on the order so a retry with the same Idempotency-Key can be told from a reuse of the key for
@@ -35,6 +48,15 @@ REQUESTED_OPTION_KEY = "requested_option_id"
 # An option with no "order by" time of its own: its approval must be decided within this time, so that no
 # order waits for ever. Ours, not Valio's.
 HOURS_TO_DECIDE_WITHOUT_ORDER_BY = 24
+# The payment position on every order record (AIMO/build/replan/P16-payments.md, PAY-2). Valio Aimo's site names
+# two kinds of wholesale customer: a credit customer pays by invoice, a "Pay Now" customer pays when ordering.
+# That the demo buyers are credit customers is our assumption, and the sentence says so. "For what is delivered"
+# is Valio Aimo's answer of 14 Nov on goods sold by weight (BOOTH-NOW Q16).
+NO_PAYMENT_NOTE = (
+    "No payment is taken here: the buyer is assumed to be a Valio Aimo credit customer, invoiced after delivery "
+    "for what is delivered."
+)
+RECORD_NOTE = f"{ORDER_RECORD_NOTE} {NO_PAYMENT_NOTE}"
 
 
 @dataclass(frozen=True)
@@ -44,6 +66,7 @@ class OrderTimeCheck:
     option: OfferOption  # carries `decision`
     decision: PolicyDecision
     revalidation: RevalidationResult
+    day: DaySpend | None = None  # the day's spend the policy judged on, this order left out
 
 
 def new_order_id() -> str:
@@ -88,7 +111,7 @@ def signed_by_a_named_role(
         return check
     return OrderTimeCheck(
         option=check.option.model_copy(update={"decision": decision}), decision=decision,
-        revalidation=check.revalidation,
+        revalidation=check.revalidation, day=check.day,
     )
 
 
@@ -130,6 +153,15 @@ def approval_reasons(decision: PolicyDecision) -> tuple[str, ...]:
     return tuple(rule.sentence for rule in decision.fired if rule.verdict is Verdict.APPROVAL)
 
 
+def day_reasons(check: OrderTimeCheck) -> tuple[str, ...]:
+    """When the limit per day asks for a human (P-02): how much of the day is ordered and how much is waiting, so
+    the person can tell a day of orders from a day of requests nobody has approved yet (review A4, finding H2)."""
+    held_back = any(
+        rule.rule_id == DAY_RULE_ID and rule.verdict is Verdict.APPROVAL for rule in check.decision.fired
+    )
+    return (check.day.sentence,) if held_back and check.day is not None else ()
+
+
 def evidence_reasons(evidence: tuple[Evidence, ...], option: OfferOption) -> tuple[str, ...]:
     """One sentence per piece of web evidence found for a product of this option (task S2). Evidence that found
     nothing is shown on the card, not listed as a reason."""
@@ -152,6 +184,7 @@ def placed_by_agent(
         created_at=now, updated_at=now,
         status_sentence=wording.placed_alone(check.option.totals.net, offer.profile_id),
         source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
+        record_note=RECORD_NOTE,
     )
 
 
@@ -161,7 +194,7 @@ def awaiting_approval(
 ) -> tuple[Order, Approval]:
     """The order that waits for a human, and the approval that names the roles it needs. `evidence` was found
     outside Valio Aimo's data for the human to read; it changes no role and no verdict."""
-    reasons = (*approval_reasons(check.decision), *evidence_reasons(evidence, check.option))
+    reasons = (*approval_reasons(check.decision), *day_reasons(check), *evidence_reasons(evidence, check.option))
     approval = Approval(
         approval_id=new_approval_id(), order_id=order_id, offer_id=offer.offer_id,
         option_id=check.option.option_id, profile_id=offer.profile_id, status=ApprovalStatus.PENDING,
@@ -202,7 +235,10 @@ def approved(
     signed = approval.model_copy(update={
         "option_id": check.option.option_id,
         "required_roles": check.decision.required_roles,
-        "reasons": (*approval_reasons(check.decision), *evidence_reasons(approval.evidence, check.option)),
+        "reasons": (
+            *approval_reasons(check.decision), *day_reasons(check),
+            *evidence_reasons(approval.evidence, check.option),
+        ),
         "decisions": (entry,) if other_option else (*approval.decisions, entry),
         "valid_until": decide_by(check.option, approval.created_at),
     })

@@ -33,7 +33,7 @@ REASON_WORDS: Mapping[ExclusionReason, str] = {
     ExclusionReason.SUBSTITUTE_ADDS_ALLERGEN: "adds an allergen",
     ExclusionReason.QUANTITY_NOT_CONFIRMED: "quantity not confirmed (confirmed data only was asked for)",
     ExclusionReason.DELIVERY_DATE_NOT_CONFIRMED: "delivery date not confirmed (confirmed data only was asked for)",
-    ExclusionReason.NOT_IN_RECORDING: "not in the recorded capture",
+    ExclusionReason.NOT_IN_RECORDING: "not in this demo's recording",
 }
 # The reasons that mean "it cannot be here by the date", named first in a sentence.
 LATE_REASONS = (ExclusionReason.CUTOFF_PASSED, ExclusionReason.NOT_DELIVERABLE, ExclusionReason.LATE_FOR_NEEDED_BY)
@@ -70,6 +70,12 @@ def date_words(needed_by: date | None) -> str:
     return f"by {needed_by:%a %d %b %Y}" if needed_by is not None else "now"
 
 
+def only_missing_from_recording(excluded: Sequence[Exclusion]) -> bool:
+    """Every product of the line is outside the recorded data: the date has nothing to do with it (review A2a,
+    finding M-5). In replay the recording holds categories 104xx and 18720 only (`recipes.yaml`, header)."""
+    return bool(excluded) and all(item.reason is ExclusionReason.NOT_IN_RECORDING for item in excluded)
+
+
 def exclusion_words(excluded: Sequence[Exclusion]) -> str:
     """`23 order cut-off passed, 15 not deliverable, 11 quantity not confirmed`: the late reasons first."""
     counts = Counter(exclusion.reason for exclusion in excluded)
@@ -84,6 +90,13 @@ def found_words(choice: Choice, excluded: Sequence[Exclusion], fill: Decimal, ne
         return f"{choice_words(choice)}: only {fill:.0%} of it can be offered {when}"
     if not excluded:
         return f"{choice_words(choice)}: no product of this type can be offered {when}"
+    if only_missing_from_recording(excluded):
+        count = len(excluded)
+        products = "its one product is not" if count == 1 else f"none of its {count:,} products is"
+        return (
+            f"{choice_words(choice)}: {products} in this demo's recording of Valio Aimo's data, so no price or "
+            "stock is known for it"
+        )
     return (
         f"{choice_words(choice)}: none of {len(excluded):,} products can be offered {when} "
         f"({exclusion_words(excluded)})"

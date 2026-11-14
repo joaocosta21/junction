@@ -372,3 +372,14 @@ def test_standing_orders_and_renewals_written_in_a_failed_block_are_not_kept(sto
 
     assert store.get_standing_order("so_1") is None
     assert store.list_renewals("so_1") == ()
+
+
+def test_the_list_of_standing_orders_answers_the_first_hundred(store: SqliteStore, samples) -> None:
+    """Review A3, finding F1: a list is never as large as the table."""
+    for number in range(103):
+        store.save_standing_order(samples.standing_order(f"so_{number:03d}"))
+
+    listed = store.list_standing_orders("hotel-kitchen")
+
+    assert len(listed) == 100 and listed[0].standing_order_id == "so_000" and listed[-1].standing_order_id == "so_099"
+    assert len(store.list_standing_orders()) == 100

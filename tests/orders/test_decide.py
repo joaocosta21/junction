@@ -218,7 +218,9 @@ def test_a_role_the_policy_asks_for_only_at_approval_time_is_added_before_the_or
     assert still_waiting.decision.rule_ids == ("P-01", "P-02")
     waiting = _approval(book, first)
     assert waiting.required_roles == (PURCHASING, FINANCE) and waiting.roles_missing == (FINANCE,)
-    assert len(waiting.reasons) == 2
+    # P-01, P-02, and why the day is full: the order that finance approved in between (review A4, finding H2).
+    assert len(waiting.reasons) == 3
+    assert "today's spend of this buyer is €700.00 before tax: €700.00 ordered and €0.00 waiting" in waiting.reasons[2]
     assert book.service.decide(first.approval_id, approver_finance, samples.approve()).status is OrderStatus.ORDERED
 
 
@@ -237,12 +239,11 @@ def test_a_rule_that_no_longer_holds_at_approval_time_is_not_asked_of_the_human(
     assert order.status is OrderStatus.ORDERED and order.placed_by is PlacedBy.HUMAN_APPROVAL
     assert order.decision.rule_ids == ("F-10",) and _approval(book, order).required_roles == (FINANCE,)
     assert order.decision.sentence == (
-        "Every order needs human approval before it can be confirmed (F-10). The roles this approval already "
-        "names sign it."
+        "Prepared: confirm to order. The agent prepares the order, a person confirms it (F-10): a role this "
+        "approval already names confirms."
     )
     assert order.status_sentence == (
-        "Ordered for €700.00 net with approval by Finance (demo) (finance): rule F-10 asked for a human and was "
-        "accepted."
+        "Confirmed by Finance (demo) (finance): ordered for €700.00 net."
     )
 
 

@@ -69,12 +69,13 @@ def menu_router(recipes: Mapping[str, Recipe] | None = None) -> APIRouter:
         request: Request, caller: Caller, menu: Annotated[MenuRequest, Body(openapi_examples=MENU_EXAMPLES)]
     ) -> MenuPlan:
         """Servings times each recipe's amounts, minus the kitchen's stock, rounded up to whole litres or
-        kilograms: one request line per product type, and one offer. A line whose best option covers less than
-        the buyer profile's minimum share, or nothing by the date, is tried as the ingredient's alternatives
-        (at most one more offer); the final offer holds every line that can be had. A line that stands in for
-        a recipe's ingredient carries `stands_in_for`, and rule F-09 sends it to the purchasing manager. Order an
-        option of `offer_id` with POST /v1/orders, as any offer. At most three offers, each counted by the rate
-        limit."""
+        kilograms: one request line per product type, and one offer. A line that no option covers to the buyer
+        profile's minimum share is tried as the ingredient's alternatives (at most one more offer). A line that
+        stands in for a recipe's ingredient carries `stands_in_for`, rule F-09 sends it to the purchasing manager,
+        and the plan names the allergens its product declares. An ingredient that cannot be sourced stays in the
+        final offer with nothing offered for it, so the offer and the rules see that the menu is incomplete.
+        Order an option of `offer_id` with POST /v1/orders, as any offer. At most three offers, each counted by
+        the rate limit."""
         return await run_in_threadpool(_plan, _service(request), caller, menu, table)
 
     return router

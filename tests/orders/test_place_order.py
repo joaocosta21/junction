@@ -61,7 +61,12 @@ def test_the_order_record_keeps_the_statements_it_relied_on_and_says_the_mock_ha
 
     order = book.service.place_order(offer.offer_id, "opt_1", agent_hotel, KEY)
 
-    assert order.record_note == ORDER_RECORD_NOTE and "no order endpoint" in order.record_note
+    assert order.record_note.startswith(ORDER_RECORD_NOTE) and "no order endpoint" in order.record_note
+    # P16: one sentence on payment, the same on an order that waits and on one that is placed.
+    assert order.record_note.endswith(
+        "No payment is taken here: the buyer is assumed to be a Valio Aimo credit customer, invoiced after "
+        "delivery for what is delivered."
+    )
     assert [statement.product_id for statement in order.reliance] == ["463380", "462775"]
     first = order.reliance[0]
     assert (first.unit_net_price, first.price_valid_to) == (lines[0].unit_net_price, lines[0].price_valid_to)

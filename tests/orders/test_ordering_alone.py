@@ -46,7 +46,8 @@ def test_with_the_setting_on_a_confirmed_ward_order_within_every_limit_is_placed
     assert order.decision.verdict is Verdict.AUTO and order.decision.fired == ()
     assert order.option.decision == order.decision
     assert order.status_sentence == (
-        "The agent placed this order alone for €428.00 net: no rule of profile allergy-ward asked for a human."
+        "The agent placed this order alone for €428.00 net: no rule asked for a human and every statement of the "
+        "offer is confirmed."
     )
     assert book.store.get_order(order.order_id) == order
     assert book.event_types() == ["order.placed_by_agent"]

@@ -263,7 +263,7 @@ class SqliteStore:
         return None if body is None else StandingOrder.model_validate_json(body)
 
     def list_standing_orders(self, profile_id: str | None = None) -> tuple[StandingOrder, ...]:
-        """In the order they were first saved. With no profile: every standing order."""
+        """In the order they were first saved, the first 100. With no profile: of every buyer."""
         bodies = self._bodies(schema.LIST_STANDING_ORDERS, {"profile_id": profile_id})
         return tuple(StandingOrder.model_validate_json(body) for body in bodies)
 

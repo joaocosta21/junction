@@ -45,6 +45,8 @@ Last updated: Sat 14 Nov, about 19:00.
 | B25 | Ward and bakery let a preference add 10% without a person; hotel and school set no limit. No profile can set more than 25% | They are the two that prefer reliability | L3-2 |
 | B26 | The photo upload left the first page; the route stays | No model reads photos tonight, so a visitor's own photo would always be refused | L4c |
 | B27 | The bakery's owner also decides allergen questions (the bakery gets a dietitian role held by the owner) | A bakery-café has no dietitian; without this a bakery order with an allergen doubt could never be completed | L4-2 |
+| B28 | Orders waiting for a person still count toward the day's spend limit, and the approval says how much is ordered and how much is waiting | PLAN decision 9; a limit that waiting orders can slip under is no limit | L4a |
+| B29 | A buyer holds at most 20 standing orders here, and nothing deletes one. On the public link the shared hotel and ward books can fill up and stay full until the data is wiped | Bounds a flood found by the security review; a delete route is not built | L4a |
 
 ## C. Questions for the team (domain)
 

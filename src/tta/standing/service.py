@@ -12,7 +12,7 @@ an approver of the buyer reads them; the supplier reads none.
 from __future__ import annotations
 
 import secrets
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -41,6 +41,15 @@ ID_RANDOM_BYTES = 6
 STANDING_ORDER_ID_PREFIX = "so_"
 RENEWAL_ID_PREFIX = "ren_"
 KEY_PREFIX = "standing:"  # the Idempotency-Key of a renewal's order: one per offer, so a retry never orders twice
+# The most standing orders one buyer holds (review A3, finding F1). Ours and illustrative: a kitchen has a handful.
+# Nothing deletes a standing order here, and each set-up writes an audit event that can never be removed, so
+# without a ceiling one public token could fill the database and the trail.
+MAX_STANDING_ORDERS_PER_BUYER = 20
+# The most a list answers, as every other list of the gateway (`tta.api.service.MAX_LIST_ITEMS`).
+MAX_LIST_ITEMS = 100
+
+# Counts one set-up for this caller or raises `RateLimited`: the gateway's limit on calls that write to the trail.
+CountSetUp = Callable[[Identity], None]
 
 ONLY_AN_AGENT = "Only a buyer's agent sets up or renews a standing order."
 NOT_FOR_THE_SUPPLIER = "The supplier reads its view of the audit trail (GET /v1/audit) and nothing else."
@@ -52,6 +61,14 @@ NAMES_A_STANDING_ORDER = (
 WRONG_QUANTITIES = (
     "This standing order has {lines}, so a renewal gives {lines_count} quantities, one per line in order; "
     "this one gives {given}."
+)
+TOO_MANY_STANDING_ORDERS = (
+    "This buyer already has {count} standing orders, the most one buyer sets up here. Renew one of them "
+    "(POST /v1/standing-orders/{{standing_order_id}}/renew) instead of setting up another."
+)
+TOO_MANY_LINES = (
+    "In this demonstration the request of a standing order has at most {limit} lines; this one has {count}. "
+    "Set the others up as another standing order."
 )
 NO_OPTION = "No order was placed: no option fits the request this time. {notes}"
 
@@ -108,13 +125,32 @@ def renewal_of(standing: StandingOrder, offer: Offer, order: Order) -> Renewal:
 
 class StandingOrders:
     """Over the `Store`, the `AuditSink`, the gateway service (`create_offer`, `place_order`, `get_authority`, each
-    checking the caller and its rate limits) and the data clock."""
+    checking the caller and its rate limits) and the data clock.
 
-    def __init__(self, *, store: Store, audit: AuditSink, gateway: GatewayService, clock: Clock) -> None:
+    A renewal is limited by the gateway service it goes through. A set-up goes through no offer, so it has its own
+    limits: `count_set_up` (the rate limit), `max_request_lines` (the demonstration's limit of lines per request;
+    None: the contract's 20) and `MAX_STANDING_ORDERS_PER_BUYER`, which always holds."""
+
+    def __init__(
+        self, *, store: Store, audit: AuditSink, gateway: GatewayService, clock: Clock,
+        count_set_up: CountSetUp | None = None, max_request_lines: int | None = None,
+    ) -> None:
         self._store = store
         self._audit = audit
         self._gateway = gateway
         self._clock = clock
+        self._count_set_up = count_set_up
+        self._max_request_lines = max_request_lines
+
+    def with_limits(
+        self, *, count_set_up: CountSetUp | None = None, max_request_lines: int | None = None
+    ) -> StandingOrders:
+        """A new service over the same parts with these limits on a set-up; a limit not given stays as it is."""
+        return StandingOrders(
+            store=self._store, audit=self._audit, gateway=self._gateway, clock=self._clock,
+            count_set_up=count_set_up or self._count_set_up,
+            max_request_lines=self._max_request_lines if max_request_lines is None else max_request_lines,
+        )
 
     def now(self) -> datetime:
         """The data clock: pinned to the capture in replay."""
@@ -123,7 +159,14 @@ class StandingOrders:
     # --- setting up ---------------------------------------------------------------------------------------
 
     def create(self, identity: Identity, body: NewStandingOrder) -> StandingOrder:
+        """Raises `RateLimited` and `InvalidRequest` (too many lines, or the buyer's 20 are set up) before
+        anything is written."""
         profile_id = _require_agent(identity)
+        if self._count_set_up is not None:
+            self._count_set_up(identity)
+        limit, count = self._max_request_lines, len(body.request.lines)
+        if limit is not None and count > limit:
+            raise InvalidRequest(TOO_MANY_LINES.format(limit=limit, count=count))
         standing = StandingOrder(
             standing_order_id=f"{STANDING_ORDER_ID_PREFIX}{secrets.token_hex(ID_RANDOM_BYTES)}",
             profile_id=profile_id, agent_id=identity.id, name=body.name, request=self._template(body.request),
@@ -133,7 +176,9 @@ class StandingOrders:
 
     def set_up(self, identity: Identity, standing: StandingOrder, history: tuple[Renewal, ...] = ()) -> StandingOrder:
         """Store a standing order with the past renewals it starts with (the demonstration's synthetic ones) and its
-        audit event, all in one unit of work. Raises `InvalidRequest` for an id already set up."""
+        audit event, all in one unit of work. Raises `InvalidRequest` for an id already set up, and for a buyer
+        that already holds `MAX_STANDING_ORDERS_PER_BUYER`: counted inside the unit of work, so two set-ups at the
+        same moment cannot both be the twentieth."""
         if _require_agent(identity) != standing.profile_id:
             raise NotAuthorised(ONLY_AN_AGENT)
         if self._store.get_standing_order(standing.standing_order_id) is not None:
@@ -143,6 +188,9 @@ class StandingOrders:
             "cadence_days": standing.cadence_days, "synthetic_renewals": sum(renewal.synthetic for renewal in history),
         }
         with self._store.atomic():
+            held = len(self._store.list_standing_orders(standing.profile_id))
+            if held >= MAX_STANDING_ORDERS_PER_BUYER:
+                raise InvalidRequest(TOO_MANY_STANDING_ORDERS.format(count=held))
             self._store.save_standing_order(standing)
             for renewal in history:
                 self._store.save_renewal(renewal)
@@ -161,7 +209,8 @@ class StandingOrders:
     # --- reading ------------------------------------------------------------------------------------------
 
     def list(self, identity: Identity) -> tuple[StandingOrder, ...]:
-        return self._store.list_standing_orders(_require_buyer_side(identity))
+        """The buyer's standing orders in the order they were set up, at most `MAX_LIST_ITEMS`."""
+        return self._store.list_standing_orders(_require_buyer_side(identity))[:MAX_LIST_ITEMS]
 
     def find(self, identity: Identity, standing_order_id: str) -> StandingOrder | None:
         """The caller's own buyer's standing order, or None: another buyer's reads as one nobody set up."""

@@ -20,7 +20,7 @@ from tta.contracts.ports import AuditSink, Clock, OfferRevalidator, PolicyEngine
 from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.orders.records import OrderTimeCheck
-from tta.orders.spend import day_committed_net_eur
+from tta.orders.spend import day_spend
 from tta.policy.human_approval import require_human_approval
 from tta.standing.history import standing_history
 
@@ -76,12 +76,12 @@ class OrderTimeChecker:
     def _look(self, attempt: Attempt) -> OrderTimeCheck:
         """The fresh look at Valio's data, the day's spend and the policy's answer. Writes nothing."""
         revalidation = self._revalidator.revalidate(attempt.option)
-        committed = day_committed_net_eur(
+        day = day_spend(
             self._store, self._clock, attempt.profile.profile_id,
             excluding_order_id=attempt.order.order_id if attempt.order is not None else None,
         )
         context = PolicyContext(
-            now=self._clock.now(), day_committed_net_eur=committed, at_order_time=True, revalidation=revalidation,
+            now=self._clock.now(), day_committed_net_eur=day.committed, at_order_time=True, revalidation=revalidation,
             standing_history=self._standing_history(attempt),
         )
         # F-10 is applied by the engine already; applying it again here means no policy engine, a test's own
@@ -91,7 +91,7 @@ class OrderTimeChecker:
         )
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
-            revalidation=revalidation,
+            revalidation=revalidation, day=day,
         )
 
     def _standing_history(self, attempt: Attempt) -> StandingHistory | None:

@@ -135,6 +135,12 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 - Order confirmed under F-10 alone: "Order ord_… is ordered, confirmed by Hanna Laine (purchasing manager): 200 pcs of 464013 for €402.00 net."
 - To change on the page: `kitchens.js:194-195` bakery `max_order_net_eur: 300`, `max_daily_net_eur: 1000`, `formula_matters: true`, `substitution_without_approval: "NONE"`; the old kitchen page's form has neither new setting.
 
+### L4a — standing orders, menus, orders (full table: `AIMO/build/handback/L4a.md`)
+- `order.record_note` ends "No payment is taken here: the buyer is assumed to be a Valio Aimo credit customer, invoiced after delivery for what is delivered."
+- `approval.reasons[]`, one more line when P-02 fired: "Before this order, today's spend of this buyer is €2,688.78 before tax: €0.00 ordered and €2,688.78 waiting for approval. A waiting order counts until a person rejects it or its time to decide passes."
+- `POST /v1/standing-orders` 422: "This buyer already has 20 standing orders, the most one buyer sets up here. Renew one of them … instead of setting up another."
+- Menu plan: `ingredient.sentence` for a stand-in names the allergens it adds; `plan.notes[]` says what cannot be sourced and that the lines stay in the offer; `plan.cannot_be_sourced[].sentence`. The label "Cannot arrive in time" (`ui/menu_page.py:49`, `templates/menu.html:92`) should read "Cannot be sourced".
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |
