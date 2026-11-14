@@ -163,7 +163,7 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 4. Every option carries: its lines; totals (net, tax from `tax.taxRate`, gross; `excludes_deposits`; `is_ceiling` for variable weight); coverage (requested, covered, fill ratio); `valid_until` = the earliest price `validTo` and `closingTime` of its lines; **constraint checks** — one per thing the buyer asked for (product type, quantity, needed-by date, each claim, each allergen exclusion, pack), each `MET`, `NOT_MET` or `UNVERIFIED` with a sentence; and **the policy verdict for that option** (§7), so the agent knows before ordering what it may do alone.
 5. The offer records where its data came from (`live` or `replay`) and the `timeNow` it was built against.
 
-**Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`).
+**Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recorded copy has no answer for the product; never presented as Valio's statement).
 
 ### Substitutes
 - **Candidates:** the pairs Valio lists (250 pairs on 189 products) as a seed, then the same 5-digit category, then the same first 4 digits, then the same first 3. Every candidate is re-checked for price and availability.
@@ -187,6 +187,7 @@ Relations: `CONTAINS`, `MAY_CONTAIN`, `UNDECLARED` (group `allergen`) and `FREE_
 | `UNDECLARED`, or no statement | to a human (dietitian) | passes, shown as unverified |
 
 - Conflicting statements on one product: the least safe one counts.
+- **The product's own ingredient list counts as a statement.** When `keyIngredients` names an excluded allergen (in capitals, as EU labelling requires, or by its usual words) or says "may contain" it, while the declaration says `FREE_FROM`, the product goes to a dietitian with a sentence quoting both (found on `465793`, an almond drink declared free from tree nuts).
 - A "no gluten" exclusion (`AW`) and a product that declares oats (`GO`): to a human, whatever else it states.
 
 **Substitution rule:** a substitute must not declare (`CONTAINS` or `MAY_CONTAIN`) an allergen that the original does not declare, and must not raise an allergen from `MAY_CONTAIN` to `CONTAINS`. This holds for every buyer, with or without exclusions.

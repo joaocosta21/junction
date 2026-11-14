@@ -46,6 +46,7 @@ class PriceLine(Contract):
     comparison_unit: str | None = None  # KG or L
     tax_rate: Number | None = None  # percent; authoritative over the product file's vatCode
     tax_value: Number | None = None
+    not_in_recording: bool = False  # replay only: no recorded answer for this id; says nothing about Valio
 
     @property
     def has_price(self) -> bool:
@@ -78,6 +79,7 @@ class AvailabilityLine(Contract):
     closing_time: datetime | None = None
     logistic_model: str | None = None  # "Stock" or "Terminal"
     schedule_line: ScheduleLine | None = None
+    not_in_recording: bool = False  # replay only: no recorded answer for this id; says nothing about Valio
 
 
 class AvailabilityResponse(Contract):
