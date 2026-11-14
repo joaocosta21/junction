@@ -53,7 +53,9 @@ src/tta/
   offers/        candidates → options, ranking, combining, substitutes
   orders/        order states, approvals, idempotency
   api/           FastAPI app, routes, authentication, MCP surface
-  agent/         Gemini: request parsing and the buyer agent loop
+  agent/         Gemini: request parsing and the buyer agent loop; the rule-based reader when no model answers
+  menus/         recipe table, menu needs, the menu planner (recipe logic, F-09)
+  standing/      standing orders: set up, history, renewal (P-08)
   ui/            templates and static files
 deploy/modal_app.py
 fixtures/valio/  recorded responses of the mock API
@@ -83,6 +85,11 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 | `POST /v1/requests/parse` | agent | Free text → typed request (Gemini structured output). Two headers say who read it: `TTA-Read-By`, `TTA-Reading-Source` | 20% match |
 | `POST /v1/requests/read-image` | agent | A photo of an order list → Gemini's transcription, returned to be shown → the same parser and text check (task T18, `812de0f`) | 20% match |
 | `POST /v1/agent/run` | demo | Runs the buyer agent on a pasted request and returns its tool-call trace | 30% |
+| `GET /v1/menus/recipes` | agent | The recipes a menu can be planned from (ours, illustrative) | Optional: substitution |
+| `POST /v1/menus/plan` | agent | Dishes × servings, minus the kitchen's stock → one offer; an ingredient that cannot be had is replaced by its role's alternative (F-09) | Optional: substitution |
+| `POST /v1/standing-orders`, `GET /v1/standing-orders` | agent | Set up a recurring order; list the caller's buyer's standing orders | Valio scenario "standing order drift detection" |
+| `GET /v1/standing-orders/{id}` | agent | One standing order and its renewals | same |
+| `POST /v1/standing-orders/{id}/renew` | agent | Renew with this week's quantities: an offer, the drift check (P-08), then the order through `place_order` | same |
 | `GET /v1/schemas` | anyone | JSON Schema of every model | 15% |
 | `GET /openapi.json`, `/docs` | anyone | Generated OpenAPI | 15% |
 
@@ -103,9 +110,13 @@ All paths are under `/v1`. Every response is JSON; every timestamp is ISO 8601 w
 | `lines[]` | 1 or more | One per product asked for |
 | `lines[].text` | string | The buyer's own words, kept for the audit trail |
 | `lines[].product_type` | string, optional | A key of the product-type table, e.g. `milk`, `plant_drink`, `beef_chuck` |
-| `lines[].product_ids` | list, optional | Explicit products ("this product", named by id). Standing orders are not built; they are a next step (§14) |
+| `prefer` | `PRICE` · `EARLIEST` · `RELIABILITY` · `LOWER_CARBON`, default `PRICE` | What ranks confirmed products once every constraint is met (§5). `PRICE` is the brief's "based on price and availability" |
+| `standing_order_id` | string, optional | The standing order this request renews; its history is checked (P-08). Set by the standing-order service; it can only add a check |
+| `lines[].product_ids` | list, optional | Explicit products ("this product", named by id) |
 | `lines[].name_terms` | list | Words that must appear in the product name (English or Finnish) |
 | `lines[].required_claims` | list | `nutritionalClaim` codes that must be present, e.g. `FREE_FROM_LACTOSE` |
+| `lines[].required_labels` | list | Certificate labels (`packagingMarkedLabel` codes other than the three storage temperatures, e.g. `EU_ORGANIC_FARMING`) every product must carry. One `LABEL` constraint check per label |
+| `lines[].stands_in_for`, `lines[].stands_in_role` | string, optional | Set by the menu planner when recipe logic chose another product type: the recipe's type this line replaces, and the job it does in the dish (F-09). Not in the model's schema |
 | `lines[].quantity`, `lines[].unit` | decimal, `L` · `KG` · `UNIT` | `UNIT` means sales units |
 | `lines[].exclude_allergens` | list of GS1 codes | Added to the profile's exclusions; a request can add exclusions and can never remove one |
 | `lines[].allergen_strictness` | `STRICT` · `DECLARED_ONLY`, optional | Required when there is any exclusion and the profile sets none. There is no default: a missing value is `invalid-request` |
@@ -157,12 +168,14 @@ Every offer line states, for each claim, whether Valio's data confirms it:
 
 1. Candidates (§3) → one price call and one availability call for the narrowed set (up to 1,000 ids per call).
 2. Classify each candidate (§4) and run the allergen check (§6). Everything that drops out goes to `excluded[]` with a reason code and one sentence.
-3. **Options, at most three, ranked by constraint fit, then verification status, then price:**
-   - `BEST_CONFIRMED` — confirmed products only. The cheapest single product that covers the whole quantity; if none does, combine the cheapest first until the quantity is covered. If confirmed stock still falls short, the option is a partial fill and says how much is missing.
+3. **Options, at most three (four with `CHEAPEST_CONFIRMED`), ranked by constraint fit, then verification status, then the request's preference, then price:**
+   - `BEST_CONFIRMED` — confirmed products only. Under `PRICE`, the cheapest single product that covers the whole quantity; if none does, combine the cheapest first until the quantity is covered. Under another preference, the products with the best value for that key go first (a product with no value ranks last), and price decides within them (`src/tta/offers/preference.py`). If confirmed stock still falls short, the option is a partial fill and says how much is missing.
+   - `CHEAPEST_CONFIRMED` — only under a preference other than `PRICE`, when the price fill over the same confirmed stock picks other products and costs less. Its summary and the preferred option's summary say the difference in euros and what it buys ("€7.00 more than the cheapest confirmed option, for a delivery reliability of at least 100% instead of unknown"). A preference never outranks constraint fit or verification status.
    - `ALTERNATIVE_UNCONFIRMED` — the cheapest product in state `QUANTITY_NOT_CONFIRMED` that otherwise fits. A full structured option the approver can pick, not a footnote.
    - `SUBSTITUTE` — only when the request named products by id and they cannot be supplied in full: the best substitute that passes §6.
 4. Every option carries: its lines; totals (net, tax from `tax.taxRate`, gross; `excludes_deposits`; `is_ceiling` for variable weight); coverage (requested, covered, fill ratio); `valid_until` = the earliest price `validTo` and `closingTime` of its lines; **constraint checks** — one per thing the buyer asked for (product type, quantity, needed-by date, each claim, each allergen exclusion, pack), each `MET`, `NOT_MET` or `UNVERIFIED` with a sentence; and **the policy verdict for that option** (§7), so the agent knows before ordering what it may do alone.
 5. The offer records where its data came from (`live` or `replay`) and the `timeNow` it was built against.
+6. **The comparison** (`OptionComparison`, `src/tta/offers/comparison.py`): each option states its earliest and latest delivery, the lowest delivery reliability, an estimated carbon total (amount × kg CO2e per kg, a litre counted as a kilogram), the labels every line carries, and how many lines have no value for each, in one sentence. Each line carries its own reliability, carbon per kg and labels; a missing value is unknown, never 0. Reliability is known for 4,425 and carbon for 11,033 of the 17,546 catalog products.
 
 **Exclusion reason codes:** `BLOCKED` · `NOT_DELIVERABLE` · `OUT_OF_STOCK` · `CUTOFF_PASSED` · `LATE_FOR_NEEDED_BY` · `ALLERGEN_DECLARED` · `ALLERGEN_NOT_STATED` (only under `require_confirmed`) · `PORTION_PACK` · `NOT_A_PORTION_PACK` (on a line that asks for portion packs) · `PACK_SIZE_UNKNOWN` · `PRICE_UNAVAILABLE` · `SUBSTITUTE_ADDS_ALLERGEN` · `QUANTITY_NOT_CONFIRMED` and `DELIVERY_DATE_NOT_CONFIRMED` (both only under `require_confirmed`) · `NOT_IN_RECORDING` (replay only: the recorded copy has no answer for the product; never presented as Valio's statement; its price, quantity and delivery date read `UNKNOWN`; task FIX-12a, `9a1893d`).
 
@@ -212,6 +225,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | F-06 | The caller is an agent on an approval route | refused (`not-authorised`) |
 | F-07 | A line's price is not confirmed, its delivery date is ruled out, or a needed-by date is not verifiably met | `APPROVAL` (purchasing manager) |
 | F-08 | A substitute lacks a dietary claim the original carries (one of the 8 codes of §5, for example lactose-free) | `APPROVAL` (purchasing manager) |
+| F-09 | A line stands in for a recipe's own ingredient (`stands_in_for` set by the menu planner), so a person checks that the dish still works | `APPROVAL` (purchasing manager) |
 
 ### Buyer profile — set per buyer, one YAML file each
 | Setting | Meaning | Rule when crossed |
@@ -225,6 +239,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | `variable_weight` | `APPROVAL` or `AUTO_WITH_CEILING` | P-06 |
 | `deposits` | `APPROVAL` or `NOTE` (the total excludes deposits and says so) | P-07 (finance) |
 | `require_confirmed` | Offer only fully confirmed options | applied when building the offer |
+| `standing_order_drift_ratio` | Tolerance, 0 to 1, for a standing order's renewal: a line's quantity or a product's unit price more than this share away from the median of its last 6 renewals (at least 3 needed to judge) | P-08 `APPROVAL` (purchasing manager). Not set, on a renewal with enough history: a missing fact (F-03) |
 | `approver_roles` | Who holds `purchasing_manager`, `dietitian`, `finance` | — |
 
 **The values are illustrative and labelled as ours.** The mock has no customer model and Valio publishes no customer limits (booth Q7).
@@ -233,8 +248,8 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 
 | Profile | `max_order_net_eur` | `max_daily_net_eur` | `min_fill_ratio` | Allergens | Substitution | Other |
 |---|---|---|---|---|---|---|
-| `hotel-kitchen` | 750 | 3,000 | 0.9 | none | `SAME_CATEGORY` | variable weight and deposits → `APPROVAL` |
-| `allergy-ward` | 500 | 1,500 | 1.0 | `AM`, `AW`, `STRICT` | `NONE` | `require_confirmed` true |
+| `hotel-kitchen` | 750 | 3,000 | 0.9 | none | `SAME_CATEGORY` | variable weight and deposits → `APPROVAL`; drift tolerance 25% |
+| `allergy-ward` | 500 | 1,500 | 1.0 | `AM`, `AW`, `STRICT` | `NONE` | `require_confirmed` true; drift tolerance 10% |
 
 **An order goes ahead without a human only when** no fixed rule fires and every profile limit holds: every claim confirmed, the quantity covered, no substitute outside the profile, spend within both limits.
 
@@ -262,7 +277,7 @@ POST /v1/orders ─► re-check price and availability
 
 ## 9. Audit trail
 
-- **One event per step:** request received · request parsed · lookup performed · offer created · policy evaluated · order placed by agent · approval requested · approval decided · order confirmed, rejected, expired or blocked.
+- **One event per step:** request received · request parsed · lookup performed · offer created · policy evaluated · order placed by agent · approval requested · approval decided · order confirmed, rejected, expired or blocked · standing order created · standing order renewed (with the drift found; subject `standing_order/<id>`).
 - **Every event has:** who (agent, human or system, with id and role), what, why (rule ids and the facts they read), the hash of the policy and profile in force, the previous event's hash, and **one readable sentence**, built from a template, never by a model. Example: "The agent could not place this order alone: the total of €1,980.77 is above the €750 limit of profile hotel-kitchen (P-01) and only 74.9% of the 1,000 litres is covered (P-03). Sent to the purchasing manager."
 - **Envelope:** CloudEvents 1.0 (`specversion`, `id`, `source`, `type`, `time`, `subject`, `data`). Stored append-only. `time` is the real UTC time, not the data clock (§10).
 - **Two readers** (the brief: "a human-readable log … for both buyer and Valio Aimo"):
@@ -288,7 +303,8 @@ POST /v1/orders ─► re-check price and availability
 - **Parse:** free text → the typed request of §3, using structured output with the request's JSON Schema. The parser may choose a `product_type` only from the table's keys.
 - **Checked against the text:** before the typed request is built, the reading's quantity, unit, needed-by date, exclusions, confirmed-only and product ids are compared with the text (`src/tta/agent/textcheck.py`); a disagreement is asked once more, then refused as `invalid-request`. Each reading says who read it: the model, a recording, or a hand-written answer (task FIX-9).
 - **Run:** a function-calling loop over the gateway's own tools: read authority → get offer → place the order → report what happened and why. The gateway accepts only the option ranked 1 of the latest offer, and at most two offers per run. The gateway, not the model, decides whether the order goes through.
-- **Without a key:** the same loop runs on recorded model outputs for the demo scenarios, each served only for the profile it was recorded for, and the typed request can be posted directly.
+- **The order of answering** (`src/tta/agent/fallback.py`, task FALLBACK-1): the model, when a key is set and it answers; else, when no key is set or the model is out of reach (a time-out, 408, 429, a 5xx, or a 401, 402 or 403 from Gemini, `NOT_AVAILABLE_TO_US` in `src/tta/agent/gemini.py`), the recording of that sentence for that profile; else the rule-based reader (`src/tta/agent/rules_reader.py`); else `supplier-unavailable`, naming what the rules could not read. A model that answered is never overridden. The rules read quantities in digits with a unit, product types of the table, product numbers, lactose-free and gluten-free, "no milk", strictness, named days and dates, "confirmed only", preference and label words; they never guess a quantity. A reading by the rules says "Read by fixed rules, not by a model", and the header `TTA-Reading-Source` is `rule-based`. A run follows the same order: with no recorded run, the rules read the text and make a fixed run (authority, offer, order of the option ranked 1), and its report opens by saying so. The typed request can always be posted directly.
+- **The model's schema** has `prefer` and `required_labels`; it leaves out `standing_order_id` and `stands_in_for`, which only the gateway's own services set. The parser refuses a label that is not a label code or has no word in the text, and a `prefer` other than `PRICE` with no word in the text.
 - **Finnish, Swedish and a photo (task T18, `812de0f`):** a request in Finnish or Swedish is read by the same rules; the Finnish sentences for scenarios 1 and 2 read to the same typed requests. A photo of an order list is read in two steps: the transcription is shown to the person, then the parser and text check read it. Their recordings, and the brief's own sentence (`8cd94c2`), are written by hand and labelled `hand-built`.
 - Text from the product file or the API reaches the model only as data, never as instructions.
 
@@ -296,10 +312,12 @@ POST /v1/orders ─► re-check price and availability
 
 | Page | Shows |
 |---|---|
-| `/` | Paste a request, choose who is asking, run. Then: the parsed request, the offer (options with a mark per claim, the constraint checks, the exclusions with reasons), the verdict, and the order or "sent for approval". A photo upload, and a fourth example for the dietitian's approval (task T18) |
+| `/` | Paste a request, choose who is asking, run. Then: the parsed request, the offer (options with a mark per claim, the constraint checks, the exclusions with reasons, each line's reliability, carbon and labels, each option's comparison), the verdict, and the order or "sent for approval". A photo upload, a fourth example for the dietitian's approval (task T18), and a fifth, "100 litres of oat drink by Monday, most reliable delivery" (task SUST-1) |
 | `/approvals` | Pending approvals as cards: the options, why a human is needed, "order by" time, approve (with option choice) or reject with a note |
 | `/orders/{id}` | The order record and its audit trail, switchable between the buyer's and the supplier's view |
 | `/assumptions` | The assumptions and next steps page |
+| `/menu` | Choose dishes and servings, the kitchen's stock and the date; the plan per dish and ingredient (stand-ins marked), the request lines, the final offer's options and verdicts, and an order button. `?example=event` fills in the last-minute event (task MENU-1) |
+| `/standing-orders` | Load the demo standing order, see its history (synthetic rows marked), renew with this week's quantity; the drift sentence and the outcome (task STAND-1) |
 | `/kitchen` | "Your kitchen", in the menu: the browser's own buyer profile `my-kitchen`, set on a form and checked as a profile file is, with "My kitchen agent" and three approvers bound to it. REST and MCP never see it (task FEAT-1, `b91e135`) |
 
 The first screen must show at a glance what is confirmed, what is not, and what was excluded and why.
@@ -321,4 +339,4 @@ Run in replay from the capture taken at the start of the build. Product ids are 
 
 ## 14. Assumptions and next steps page
 
-`docs/ASSUMPTIONS.md`, shown at `/assumptions`: every "if no answer, we build" line of [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md); every illustrative value (profiles, product-type table, portion-pack threshold); what the mock does not tell us; the reason for each technical choice; what is out of scope; next steps toward production, among them a supplier order message in an open e-procurement format, real customer limits, and standing orders with a check that compares each renewal with the buyer's history (none is built).
+`docs/ASSUMPTIONS.md`, shown at `/assumptions`: every "if no answer, we build" line of [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md); every illustrative value (profiles, product-type table, portion-pack threshold); what the mock does not tell us; the reason for each technical choice; what is out of scope; next steps toward production, among them a supplier order message in an open e-procurement format and real customer limits. Standing orders with a drift check are built (P-08, task STAND-1); a customer's real order history is the next step.

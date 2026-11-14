@@ -22,7 +22,8 @@ How to read it:
 9. [The rules in one table](#9-the-rules-in-one-table)
 10. [Check it yourself](#10-check-it-yourself)
 11. [Known limits](#11-known-limits)
-12. [Being added today](#12-being-added-today)
+12. [Landed today (Saturday morning)](#12-landed-today-saturday-morning)
+    - 12b. [Added this afternoon](#12b-added-this-afternoon)
 13. [How it was built and what the reviews changed](#13-how-it-was-built-and-what-the-reviews-changed)
 14. [Other documents](#14-other-documents)
 15. [Glossary](#15-glossary)
@@ -740,7 +741,7 @@ If an outcome differs, the browser's book was not empty: press **Start again** a
 
 ## 12. Landed today (Saturday morning)
 
-Each piece was built by its own agent, then checked (its tests, lint, scope) and committed. All of it is in the code described above. The public URL still runs the build from before these commits until the final redeploy.
+Each piece was built by its own agent, then checked (its tests, lint, scope) and committed. All of it is in the code described above. The public URL runs all of it since the redeploy of `8163d5d` (about 13:00).
 
 - **Aiven PostgreSQL** (`S1`, `67f3b00`, 10:34).
   - The shared order book and audit trail can live in a managed PostgreSQL database, behind the same `Store` port.
@@ -763,6 +764,44 @@ Each piece was built by its own agent, then checked (its tests, lint, scope) and
   - Each setting is shown with the rule it drives (P-00 to P-07) in the kitchen's own values; below them the fixed rules F-01 to F-08, under "Always, whatever you set". A form that names a fixed rule, or a value out of range, is refused with the field named, and nothing changes.
   - The profile is checked exactly as a profile file is, and it lives only in that browser's book; REST and MCP never see it.
   - Known gap: without a working Gemini model, a run as My kitchen agent first says the recorded sentence was made for another profile, then uses the example's typed request. The verdicts are the same.
+
+---
+
+## 12b. Added this afternoon
+
+Four more pieces, each built by its own agent and committed: the rule-based reader in `de453e6`, the other three in `fa07e39`. The public URL was redeployed from `8163d5d` at about 13:00, so all four are on it. The figures below come from re-running the pages in replay on the capture of section 2, with no Gemini key, each from an empty book.
+
+### 12b.1 Delivery and sustainability comparison
+
+- **What it does.** Every offer line now shows its delivery reliability, its carbon footprint per kilogram and its certificate labels, or "unknown" when the file has no value. Each option gets one sentence comparing delivery, the lowest reliability, an estimated carbon total and the labels every line carries. A request may say what ranks confirmed products once every constraint is met (`prefer`: price, earliest, reliability or lower carbon) and which labels every product must carry (`required_labels`).
+- **Why.** The brief's optional direction: "not just price, but delivery reliability and the certificates/sustainability labels already shown in the webshop".
+- **What it adds.** No new rule. A new option kind, `CHEAPEST_CONFIRMED`: when the preference picks another product than price would, the cheapest confirmed option stays on the table, and both summaries say the difference in euros and what it buys. A preference never outranks constraint fit or verification status.
+- **The demo.** Example 5 on the first page, "100 litres of oat drink by Monday, most reliable delivery" (hotel kitchen). Option 1 is 100 × `470863` Oatly Oat Drink Semi, €140.00, reliability 100%, ordered by the agent alone: "€7.00 more than the cheapest confirmed option, for a delivery reliability of at least 100% instead of unknown." Option 2 is the cheapest confirmed, 100 × `472145`, €133.00, reliability unknown. Under price alone the same request gives `472145`.
+- **What is ours.** The carbon total counts a litre as a kilogram. Reliability is known for 4,425 and carbon for 11,033 of the 17,546 catalog products. Carbon is close to one value per category (all milks 1.1 kg CO2e/kg, catalog), so "lower carbon" mostly separates categories; in tonight's capture every confirmed product arrives on Monday 16 Nov, so "earliest" changes no choice. A label is shown as "the label the product file states", not as a checked certificate.
+
+### 12b.2 Standing orders with drift detection
+
+- **What it does.** A standing order is a stored request renewed every N days. Each renewal goes through the normal flow: an offer at fixed prices, then the order. Before the agent renews alone, each line's quantity and each product's unit price are compared with the median of that line's last 6 renewals.
+- **Why.** Valio's example scenario: "the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it."
+- **The rule.** P-08, a profile rule: a renewal that differs by more than the profile's tolerance goes to the purchasing manager. With fewer than 3 past renewals the history is too short to judge, and the renewal says so. A profile with no tolerance sends a renewal with enough history to a human for a missing fact (F-03).
+- **The demo.** On `/standing-orders`, load "Weekly lactose-free milk, hotel kitchen": 100 L of `469363` a week, with six past weeks of 100, 96, 104, 100, 98 and 102 L at €2.48 (median 100 L). Renewed at 100 L: ordered by the agent alone, €248.00. Renewed at 290 L: €719.20, under the €750 limit, so without P-08 it would go through alone; it waits for the purchasing manager: "290 L this week against a median of 100 L over the last 6 renewals, more than the 25% tolerance of profile hotel-kitchen."
+- **What is ours.** The six past weeks are made up for the demonstration and marked "synthetic" on the page, in the API and in the audit trail: the mock has no order history. The tolerances (hotel kitchen 25%, allergy ward 10%) are illustrative, like every profile value. One tolerance covers quantity and price.
+
+### 12b.3 Recipe logic
+
+- **What it does.** A menu (dishes and servings, minus what the kitchen holds) becomes one offer. When an ingredient cannot be had by the date, or its best option covers less than the profile's minimum share, the planner tries the product types that do the same job in the dish, in the recipe's order, and asks for at most 3 offers.
+- **Why.** Valio's example scenarios "need → recipe → order" and "last-minute event": the agent "flags what can't be sourced in time, and proposes substitutions through recipe logic rather than a simple SKU swap."
+- **The rule.** F-09, a fixed rule: every line that stands in for a recipe's own ingredient goes to the purchasing manager, so a person checks that the dish still works. No profile can switch it off.
+- **The demo.** `/menu?example=event`: beef stew and berry quark dessert, 120 servings each, butter 3 kg and sugar 2 kg in stock, by Monday 16 Nov, confirmed stock only. Quark cannot be had: of its 10 products, 6 are past their cut-off and 4 have no confirmed quantity. Natural yoghurt stands in (`464615`, 12 kg). The offer has 4 lines, €476.48 before tax (€540.81 with tax), and goes to the purchasing manager by F-09 (the stand-in) and P-06 (the beef is sold by variable weight).
+- **What is ours.** The recipe table (9 dishes, amounts per serving, each ingredient's role and its alternatives, each with a reason) is ours and illustrative; the page and the API say so. It has no vegetables, fruit or herbs, because the product-type table has none; each dish lists what it leaves out.
+
+### 12b.4 A rule-based reader
+
+- **What it does.** When no model answers and the sentence has no recording, fixed rules read the common shapes of a request: a quantity in digits with a unit, a product type of the table or a product number, lactose-free and gluten-free, "no milk", strictness, named days, "confirmed only", and preference and label words. The order of answering is: the model; else the recording of that sentence; else the rules; else `supplier-unavailable`, naming what the rules could not read. A model that answered is never overridden. A 401, 402 or 403 from Gemini counts as "no model answers".
+- **Why.** The deployed key ran on a zero balance on 14 Nov. Without this, every sentence with no recording got a 503 on the public link (30% demo).
+- **What it adds.** No rule. The reading says "Read by fixed rules, not by a model", and the header `TTA-Reading-Source` says `rule-based`. A run made this way opens by saying so.
+- **The demo.** Example 5 above, with no key: "No Gemini key is set, so this run was read and made by fixed rules, not by a model." The rules read "most reliable delivery" as `prefer: RELIABILITY`. "Some cheese for Friday" is refused: the rules never guess a quantity.
+- **What is ours.** The word table (English, with a few Finnish and Swedish preference words). Most Finnish product words are not in it, so the Finnish demo sentences are read only from their recordings.
 
 ---
 

@@ -2,7 +2,7 @@
 
 A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and place an order within its own authority or send it to a human for approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
 
-**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; redeployed from commit `d342dfb` at 11:15 on 14 Nov 2026, and `deploy/check.py` passed all 7 checks against it). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
+**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; redeployed from commit `8163d5d` at about 13:00 on 14 Nov 2026, and `deploy/check.py` passed all 7 checks against it; `/menu`, `/standing-orders`, `/kitchen` and `/assumptions` answer 200 there). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
 
 ## The flow
 
@@ -21,6 +21,13 @@ Two runs in replay of the recorded capture (Saturday 14 Nov 2026, 02:52 server t
 
 The model reads the text and picks an option. It never decides a price, a quantity, an allergen status or a verdict: deterministic code does, and the audit trail records which rule applied.
 
+### Added on Saturday afternoon (commits `de453e6`, `fa07e39`)
+
+- **Delivery and sustainability comparison.** Every offer line shows delivery reliability, carbon footprint per kg and certificate labels, or "unknown". A request may set `prefer` (`PRICE`, the default, `EARLIEST`, `RELIABILITY` or `LOWER_CARBON`) and `required_labels` (for example `EU_ORGANIC_FARMING`). When the preference picks another product than price would, the offer also holds the `CHEAPEST_CONFIRMED` option and says what the difference buys. Example 5 on `/`: "100 litres of oat drink by Monday, most reliable delivery" orders `470863` at €140.00, €7.00 more than the cheapest confirmed `472145` (€133.00), for a delivery reliability of 100% instead of unknown.
+- **Standing orders with drift detection.** A standing order is a stored request renewed every N days. Rule P-08 sends a renewal to the purchasing manager when a line's quantity or unit price differs from the median of its last 6 renewals by more than the profile's tolerance (hotel kitchen 25%, ours). The demo history is six weeks made up for the demonstration and marked synthetic: the mock has no order history. Page `/standing-orders`.
+- **Recipe logic.** A menu (dishes × servings, minus the kitchen's stock) becomes one offer. An ingredient that cannot be had by the date is replaced by another product type that does the same job in the dish, and fixed rule F-09 sends every such stand-in to the purchasing manager. The recipe table is ours and illustrative. Page `/menu`.
+- **A rule-based reader.** When no model answers (no key, Gemini out of reach, or a 401, 402 or 403 from it) and the sentence has no recording, fixed rules read the common shapes of a request and the page says "Read by fixed rules, not by a model". They never guess a quantity.
+
 ## Run it in replay
 
 Python 3.13 is required. From the repository root:
@@ -33,7 +40,7 @@ TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --factory tta.api:creat
 
 - **`TTA_ENV` must be set** to `dev` or `demo`. Unset means `prod`: the demo tokens and the pages are not loaded, and the app refuses to start without `TTA_TOKENS`.
 - Replay needs no Valio key and makes no call to the mock. Answers come from `fixtures/valio/2026-11-14-demo/`, with the clock pinned to that capture.
-- Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`. Four of the eleven were recorded from `gemini-3.6-flash` on 14 Nov 2026. Seven are written by hand and say `hand-built`: the agent's run of scenario 1; the reading and the run of the brief's own sentence ("I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.", hotel kitchen); the readings of the two Finnish sentences, and the transcription and reading of the demo photo (Gemini answered 503 and 504 when those were to be recorded, task T18). Sentences with no recording need the key.
+- Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`, else from fixed rules (below). Four of the eleven were recorded from `gemini-3.6-flash` on 14 Nov 2026. Seven are written by hand and say `hand-built`: the agent's run of scenario 1; the reading and the run of the brief's own sentence ("I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.", hotel kitchen); the readings of the two Finnish sentences, and the transcription and reading of the demo photo (Gemini answered 503 and 504 when those were to be recorded, task T18). A sentence with no recording is read by fixed rules when it has a shape they know (a quantity in digits and a unit, a product type of the table or a product number, and words such as "lactose-free", "no milk", "strict", "by Monday", "confirmed only", "most reliable" or "organic"); anything else needs the key.
 - If your `.env` holds `GEMINI_API_KEY`, the parser and the agent call Gemini. When Gemini cannot be reached, a sentence that has a recording is answered from it, and the report says so in its first sentence. Gemini was slow on 14 Nov (29 s to read scenario 1), and a time-out can hold a sentence for about 90 s before the recording answers. For a quick demo, put `GEMINI_API_KEY=` before the command.
 - **Two kinds of order book.** On the pages, each browser has its own book in memory, with its own audit trail; it starts empty, is dropped after 2 idle hours, and **Start again** empties it. REST and MCP share one book in `var/tta.sqlite3`: there the day's spend adds up across runs, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start that book empty. With `DATABASE_URL` set, the shared book uses PostgreSQL instead, and SQLite when the database cannot be reached at start; `/healthz` then names the reason (`docs/AIVEN.md`).
 - Live data: set `VALIO_AIMO_API_KEY` in `.env` and start with `TTA_MODE=live`. When the mock cannot be reached, or fewer than 10 calls are left in the call budget, the recorded capture answers and the offer says `replay`.
@@ -42,8 +49,8 @@ What is served:
 
 | Path | What | Who |
 |---|---|---|
-| `/` | Pages: paste a request or click one of three examples, see the offer, the verdict and the order; `/approvals`; `/orders/{id}` with both views of the audit trail; `/assumptions`. Each browser has its own order book | `dev` and `demo` only, demo identity chosen on the page |
-| `/v1/...` | REST API | Bearer token |
+| `/` | Pages: paste a request or click one of five examples, see the offer, the verdict and the order; `/approvals`; `/orders/{id}` with both views of the audit trail; `/kitchen`; `/menu` (a menu becomes one order); `/standing-orders` (renew a standing order; drift goes to a human); `/assumptions`. Each browser has its own order book | `dev` and `demo` only, demo identity chosen on the page |
+| `/v1/...` | REST API, among it `GET /v1/menus/recipes`, `POST /v1/menus/plan`, `POST` and `GET /v1/standing-orders`, `GET /v1/standing-orders/{id}`, `POST /v1/standing-orders/{id}/renew` | Bearer token |
 | `/openapi.json`, `/docs` | Generated OpenAPI 3.1 and Swagger UI | Anyone |
 | `/v1/schemas` | JSON Schema (2020-12) of every model | Anyone |
 | `/mcp/` | MCP endpoint, Streamable HTTP, eight tools | Bearer token |
@@ -126,9 +133,11 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 
 - The agent's run of scenario 1 is a hand-written recording (by plan). The Finnish and photo readings were not checked against Gemini live: Gemini answered 503 and 504 on 14 Nov, so their recordings are written by hand, and the demo photo is a rendered stand-in for a phone photo. On the pages, Finnish free text runs only while Gemini answers, and no MCP tool reads a photo (`AIMO/build/handback/T18.md`). A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
-- Delivery-time and sustainability comparison (an optional direction of the brief) is not built.
-- Standing orders, recipe planning and a selling agent of Valio's own are not built; standing orders with a drift check are a next step (`docs/ASSUMPTIONS.md`).
-- The deployed app runs `d342dfb` (redeployed 11:15, 14 Nov): Context.dev evidence (`7abb44e`, `f3286e1`), Aiven PostgreSQL (`67f3b00`; `/healthz` reports no fall-back), the ingredient list and "not in the recording" (FIX-12a, `9a1893d`), coverage per line and the trade-off on the approval card (FIX-12b, `baa4e08`), the photo and Finnish input (T18, `812de0f`) and Your kitchen (FEAT-1, `b91e135`) are all on it.
+- A selling agent of Valio's own is not built.
+- `EARLIEST` and `LOWER_CARBON` change no choice in tonight's capture: every confirmed product arrives on Monday 16 Nov, and carbon is close to one value per category (`docs/ASSUMPTIONS.md`). Both are tested on hand-built prices and stock.
+- A preference can make the agent order a dearer product alone (10 L of `cream` ranked by reliability: €40.60 above the cheapest confirmed, AUTO; `AIMO/build/handback/SUST-1.md`). A profile limit on that difference is not built.
+- No MCP tool for menus or standing orders; they are REST routes and pages. The recipe table has no vegetables, fruit or herbs.
+- The deployed app runs `8163d5d` (redeployed at about 13:00, 14 Nov): everything above, including Context.dev evidence, Aiven PostgreSQL, the photo and Finnish input, Your kitchen, and the four parts added on Saturday afternoon.
 
 ## Licence
 

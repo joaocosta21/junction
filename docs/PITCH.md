@@ -37,6 +37,9 @@ Each can replace a beat above; none is in the 3-minute plan yet.
 - **The dietitian's evidence card** (built and wired, S2). The hotel asks for 100 L of Elovena barista oat drink `469512` without milk. Valio's data says nothing about milk, so P-04 alone sends it to the dietitian, whose card shows the maker's page: *Maidoton*, milk-free, labelled as not Valio data. "The web informs the human who signs; it never makes the order go through." 20% controls.
 - **A photo of an order list, or an order in Finnish** (T18). Gemini transcribes the photo, the transcription is shown, then the same parser and text check read it. Not yet checked with Gemini live: the demo photo and the Finnish sentences answer from hand-built recordings, and the page says so. 20% match.
 - **"Your kitchen"** (`/kitchen`, in the menu; FEAT-1). As "My kitchen agent", raise the per-order limit to €3,000 and scenario 1 is ordered by the agent alone; set it back to €750 and it goes to the purchasing manager. The fixed rules stay on whatever is set. 20% controls, Core 3.
+- **A menu becomes one order** (`/menu?example=event`, MENU-1). Quark cannot arrive by Monday, so recipe logic puts natural yoghurt in its place; €476.48 for four lines, and fixed rule F-09 sends the stand-in to the purchasing manager. 15% exceptions · 20% controls.
+- **A standing order that drifts** (`/standing-orders`, STAND-1). Renewed at the usual 100 L the agent orders alone (€248.00); at 290 L, still under €750, rule P-08 sends it to a human. The six past weeks are synthetic and labelled. 20% controls.
+- **A preference changes the choice** (example 5 on `/`, SUST-1). "Most reliable delivery" orders the 100%-reliable oat drink at €140.00 and keeps the cheapest, €133.00, on the table: "€7.00 more … for a delivery reliability of at least 100% instead of unknown". 20% match · optional direction "delivery time & sustainability".
 
 ### Likely questions, and the short answer
 
@@ -48,7 +51,7 @@ Each can replace a beat above; none is in the 3-minute plan yet.
 - **"Does it work on live data?"** Yes. At 08:12 on 14 Nov, six live calls gave the same products, prices, verdicts and rules as the capture. We demo in replay so the outcome cannot move with the stock.
 - **"Partial availability?"** Ask for 1,500 litres: confirmed stock covers 1,133 L (75.5%), below the hotel's 90% minimum, so rule P-03 fires as well (on an empty order book; after other orders that day, P-02 can fire too).
 - **"What if Valio's data says nothing about an allergen?"** Unknown, never safe: under a strict rule it goes to the dietitian (P-04). The approval card shows what the maker's web page says, labelled as not Valio data, found through Context.dev; it never changes the verdict.
-- **"Standing orders? Recipes?"** Not built. Recipes belong to the buyer's agent, which sends the gateway a request with several lines. Standing orders with a drift check are a next step on `/assumptions`.
+- **"Standing orders? Recipes?"** Both are built: `/standing-orders` (rule P-08 on drift) and `/menu` (recipe logic, rule F-09). The recipe table and the demo's past weeks are ours, labelled illustrative and synthetic.
 
 ---
 

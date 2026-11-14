@@ -328,6 +328,38 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask:** "In production, would an agent get product data through an API too, or a file like this? When the file and the API disagree, which one wins? How often does the file change? And may we show recorded API answers in the demo when the mock is down, labelled as recorded?"
 - **If no answer, we build:** price, quantity and sales unit follow the API; everything about what the product is follows the file; an offer always says whether its API data is live or recorded.
 
+**SUST-1 · Is the carbon figure per kilogram for liquids too, and a category average?** (from the sustainability comparison; whole catalog)
+- **Context:** the carbon file has one column, `AVG kg CO2-eq/kg`, for 11,033 of the 17,546 products, and the value is the same for nearly every product of a category (all milks 1.1, creams 1.81, beef 26.195). Each offer now shows an estimated carbon total per option.
+- **We did:** multiplied the amount delivered by the value, counting a litre as a kilogram for products sold by the litre.
+- **We got:** 1,000 litres of lactose-free milk (scenario 1, `469363`, `462775`, `463380`) reads "about 1,100 kg CO2e"; 100 litres of oat drink (`470863`) reads "about 43.5 kg CO2e" (replay, capture of Saturday 02:52).
+- **Example to show:** the "Compared with the other options" line of scenario 1 on the result page.
+- **Ask:** "Is the figure per kilogram of product for liquids too, so that a litre of milk counts as about 1.03 kg, and is it a category average rather than a figure per product? Is that expected, or did we read it wrong?"
+- **If no answer, we build:** what we have: a litre counted as a kilogram, the total labelled an estimate, the assumption on `/assumptions`.
+
+**SUST-2 · Are the `packagingMarkedLabel` codes certificates an agent can rely on?** (from the sustainability comparison; whole catalog)
+- **Context:** the brief names "the certificates/sustainability labels already shown in the webshop". The `packagingMarkedLabel` group holds 19 codes; we read 16 as certificate labels and leave out `warmTemperature`, `coolTemperature` and `freezeTemperature`, which are storage temperatures. A buyer can now require a label, and a product without it is not offered.
+- **We did:** asked for 100 litres of oat drink by Monday with `required_labels: ["EU_ORGANIC_FARMING"]` as the hotel kitchen.
+- **We got:** one confirmed product, `460825` Oatly Oat Drink Organic 1L, €174.00, ordered by the agent alone; the other oat drinks are not candidates (replay).
+- **Example to show:** `460825` in the product file: its label group holds `EU_ORGANIC_FARMING` and `warmTemperature`.
+- **Ask:** "Are these codes the labels the webshop shows, and can an agent treat one as a certificate the product holds today, without a manual check? Is that expected, or did we get something wrong?"
+- **If no answer, we build:** what we have: a label is shown and filtered on as "the label the product file states", never as a verified certificate.
+
+**STAND-1 · Will a customer's order history be readable?** (from standing orders)
+- **Context:** your example scenario asks for "standing order drift detection: the agent learns a kitchen's recurring weekly order and flags anomalies (portion counts creeping up, cost drifting) before auto-renewing it." Learning the usual order needs the kitchen's past orders.
+- **We did:** looked for order history in the mock. It has the price and availability endpoints only, and no order endpoint (by design, as agreed).
+- **We got:** no history, so the gateway keeps its own: each renewal it places joins the history, and the demonstration starts with six made-up weeks, marked "synthetic" wherever they appear.
+- **Example to show:** `/standing-orders`, "Weekly lactose-free milk, hotel kitchen": 100 L of `469363` a week, six synthetic weeks (96 to 104 L, median 100 L, €2.48 from the capture). Renewed at 100 L the agent orders alone (€248.00); at 290 L rule P-08 sends it to the purchasing manager.
+- **Ask:** "In production, would a customer's own past orders (per product: date, quantity, net price) be readable through an API, so the history is yours rather than ours? Is building it from the gateway's own orders until then expected, or did we miss a source?"
+- **If no answer, we build:** the history from the gateway's own renewals only, synthetic rows labelled as such.
+
+**MENU-1 · Is there data on which products do the same job in a dish?** (from recipe logic)
+- **Context:** your scenarios ask for substitutions "through recipe logic rather than a simple SKU swap". The product file lists 249 substitutes by product id, and nothing about what an ingredient does in a dish.
+- **We did:** wrote our own illustrative recipe table (`src/tta/menus/recipes.yaml`, 9 dishes): each ingredient has a role and an ordered list of other product types that do the same job, each with a reason. The planner tries them in order when the recipe's own type cannot arrive in time, and fixed rule F-09 sends every stand-in to the purchasing manager.
+- **We got:** in the capture of Saturday 02:52, plain quark (`maitorahka`, 10 products) cannot be had by Monday 16 Nov with confirmed stock: 6 are past their cut-off and 4 have no confirmed quantity. The planner offers 12 kg of `464615` Valio A+ greek natural yoghurt instead: "A thick natural yoghurt gives the same tangy base; the dessert is runnier and has less protein."
+- **Example to show:** `/menu?example=event` (beef stew and berry quark dessert, 120 servings each, by Monday, confirmed only): the quark line, and the offer's line 4 standing in for quark, €476.48 in all, to the purchasing manager by F-09 and P-06.
+- **Ask:** "Do you hold, or plan to publish, any data on which products can replace which in a kitchen (a functional group, or the substitutes your own sales staff suggest), or is a buyer-side recipe table like ours the expected approach?"
+- **If no answer, we build:** nothing more: the recipe table stays ours, labelled illustrative, and every stand-in goes to a human (F-09).
+
 ### For the team
 
 **T04-1 · Which claims must be confirmed before the agent orders alone?** (from the availability package)
@@ -539,6 +571,29 @@ The build agents add questions here in the same shape as above. Empty until the 
 **T14-2 · Reset the shared order book before peer review?**
 - Every visitor of the deployed link shares one order book, so the ward's autonomous order (scenario 2, €402) goes through alone three times a day and then goes to finance (question T12-1). `docs/DEPLOY.md` gives the steps to start the judging day on an empty database.
 - **Ask:** "Reset it at 10:00 on Sunday, before peer review starts?" Orchestrator's view: yes.
+
+**STAND-2 · The drift tolerance values** (from standing orders)
+- **Context:** P-08 compares each line's quantity and each product's unit price with the median of its last 6 renewals; fewer than 3 past renewals is too short to judge.
+- **We did:** set the tolerance to 25% for hotel-kitchen and 10% for allergy-ward (ours, illustrative, like every profile value); one tolerance for quantity and price.
+- **We got:** 290 L against a median of 100 L goes to the purchasing manager; 125 L (exactly 25%) does not, because "more than" is strict.
+- **Example to show:** `src/tta/policy/profiles/*.yaml`, `standing_order_drift_ratio`.
+- **Ask:** "Are 25% and 10% the values we want to show, and is one tolerance for quantity and price enough, or should price get its own (prices rarely move 25%)?"
+- **If no answer, we build:** one tolerance, as now.
+
+**FALLBACK-1 · "Gluten-free": a claim, an exclusion, or both?** (from the rule-based reader)
+- **Context:** the model's instruction (rule 6) and the text check (`src/tta/agent/textcheck.py`) read "gluten-free" as the exclusion of gluten (`AW`), and the text check refuses a reading that leaves that exclusion out.
+- **We did:** the rule-based reader reads "gluten-free" as both: the claim `FREE_FROM_GLUTEN` and the exclusion `AW`.
+- **We got:** "30 kg gluten-free bread" reads, through the rules, as bread with claim `FREE_FROM_GLUTEN` and exclusion `AW`. So the rules offer only bread that carries the claim, while a model reading that follows rule 6 accepts any bread that declares no gluten. We did not check live what Gemini gives for this sentence.
+- **Example to show:** `POST /v1/requests/parse` with no key, as the allergy ward agent, text "30 kg gluten-free bread, most reliable": `required_claims: ["FREE_FROM_GLUTEN"]`, `exclude_allergens: ["AW"]`.
+- **Ask:** "Should the rules drop the claim and match the model (exclusion only), or should the model's instruction add the claim?"
+- **If no answer, we build:** we keep both: the rules' reading is stricter, never looser, than the model's.
+
+**FALLBACK-2 · Should a refusal from Gemini fall back too?** (from the rule-based reader) · PARTLY SETTLED
+- **Context:** the fallback (the recording, then the rules) ran only when Gemini could not be reached (a time-out, 408, 429 or a 5xx) or when no key was set. A refusal (400 to 404) was answered as `supplier-unavailable`, as FIX-9 decided.
+- **We got:** with the deployed key on a zero balance, every sentence with no recording got a 503, while the rules could read it.
+- **Settled by the orchestrator:** a 401, 402 or 403 from Gemini now counts as out of reach (`NOT_AVAILABLE_TO_US`, `src/tta/agent/gemini.py`), so the recording and then the rules stand in. A 400 or 404 stays a refusal: it points at our call.
+- **Ask:** "Should a 400 'API key not valid' also fall back?"
+- **If no answer, we build:** nothing more: 400 and 404 stay a 503.
 
 ---
 

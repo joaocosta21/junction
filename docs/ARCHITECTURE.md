@@ -29,7 +29,7 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
      substitutes,    idempotency,    views              service (or recorded
      re-check        day's spend        │               answers)
       │  │  │  │         │              ▼
-      │  │  │  └─────────┴──────► policy/   rules.yaml (fixed rules F-01…F-08)
+      │  │  │  └─────────┴──────► policy/   rules.yaml (fixed rules F-01…F-09)
       │  │  │                              + profiles/*.yaml (buyer profiles)
       │  │  │                              → AUTO · APPROVAL · BLOCK
       │  │  └──► availability/  six states, a status per claim
@@ -52,7 +52,7 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
 2. **Candidates.** `catalog/` finds products by product type, name terms, claims, explicit ids and pack rule. Pack size and lot step come from the product file and the live price.
 3. **Lookup.** `valio/` asks the mock for price and availability of the narrowed set: one price call and one availability call. Both answers come from one source, live or the recorded capture, never one of each.
 4. **Classify.** `availability/` gives each product one of six states and a status per claim: price, quantity, delivery date, allergens, origin. `allergens/` applies the buyer's exclusions.
-5. **Offer.** `offers/` builds at most three options: best confirmed, unconfirmed alternative, substitute. Every option carries its totals, its constraint checks and its policy verdict. Every product that drops out is listed with a reason.
+5. **Offer.** `offers/` builds at most three options: best confirmed, unconfirmed alternative, substitute; under a preference other than price, a fourth, the cheapest confirmed, when it differs. Every option carries its totals, its constraint checks and its policy verdict. Every product that drops out is listed with a reason.
 6. **Policy.** `policy/` evaluates each option. The most severe verdict of the rules that fire wins.
 7. **Order.** `orders/` re-checks price and availability with a fresh call, runs the policy again at order time, and then places the order (`AUTO`), opens an approval (`APPROVAL`) or refuses (`BLOCK`).
 8. **Approval.** A human with the named role approves or rejects, on the pages or over REST. The order-time check runs again before the order is placed. An agent token on an approval route is refused. When P-04 sends a product to the dietitian because an excluded allergen is not stated, `evidence/` attaches what the manufacturer's page says, labelled as not Valio data; it changes no verdict.
@@ -62,21 +62,23 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
 
 | Package | What it does | Implements | Uses |
 |---|---|---|---|
-| `contracts/` | Shared Pydantic models, typed errors, ports, JSON Schema export | — | — |
+| `contracts/` | Shared Pydantic models, typed errors, ports, JSON Schema export; `menu.py` (menu request and plan, recipes) and `standing.py` (standing orders, renewals, drift) | — | — |
 | `config.py` | Settings from the environment and `.env`; secrets as `SecretStr` | — | — |
 | `valio/` | HTTPS client for the mock, recorder, replay of a capture, call budget, live and pinned clocks | `ValioGateway`, `Clock` | — |
 | `catalog/` | Loads the product file and the two CSV files; search; product-type table (`product_types.yaml`); pack size; portion packs; lot rounding | `Catalog` | — |
 | `allergens/` | GS1 code table and families; buyer exclusion rule; substitution rule | functions | — |
 | `availability/` | The six states; the status of each claim; sentences | functions | — |
-| `policy/` | Rules file, buyer profiles, deterministic engine, policy hash | `PolicyEngine` | — |
-| `offers/` | Candidates → options; ranking; combining; substitutes; re-check before an order | `OfferBuilder`, `OfferRevalidator` | `Catalog`, `ValioGateway`, `PolicyEngine`, `Clock` |
+| `policy/` | Rules file, buyer profiles, deterministic engine, policy hash; `drift.py` and `standing_facts.py`, a renewal's drift against the median of its last renewals (P-08); `reading.py` | `PolicyEngine` | — |
+| `offers/` | Candidates → options; ranking; combining; substitutes; re-check before an order; `preference.py` (ranking by earliest, reliability or lower carbon, and the cheapest confirmed option) and `comparison.py` (each option's delivery, reliability, carbon and labels) | `OfferBuilder`, `OfferRevalidator` | `Catalog`, `ValioGateway`, `PolicyEngine`, `Clock` |
 | `store/` | SQLite repository; Aiven PostgreSQL repository with database triggers that refuse changes to audit events, buyer and supplier views and a read-only supplier role (task S1, `67f3b00`); SQLite when the database cannot be reached at start, and `/healthz` names the reason (`7b93821`) | `Store` | — |
 | `evidence/` | Context.dev Answers: one lookup per product, checked against its sources and the product's name and brand, stored once; recordings answer without a key (task S2) | `EvidenceFinder` (a protocol in `orders/service.py`) | `Catalog` |
-| `audit/` | Events, hash chain, sentences from templates, buyer and supplier views | `AuditSink` | `Store` |
+| `audit/` | Events, hash chain, sentences from templates (`standing_sentences.py` for standing orders), buyer and supplier views | `AuditSink` | `Store` |
+| `standing/` | Standing orders: set up, list, read, renew through the normal offer and order; the history of past renewals; the demo standing order with its synthetic weeks (task STAND-1) | `StandingOrders` | `Store`, `AuditSink`, `GatewayService`, `Clock` |
+| `menus/` | The recipe table (`recipes.yaml`, ours and illustrative), servings minus stock to request lines, the menu planner that tries a role's alternatives and asks at most 3 offers (task MENU-1) | `plan_menu` | `GatewayService` |
 | `orders/` | Order-time check, approvals, expiry, idempotency, the day's spend, evidence on an approval | `OrderService` | `OfferRevalidator`, `PolicyEngine`, `Store`, `AuditSink`, `Clock`, `EvidenceFinder` |
-| `api/` | FastAPI app, REST routes, identity, limits (per browser on the pages, per address, overall), problem details, OpenAPI, MCP surface, fall-back from live to replay, one order book per browser (`sandbox.py`) | `GatewayService` (`service.Gateway`) | all of the above |
-| `agent/` | Gemini: request parser, a check of every reading against the text, readings labelled by who read them, buyer-agent loop; a photo of an order list read in two visible steps (Gemini's transcription is shown, then the same parser and text check read it), and requests in Finnish or Swedish (task T18, `812de0f`); recorded answers when there is no key | `RequestParser`, `AgentRunner` | `GatewayService` |
-| `ui/` | Server-rendered pages: request (text or a photo), approvals (with the evidence card and, per line, the allergen finding and what a substitute gives up), order and audit trail, assumptions, and `/kitchen` ("Your kitchen", in the menu; task FEAT-1, `b91e135`), the browser's own buyer profile | — | `GatewayService` |
+| `api/` | FastAPI app, REST routes (`menu_routes.py`, `standing_routes.py` among them), identity, limits (per browser on the pages, per address, overall), problem details, OpenAPI, MCP surface, fall-back from live to replay, one order book per browser (`sandbox.py`) | `GatewayService` (`service.Gateway`) | all of the above |
+| `agent/` | Gemini: request parser, a check of every reading against the text, readings labelled by who read them, buyer-agent loop; a photo of an order list read in two visible steps (Gemini's transcription is shown, then the same parser and text check read it), and requests in Finnish or Swedish (task T18, `812de0f`); recorded answers when there is no key; fixed rules when no model answers and there is no recording (`rules_reader.py`, `rules_model.py`, `wording.py`; task FALLBACK-1) | `RequestParser`, `AgentRunner` | `GatewayService` |
+| `ui/` | Server-rendered pages: request (text or a photo), approvals (with the evidence card and, per line, the allergen finding and what a substitute gives up), order and audit trail, assumptions, and `/kitchen` ("Your kitchen", in the menu; task FEAT-1, `b91e135`), the browser's own buyer profile; `/menu` (`menu_page.py`) and `/standing-orders` (`standing_page.py`) | — | `GatewayService` |
 
 ## Ports
 
@@ -91,7 +93,7 @@ Defined in `src/tta/contracts/ports.py`. Every port is synchronous.
 | `PolicyEngine` | Profiles, verdicts, the authority text, the policy hash. No model takes part | `policy.engine.RulePolicyEngine` |
 | `OfferBuilder` | An offer for a typed request; "nothing fits" is an offer with no options and the reasons | `offers.service.OfferService` |
 | `OfferRevalidator` | A fresh look at an option's lines and what changed | `offers.service.OfferService` |
-| `Store` | Save and read offers, orders, approvals, idempotency keys; append audit events; `atomic()` block | `store.sqlite_store.SqliteStore`, `store.postgres.PostgresStore` |
+| `Store` | Save and read offers, orders, approvals, idempotency keys, standing orders and their renewals; append audit events; `atomic()` block | `store.sqlite_store.SqliteStore`, `store.postgres.PostgresStore` |
 | `AuditSink` | Record one event per step; reader views; chain check; head (count and last hash) | `audit.trail.AuditTrail` |
 | `OrderService` | Place, decide, read orders and approvals; the day's committed spend | `orders.service.OrderBookService` |
 | `RequestParser` | Free text → typed request; names what is missing, never guesses | `agent.parser.ModelRequestParser` |
@@ -108,7 +110,7 @@ Defined in `src/tta/contracts/ports.py`. Every port is synchronous.
 | Trust protocol — what an agent can trust about stock, price and origin | A status per claim on every offer line: `CONFIRMED`, `UNKNOWN` or `RULED_OUT` | `availability/claims.py` |
 | Response logic — partial availability, good-better-best substitutes | Options of an offer; `POST /v1/products/{id}/substitutes`; MCP `find_substitutes` | `offers/combining.py`, `offers/options.py`, `offers/substitutes.py`, `allergens/substitution.py` |
 | Audit trail — "for both buyer and Valio Aimo" | `GET /v1/audit?reader=buyer\|supplier`; page `/orders/{id}`; MCP `get_audit` | `audit/trail.py`, `audit/chain.py`, `audit/readers.py`, `store/schema.py` |
-| Optional — delivery time and sustainability comparison | **Not built.** Delivery reliability and carbon values are loaded onto each product (`GET /v1/products/{id}`) and used nowhere else | `catalog/loader.py` |
+| Optional — delivery time and sustainability comparison | Each line's reliability, carbon and labels; each option's comparison; `prefer` and `required_labels` on the request; the `CHEAPEST_CONFIRMED` option (task SUST-1) | `offers/preference.py`, `offers/comparison.py`, `catalog/loader.py`, `catalog/search.py` |
 | Open standards (15%) | `GET /openapi.json`, `GET /v1/schemas`, MCP at `/mcp/`; see [STANDARDS.md](STANDARDS.md) | `api/docs.py`, `contracts/schemas.py`, `api/mcp_surface.py` |
 
 ## Modes and the clock

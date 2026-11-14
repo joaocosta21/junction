@@ -87,7 +87,7 @@ Asked by the hotel kitchen agent. The sentence has no recording, so the page use
 
 ## Backup: hotel kitchen, "30 kg beef chuck"
 
-Use this if a scenario breaks. It has no button and no recording: pasted as text, it gets "A service the gateway depends on cannot be reached. No GEMINI_API_KEY is set …" (status 503). Send the typed request through `/docs` ("Try it out" on `POST /v1/offers`, token `demo-agent-hotel-kitchen`) or with curl:
+Use this if a scenario breaks. It has no button and no recording: with no key, pasted as text, it is read by the fixed rules (`POST /v1/requests/parse` answers `TTA-Reading-Source: rule-based`, product type `beef_chuck`, 30 kg). Or send the typed request through `/docs` ("Try it out" on `POST /v1/offers`, token `demo-agent-hotel-kitchen`) or with curl:
 ```sh
 curl -s -X POST http://127.0.0.1:8000/v1/offers -H "Authorization: Bearer demo-agent-hotel-kitchen" \
   -H "Content-Type: application/json" \
@@ -134,7 +134,7 @@ The REST answers are the record: the order is `PENDING_APPROVAL`. The pages do n
 
 - **An outcome differs from this script:** this browser's book was not empty, or a scenario was run twice in it. Press **Start again** (next to the "Your own demo order book" line) and run the scenarios once each, in the order 1, 2, 3. For the REST API's shared book: stop the app, delete the database file and start it again.
 - **"Too many requests" on a page:** this address used its minute (20 offers, 20 orders, 5 agent runs). Wait the seconds it names. An example button still runs from its typed request when only the agent runs are used up.
-- **Free text answers 503:** with no Gemini key, only the recorded sentences can be read. Use the example buttons, or send the typed request.
+- **Free text answers 503:** with no Gemini key, only the recorded sentences and the shapes the fixed rules know can be read; the answer names what the rules could not read. Use the example buttons, or send the typed request.
 - **The page waits on the model:** a Gemini key is set and Gemini is slow. Restart with `GEMINI_API_KEY=` empty.
 - **The mock is down in live mode:** offers come from the capture and say `replay`; `/healthz` shows `degraded` and the reason. Nothing else changes.
 
@@ -150,3 +150,45 @@ The REST answers are the record: the order is `PENDING_APPROVAL`. The pages do n
 
 - **Without a Gemini key** the result page says "The buyer agent could not run: This sentence was recorded for another buyer profile …" and "Read from the typed request of this example": the recordings are for `hotel-kitchen` and `allergy-ward`, so the page uses the example's typed request. The verdicts above are the same.
 - The kitchen is in this browser's own order book only. Another visitor, the REST API, MCP and the profile files never see it. **Start again** brings back the copy of `hotel-kitchen` at €750.
+
+## Added on Saturday afternoon: three more moments
+
+Checked on 14 Nov 2026 by running the pages in replay, in-process, with no Gemini key (capture `2026-11-14-demo`, Saturday 02:52), each from an empty book. Each moment is independent of the scenarios above; run it after **Start again** if the scenarios were run first, because the hotel's day spend counts (P-02).
+
+### A menu becomes one order (`/menu`, task MENU-1)
+
+*Scores on:* 15% (substitution through recipe logic, a delivery constraint) · 20% controls (a stand-in always goes to a human) · 30% demo.
+
+1. **Open** "Menu" in the menu bar and **click** "Fill in the last-minute event" (or open `/menu?example=event`). The form fills in: Beef stew 120 servings, Berry quark dessert (marjarahka) 120 servings, the kitchen holds butter 3 kg and sugar 2 kg, needed by 2026-11-16, "Confirmed stock, price and date only" ticked. "Hotel kitchen agent (demo)" is chosen. The page says: "The recipes and their amounts per serving are ours and illustrative, not Valio Aimo's."
+2. **Click** "Plan the menu". "The final offer has 4 lines for Beef stew (120 servings) and Berry quark dessert (marjarahka) (120 servings)."
+   - Beef stew: beef chuck 21.6 kg (line 1), cream 3.6 L (line 2), butter 1.2 kg "✓ In stock".
+   - Berry quark dessert: quark 12 kg "? Stands in as yoghurt (line 4)": "Yoghurt (natural) stands in for quark (maitorahka), the thick, tangy base of the dessert. Quark (maitorahka): none of 10 products can be offered by Mon 16 Nov 2026 (6 order cut-off passed, 4 quantity not confirmed (confirmed data only was asked for)). A thick natural yoghurt gives the same tangy base; the dessert is runnier and has less protein." Whipping cream 3.6 L (line 3); sugar 1.2 kg in stock.
+3. **The offer, option 1** "✓ Confirmed stock": "4 confirmed products cover all 4 request lines in full, for €476.48 before tax." · "€476.48 before tax · €540.81 with tax". Lines: 24 × `466988` beef chuck €405.12, 4 × `463797` cooking cream €13.24, 4 × `469346` whipping cream €23.08, 12 × `464615` Valio A+ greek natural yoghurt €35.04.
+4. **"? A human must approve"**: "The agent cannot place this order alone: Valio A+™ greek natural yoghurt 1 kg lactose free (464615) stands in for an ingredient of a recipe: yoghurt in place of the recipe's quark, whose role is the thick, tangy base of the dessert, so a person checks that the dish still works (F-09) and Well Beef Beef Chuck roll n 3 kg (466988) is sold by variable weight, so its final price is not fixed in advance (P-06). It needs the purchasing manager." F-09 is a fixed rule: no profile can switch it off.
+5. **Click** "Send this option for approval": the order goes through the normal flow and waits for the purchasing manager on `/approvals` (`tests/menus/test_menu_page.py`).
+
+The same plan over REST: `POST /v1/menus/plan` with the hotel's token gives the same offer, €476.48, `APPROVAL` with F-09 and P-06.
+
+### A standing order that drifts (`/standing-orders`, task STAND-1)
+
+*Scores on:* 20% controls (the agent renews alone only while the order looks usual) · 20% audit (the drift is stated in the trail) · Valio's example scenario "standing order drift detection".
+
+1. **Open** "Standing orders" and **click** "Load the demo standing order". It is "Weekly lactose-free milk, hotel kitchen" (`so_demo_hotel_milk`): 100 L of `469363` every 7 days, hotel-kitchen profile. The history shows six weeks, 3 Oct to 7 Nov: 100, 96, 104, 100, 98 and 102 L at €2.48, each marked "Synthetic: made up for the demo". Say it: the Valio Aimo mock has no order history, and the page says so.
+2. **Type** `100` and **click** "Renew". "✓ Ordered · The agent placed this order alone for €248.00 net: no rule of profile hotel-kitchen asked for a human." The drift sentence: "Standing order so_demo_hotel_milk is within the 25% tolerance: 100 L this week against a median of 100 L over the last 6 renewals and €2.48 per ST of 469363 this week against a median of €2.48 over the last 6 renewals. 6 renewals of the history are synthetic, …"
+3. **Type** `290` and **click** "Renew". 290 × €2.48 = €719.20 is under the €750 limit per order, so without P-08 the agent would order it alone. "? Waiting for approval · … rule P-08 asks for a human." P-08: "For standing order so_demo_hotel_milk, 290 L this week against a median of 100 L over the last 6 renewals, more than the 25% tolerance of profile hotel-kitchen." The history now has two real rows, each with its order id; "5 renewals of the history are synthetic".
+4. **Click** through to the approvals page and decide as the purchasing manager. The 25% tolerance is ours and illustrative; it is set on "Your kitchen" for My kitchen.
+
+### A preference changes the choice (example 5 on `/`, task SUST-1)
+
+*Scores on:* the brief's optional direction "delivery time & sustainability comparison" · 20% match (the buyer's own ranking) · 20% controls (the cheaper option stays on the table with the difference in euros).
+
+1. **Click** "Preference · most reliable delivery" ("100 litres of oat drink by Monday, most reliable delivery", hotel kitchen).
+   - **Every claim confirmed**: "1 confirmed product covers the 100 L asked for, for €140.00 before tax. €7.00 more than the cheapest confirmed option, for a delivery reliability of at least 100% instead of unknown." and "The cheapest confirmed option: 1 confirmed product covers the 100 L asked for, for €133.00 before tax. €7.00 less than the option ranked by delivery reliability."
+   - **A claim not confirmed**: `468465` Oddlygood oat drink, €117.00, to a human.
+   - **Excluded**: "20 products, each with its reason: 11 × Cut-off passed, 8 × Not deliverable, 1 × Portion pack."
+   - **Outcome**: "✓ Ordered by the agent".
+2. **The request as read**: "read as 100 L of product type plant_drink, name contains oat, pack: bulk." · "Ranked by: delivery reliability, then price" · "Products looked up: 38". With no key: "No Gemini key is set, so this run was read and made by fixed rules, not by a model." (With a key, Gemini reads it; that was not checked for this sentence.)
+3. **Option 1** "Best confirmed option, ranked by delivery reliability": 100 × Oatly Oat Drink Semi 1L (`470863`), €1.40, "Delivery reliability: 100% · Carbon footprint: 0.435 kg CO2e per kg · Certificate labels: none stated". "Compared with the other options: Delivery on Monday 16 Nov. Lowest delivery reliability 100%. Carbon footprint about 43.5 kg CO2e, a litre counted as a kilogram. No certificate label stated."
+4. **Option 2** "Cheapest confirmed option": 100 × Oatly No Sugars Oat Drink (`472145`), €1.33, "Delivery reliability: unknown". Both options are within the hotel's limits ("✓ The agent may order alone"); the agent ordered option 1.
+
+Under price alone (the default, every other figure on this page) the same request gives `472145` at €133.00. "Earliest" and "lower carbon" change no choice in tonight's capture: every confirmed product arrives on Monday 16 Nov, and carbon is close to one value per category (`docs/ASSUMPTIONS.md`).
