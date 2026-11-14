@@ -36,7 +36,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T10-F | Agent follow-up: `generateContent` instead of the Interactions API, fall-back to recordings, live check | T10 | done | 148 tests; `gemini-3.8-flash` 504 every time, `gemini-3.6-flash` answers (now the default); first real recording (scenario 1) |
 | FIX-9 | Agent: proposals checked against the text, no lost order, readings labelled, outage remembered | T10 | done | 294 agent tests, 99% coverage; all nine findings fixed |
 | FIX-10 | Pages and API: a private sandbox per browser, per-visitor limits by kind, honest labels, no double order | T09 T12 | done | all 14 findings fixed; whole suite 2,475 tests |
-| FIX-11 | Rate limits for a room on one Wi-Fi: per browser on the pages, a cap per address | FIX-10 | running | |
+| FIX-11 | Rate limits for a room on one Wi-Fi: per browser on the pages, a cap per address | FIX-10 | done | 42 new tests; twelve browsers on one address all run scenario 2 |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -82,6 +82,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 09:44 FIX-10 done and committed; ports gained `read`, `read_request`, `order_for_offer`. **First deployment** from commit 237b37f with the approved command: https://joaocostared--trusted-trade-agents.us-east.modal.run. `deploy/check.py`: health ok (live), page 200, scenario 2 offer from live data → `AUTO` → ORDERED by the agent, 6 audit events intact, MCP 401 without a token and 8 tools with one.
 - 09:45 S1 (Aiven), S2 (Context.dev), T18 (Gemini photo and Finnish) and FIX-11 (room limits) started in parallel, each with its own files.
 - 09:54 The human asked for three more pieces, each with its own agent: `AIMO/OPEN-QUESTIONS.md` (the 22 open questions to Valio, each with its example), a clearer rewrite of `AIMO/WALKTHROUGH.md`, and a check of Valio's six example scenarios and our own by running the system (a main agent with one sub-agent per use case, in an isolated worktree), report in `AIMO/USE-CASES.md`.
+- 10:01 FIX-11 done and committed. Docs to align at the end: `src/tta/api/docs.py` (limits text), `docs/DEMO.md`, `docs/ASSUMPTIONS.md`.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
