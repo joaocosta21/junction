@@ -15,6 +15,17 @@ Written by the orchestrator at the end of the run (Saturday 14 Nov, late morning
 | Open interface | `/v1/openapi.json` (OpenAPI 3.1, generated), RFC 9457 problems, MCP at `/mcp/`. |
 | Public demo | https://joaocostared--trusted-trade-agents.us-east.modal.run, redeployed from `d342dfb` at 11:15 with the approved command and the five named values only. `.venv/bin/python deploy/check.py https://joaocostared--trusted-trade-agents.us-east.modal.run` → **7 of 7 passed** (health, page, live offer, order by the agent, audit chain intact, MCP 401 without a token, 8 MCP tools). `/healthz`: mode live, no fall-back reasons, so Aiven PostgreSQL holds the shared book. On it: `/kitchen` 200 and in the menu; the almond drink → P-04. |
 
+## 1b. Added Saturday afternoon (deployed from `8163d5d` at 13:00, `deploy/check.py` 7 of 7)
+
+| What | See it | Figures (replay, capture of Sat 02:52) |
+|---|---|---|
+| Recipe logic, fixed rule F-09: an ingredient replaced by recipe logic always goes to a human | `/menu?example=event` | beef stew + berry quark dessert, 120 servings each: yoghurt stands in for quark; €476.48, F-09 + P-06 |
+| Standing orders, rule P-08: a renewal that drifts from its history goes to a human | `/standing-orders` → load the demo one | 6 synthetic weeks around 100 L; 100 L → ordered alone, €248.00; 290 L → purchasing manager |
+| Delivery and sustainability comparison: reliability, carbon, labels; "prefer" in the request | `/`, example 5 | oat drink, most reliable: `470863` €140.00 over the cheapest `472145` €133.00 |
+| Rule-based reader when no model answers (also on a 401/402/403 from Gemini) | any free text with no key | "300 litres of oat drink by Monday" → read and ordered by the rules, €420.00 |
+
+Open: a preference can make the agent order a dearer product alone under the €750 limit (10 L cream "most reliable" €73.70 against €33.10); a profile rule for it waits on the team's decision. No MCP tools for the new parts. Booth copy with all of it: http://127.0.0.1:8002.
+
 ## 2. How to run it
 
 ```
