@@ -14,12 +14,12 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T07 | Offers: options, ranking, combining, substitutes | T01 T02 T03 T04 T05 | done | 143 tests, 98% coverage; a follow-up fills `claims_lost` |
 | T08 | Orders and approvals | T05 T06 | done | 89 tests, 100% coverage; two-thread tests for approvals and idempotency |
 | T09 | API: routes, identity, errors, schemas | T07 T08 | done | 149 tests, 99% coverage; the flow runs over HTTP in replay |
-| T10 | Buyer agent (Gemini) | T09 | running | needs `GEMINI_API_KEY` for the live check only |
-| T11 | MCP surface | T09 | running | first cut if behind |
-| T12 | Pages: demo, approvals, order and audit | T09 | running | |
+| T10 | Buyer agent (Gemini) | T09 | done | 120 tests, 97% coverage; **live check blocked**: Gemini answers 503 (05:35 and 07:45); demo runs on hand-written recordings. Run `.venv/bin/python -m tta.agent.record` when Gemini answers |
+| T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
+| T12 | Pages: demo, approvals, order and audit | T09 | running | restarted on Opus at 07:45 from the work in the tree |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | todo | |
-| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | todo | only if approved, `DATABASE_URL` set, T13 green before 06:30 |
-| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | todo | only if approved, `CONTEXT_DEV_API_KEY` set, T13 green before 06:30 |
+| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30 (usage limit 05:40–07:40). Task file ready for the day |
+| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30. Task file ready for the day |
 | T14 | Deployment on Modal | T13 | todo | needs a Modal token |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | todo | |
 | T16 | Review and fixes | each wave | running | rounds 1 and 2 done (FIX-1 to FIX-7 in); round 3 (API) running; final round to come |
@@ -31,7 +31,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FIX-5 | Policy: rule F-08 (a substitute that drops a claim), wording, cleaned product names | T05 T07 | done | 378 policy tests; the orders boundary change is committed with FIX-7 |
 | FIX-6 | Offers: re-check sees every change, exclusions always listed, no stock counted twice, dietary claims | T07 | done | 185 offers tests; 7 of 8 findings fixed, one as a note (question FIX6-1) |
 | FIX-7 | Orders and store: atomic writes, one order per offer, daily limit by the right day | T06 T08 | done | 201 orders and store tests; all ten findings fixed |
-| FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | running | |
+| FIX-8 | API: one source per lookup, loud start, per-visitor limits for the public demo, request received in the trail | T09 | running | restarted on Opus at 07:45 from the work in the tree |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -59,6 +59,10 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 04:57 T09 done and committed. Scenario 1 run over HTTP by the orchestrator: offer → `PENDING_APPROVAL` → agent refused on the approval route (403) → approved by the purchasing manager → `ORDERED`; 9 audit events, chain intact, supplier view redacted. Contracts: every stated decimal is now a JSON number; record ids bounded; `list_orders` on the port. Whole suite: 1,695 tests.
 - 04:57 T10, T11, T12 started. T16 round 3 started on the API (three reviewers), base commit 89e4263.
 - 05:02 T16 round 3 back (API): no critical finding; the authorisation matrix held under probing. High: an offer could mix a live price with replayed stock; live mode with a bad base URL started on the capture; `TTA_ENV` unset meant demo tokens (fixed by the orchestrator: the default is now `prod`, which fails closed); one visitor could lock out the others and spend the supplier budget through the shared demo tokens. FIX-8 started.
+- 05:35 T11 done and committed. FIX-8 asked to route the exact path `/mcp` to the MCP surface. Questions T11-1 and T11-2 (team) added.
+- 05:37 T11 done and committed (54 tests; scenario 2 runs over MCP).
+- 05:40 T10, T12 and FIX-8 stopped on the Fable usage limit (resets 12:00); their work stayed in the tree, all tests green.
+- 07:42 the human switched the session to Opus 5.5. T10 checked and committed as done with its live check blocked: Gemini answered 503 again at 07:45 (2 more requests; 4 of 20 used in all). T12 and FIX-8 restarted on Opus from the work in the tree. S1 and S2 skipped by the 06:30 rule.
 
 ## Live API calls used
 4 of 150 (T00 capture 2, T01 live check 2)
