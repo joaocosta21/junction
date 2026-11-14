@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +15,8 @@ from tta.agent import build_agent_runner, build_request_parser, profile_strictne
 from tta.agent.gemini import DEFAULT_MODEL
 from tta.agent.recorded import RECORDED_MODEL_ID
 from tta.api import create_app
-from tta.api.wiring import Parts
+from tta.api.wiring import Parts, build_parts
+from tta.catalog import ProductCatalog
 from tta.config import Settings
 from tta.contracts.agent import AgentRun
 from tta.contracts.common import AllergenStrictness, Identity, OrderStatus
@@ -91,6 +94,23 @@ def test_a_run_through_the_gateway_orders_and_records_the_pasted_text_once(
     assert types[0].endswith("request.received")
     assert sum(1 for name in types if name.endswith("request.received")) == 1  # the runner parses on its own
     assert any(name.endswith("approval.requested") for name in types)
+
+
+def test_health_names_gemini_as_the_reader_when_a_key_is_set_though_the_provider_says_none(
+    tmp_path: Path, catalog: ProductCatalog, without_other_surfaces: None
+) -> None:
+    """`TTA_AGENT_PROVIDER=none` with a Gemini key: the hooks build the Gemini model and it is asked first, so
+    /healthz must not read as "no model". Building the gateway and asking /healthz call no model."""
+    settings = Settings.for_tests(tta_data_dir=tmp_path / "var", gemini_api_key=KEY)
+    built = build_parts(settings, catalog=catalog)
+
+    with TestClient(create_app(settings, parts=built)) as client:
+        health = client.get("/healthz").json()
+
+    assert (health["settings"]["agent_provider"], health["settings"]["gemini_key_set"]) == ("none", True)
+    assert (health["agent_reader"]["kind"], health["agent_reader"]["model"]) == ("gemini", None)
+    assert health["agent_reader"]["sentence"].startswith("Gemini is asked first, because a Gemini key is set")
+    assert KEY not in json.dumps(health)
 
 
 # --- through the REST routes ------------------------------------------------------------------------------

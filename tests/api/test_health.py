@@ -60,8 +60,8 @@ def test_health_reads_the_whole_trail_once_and_then_only_its_last_hash(
 
     def counted(*args: Any, **kwargs: Any) -> Any:
         # A read of one offer's or one buyer's events (the suggestions do both when an offer is made) is not a
-        # read of the whole trail.
-        if not args and not kwargs:
+        # read of the whole trail: only a call that names no offer, order, approval or buyer is counted.
+        if not args and all(value is None for value in kwargs.values()):
             whole_trail_reads.append(1)
         return genuine(*args, **kwargs)
 
