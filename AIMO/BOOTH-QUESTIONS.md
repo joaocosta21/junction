@@ -490,6 +490,14 @@ The build agents add questions here in the same shape as above. Empty until the 
 - The live run (6 calls to the Valio mock at 08:12) matched the 02:52 capture exactly: same products, stock, prices, cut-offs and verdicts.
 - The shared day spend on the public link is question T12-1.
 
+**T14-1 · The database on Modal is a copy kept on a Volume** (from the deployment, for information)
+- Modal Volumes have no file locking and SQLite's WAL mode fails on network file systems, so the database runs on the container's local disk; a copy is put back from the Volume at start and saved to it about a second after each change and at shutdown. The call budget and the live recordings are written straight to the Volume. One container at most, scale to zero, stops after 10 idle minutes.
+- Redeploy with `.venv/bin/modal deploy --strategy recreate deploy/modal_app.py`, so an old and a new container never write the copy together.
+
+**T14-2 · Reset the shared order book before peer review?**
+- Every visitor of the deployed link shares one order book, so the ward's autonomous order (scenario 2, €402) goes through alone three times a day and then goes to finance (question T12-1). `docs/DEPLOY.md` gives the steps to start the judging day on an empty database.
+- **Ask:** "Reset it at 10:00 on Sunday, before peer review starts?" Orchestrator's view: yes.
+
 ---
 
 ## Claims we no longer make
