@@ -45,3 +45,17 @@ One line each, by package. T15 turns this into `docs/ASSUMPTIONS.md` and the `/a
 - An original with no allergen statement and a substitute that declares one fails the rule.
 - An excluded code outside the code table raises `invalid-request`; so does an exclusion with no strictness.
 - GS1 allergen names come from GS1 code list T4078 (read 14 Nov); 8 match the names our docs quote, the other 37 deserve a spot check.
+
+## Store and audit trail (T06)
+- One hash chain for the whole trail (Gabriela's draft had one per order). The first event's previous hash is 64 zeros.
+- Event hash: SHA-256, hex, over the event's JSON without its own hash, keys sorted, no spaces, UTF-8. This is not RFC 8785 canonical JSON.
+- The chain shows a changed, removed or inserted event. It does not show the last events being cut off, nor a rewrite of every hash; that needs the head hash to be held by the other party (next step).
+- One audit writer per database and process. Two processes writing one database could give two events the same previous hash.
+- Audit events are stamped with the real time; the pinned replay clock is used only for cut-offs and price validity (question T06-2).
+- Supplier view hides: approver id, name, role and note; every buyer rule (P-) and F-02; the pasted text; allergen exclusions and strictness; the profile and its limits; option titles and constraint checks. It shows: the agent's id, lines, prices, totals, availability, the statements relied on, who placed the order (agent or human approval), and rules F-01, F-03, F-04, F-05, F-06.
+- Facts in an event are summaries (exclusions as counts by reason); the full offer is read by its id. Largest event in the sample flow is about 9 KB.
+- The trail of an order is its events plus the events of its offer.
+- Sentences quote the policy decision's own rule sentences; they are never rebuilt or produced by a model.
+- Times in sentences keep the offset they carry; quantities are in sales units; money is net of tax.
+- SQLite 3.38 or later is needed. SQLite itself does not refuse an update of an audit row; the code exposes no update or delete (the PostgreSQL store adds a database trigger).
+- The policy hash is written `sha256:<hex>`; event hashes are bare hex.

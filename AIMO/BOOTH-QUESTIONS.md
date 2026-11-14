@@ -287,6 +287,17 @@ The build agents add questions here in the same shape as above. Empty until the 
 - **Ask (for the biomedical side of the team):** "Should gluten-free wheat starch go to a dietitian like oats, instead of being rejected?"
 - **Built overnight:** rejected, the safer reading. Only oats have the exception.
 
+**T06-1 · What does Valio see about our rules and approvers?** (from the audit package)
+- **Context:** the plan says Valio does not see the buyer's limit values, allergen exclusions, approver names and notes. It does not say whether Valio sees which rule sent an order to a human.
+- **Built overnight:** in the supplier view a human is "A human at the buyer" (no name, role or note). Valio sees only the rules about its own data — F-01 (quantity not confirmed), F-03, F-04, F-05, F-06 — and none of the buyer's own rules (spend limits, fill ratio, allergen exclusions).
+- **Example to show:** the hotel order approved on the unconfirmed alternative reads, for Valio: "A human at the buyer approved order ord_1 and chose another option of the same offer: opt_2 (1,000 ST of 464306 for €1,010.00 net)", with rule F-01 only.
+- **Ask:** "Is that the split we want to show the judges?" The list is `SUPPLIER_RULE_MEANINGS` in `src/tta/audit/readers.py`.
+
+**T06-2 · Which clock stamps the audit events in replay?**
+- **Context:** in replay the data clock is pinned to the capture's `timeNow`, so every audit event of a demo run would carry the same time, the human's approval included.
+- **Built overnight:** the audit trail is stamped with the real time; the pinned clock is used only for cut-offs and price validity. The offer still records the data time it was built against.
+- **Ask:** "Is real time on the audit trail what you expect to see in the demo?"
+
 ---
 
 ## Claims we no longer make

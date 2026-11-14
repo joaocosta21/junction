@@ -1,0 +1,261 @@
+"""The buyer's sentence for each event type of SPEC section 9: one template each, never written by a model.
+
+Every sentence is for a person who was not there: it says who acted, on what, the numbers and the reason.
+Rule sentences are quoted from the policy decision, so the audit trail and the policy cannot disagree.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from tta.audit.phrases import (
+    NOTHING_ORDERED,
+    OPTION_KINDS,
+    RECHECKED,
+    RECORDED,
+    actor_text,
+    capital,
+    count,
+    coverage_text,
+    ended,
+    joined,
+    moment,
+    option_text,
+    person,
+    quoted,
+    request_text,
+    roles_text,
+    rule_lines,
+    source_text,
+)
+from tta.audit.scope import Scope, approvals_given, distinct_rule_ids, option_change, rejection, rules_with
+from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
+from tta.contracts.common import DataSource, DecisionKind, PlacedBy, Verdict
+from tta.contracts.offer import Offer
+from tta.contracts.order import ApprovalDecision
+
+SentenceBuilder = Callable[[Actor, AuditContext, Scope], str]
+
+
+def _note(decided: ApprovalDecision | None) -> str:
+    return f" Note: {quoted(decided.note)}" if decided is not None and decided.note else ""
+
+
+def _what(scope: Scope) -> str:
+    return f": {option_text(scope.option)}" if scope.option else ""
+
+
+def request_received(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    profile = f" for profile {scope.profile_id}" if scope.profile_id else ""
+    verb = "received" if actor.kind is ActorKind.SYSTEM else "sent"
+    start = f"{actor_text(actor)} {verb} a request{profile}"
+    text = context.facts.get("text")
+    if isinstance(text, str) and text.strip():
+        return f"{start}: {quoted(text)}."
+    if context.request is not None:
+        return f"{start}: {request_text(context.request, with_exclusions=True)}."
+    return f"{start}."
+
+
+def request_parsed(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    if context.request is None:
+        return "The request was read into a typed request."
+    return f"The request was read as: {request_text(context.request, with_exclusions=True)}."
+
+
+def data_source(context: AuditContext) -> DataSource | None:
+    if context.offer is not None:
+        return context.offer.source
+    stated = context.facts.get("source")
+    return DataSource(stated) if stated in tuple(DataSource) else None
+
+
+def lookup_performed(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    """The same for both readers: it is about Valio Aimo's data."""
+    looked_up = context.facts.get("products_looked_up")
+    if looked_up is None and context.offer is not None:
+        looked_up = context.offer.candidates_considered
+    products = f" of {count(looked_up, 'product')}" if type(looked_up) is int else ""
+    return f"The gateway looked up price and availability{products} in {source_text(data_source(context))}."
+
+
+def offer_text(offer: Offer, for_buyer: bool) -> str:
+    """The supplier's version leaves out how many products were excluded and the notes: both can show an exclusion."""
+    start = f"The gateway built offer {offer.offer_id} from {source_text(offer.source)}: "
+    candidates = count(offer.candidates_considered, "candidate")
+    excluded = f", {count(len(offer.excluded), 'product')} excluded with a reason" if for_buyer else ""
+    if not offer.options:
+        notes = "".join(f" {ended(note)}" for note in offer.notes) if for_buyer else ""
+        return f"{start}no option fits the request; {candidates}{excluded}.{notes}"
+    options = " ".join(
+        f"Option {option.rank} ({OPTION_KINDS[option.kind]}): {option_text(option)}, {coverage_text(option)}."
+        for option in offer.options
+    )
+    return f"{start}{count(len(offer.options), 'option')} from {candidates}{excluded}. {options}"
+
+
+def offer_created(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    if context.offer is None:
+        return f"The gateway built {f'offer {scope.offer_id}' if scope.offer_id else 'an offer'}."
+    return offer_text(context.offer, for_buyer=True)
+
+
+def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    """Which rules were checked on what, then the decision's own sentence: the engine wrote it from its template
+    with the totals and limits it read, so it is quoted, not rebuilt."""
+    decision = scope.decision
+    if decision is None:
+        return "The rules were checked."
+    checked = f"The rules of profile {decision.profile_id} were checked for {scope.option_label}."
+    return f"{checked} {ended(decision.sentence)}"
+
+
+def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    profile = f" under profile {scope.profile_id}" if scope.profile_id else ""
+    return (
+        f"The agent placed {scope.order_label} alone, within its authority{profile}{_what(scope)}. "
+        f"No rule asked for a human. {RECORDED}"
+    )
+
+
+def approval_requested(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    approval, decision = context.approval, scope.decision
+    asking = rules_with(decision, Verdict.APPROVAL)
+    why = "."
+    if asking:
+        rules = count(len(distinct_rule_ids(asking)), "rule asks", "rules ask")
+        why = f", because {rules} for a human. {rule_lines(asking)}"
+    roles = approval.required_roles if approval else decision.required_roles if decision else ()
+    what = f" ({option_text(scope.option)})" if scope.option else ""
+    deadline = f", to be decided by {moment(approval.valid_until)}" if approval and approval.valid_until else ""
+    return (
+        f"The agent could not place {scope.order_label} alone{why} "
+        f"The order{what} was sent to {roles_text(roles) if roles else 'a human'}{deadline}."
+    )
+
+
+def _accepted(scope: Scope) -> str:
+    accepted = distinct_rule_ids(rules_with(scope.decision, Verdict.APPROVAL))
+    if not accepted:
+        return ""
+    return f" This approval accepts {'rule' if len(accepted) == 1 else 'rules'} {joined(accepted)}."
+
+
+def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    decided = context.approval_decision
+    if decided is None:
+        return f"{actor_text(actor)} decided on {scope.order_label}."
+    who = person(decided.approver_name, decided.roles)
+    if decided.decision is DecisionKind.REJECT:
+        return f"{who} rejected {scope.order_label}.{_note(decided)}"
+    change = option_change(context)
+    chose = ""
+    if change is not None:
+        described = f" ({option_text(change.chosen)})" if change.chosen else ""
+        instead = f" instead of {change.previous_id}" if change.previous_id else ""
+        chose = f" and chose another option of the same offer: {change.chosen_id}{described}{instead}"
+    missing = context.approval.roles_missing if context.approval else ()
+    still = f" The order still needs approval by {roles_text(missing)}." if missing else ""
+    return f"{who} approved {scope.order_label}{chose}.{_accepted(scope)}{still}{_note(decided)}"
+
+
+def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    approvers = joined(person(entry.approver_name, entry.roles) for entry in approvals_given(context))
+    if approvers:
+        how = f"with approval by {approvers}"
+    elif context.order is not None and context.order.placed_by is PlacedBy.AGENT:
+        how = "placed by the agent within its authority"
+    else:
+        how = "with human approval"
+    checked = f" {RECHECKED}" if context.revalidation is not None and context.revalidation.ok else ""
+    return f"{capital(scope.order_label)} is ordered, {how}{_what(scope)}.{checked} {RECORDED}"
+
+
+def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    decided = rejection(context)
+    if decided is not None:
+        who = person(decided.approver_name, decided.roles)
+    else:
+        who = actor_text(actor) if actor.kind is ActorKind.HUMAN else "a human"
+    return f"{capital(scope.order_label)} was rejected by {who}. {NOTHING_ORDERED}{_note(decided)}"
+
+
+def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    approval = context.approval
+    missing = roles_text(approval.roles_missing) if approval and approval.roles_missing else "a human"
+    deadline = (approval.valid_until if approval else None) or (scope.option.valid_until if scope.option else None)
+    when = f" on {moment(deadline)}," if deadline else ""
+    return (
+        f"{capital(scope.order_label)} expired without a decision: the approval by {missing} was still missing"
+        f"{when} when the offer stopped being valid. {NOTHING_ORDERED}"
+    )
+
+
+def order_blocked(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    whose = f"The rules of profile {scope.profile_id}" if scope.profile_id else "The rules"
+    blocking = rules_with(scope.decision, Verdict.BLOCK)
+    rules = f" {rule_lines(blocking)}" if blocking else ""
+    return (
+        f"{whose} blocked the order of {scope.option_of_offer_label}: it cannot be placed, even with approval."
+        f"{rules} {NOTHING_ORDERED}"
+    )
+
+
+def order_not_placed(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    """The same for both readers: it is about what Valio Aimo's data said at order time."""
+    revalidation = context.revalidation
+    if revalidation is None:
+        reason = "the offer could not be confirmed against fresh price and availability."
+    elif revalidation.expired:
+        reason = (
+            'the offer is no longer valid, because its "order by" time, a price validity or a cut-off has passed.'
+        )
+    else:
+        changes = "".join(f" {ended(change.sentence)}" for change in revalidation.changes)
+        reason = f"price or availability changed since the offer was made.{changes}"
+    return f"The order of {scope.option_of_offer_label} was not placed: {reason} A fresh offer is needed."
+
+
+def agent_refused(scope: Scope) -> str:
+    """The same for both readers: the agent's identity and its authority are visible to both."""
+    return f"The agent tried to decide {scope.approval_label} and was refused: an agent cannot approve an order (F-06)."
+
+
+def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    if actor.kind is ActorKind.AGENT:
+        return agent_refused(scope)
+    stated = context.facts.get("reason")
+    reason = f" {ended(stated)}" if isinstance(stated, str) and stated.strip() else ""
+    return f"{actor_text(actor)} was refused on {scope.approval_label}: this caller may not decide it.{reason}"
+
+
+def evidence_attached(actor: Actor, context: AuditContext, scope: Scope) -> str:
+    evidence = context.evidence
+    found = f" for product {evidence.product_id}: {ended(evidence.sentence)}" if evidence else "."
+    return (
+        f"Evidence from outside Valio Aimo's data was attached to {scope.approval_label}{found} "
+        "It changes no status and no verdict."
+    )
+
+
+BUYER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {
+    AuditEventType.REQUEST_RECEIVED: request_received,
+    AuditEventType.REQUEST_PARSED: request_parsed,
+    AuditEventType.LOOKUP_PERFORMED: lookup_performed,
+    AuditEventType.OFFER_CREATED: offer_created,
+    AuditEventType.POLICY_EVALUATED: policy_evaluated,
+    AuditEventType.ORDER_PLACED_BY_AGENT: order_placed_by_agent,
+    AuditEventType.APPROVAL_REQUESTED: approval_requested,
+    AuditEventType.APPROVAL_DECIDED: approval_decided,
+    AuditEventType.ORDER_CONFIRMED: order_confirmed,
+    AuditEventType.ORDER_REJECTED: order_rejected,
+    AuditEventType.ORDER_EXPIRED: order_expired,
+    AuditEventType.ORDER_BLOCKED: order_blocked,
+    AuditEventType.ORDER_NOT_PLACED: order_not_placed,
+    AuditEventType.AUTHORISATION_REFUSED: authorisation_refused,
+    AuditEventType.EVIDENCE_ATTACHED: evidence_attached,
+}
+
+
+def buyer_sentence(event_type: AuditEventType, actor: Actor, context: AuditContext, scope: Scope) -> str:
+    return BUYER_SENTENCES[event_type](actor, context, scope)
