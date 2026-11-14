@@ -10,7 +10,7 @@ Written Sat 14 Nov, about 23:15, against code commit `b1de9d4`. Every claim belo
 |---|---|---|---|
 | Project name | 30 | **You have typed 9 characters already.** Options if you want one: section 2 | Pick |
 | Punchline | 200 | Draft ready, section 3 | Paste |
-| Description | 5,000 | Draft ready, section 4 (about 3,900 characters) | Paste; adjust the two "pending" lines |
+| Description | 5,000 | Draft ready, section 4 (3,773 characters) | Paste; adjust the two "pending" lines |
 | Challenge | — | Valio Aimo — "Trusted Trade Agents" | Select |
 | Project demo | link | **Pending the redeploy.** The public link today runs this morning's code | Section 5 |
 | Source code | link | **Pending the push and making the repository public** (or giving the organisers access) | Section 5 |
@@ -31,11 +31,11 @@ Keep the one you typed if you like it. Otherwise, in order of my preference:
 
 ## 3. Punchline (200 characters at most)
 
-Recommended (153 characters):
+Recommended (147 characters):
 
 > An open gateway that lets any purchasing agent read Valio Aimo's prices and stock, prepare an order, and stop for a person exactly where it should.
 
-Alternative, more about the buyer (166 characters):
+Alternative, more about the buyer (155 characters):
 
 > Type what your kitchen needs. An agent finds what Valio Aimo can really deliver, explains every choice, and a person confirms. Allergens are never guessed.
 
