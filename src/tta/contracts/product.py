@@ -50,7 +50,8 @@ class Product(Contract):
     allergen_statements: tuple[AllergenStatement, ...] = ()
     has_allergen_groups: bool = False  # False: the file carries no allergen group at all for this product
     listed_substitutes: tuple[str, ...] = ()
-    key_ingredients: str | None = None  # synkkaData.keyIngredients, English else Finnish; allergens are in capitals by EU labelling rules
+    # synkkaData.keyIngredients, English else Finnish; EU labelling writes allergens in capitals
+    key_ingredients: str | None = None
     country_of_origin: str | None = None
     countries_of_origin: tuple[str, ...] = ()
     deleted: bool = False

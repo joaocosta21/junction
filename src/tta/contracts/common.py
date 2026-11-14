@@ -140,7 +140,7 @@ class ExclusionReason(StrEnum):
     SUBSTITUTE_ADDS_ALLERGEN = "SUBSTITUTE_ADDS_ALLERGEN"
     QUANTITY_NOT_CONFIRMED = "QUANTITY_NOT_CONFIRMED"  # only when the buyer asked for confirmed data only
     DELIVERY_DATE_NOT_CONFIRMED = "DELIVERY_DATE_NOT_CONFIRMED"  # only when the buyer asked for confirmed data only
-    NOT_IN_RECORDING = "NOT_IN_RECORDING"  # replay only: the recorded copy of Valio's answers does not hold this product
+    NOT_IN_RECORDING = "NOT_IN_RECORDING"  # replay only: the recorded copy holds no answer for this product
 
 
 class ConstraintKind(StrEnum):
