@@ -72,7 +72,9 @@ facts:
   profile.max_daily_net_eur:             {type: limit,  source: profile, label: "the spend limit per day"}
   profile.min_fill_ratio:                {type: ratio,  source: profile, label: "the minimum share of the quantity"}
   profile.excluded_allergens:            {type: list,   source: profile, label: "the excluded allergens", note: "GS1 codes"}
-  profile.allergen_strictness:           {type: enum,   source: profile, label: "the allergen rule", values: [STRICT, DECLARED_ONLY]}
+  profile.allergen_strictness:           {type: enum,   source: profile, label: "the allergen rule", values: [STRICT, DECLARED_ONLY], note: "the rule of every excluded allergen that allergen_strictness_by_code does not name"}
+  profile.strict_allergens:              {type: list,   source: profile, label: "the allergens under the STRICT rule", note: "GS1 codes; each excluded allergen's own rule, else the profile's"}
+  profile.declared_only_allergens:       {type: list,   source: profile, label: "the allergens under the DECLARED_ONLY rule", note: "GS1 codes; each excluded allergen's own rule, else the profile's"}
   profile.substitution_without_approval: {type: enum,   source: profile, label: "the substitution setting", values: [NONE, LISTED_BY_SUPPLIER, SAME_CATEGORY]}
   profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
   profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
@@ -357,9 +359,11 @@ rules:
     authority:
       - when: {all: [{fact: profile.excluded_allergens, op: is_empty}]}
         text: "This profile excludes no allergen. When a request excludes one, a product that does not rule it out goes to the dietitian."
-      - when: {all: [{fact: profile.allergen_strictness, op: eq, value: STRICT}]}
+      - when: {all: [{fact: profile.declared_only_allergens, op: is_empty}]}
         text: "Excluded allergens: {profile.excluded_allergens}, rule STRICT. A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
-      - text: "Excluded allergens: {profile.excluded_allergens}, rule DECLARED_ONLY. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+      - when: {all: [{fact: profile.strict_allergens, op: is_empty}]}
+        text: "Excluded allergens: {profile.excluded_allergens}, rule DECLARED_ONLY. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+      - text: "Excluded allergens under rule STRICT: {profile.strict_allergens}. A product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian. Under rule DECLARED_ONLY: {profile.declared_only_allergens}. A product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
     justification: "MAY_CONTAIN appears on 2,685 products and 46.2% of the catalog has no allergen statement (AIMO/FINDINGS.md section 3). A named person owns the decision to accept that."
 
   - id: P-05

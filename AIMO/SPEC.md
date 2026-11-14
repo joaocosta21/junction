@@ -235,6 +235,7 @@ Verdicts, least to most severe: `AUTO` (the agent places the order) · `APPROVAL
 | `max_daily_net_eur` | Spend limit per day, this order included | P-02 `APPROVAL` (finance) |
 | `min_fill_ratio` | Share of the requested quantity that must be covered | P-03 `APPROVAL` (purchasing manager) |
 | `excluded_allergens`, `allergen_strictness` | §6 | P-04 `APPROVAL` (dietitian) for "to a human" cases |
+| `allergen_strictness_by_code` | Optional. The rule of one excluded allergen by its GS1 code (`{AP: STRICT}`), so an allergy can be `STRICT` while an ingredient kept out is `DECLARED_ONLY`. `allergen_strictness` is the rule of every excluded allergen it does not name. Each code must be in `excluded_allergens`. A request's `allergen_strictness` makes every allergen's rule stricter, never weaker | P-04, per allergen |
 | `substitution_without_approval` | `NONE` · `LISTED_BY_SUPPLIER` · `SAME_CATEGORY` | P-05 `APPROVAL` when a substitute is outside it |
 | `variable_weight` | `APPROVAL` or `AUTO_WITH_CEILING` | P-06 |
 | `deposits` | `APPROVAL` or `NOTE` (the total excludes deposits and says so) | P-07 (finance) |

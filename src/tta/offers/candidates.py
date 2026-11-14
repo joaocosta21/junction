@@ -9,8 +9,8 @@ only was asked for.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -79,11 +79,13 @@ class Need:
     unit: Unit
     pack: PackPreference
     excluded: tuple[str, ...]  # the profile's allergen exclusions plus the request line's
-    strictness: AllergenStrictness | None
+    strictness: AllergenStrictness | None  # the strictest rule over `excluded`
     needed_by: date | None
     require_confirmed: bool
     stands_in_for: str | None = None  # the recipe's product type this line replaces (task MENU-1, rule F-09)
     stands_in_role: str | None = None
+    # The rule of each excluded allergen: the profile's rule for it, made stricter by the request line's.
+    strictness_by_code: Mapping[str, AllergenStrictness] = field(default_factory=dict)
 
     @property
     def dated(self) -> bool:
@@ -137,8 +139,9 @@ class Found:
 def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: BuyerProfile) -> Need:
     """Raises `InvalidRequest` for an unknown allergen code and for an exclusion with no strictness."""
     excluded = tuple(dict.fromkeys((*profile.excluded_allergens, *line.exclude_allergens)))
-    strictness = _strictest(profile.allergen_strictness, line.allergen_strictness) if excluded else None
-    check_exclusions((), excluded, strictness)  # validates the codes and the strictness once, before any product
+    by_code = allergen_rules(profile, excluded, line.allergen_strictness)
+    strictness = _strictest(*by_code.values())
+    check_exclusions((), excluded, strictness, by_code=by_code)  # validates the codes and rules once
     return Need(
         index=index,
         quantity=line.quantity,
@@ -151,7 +154,17 @@ def need_for(index: int, line: RequestLine, request: PurchaseRequest, profile: B
         require_confirmed=request.require_confirmed or profile.require_confirmed,
         stands_in_for=line.stands_in_for,
         stands_in_role=line.stands_in_role,
+        strictness_by_code=by_code,
     )
+
+
+def allergen_rules(
+    profile: BuyerProfile, excluded: Sequence[str], added: AllergenStrictness | None = None
+) -> dict[str, AllergenStrictness]:
+    """The rule of each excluded allergen: the profile's own rule for it, or its general one, made stricter by
+    a request's rule. A request can add to the profile's allergen rule and never weaken it (SPEC section 3)."""
+    rules = {code: _strictest(profile.strictness_for(code), added) for code in excluded}
+    return {code: rule for code, rule in rules.items() if rule is not None}
 
 
 def find_products(line: RequestLine, catalog: Catalog) -> Found:
@@ -198,7 +211,8 @@ def evaluate(product: Product, need: Need, lookup: Lookup, catalog: Catalog) -> 
     if need.excluded:
         # The product's own ingredient list counts as a statement (SPEC section 6).
         check = check_exclusions(
-            product.allergen_statements, need.excluded, need.strictness, ingredients=product.key_ingredients
+            product.allergen_statements, need.excluded, need.strictness, ingredients=product.key_ingredients,
+            by_code=need.strictness_by_code,
         )
     return Candidate(
         product=product,
@@ -278,9 +292,9 @@ def unconfirmed_gating(claims: tuple[ClaimCheck, ...], *, dated: bool) -> tuple[
     return tuple(claim for claim in gating if status.get(claim) is not ClaimStatus.CONFIRMED)
 
 
-def _strictest(first: AllergenStrictness | None, second: AllergenStrictness | None) -> AllergenStrictness | None:
+def _strictest(*rules: AllergenStrictness | None) -> AllergenStrictness | None:
     """A request can add to the profile's allergen rule and never weaken it (SPEC section 3)."""
-    given = [strictness for strictness in (first, second) if strictness is not None]
+    given = [strictness for strictness in rules if strictness is not None]
     return max(given, key=_STRICTNESS_RANK.__getitem__, default=None)
 
 

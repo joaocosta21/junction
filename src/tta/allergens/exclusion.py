@@ -10,7 +10,7 @@ dietitian, with a sentence quoting both. A declared CONTAINS stays a rejection.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from tta.allergens.codes import (
     GENERAL_STATEMENT_CODE,
@@ -73,11 +73,13 @@ def check_exclusions(
     strictness: AllergenStrictness | None,
     *,
     ingredients: str | None = None,
+    by_code: Mapping[str, AllergenStrictness] | None = None,
 ) -> AllergenCheck:
     """Apply the buyer exclusion rule to the allergen statements of one product.
 
     `ingredients` is the product's own ingredient list (`Product.key_ingredients`); `None` leaves the
-    declaration alone to decide.
+    declaration alone to decide. `by_code` gives one excluded allergen a rule of its own (an allergy STRICT,
+    another allergen DECLARED_ONLY); `strictness` is the rule of every allergen it does not name.
 
     Raises `InvalidRequest` for an excluded code outside the code table, for `X99`, and for an
     exclusion without a strictness (there is no default, SPEC section 3). Raises `SupplierUnavailable`
@@ -89,13 +91,19 @@ def check_exclusions(
     checked = _with_table_codes(statements)
     if not codes:
         return AllergenCheck(outcome=AllergenOutcome.PASS, strictness=strictness, all_explicit=True)
-    if strictness is None:
-        raise InvalidRequest("allergen_strictness is required when an allergen is excluded: STRICT or DECLARED_ONLY.")
+    rules: dict[str, AllergenStrictness] = {}
+    for code in codes:
+        rule = (by_code or {}).get(code, strictness)
+        if rule is None:
+            raise InvalidRequest(
+                "allergen_strictness is required when an allergen is excluded: STRICT or DECLARED_ONLY."
+            )
+        rules[code] = rule
     mentions = ingredient_mentions(ingredients)
-    findings = tuple(_finding(checked, code, strictness, mentions) for code in codes)
+    findings = tuple(_finding(checked, code, rules[code], mentions) for code in codes)
     return AllergenCheck(
         outcome=max((finding.outcome for finding in findings), key=_SEVERITY.__getitem__),
-        strictness=strictness,
+        strictness=STRICT if STRICT in rules.values() else DECLARED_ONLY,
         findings=findings,
         all_explicit=all(finding.relation in _EXPLICIT_RELATIONS for finding in findings),
     )
@@ -151,6 +159,7 @@ def _finding(
         matched_code=resolution.source_code if is_about_another_code else None,
         outcome=outcome,
         sentence=_sentence(code, resolution, outcome),
+        strictness=strictness,
     )
 
 
@@ -217,6 +226,7 @@ def _ingredient_finding(
         matched_code=first if first != code else None,
         outcome=_OUTCOME_TABLE[(AllergenRelation.MAY_CONTAIN, strictness)],
         sentence=_ingredient_sentence(code, resolution, named),
+        strictness=strictness,
     )
 
 

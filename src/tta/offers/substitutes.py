@@ -23,6 +23,7 @@ from tta.contracts.request import MAX_PRODUCT_IDS
 from tta.offers.candidates import (
     Candidate,
     Need,
+    allergen_rules,
     claims_of,
     evaluate,
     exclusion_for,
@@ -115,6 +116,7 @@ def find_substitutes(
         pack=PackPreference.ANY,
         excluded=profile.excluded_allergens,
         strictness=profile.allergen_strictness if profile.excluded_allergens else None,
+        strictness_by_code=allergen_rules(profile, profile.excluded_allergens),
         needed_by=query.needed_by,
         # The buyer's own rules, as its offer applies them: a candidate the offer would exclude is shown with
         # the same reason and sentence and cannot be ordered (task FIX-12b). A substitute query has no
