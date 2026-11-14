@@ -31,6 +31,13 @@ Stage pitch: 3 minutes, then 3 minutes of questions. Run in replay from an empty
 | 2:10–2:35 | Audit trail | Order record, then the supplier tab | "Every step is one sentence, hash-chained, in an open event format. Valio sees what was asked of its data and what was ordered, without the buyer's limits or names." | 20% auditable |
 | 2:35–3:00 | Open and next | `/openapi.json`, `/assumptions` | "OpenAPI, MCP, CloudEvents, problem details, GS1 allergen codes. Every assumption is on one page. Next: an order message in an open e-procurement format, and real customer limits." | 15% openness |
 
+### Optional beats, once their parts are on the deployed app
+
+Each can replace a beat above; none is in the 3-minute plan yet.
+- **The dietitian's evidence card** (built and wired, S2). The hotel asks for 100 L of Elovena barista oat drink `469512` without milk. Valio's data says nothing about milk, so P-04 alone sends it to the dietitian, whose card shows the maker's page: *Maidoton*, milk-free, labelled as not Valio data. "The web informs the human who signs; it never makes the order go through." 20% controls.
+- **A photo of an order list, or an order in Finnish** (being added, T18). Gemini transcribes the photo, the transcription is shown, then the same parser and text check read it. 20% match. <!-- check: T18 -->
+- **"My kitchen"** (being added, FEAT-1). Raise the per-order limit to €3,000 and scenario 1 is ordered by the agent alone; set it back to €750 and it goes to the purchasing manager. The fixed rules stay on whatever is set. 20% controls, Core 3. <!-- check: FEAT-1 -->
+
 ### Likely questions, and the short answer
 
 - **"Is the model deciding?"** No. Gemini reads the sentence and chooses which function to call. Prices, quantities, allergen checks and verdicts come from tested code, and the trail names the rule.
@@ -39,7 +46,9 @@ Stage pitch: 3 minutes, then 3 minutes of questions. Run in replay from an empty
 - **"What does 'ordered' commit?"** Nothing yet: the mock has no order endpoint. The record keeps the lines, the prices with their validity and the stock statements it relied on. Mapping it to an open order message is our first next step.
 - **"Why is a product named gluten-free rejected?"** `471881` declares cereals containing gluten. The declaration counts, not the name or the claim.
 - **"Does it work on live data?"** Yes. At 08:12 on 14 Nov, six live calls gave the same products, prices, verdicts and rules as the capture. We demo in replay so the outcome cannot move with the stock.
-- **"Partial availability?"** Ask for 1,500 litres: confirmed stock covers 1,133 L (75.5%), below the hotel's 90% minimum, so rule P-03 fires as well.
+- **"Partial availability?"** Ask for 1,500 litres: confirmed stock covers 1,133 L (75.5%), below the hotel's 90% minimum, so rule P-03 fires as well (on an empty order book; after other orders that day, P-02 can fire too).
+- **"What if Valio's data says nothing about an allergen?"** Unknown, never safe: under a strict rule it goes to the dietitian (P-04). The approval card shows what the maker's web page says, labelled as not Valio data, found through Context.dev; it never changes the verdict.
+- **"Standing orders? Recipes?"** Not built. Recipes belong to the buyer's agent, which sends the gateway a request with several lines. Standing orders with a drift check are a next step on `/assumptions`.
 
 ---
 
@@ -76,11 +85,11 @@ Fields from the checklist in `CLAUDE.md`. Fields that need a person's details ar
 >
 > A policy of fixed rules plus a buyer profile decides whether the agent may order alone or a human must sign: spend limits, minimum fill, allergen rules, how far a substitute may differ. Unknown stock always goes to a human, and an agent can never approve its own order. Substitutes are ranked good-better-best and must never add an allergen the original does not declare.
 >
-> Every step is written as a CloudEvents event with one readable sentence, hash-chained, with one view for the buyer and one for Valio Aimo. A Gemini agent reads the buyer's words into the typed request and drives the flow through the same functions; it never sets a price, a quantity or a verdict. Every assumption we made about the mock is listed with its reason on an assumptions page.
+> Every step is written as a CloudEvents event with one readable sentence, hash-chained, with one view for the buyer and one for Valio Aimo. When Valio's data says nothing about an excluded allergen, the dietitian who must sign sees what the manufacturer's own web page says, labelled as not Valio data. A Gemini agent reads the buyer's words into the typed request, every reading checked against the text, and drives the flow through the same functions; it never sets a price, a quantity or a verdict. Every assumption we made about the mock is listed with its reason on an assumptions page.
 
-**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards: Google DeepMind — Best Use of Gemini API; Best Use of Modal.
+**Challenge:** Valio Aimo — "Trusted Trade Agents". Tech awards (the team decides): Google DeepMind — Best Use of Gemini API; Best Use of Modal; Context.dev (write-up in `docs/AWARDS.md`); Aiven, once its part is on the deployed app. <!-- check: S1 -->
 
-**Technologies used** (draft): Python 3.13, FastAPI, Pydantic v2, Uvicorn, SQLite, Jinja2, httpx, PyYAML, Google Gemini API (`google-genai`, `gemini-3.6-flash`), Model Context Protocol (official Python SDK), Modal, OpenAPI 3.1, JSON Schema 2020-12, CloudEvents 1.0, RFC 9457 problem details, GS1 allergen code lists, pytest, ruff.
+**Technologies used** (draft): Python 3.13, FastAPI, Pydantic v2, Uvicorn, SQLite, Jinja2, httpx, PyYAML, Google Gemini API (`google-genai`, `gemini-3.6-flash`), Model Context Protocol (official Python SDK), Modal, Context.dev Answers API, Aiven for PostgreSQL (psycopg 3), OpenAPI 3.1, JSON Schema 2020-12, CloudEvents 1.0, RFC 9457 problem details, GS1 allergen code lists, pytest, ruff.
 
 **Demo link:** https://joaocostared--trusted-trade-agents.us-east.modal.run
 

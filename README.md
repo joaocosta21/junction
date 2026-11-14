@@ -2,6 +2,8 @@
 
 A gateway that lets a buyer's purchasing agent look up Valio Aimo products, get an offer at fixed prices, and place an order within its own authority or send it to a human for approval. Every claim in an offer says whether Valio's data confirms it, every product left out says why, and every step is written to a hash-chained audit trail that the buyer and Valio Aimo each read in their own view. Built at Junction 2026 for the Valio Aimo challenge "Trusted Trade Agents", against Valio Aimo's mock API; it speaks REST (OpenAPI 3.1) and MCP.
 
+**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal, live Valio data with the recorded capture as fall-back; deployed from commit `237b37f` on 14 Nov 2026, a final redeploy is planned). On its pages each browser gets its own order book: nothing one visitor does is seen by another, and **Start again** empties it.
+
 ## The flow
 
 ```
@@ -33,14 +35,14 @@ TTA_ENV=demo TTA_MODE=replay .venv/bin/python -m uvicorn --factory tta.api:creat
 - Replay needs no Valio key and makes no call to the mock. Answers come from `fixtures/valio/2026-11-14-demo/`, with the clock pinned to that capture.
 - Without a Gemini key, the request parser and the buyer agent answer from the recordings in `fixtures/agent/`. Four of the five were recorded from `gemini-3.6-flash` on 14 Nov 2026; the agent's run of scenario 1 is written by hand, and a run from it says `hand-built`. Sentences with no recording need the key.
 - If your `.env` holds `GEMINI_API_KEY`, the parser and the agent call Gemini. When Gemini cannot be reached, a sentence that has a recording is answered from it, and the report says so in its first sentence. Gemini was slow on 14 Nov (29 s to read scenario 1), and a time-out can hold a sentence for about 90 s before the recording answers. For a quick demo, put `GEMINI_API_KEY=` before the command.
-- Orders and the audit trail go to `var/tta.sqlite3`. The day's spend adds up across runs on one database, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start from an empty order book.
+- **Two kinds of order book.** On the pages, each browser has its own book in memory, with its own audit trail; it starts empty, is dropped after 2 idle hours, and **Start again** empties it. REST and MCP share one book in `var/tta.sqlite3`: there the day's spend adds up across runs, so a repeated demo meets the daily limit. Set `TTA_DB_PATH` to a new file to start that book empty. With `DATABASE_URL` set, the shared book uses PostgreSQL instead (`docs/AIVEN.md`, not yet on the deployed app). <!-- check: S1 -->
 - Live data: set `VALIO_AIMO_API_KEY` in `.env` and start with `TTA_MODE=live`. When the mock cannot be reached, or fewer than 10 calls are left in the call budget, the recorded capture answers and the offer says `replay`.
 
 What is served:
 
 | Path | What | Who |
 |---|---|---|
-| `/` | Pages: paste a request or click one of three examples, see the offer, the verdict and the order; `/approvals`; `/orders/{id}` with both views of the audit trail; `/assumptions` | `dev` and `demo` only, demo identity chosen on the page |
+| `/` | Pages: paste a request or click one of three examples, see the offer, the verdict and the order; `/approvals`; `/orders/{id}` with both views of the audit trail; `/assumptions`. Each browser has its own order book | `dev` and `demo` only, demo identity chosen on the page |
 | `/v1/...` | REST API | Bearer token |
 | `/openapi.json`, `/docs` | Generated OpenAPI 3.1 and Swagger UI | Anyone |
 | `/v1/schemas` | JSON Schema (2020-12) of every model | Anyone |
@@ -53,8 +55,17 @@ Demo tokens are public by design and listed in `src/tta/api/demo_tokens.yaml`, f
 curl -s -H "Authorization: Bearer demo-agent-allergy-ward" http://127.0.0.1:8000/v1/authority
 ```
 
-The click-by-click demo, with the exact sentences on screen and a 90-second cut, is in [docs/DEMO.md](docs/DEMO.md).
-**Live demo:** https://joaocostared--trusted-trade-agents.us-east.modal.run (Modal; demo tokens in `src/tta/api/demo_tokens.yaml`; see [docs/DEPLOY.md](docs/DEPLOY.md)). Each browser gets its own order book on the pages.
+The click-by-click demo, with the exact sentences on screen and a 90-second cut, is in [docs/DEMO.md](docs/DEMO.md). Deployment: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Five ways to see it
+
+All five call the same service code, so a rule that holds on one holds on all. `$BASE` is `http://127.0.0.1:8000` or the live demo address.
+
+1. **The pages.** Open `$BASE/`, click an example or paste a request, and read the offer, the verdict and the order. Decide on `/approvals` as a demo approver. Each browser works in its own order book.
+2. **REST.** `GET $BASE/openapi.json` or `/docs`, with a demo token: `curl -s -H "Authorization: Bearer demo-agent-allergy-ward" $BASE/v1/authority`. The flow is `POST /v1/offers` → `POST /v1/orders` (with `Idempotency-Key`) → `GET /v1/orders/{id}`.
+3. **MCP.** `POST $BASE/mcp/` (Streamable HTTP, POST only) with the same bearer token: eight tools, from `get_authority` to `get_audit`. No tool approves an order.
+4. **The buyer agent.** `POST $BASE/v1/agent/run` with `{"text": "200 litres of a milk substitute by Monday; no milk, no gluten; confirmed data only"}` and the token `demo-agent-allergy-ward` (a recording is served only for the profile it was made for). The answer is the agent's run step by step: authority, offer, order. Without a Gemini key it runs from the recordings and says so.
+5. **The audit views.** `GET $BASE/v1/audit?order_id=<id>&reader=buyer` with the buyer's token, or `reader=supplier` with `demo-supplier-valio-aimo`, which hides the buyer's limits, exclusions, approver names and notes. On the pages, `/orders/{id}` shows both views and whether the chain verifies.
 
 ## Run the tests
 
@@ -100,7 +111,11 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The packages, the ports, and where each part of the brief lives |
 | [docs/STANDARDS.md](docs/STANDARDS.md) | Each open standard we use, checked against its specification, and the next steps toward production |
 | [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | Every assumption, why, what would change it, and where it is in the code (also served at `/assumptions`) |
-| [docs/AWARDS.md](docs/AWARDS.md) | The Gemini and Modal write-ups |
+| [docs/AWARDS.md](docs/AWARDS.md) | The Gemini, Modal and Context.dev write-ups; Aiven being added |
+| [docs/DEMO.md](docs/DEMO.md), [docs/DEPLOY.md](docs/DEPLOY.md) | The demo script; deploying, checking and stopping the Modal app |
+| [docs/CONTEXTDEV.md](docs/CONTEXTDEV.md), [docs/AIVEN.md](docs/AIVEN.md) | Web evidence on the dietitian's approval card; the PostgreSQL order book and audit trail |
+| [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md) | What the gateway does, step by step, checked against the code |
+| [AIMO/USE-CASES.md](AIMO/USE-CASES.md) | Valio's six example scenarios and ours, run against the system, with verdicts |
 | [docs/PITCH.md](docs/PITCH.md) | Drafts for the pitch, the video and the submission form |
 | [AIMO/SPEC.md](AIMO/SPEC.md) | The build contract |
 | [AIMO/CHALLENGE.md](AIMO/CHALLENGE.md) | The challenge and its judging criteria, verbatim |
@@ -112,7 +127,9 @@ The datasets and recorded answers are Valio Aimo's synthetic data, not covered b
 - The agent's run of scenario 1 is a hand-written recording (by plan); the other four recordings come from Gemini. A whole agent run has no deadline, and the model's output length has no cap (`AIMO/build/handback/T10-followup.md`).
 - The MCP endpoint was checked with the official SDK client only, not with a third-party host. It does not check the `Origin` header and has no OAuth flow (see docs/STANDARDS.md).
 - Delivery-time and sustainability comparison (an optional direction of the brief) is not built.
-- The stretch tasks on Aiven PostgreSQL and Context.dev were not built.
+- Standing orders, recipe planning and a selling agent of Valio's own are not built; standing orders with a drift check are a next step (`docs/ASSUMPTIONS.md`).
+- Context.dev evidence for the dietitian is built and wired (commits `7abb44e`, `f3286e1`), and Aiven PostgreSQL is committed (`67f3b00`); neither is on the deployed app until the final redeploy. <!-- check: S1 -->
+- Being added today, not yet committed: the ingredient list as an allergen statement and "not in the recording" in replay (FIX-12a); coverage per request line and the trade-off on the approval card (FIX-12b); a photo of an order list and orders in Finnish (T18); a "My kitchen" profile page (FEAT-1). <!-- check: FIX-12a, FIX-12b, T18, FEAT-1 -->
 
 ## Licence
 

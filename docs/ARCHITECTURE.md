@@ -37,10 +37,14 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
       ▼
    catalog/  product file, search, product types, pack size, lot step
    valio/    live client · recorder · replay · call budget · clock ──► Valio mock API
-   store/    SQLite: offers, orders, approvals, idempotency keys, append-only audit events
+   store/    SQLite, or Aiven PostgreSQL when DATABASE_URL is set: offers, orders, approvals,
+             idempotency keys, append-only audit events
+   evidence/ Context.dev: the manufacturer's page for an allergen Valio's data does not state ──► approval card
 ```
 
 `contracts/` holds the shared Pydantic models and the ports. Every package depends on ports, not on another package's classes. `api/wiring.py` is the one place that builds the real parts and connects them.
+
+**Two kinds of order book.** REST and MCP share one order book and audit trail in the database. On the pages, each browser gets its own book (`api/sandbox.py`): an in-memory store with its own audit trail and order service, sharing the catalog, the supplier gateway, the policy, the limits and the agent. At most 300 are kept; one idle for 2 hours is dropped.
 
 ## One request, step by step
 
@@ -51,7 +55,7 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
 5. **Offer.** `offers/` builds at most three options: best confirmed, unconfirmed alternative, substitute. Every option carries its totals, its constraint checks and its policy verdict. Every product that drops out is listed with a reason.
 6. **Policy.** `policy/` evaluates each option. The most severe verdict of the rules that fire wins.
 7. **Order.** `orders/` re-checks price and availability with a fresh call, runs the policy again at order time, and then places the order (`AUTO`), opens an approval (`APPROVAL`) or refuses (`BLOCK`).
-8. **Approval.** A human with the named role approves or rejects, on the pages or over REST. The order-time check runs again before the order is placed. An agent token on an approval route is refused.
+8. **Approval.** A human with the named role approves or rejects, on the pages or over REST. The order-time check runs again before the order is placed. An agent token on an approval route is refused. When P-04 sends a product to the dietitian because an excluded allergen is not stated, `evidence/` attaches what the manufacturer's page says, labelled as not Valio data; it changes no verdict.
 9. **Audit.** Every step writes one CloudEvents event with one readable sentence, chained by SHA-256 hashes. The buyer and the supplier each read their own view.
 
 ## Packages
@@ -66,12 +70,13 @@ The build contract is [`AIMO/SPEC.md`](../AIMO/SPEC.md). This page describes wha
 | `availability/` | The six states; the status of each claim; sentences | functions | — |
 | `policy/` | Rules file, buyer profiles, deterministic engine, policy hash | `PolicyEngine` | — |
 | `offers/` | Candidates → options; ranking; combining; substitutes; re-check before an order | `OfferBuilder`, `OfferRevalidator` | `Catalog`, `ValioGateway`, `PolicyEngine`, `Clock` |
-| `store/` | SQLite repository; audit table that refuses update and delete | `Store` | — |
+| `store/` | SQLite repository; Aiven PostgreSQL repository with database triggers that refuse changes to audit events, buyer and supplier views and a read-only supplier role (task S1, committed, not yet deployed); SQLite when the database cannot be reached at start <!-- check: S1 --> | `Store` | — |
+| `evidence/` | Context.dev Answers: one lookup per product, checked against its sources and the product's name and brand, stored once; recordings answer without a key (task S2) | `EvidenceFinder` (a protocol in `orders/service.py`) | `Catalog` |
 | `audit/` | Events, hash chain, sentences from templates, buyer and supplier views | `AuditSink` | `Store` |
-| `orders/` | Order-time check, approvals, expiry, idempotency, the day's spend | `OrderService` | `OfferRevalidator`, `PolicyEngine`, `Store`, `AuditSink`, `Clock` |
-| `api/` | FastAPI app, REST routes, identity, limits, problem details, OpenAPI, MCP surface, fall-back from live to replay | `GatewayService` (`service.Gateway`) | all of the above |
-| `agent/` | Gemini: request parser and buyer-agent loop; recorded answers when there is no key | `RequestParser`, `AgentRunner` | `GatewayService` |
-| `ui/` | Server-rendered pages: request, approvals, order and audit trail, assumptions | — | `GatewayService` |
+| `orders/` | Order-time check, approvals, expiry, idempotency, the day's spend, evidence on an approval | `OrderService` | `OfferRevalidator`, `PolicyEngine`, `Store`, `AuditSink`, `Clock`, `EvidenceFinder` |
+| `api/` | FastAPI app, REST routes, identity, limits (per browser on the pages, per address, overall), problem details, OpenAPI, MCP surface, fall-back from live to replay, one order book per browser (`sandbox.py`) | `GatewayService` (`service.Gateway`) | all of the above |
+| `agent/` | Gemini: request parser, a check of every reading against the text, readings labelled by who read them, buyer-agent loop; recorded answers when there is no key. Being added (task T18): photo transcription and Finnish input <!-- check: T18 --> | `RequestParser`, `AgentRunner` | `GatewayService` |
+| `ui/` | Server-rendered pages: request, approvals (with the evidence card), order and audit trail, assumptions. Being added (task FEAT-1): `/kitchen`, the browser's own buyer profile <!-- check: FEAT-1 --> | — | `GatewayService` |
 
 ## Ports
 
@@ -86,7 +91,7 @@ Defined in `src/tta/contracts/ports.py`. Every port is synchronous.
 | `PolicyEngine` | Profiles, verdicts, the authority text, the policy hash. No model takes part | `policy.engine.RulePolicyEngine` |
 | `OfferBuilder` | An offer for a typed request; "nothing fits" is an offer with no options and the reasons | `offers.service.OfferService` |
 | `OfferRevalidator` | A fresh look at an option's lines and what changed | `offers.service.OfferService` |
-| `Store` | Save and read offers, orders, approvals, idempotency keys; append audit events; `atomic()` block | `store.sqlite_store.SqliteStore` |
+| `Store` | Save and read offers, orders, approvals, idempotency keys; append audit events; `atomic()` block | `store.sqlite_store.SqliteStore`, `store.postgres.PostgresStore` |
 | `AuditSink` | Record one event per step; reader views; chain check; head (count and last hash) | `audit.trail.AuditTrail` |
 | `OrderService` | Place, decide, read orders and approvals; the day's committed spend | `orders.service.OrderBookService` |
 | `RequestParser` | Free text → typed request; names what is missing, never guesses | `agent.parser.ModelRequestParser` |
@@ -110,11 +115,13 @@ Defined in `src/tta/contracts/ports.py`. Every port is synchronous.
 
 - `TTA_MODE=replay` (the default): answers come from `fixtures/valio/<capture>/`, and the clock is pinned to that capture's `timeNow`. The default capture is `2026-11-14-demo` (Saturday 14 Nov 2026, 02:52 server time, 769 products of categories `104xx` and `18720`).
 - `TTA_MODE=live`: calls the mock through the client: at least one second between calls, a 60-second cache, a call budget kept in `var/valio_call_budget.json`. When the mock cannot be reached, or fewer than 10 calls are left, the capture answers and the offer says `replay`.
+- **Two clocks.** The data clock (pinned in replay; in live the later of this machine's time and Valio's last `timeNow`) judges cut-offs, price validity, expiry and the day of the daily spend, and stamps offers, orders and approvals. Audit events carry the real UTC time (`api/wiring.py`, `UtcClock`). In replay an order reads 02:52:45 while its events carry the time of the demo.
 - `TTA_ENV` decides who can call. `dev` and `demo` load the public demo tokens of `src/tta/api/demo_tokens.yaml` and mount the pages. Unset means `prod`: no demo token, no pages, and the app does not start without `TTA_TOKENS`.
 
 ## Known limits of the design
 
 From the hand-backs in `AIMO/build/handback/`:
 - **One process.** The order book's lock, the rate limiter, the agent-run log of the pages and the cached audit head live in memory. Two gateway processes on one database are not protected against each other.
-- **SQLite.** The audit table refuses update and delete through triggers, but whoever can write the database file can drop them. The chain shows a changed, removed or inserted event; it does not show the last events cut off unless another party holds the head (`/healthz` publishes it; nothing compares it yet).
+- **SQLite.** The audit table refuses update and delete through triggers, but whoever can write the database file can drop them. On PostgreSQL the triggers are in the database, but the gateway connects as the login that owns the tables (`docs/AIVEN.md`). The chain shows a changed, removed or inserted event; it does not show the last events cut off unless another party holds the head (`/healthz` publishes it; nothing compares it yet).
 - **No login on the pages.** They act as a demo identity chosen on the page, so they exist only in `dev` and `demo`.
+- **The pages' books are in memory.** A restart empties every browser's book; only the shared REST and MCP book is kept in the database.

@@ -21,13 +21,17 @@ from tta.api.limits import (
     MAX_BODY_KILOBYTES,
     MAX_LIVE_LOOKS_PER_MINUTE,
     MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE,
+    MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE,
     MAX_LOOKUPS_PER_VISITOR_PER_MINUTE,
+    MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE,
     MAX_MODEL_CALLS_PER_MINUTE,
     MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE,
     MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE,
     MAX_ORDERS_AND_DECISIONS_PER_MINUTE,
+    MAX_ORDERS_PER_ADDRESS_PER_MINUTE,
     MAX_ORDERS_PER_VISITOR_PER_MINUTE,
 )
+from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_MINUTES
 from tta.api.service import MAX_DEMO_REQUEST_LINES, MAX_LIST_ITEMS
 from tta.contracts.errors import (
     PROBLEM_CONTENT_TYPE,
@@ -83,17 +87,23 @@ demonstration pages keep each browser's orders in an order book of its own, whic
 **Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a
 `Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids and,
 in the dev and demo environments, at most {MAX_DEMO_REQUEST_LINES} lines. A list answers at most {MAX_LIST_ITEMS}
-items, the newest. The routes that reach the supplier, the model or the audit trail are counted. A token from
-the environment makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in {DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g}
-seconds. The demonstration tokens are public, so there a caller is one visitor, its address, whichever token it
-sends: at most {MAX_LOOKUPS_PER_VISITOR_PER_MINUTE} offers and substitute searches,
-{MAX_ORDERS_PER_VISITOR_PER_MINUTE} orders and approval decisions and {MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE}
-request readings and agent runs a minute. All callers together make at most
-{MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE}, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE} and {MAX_MODEL_CALLS_PER_MINUTE} of
-these a minute. Beyond that the answer is `rate-limited` with `Retry-After`. The visitor is the peer address;
-`X-Forwarded-For` is read only as far as `TTA_TRUSTED_PROXY_HOPS` says (default 0: never). In live mode at most
-{MAX_LIVE_LOOKS_PER_MINUTE} looks a minute reach the supplier, {MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE} for one
-visitor; further looks are answered from the recorded capture and say `replay`.
+items, the newest. The routes that reach the supplier, the model or the audit trail are counted, in windows of
+one minute. A token from the environment makes at most {DEFAULT_RATE_LIMIT_CALLS} such calls in
+{DEFAULT_RATE_LIMIT_WINDOW_SECONDS:g} seconds. The demonstration tokens are public, so there the caller is the
+visitor, whichever token it sends: **per browser** on the demonstration pages (known by the cookie of its own
+order book), and **per address** for REST and MCP and for a page request without that cookie. Each visitor makes
+at most {MAX_LOOKUPS_PER_VISITOR_PER_MINUTE} offers and substitute searches, {MAX_ORDERS_PER_VISITOR_PER_MINUTE}
+orders and approval decisions and {MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE} request readings and agent runs a
+minute. Every browser and caller behind **one address** together make at most
+{MAX_LOOKUPS_PER_ADDRESS_PER_MINUTE}, {MAX_ORDERS_PER_ADDRESS_PER_MINUTE} and {MAX_MODEL_CALLS_PER_ADDRESS_PER_MINUTE}
+of these a minute, so a room on one network is served and one address cannot fill the whole app; one address opens
+at most {MAX_NEW_BOOKS_PER_ADDRESS} new order books on the pages in {NEW_BOOKS_WINDOW_MINUTES} minutes.
+**All callers** together make at most {MAX_OFFERS_AND_SUBSTITUTES_PER_MINUTE}, {MAX_ORDERS_AND_DECISIONS_PER_MINUTE}
+and {MAX_MODEL_CALLS_PER_MINUTE} a minute. Beyond any of these the answer is `rate-limited` with `Retry-After`, naming
+the window that was full. The address is the peer's; `X-Forwarded-For` is read only as far as
+`TTA_TRUSTED_PROXY_HOPS` says (default 0: never). In live mode at most {MAX_LIVE_LOOKS_PER_MINUTE} looks a minute
+reach the supplier, {MAX_LIVE_LOOKS_PER_VISITOR_PER_MINUTE} for one address; further looks are answered from the
+recorded capture and say `replay`.
 """
 
 EXAMPLES_NOT_BUILT = (
