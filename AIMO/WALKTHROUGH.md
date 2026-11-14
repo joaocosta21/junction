@@ -317,4 +317,48 @@ To read the code in the order a request flows, follow section 3's "Where" lines.
 - **Audit chain:** it does not show the end of the trail cut off unless another party holds the published head hash.
 - **MCP:** no OAuth (tokens are handed out outside the protocol), and no Host or Origin check on the MCP endpoint. Both are stated as departures in `docs/STANDARDS.md`.
 - **Partner data:** the four Valio data files are tracked in the repository. Decide before it goes public (README says they are not under the MIT licence).
-- **Never answered by Valio** (booth questions): what an order commits Valio to; whether 0.01 lot steps mean "no step"; what `comparisonPrice` divides by; the gluten-free oat drink `471881` that declares gluten cereals.
+- **22 questions to Valio are still without an answer:** section 9.
+
+---
+
+## 9. Open questions for Valio — still without an answer
+
+22 in all. Only Q3 (very large stock values) has been answered: Valio said in person on 14 Nov that they mean "not known". Each question is written out in full, with its example, in `AIMO/BOOTH-QUESTIONS.md`; the id in the first column finds it there. The last column is what the gateway does until someone answers, so no answer blocks the demo.
+
+### Ask these four first
+
+| Id | Question | Why it matters | What we built meanwhile |
+|---|---|---|---|
+| T03-1 | `471881` (Oddlygood Barista oat drink 0.5 l) is named "gluten free" and carries the claim, yet declares cereals containing gluten (`AW`); the 1 l packs do not. Is that expected? | It is in demo scenario 3. A Valio judge may say the product is gluten free | The declaration counts, never the name or the claim. `471881` fails the substitution rule and can never be ordered as a substitute |
+| Q1 | We read `closingTime` literally: once it has passed, the product cannot arrive on `availableDate`. Right reading? | It excludes 17 of the 30 lactose-free milks tonight, and about half the catalog at any time | A product whose cut-off has passed is excluded, with the reason named. A replay mode covers judging time |
+| Q7 | What limits do real customers set: a euro cap per order, an approved product list, approver roles? One example is enough | Every number in our buyer profiles is ours and labelled illustrative | Two profiles, `hotel-kitchen` (€750 per order, €3,000 a day) and `allergy-ward` (€500, €1,500, no milk, no gluten) |
+| Q4 | When Valio Aimo accepts an order today, what is committed at that moment: the price, the quantity, the delivery date? | Decides how we word "ordered" in the pitch | Price committed for its validity; date if ordered before the cut-off; quantity only when the stock figure is a real number. Orders are recorded in our order book and commit nobody |
+
+### How to read the data
+
+| Id | Question | What we built meanwhile |
+|---|---|---|
+| Q2 | Do `X99` and `UNDECLARED` have their GS1 meanings ("no declarable allergens", "not intentionally included")? | GS1 meanings. Under `STRICT`, `X99` goes to a dietitian; under `DECLARED_ONLY` it passes as unverified |
+| T03-2 | 178 products state a family "free from" while declaring one of its members (gluten-free loaf with wheat; Toblerone "free from tree nuts" with almonds). Gluten-free wheat starch and a data error? | Two statements; the least safe counts. With the family excluded, a declared member rejects the product (oats go to a dietitian) |
+| Q5 | 46.2% of the catalog has no allergen statement at all. Does no data mean the supplier declared nothing, so an agent must treat it as unknown? | Unknown, never safe. Under `STRICT` it goes to a dietitian |
+| T02-1 | `allowedLotSize` is 0.01 on 16,476 countable products (cases, cartons). Does 0.01 mean "no step"? | Whole units for every sales unit except kilograms; kilograms keep 0.01 kg; the 674 real steps are used as given |
+| T02-2 | What does `comparisonPrice` divide by: the content of one sales unit (drained weight where there is one), rounded to cents? | The file's own size when the two prices are consistent with it (10 L, not 9.943), otherwise the ratio |
+| Q10 | The API's sales unit differs from the product file's on 7 of 797 lines. Which unit do the price and the amount refer to? | Price and quantity follow the unit on the API line |
+| T07-5 | Is a listed substitute meant across sales units? `473609` is sold by the piece; its listed substitute `471690` by the 10-litre case | Quantities are converted through the pack size and rounded up to the lot step |
+| Q8 | Is a deposit already inside `catalogPrice`, or charged on top, and at what value per code? | Totals exclude deposits and say so; a line with a deposit goes to a human |
+| Q9 | Is a variable-weight product invoiced at the weight ordered or the weight delivered? | The total is marked as a ceiling; the line goes to a human |
+| Q11 | Is the category code a hierarchy (which digits are the levels)? Can we have the category names? | Substitute tiers: same 5 digits → same 4 → same 3; 30 product types of our own |
+| Q12 | What does delivery reliability measure, and does a missing value mean no history? | Missing means no history and is never imputed; the raw value is shown without a gloss |
+
+### How the mock and the judging work
+
+| Id | Question | What we built meanwhile |
+|---|---|---|
+| Q6 | When stock covers only part of an order line, what happens today: a partial delivery, a substitute, or the line is dropped? | Fill the rest from a second product; show the option as combined; below the buyer's minimum fill it goes to a human |
+| Q13 | Is our call volume fine during judging? One offer is 2 calls (price and availability, up to 1,000 products each); tonight's live run made 6 calls for three scenarios; the deployed app may make at most 120 | Filter locally, a 60-second cache, at most 6 live looks a minute, and the recorded capture when the budget runs low |
+| T01-1 | A call with Python's default `User-Agent` got 403 from Cloudflare; with a named one, 200. Is a named User-Agent the rule an external agent should follow? | The client always sends `User-Agent: tta-gateway/0.1`; a 403 is reported once, never retried |
+| Ask any 1 | How and when do you judge: at our table, the video, or the deployed link? Will the mock API stay up unchanged until then? | Replay mode with tonight's capture; the deployed link falls back to it, labelled |
+| Ask any 2 | Do exception cases have to run in the live demo, or does a documented rule count? | Every exception runs in the demo or in a tested request (partial fill at 1,500 L, substitutes, cut-off passed) |
+| Ask any 3 | The brief mentions webshop test accounts. Are they available? | Not used |
+| Ask any 4 | The hackathon requires a public MIT repository. May the datasets and a few recorded responses of the mock API stay in it? | The README says the data is not under the MIT licence. **Decide before the repository goes public** |
+
