@@ -17,6 +17,11 @@ key. Decided by the orchestrator on 14 Nov 2026:
 - after a failure for unreachability the Gemini model refuses at once for a while (`tta.agent.outage`), so in
   that window a recorded sentence is answered from its recording straight away.
 
+Since the review of 14 Nov 2026 (replan A2b M1): with no key, a text the rules cannot read is no longer
+`supplier-unavailable` (503, "a service cannot be reached") but `invalid-request` (422) with what was not read and
+a question to the person (`tta.agent.unread.as_question`). Nothing is out of reach there; the text needs a
+person's answer. With a key and Gemini out of reach it stays `supplier-unavailable`, as below.
+
 Task FALLBACK-1 adds a third reader. When Gemini cannot be reached, or no key is set (`live` is `None`), a text is
 answered from its recording if there is one, else by the rule-based reader (`tta.agent.rules_reader`), else
 `supplier-unavailable` with the same sentence as before, followed by what the rules could not read. A model that
@@ -34,13 +39,13 @@ from collections.abc import Sequence
 from tta.agent.gemini import ModelUnreachable
 from tta.agent.labels import fallback_sentence, made_on, photo_sentence, rules_sentence
 from tta.agent.model import AnswerSource
-from tta.agent.parser import ModelRequestParser
+from tta.agent.parser import SAFE_READING, ModelRequestParser
 from tta.agent.recorded import HAND_BUILT_MODEL_ID, LIVE_SOURCE, RECORDED_MODEL_ID, RecordedModel, Recording
-from tta.agent.rules_reader import NotReadByRules
 from tta.agent.runner import ModelAgentRunner
+from tta.agent.unread import NotReadByRules, as_question
 from tta.contracts.agent import AgentRun, Reading, ReadingSource
 from tta.contracts.common import Identity
-from tta.contracts.errors import SupplierUnavailable
+from tta.contracts.errors import SupplierUnavailable, TtaError
 from tta.contracts.ports import GatewayService
 from tta.contracts.request import PurchaseRequest
 
@@ -79,9 +84,18 @@ def either(detail: str, why: str) -> str:
     return f"{head} {RULES_COULD_NOT.format(why=why)}{advice}{rest}"
 
 
-def _not_read(missed: SupplierUnavailable, unread: NotReadByRules) -> SupplierUnavailable:
-    """The error the caller gets: of the same kind as the first one, with what the rules could not read."""
+def _not_read(missed: SupplierUnavailable, unread: NotReadByRules, *, key_set: bool) -> TtaError:
+    """The error the caller gets. With no key: the rules' question to the person (422). With a key: an error of
+    the same kind as Gemini's, with what the rules could not read."""
+    if not key_set:
+        return as_question(unread)
     return type(missed)(either(missed.detail, unread.why), **missed.extensions)
+
+
+def _safe_reading_note(sentence: str) -> str:
+    """What a reading's sentence says after naming its source: that an allergen rule was read as strict."""
+    at = sentence.find(SAFE_READING)
+    return "" if at < 0 else f" {sentence[at:]}"
 
 
 def _answered_by(reading: Reading) -> str:
@@ -141,8 +155,9 @@ class FallbackParser:
         try:
             reading = self._rules.read(text, identity)
         except NotReadByRules as unread:
-            raise _not_read(missed, unread) from unread
-        return reading.model_copy(update={"sentence": rules_sentence(key_set=self._live is not None)})
+            raise _not_read(missed, unread, key_set=self._live is not None) from unread
+        sentence = rules_sentence(key_set=self._live is not None) + _safe_reading_note(reading.sentence)
+        return reading.model_copy(update={"sentence": sentence})
 
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
         """Gemini's transcription and reading of a photo, or both from the recordings when Gemini cannot be
@@ -166,7 +181,8 @@ class FallbackParser:
     def _from_recording(self, text: str, identity: Identity) -> Reading:
         reading = self._recorded.read(text, identity)
         answer = AnswerSource(reading.source, reading.model, reading.recorded_at)
-        return reading.model_copy(update={"sentence": fallback_sentence(answer)})
+        sentence = fallback_sentence(answer) + _safe_reading_note(reading.sentence)
+        return reading.model_copy(update={"sentence": sentence})
 
 
 class FallbackRunner:
@@ -211,7 +227,7 @@ class FallbackRunner:
         try:
             run = self._rules.run_agent(text, identity, tools)
         except NotReadByRules as unread:
-            raise _not_read(missed, unread) from unread
+            raise _not_read(missed, unread, key_set=self._live is not None) from unread
         opening = RULES_RAN_FOR_GEMINI if self._live is not None else RULES_RAN_WITHOUT_KEY
         logger.warning("%s %s", opening, missed.detail)
         return run.model_copy(update={"report": f"{opening} {run.report}"})

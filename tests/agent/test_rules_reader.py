@@ -19,7 +19,6 @@ from tta.agent.fallback import RULES_RAN_WITHOUT_KEY
 from tta.agent.labels import RULES_WITHOUT_KEY, reading_sentence, rules_sentence
 from tta.agent.model import AnswerSource, ExtractCall, TurnCall
 from tta.agent.parser import ModelRequestParser
-from tta.agent.recorded import NOT_RECORDED
 from tta.agent.rules_model import RULE_BASED_MODEL_ID, RuleModel, top_option
 from tta.agent.rules_reader import NotReadByRules
 from tta.api import create_app
@@ -115,7 +114,7 @@ def test_the_ward_sentence_reads_with_its_exclusions_and_strictness(
         ("1 000 l of milk tomorrow", {"product_type": "milk", "quantity": Decimal(1000), "unit": Unit.L}),
         ("1.5 kg of butter", {"product_type": "butter", "quantity": Decimal("1.5"), "unit": Unit.KG}),
         ("2,5 kilos of quark", {"product_type": "quark", "quantity": Decimal("2.5"), "unit": Unit.KG}),
-        ("12 cases of mineral water", {"product_type": "mineral_water", "quantity": 12, "unit": Unit.UNIT}),
+        ("12 bottles of mineral water", {"product_type": "mineral_water", "quantity": 12, "unit": Unit.UNIT}),
         ("30 packs of butter", {"product_type": "butter", "unit": Unit.UNIT}),
         ("50 kg of beef chuck", {"product_type": "beef_chuck", "name_terms": ()}),
         ("10 kg of sour milk", {"product_type": "sour_milk"}),
@@ -171,13 +170,12 @@ def test_confirmed_only_and_a_date_are_read_for_the_whole_request(
     assert request.lines[0].product_ids == ("464056",) and request.lines[0].quantity == 120
 
 
-def test_an_exclusion_with_no_strictness_word_is_asked_for_as_after_a_model(
+def test_an_exclusion_with_no_strictness_word_reads_strict_when_the_profile_sets_no_rule_either(
     rules_parser: ModelRequestParser, agent_hotel: Identity, agent_ward: Identity
 ) -> None:
-    with pytest.raises(InvalidRequest) as asked:
-        rules_parser.parse_request("200 litres of oat drink, no milk", agent_hotel)
+    hotel = rules_parser.parse_request("200 litres of oat drink, no milk", agent_hotel)
 
-    assert asked.value.extensions["missing"] == ["lines[0].allergen_strictness"]
+    assert hotel.lines[0].allergen_strictness is AllergenStrictness.STRICT  # the safe reading (replan P4 M3)
     assert rules_parser.parse_request("200 litres of oat drink, no milk", agent_ward).lines[0].allergen_strictness \
         is None  # the ward's profile sets STRICT itself
 
@@ -323,19 +321,22 @@ def test_with_no_key_an_unrecorded_sentence_is_read_by_the_rules_and_says_why(
     assert other_profile.source is ReadingSource.RULE_BASED
 
 
-def test_with_no_key_a_text_the_rules_cannot_read_keeps_todays_sentence_and_names_what_was_missing(
+def test_with_no_key_a_text_the_rules_cannot_read_is_asked_about_naming_what_was_missing(
     parts: Parts, agent_hotel: Identity
 ) -> None:
-    with pytest.raises(SupplierUnavailable) as refused:
+    """Replan A2b M1: it used to be `supplier-unavailable` (503). Nothing is out of reach: a person is asked."""
+    with pytest.raises(InvalidRequest) as refused:
         parts.service.read_request(agent_hotel, "a sentence nobody recorded")
-    with pytest.raises(SupplierUnavailable) as run_refused:
+    with pytest.raises(InvalidRequest) as run_refused:
         parts.service.run_agent(agent_hotel, "Some cheese for Friday")
 
-    detail = refused.value.detail
-    assert detail.startswith(NOT_RECORDED.split("{count}")[0]) and detail.endswith(SEND_THE_TYPED_REQUEST)
-    assert "The fixed rules could not read it either: it gives no quantity in digits with a unit" in detail
+    assert refused.value.detail == (
+        "The fixed rules did not read this request, and nothing was guessed: it gives no quantity in digits with a "
+        "unit, such as 200 litres. How much is needed, and of what? For example: 200 litres of oat drink by Monday."
+    )
     assert "cheese is named with no quantity" in run_refused.value.detail
-    assert not isinstance(refused.value, NotReadByRules)
+    assert run_refused.value.extensions["question"].startswith("What quantity of cheese is needed?")
+    assert not isinstance(refused.value, SupplierUnavailable)
 
 
 def test_the_parse_route_names_the_rules_in_its_headers(

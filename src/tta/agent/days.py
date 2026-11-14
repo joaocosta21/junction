@@ -10,7 +10,9 @@ must be the date this rule gives, and a recorded `needed_by` is re-resolved with
 - Finnish and Swedish weekday names in any form, and the Finnish short forms ma, ti, ke, pe and su (task T18).
 - "today", "tomorrow", "the day after tomorrow", and their Finnish and Swedish words; an explicit date:
   2026-11-20, 20.11. or 20.11.2026, 20/11/2026, 20 November or November 20th. A date without a year is the
-  next such date from today.
+  next such date from today, unless it passed less than 180 days ago: "10.11." said on 14 November is four days
+  past, not next year's (replan A2b H1; the limit is ours). "Yesterday" is the day before today, so it is refused
+  as past and never dropped.
 - A decimal (1.5) or a fraction (1/2) is never read as a date: a dotted date needs its closing dot or a year,
   a date with a slash needs a year.
 """
@@ -30,6 +32,7 @@ SWITCH_HOUR_UTC = 1
 MARCH, OCTOBER, LAST_DAY = 3, 10, 31
 SUNDAY = 6
 DAYS_IN_A_WEEK = 7
+RECENTLY_PAST_DAYS = 180  # a date without a year that passed within this many days is past, not next year (ours)
 
 _WEEKDAYS_EN = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 # Finnish and Swedish weekday names, matched at the start of a word: "maanantaina" (on Monday), "maanantaiksi"
@@ -49,6 +52,7 @@ _RELATIVE = (  # longest first: "the day after tomorrow" is not "tomorrow"
     (re.compile(r"\bday after tomorrow\b|\bylihuomen|\bi\s?övermorgon\b"), 2),
     (re.compile(r"\btomorrow\b|\bhuomen|\bhuomis|\bi\s?morgon\b"), 1),
     (re.compile(r"\btoday\b|\btänään\b|\bi\s?dag\b"), 0),
+    (re.compile(r"\byesterday\b|\beilen\b|\bi\s?går\b"), -1),
 )
 _ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
 _DOTTED = re.compile(r"(?<![\d.,])(\d{1,2})\.(\d{1,2})\.(\d{4})?(?![\d,]|\.\d)")
@@ -106,7 +110,9 @@ def _dated(day: int, month: int, year: str | None, today: date) -> date | None:
         if year is not None:
             return date(int(year), month, day)
         this_year = date(today.year, month, day)
-        return this_year if this_year >= today else date(today.year + 1, month, day)
+        if this_year >= today or (today - this_year).days < RECENTLY_PAST_DAYS:
+            return this_year
+        return date(today.year + 1, month, day)
     except ValueError:  # 31 February and the like
         return None
 

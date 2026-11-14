@@ -7,7 +7,9 @@ pass, it can only make the parser refuse one or leave a field to the model:
 - numbers: "1,000", "1 000", "1000", "1.5", "1,5", and number words such as "a thousand" or "twenty-five";
 - unit words in English, Finnish and Swedish, for litres, kilograms and sales units;
 - exclusions: "no X", "without X", "free from X", "X-free", "allergic to X", "X allergy"; in Finnish "ei X",
-  "ilman X", "X-ton", "X-vapaa"; in Swedish "utan X", "ingen X", "fri från X", "X-fri" (task T18).
+  "ilman X", "X-ton", "X-vapaa"; in Swedish "utan X", "ingen X", "fri från X", "X-fri" (task T18). Since the
+  review of 14 Nov 2026 (replan A2b C1) also "not contain X", "cannot have X", "can't have X", "nothing with X",
+  "allergic: X", "X intolerance", and "coeliac" for gluten: an exclusion said this way was dropped before.
   "Lactose-free" ("laktoositon", "laktosfri") is a nutritional claim, never an allergen exclusion
   (AIMO/docs/SCHEMA-AND-CODES.md section 2.4), so lactose is not in the table;
 - confirmed data: the word "confirmed", "verified", "vahvistettu", "varmistettu" or "bekräftad";
@@ -35,6 +37,7 @@ HUNDRED, THOUSAND, DOZEN = 100, 1000, 12
 _SPACES = "   "  # a space, a no-break space, a narrow no-break space: "1 000"
 DIGIT_RUN = re.compile(rf"\d+(?:[.,{_SPACES}]\d+)*")
 SEPARATOR = re.compile(rf"[.,{_SPACES}]")
+SPACES = _SPACES
 WORD = re.compile(r"[^\W\d_]+")
 _ID_TOKEN = re.compile(r"[^\s;:/()\[\]{}#\"'!?]+")
 _NUMBER_LIKE = re.compile(r"\d{1,3}(?:[.,]\d{3})+(?:[.,]\d+)?|\d+[.,]\d{1,2}")  # 1,000 · 1.000,5 · 1,5
@@ -55,6 +58,20 @@ _UNIT_WORDS: Mapping[Unit, frozenset[str]] = {
         "flaskor", "burk", "burkar", "påse", "påsar", "låda", "lådor", "kartong", "kartonger",
     }),
 }
+
+# Unit words the rule-based reader asks about instead of reading (replan A2b M1 and L2, A5 #5). A small unit is
+# offered as its conversion; a case, a box, a crate or a tray holds a number of packs that differs by product; a
+# portion has no size in Valio's data.
+SMALL_UNITS: Mapping[str, tuple[Unit, int]] = {
+    **{word: (Unit.L, 10) for word in ("dl", "desilitra", "desilitraa", "deciliter", "decilitre")},
+    **{word: (Unit.L, 100) for word in ("cl", "senttilitra", "senttilitraa", "centiliter", "centilitre")},
+    **{word: (Unit.L, 1000) for word in ("ml", "millilitra", "millilitraa", "milliliter", "millilitre",
+                                         "milliliters", "millilitres")},
+    **{word: (Unit.KG, 1000) for word in ("g", "gr", "gram", "grams", "gramme", "grammes", "gramma", "grammaa")},
+}
+OUTER_PACK_WORDS = frozenset({"case", "cases", "box", "boxes", "crate", "crates", "tray", "trays", "laatikko",
+                              "laatikkoa", "låda", "lådor"})
+PORTION_WORDS = frozenset({"portion", "portions", "annos", "annosta"})
 
 _SMALL_NUMBERS = {
     word: value for value, word in enumerate((
@@ -102,10 +119,15 @@ _ALLERGEN_WORDS: Mapping[tuple[str, ...], str] = {
     **{(word,): "NR" for word in ("rye", "ruis", "ruista", "råg")},
 }
 _LONGEST_PHRASE = max(len(phrase) for phrase in _ALLERGEN_WORDS)
+# A longer trigger stands before the shorter one it starts with: "allergic to" before "allergic".
 _BEFORE = (("no",), ("without",), ("free", "from"), ("free", "of"), ("allergic", "to"), ("allergy", "to"),
            ("excluding",), ("exclude",), ("avoid",), ("ilman",), ("ei",), ("utan",), ("ingen",), ("inga",),
-           ("fri", "från"))
-_AFTER = (("free",), ("allergy",), ("allergies",), ("vapaa",), ("fri",), ("fritt",), ("fria",))
+           ("fri", "från"), ("not", "contain"), ("not", "contains"), ("not", "containing"), ("not", "include"),
+           ("not", "have"), ("cannot", "have"), ("cannot", "eat"), ("cannot", "contain"), ("can", "t", "have"),
+           ("can", "t", "eat"), ("can", "not", "have"), ("nothing", "with"), ("nothing", "containing"),
+           ("intolerant", "to"), ("intolerance", "to"), ("allergic",))
+_AFTER = (("free",), ("allergy",), ("allergies",), ("vapaa",), ("fri",), ("fritt",), ("fria",), ("intolerance",),
+          ("intolerant",), ("allergic",))
 _FREE = frozenset({"free", "fri"})
 _NOT_AFTER_FREE = frozenset({"from", "of", "från"})  # "milk free from additives" is about the additives
 _FILLERS = frozenset({"traces", "trace", "of", "any", "added", "the", "a"})
@@ -136,7 +158,10 @@ _FREE_OF_WORDS = (
     (re.compile(r"^sesamfri"), "AS"),
     (re.compile(r"^fiskfri"), "AF"),
     (re.compile(r"^vetefri"), "UW"),
+    (re.compile(r"^c(?:o|e|oe)?liac|^keliaki|^celiaki"), "AW"),  # coeliac disease: no gluten
 )
+# A word that speaks of an allergy without naming the allergen: read only as part of an exclusion.
+ALLERGY_WORD = re.compile(r"^allerg|^intoleran|^yliherkk|^överkänslig")
 CONFIRMED = re.compile(r"\b(confirmed|verified)\b|\bvahvistet|\bvarmistet|\bbekräftad", re.IGNORECASE)
 
 
@@ -153,7 +178,8 @@ def _readings_of_run(run: str) -> set[Decimal]:
     if not separators:
         return {Decimal(run)}
     readings = set()
-    if all_thousands(groups):  # every separator groups thousands: 1,000 · 1 000 · 1.000.000
+    leading_zero = groups[0].startswith("0")  # "0.100" is a decimal: a thousands group never starts a number with 0
+    if all_thousands(groups) and not leading_zero:  # every separator groups thousands: 1,000 · 1 000 · 1.000.000
         readings.add(Decimal("".join(groups)))
     if separators[-1] in ".," and (len(groups) == 2 or all_thousands(groups[:-1])):  # the last one is decimal
         readings.add(Decimal(f"{''.join(groups[:-1])}.{groups[-1]}"))
@@ -211,7 +237,7 @@ def unit_of(word: str) -> Unit | None:
 
 def _phrase_at(words: Sequence[str], start: int) -> tuple[str, int] | None:
     """The allergen named at `start` and the number of words that name it, longest phrase first."""
-    for length in range(_LONGEST_PHRASE, 0, -1):
+    for length in range(min(_LONGEST_PHRASE, len(words) - start), 0, -1):
         code = _ALLERGEN_WORDS.get(tuple(words[start:start + length]))
         if code is not None:
             return code, length
@@ -268,6 +294,19 @@ def exclusions(words: Sequence[str]) -> tuple[frozenset[str], frozenset[int]]:
             codes.update(free_of)
             used.add(index)
     return frozenset(codes), frozenset(used)
+
+
+def allergen_mentions(words: Sequence[str]) -> dict[int, str]:
+    """Every word that names an allergen of the table, or speaks of an allergy, by its index: the rule-based
+    reader asks about one that is neither part of an exclusion nor the product's own name (replan A2b C1)."""
+    found: dict[int, str] = {}
+    for index, word in enumerate(words):
+        named = _phrase_at(words, index)
+        for at in range(index, index + (named[1] if named is not None else 0)):
+            found[at] = words[at]
+        if ALLERGY_WORD.match(word):
+            found[index] = word
+    return found
 
 
 def exclusion_triggers(words: Sequence[str]) -> frozenset[int]:

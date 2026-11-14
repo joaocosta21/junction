@@ -123,17 +123,19 @@ def test_a_quantity_without_a_unit_names_the_unit(
     assert refused.value.extensions["missing"] == ["lines[0].unit"]
 
 
-def test_an_exclusion_with_no_strictness_for_a_profile_that_sets_none_names_the_strictness(
+def test_an_exclusion_with_no_rule_from_the_text_or_the_profile_reads_strict_and_says_so(
     scripted: Any, make_parser: MakeParser, proposal: Proposal, demo_clock: Clock, agent_hotel: Identity
 ) -> None:
+    """Replan P4 M3: it used to be a 422 asking for the strictness; the safe reading is taken and said."""
     model = scripted(extracts=[proposal(exclude_allergens=["AN"])])
 
-    with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("10 litres of milk by Monday, no nuts", agent_hotel)
+    reading = make_parser(model, demo_clock).read("10 litres of milk by Monday, no nuts", agent_hotel)
 
-    assert "strictness" in refused.value.detail
-    assert "STRICT" in refused.value.detail and "DECLARED_ONLY" in refused.value.detail
-    assert refused.value.extensions["missing"] == ["lines[0].allergen_strictness"]
+    assert reading.request.lines[0].allergen_strictness is AllergenStrictness.STRICT
+    assert reading.sentence == (
+        "Read by scripted. No allergen rule was given for tree nuts (AN): read as strict, the safe reading. "
+        "A product with no allergen statement goes to a person."
+    )
     assert len(model.extract_calls) == 1
 
 
@@ -382,10 +384,10 @@ def test_an_identity_with_no_buyer_profile_has_no_strictness_to_fall_back_on(
 ) -> None:
     model = scripted(extracts=[proposal(exclude_allergens=["AE"])])
 
-    with pytest.raises(InvalidRequest) as refused:
-        make_parser(model, demo_clock).parse_request("10 litres of milk by Monday, no eggs", supplier_reader)
+    reading = make_parser(model, demo_clock).read("10 litres of milk by Monday, no eggs", supplier_reader)
 
-    assert "eggs (AE)" in refused.value.detail and "the caller" in refused.value.detail
+    assert reading.request.lines[0].allergen_strictness is AllergenStrictness.STRICT
+    assert "No allergen rule was given for eggs (AE): read as strict" in reading.sentence
 
 
 # --- the reading is held to the text (FIX-9) --------------------------------------------------------------

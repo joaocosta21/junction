@@ -6,71 +6,78 @@ and read nothing else. Deterministic: no model, no network.
 - Lines are split on "and" ("ja", "och"), commas, semicolons, sentence ends and new lines. A part with a quantity
   is a line; any other part speaks for the whole request ("no milk", "by Monday").
 - A quantity is digits followed by a unit word of the text check (`tta.agent.textcheck`): "1,000", "1 000", "1000",
-  "1.5", "1,5". Groups of three digits after a separator are thousands. A quantity is never guessed: a part that
-  names a product with no digits and unit, or a line with a second number, is not read.
+  "1.5", "1,5", read by `tta.agent.quantity`. A quantity is never guessed: a part that names a product with no
+  digits and unit, and a number anywhere that is not a quantity, a date or a product number, is not read.
 - The product is a key of the product-type table ("plant_drink" as "plant drink") or one of its name terms
   ("drink", "juoma"), in English, Finnish or Swedish where the table has them (`catalog/product_types.yaml`): the
-  word itself, its plural, or the start of a word for a term of five letters or more. A type whose exclude term
-  the line holds is not named ("sour milk" is not milk); one named inside a longer one is the longer ("beef
-  chuck"). Two types left: not read. The one word right before the type narrows it ("oat drink"). A 6-digit
-  product number names a product too.
+  word itself, its plural, or, for a term of five letters or more, the term with an ending ("juomaa", "drinks";
+  never "buttermilk" for butter). A type whose exclude term the line holds is not named ("sour milk" is not
+  milk); one named inside a longer one is the longer ("beef chuck", "coffee milk"). Two types left: not read.
+  The one word right before the type narrows it ("oat drink"); a word right after it that the rules do not know
+  is asked about ("milk chocolate"). A 6-digit product number names a product too.
 - Claims, certificate labels, preferences and strictness are the words of `tta.agent.wording`; exclusions, confirmed
   data and product numbers those of the text check; days those of `tta.agent.days`. A claim or a label said in a
   line is that line's, said elsewhere every line's. Every exclusion is every line's, as the text check holds it.
-  An exclusion with no strictness word stays without one: the parser asks for it, as it does for a model.
+  An exclusion with no strictness word stays without one: the parser reads it as strict when the profile sets no
+  rule either, and says so, as it does for a model.
 - Not read: a substitute ("a milk substitute"), an exclusion of something the allergen table lacks ("no sugar"),
-  two days, a day before today, two preferences, both "strict" and "declared only".
+  two days, a day before today, two preferences, both "strict" and "declared only", and every wording of
+  `tta.agent.asking` (a negation, a deadline in days or weeks, an allergen named outside an exclusion, a case,
+  a box or a portion).
 The answer has the model's shape, so the parser's text check and conversion run on it unchanged: `RuleModel`
-implements `AgentModel`. A text these rules cannot read is refused with `NotReadByRules`, which names what they
-could not read.
+implements `AgentModel`. A text these rules cannot read is refused with `NotReadByRules` (`tta.agent.unread`),
+which names what they could not read and carries the question to ask the person: nothing is half-read.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
 
-from tta.agent.days import date_spans, named_dates
+from tta.agent.asking import (
+    refuse_a_changed_amount,
+    refuse_a_pack_of_unknown_size,
+    refuse_an_allergen_left_unsaid,
+    refuse_an_unread_deadline,
+    refuse_negations,
+    unknown_product_word,
+)
+from tta.agent.days import named_dates
+from tta.agent.parts import NOT_A_TERM, Part, Text, part_of, with_lone_product_numbers
+from tta.agent.quantity import quantity
 from tta.agent.textcheck import (
     CONFIRMED,
-    DIGIT_RUN,
-    SEPARATOR,
-    WORD,
-    all_thousands,
     exclusion_triggers,
     exclusions,
-    id_tokens,
     unit_of,
 )
+from tta.agent.typenames import TypeNames, type_names, types_named
+from tta.agent.unread import RULES_CANNOT_READ, NotReadByRules
 from tta.agent.wording import SUBSTITUTE, Span, claims_in, labels_in, preferences_in, strictness_in
-from tta.catalog import ProductType
 from tta.contracts.common import JsonDict, Unit
-from tta.contracts.errors import SupplierUnavailable
-from tta.contracts.request import MAX_QUANTITY, MAX_QUANTITY_DECIMALS, MAX_REQUEST_LINES
+from tta.contracts.request import MAX_REQUEST_LINES
 
-LONG_TERM = 5  # a term this long also names a word it starts ("juomaa", "drinks"); a shorter one only itself
+__all__ = ["RULES_CANNOT_READ", "NotReadByRules", "RuleReader", "TypeNames", "type_names"]
+
 MIN_NARROWING_LETTERS = 3
-ONE_SEPARATOR_GROUPS = 2  # "1.5": the digits on either side of one separator
-PRODUCT_ID = re.compile(r"\d{6}")  # a Valio product number has six digits (AIMO/FINDINGS.md section 2)
-_BREAK = re.compile(r"[;\n!?]|,(?!\d)|(?<!\d),|\.(?=\s|$)|\b(?:and|ja|och)\b")
-_NOT_A_TERM = frozenset({
-    "a", "an", "the", "of", "some", "any", "our", "your", "my", "for", "by", "on", "to", "in", "at", "with", "need",
-    "needs", "want", "please", "order", "send", "get", "buy", "deliver", "delivered", "also", "more", "extra",
-    "next", "this", "that", "these", "those", "total", "about", "approx", "around", "only", "data", "stock",
-})
 _ALLOWED_AFTER_NO = frozenset({"later"})  # "no later than Monday" names a day, not an exclusion
+# Words that may stand right after the product type without naming another product ("milk for baking", "milk
+# delivered Monday"). Any other word there that says nothing the rules read is asked about ("milk chocolate").
+_MAY_FOLLOW = NOT_A_TERM | frozenset({
+    "is", "are", "must", "should", "shall", "may", "can", "cannot", "not", "no", "without", "free", "which", "that",
+    "if", "as", "from", "per", "each", "every", "before", "until", "till", "than", "later", "latest", "delivery",
+    "needed", "required", "arriving", "we", "i", "it", "they", "nothing", "t", "or", "x", "today", "now", "product",
+})
+
 
 NOTHING_TO_READ = "it gives no quantity in digits with a unit, such as 200 litres"
 NO_QUANTITY_FOR = "{what} is named with no quantity in digits and unit"
 NO_PRODUCT = "line {line} names no product type of the table and no 6-digit product number"
 TWO_TYPES = "line {line} names more than one product type ({types})"
 TWO_QUANTITIES = "line {line} gives more than one quantity; separate lines with and, a comma or a semicolon"
-ANOTHER_NUMBER = "line {line} gives a number besides its quantity"
-UNREADABLE_NUMBER = "line {line} gives a quantity that is not read as one number ({run})"
-OUT_OF_RANGE = "line {line} asks for a quantity above zero, at most {most:,} with at most {places} decimals"
+ANOTHER_NUMBER = "line {line} gives a number besides its quantity ({number})"
+A_NUMBER_ALONE = 'it gives a number that is not a quantity with a unit ("{number}")'
 TOO_MANY_LINES = "it asks for more than {most} lines"
 A_SUBSTITUTE = "it asks for a substitute, which only a model reads"
 UNREAD_EXCLUSION = 'it excludes something the allergen table does not name ("{words}")'
@@ -78,110 +85,42 @@ TWO_DAYS = "it names more than one day"
 PAST_DAY = "it names a day before today"
 TWO_PREFERENCES = "it names more than one preference ({names})"
 TWO_STRICTNESSES = "it says both strict and declared only"
-RULES_CANNOT_READ = "The fixed rules cannot read this text: {why}."
 
-
-class NotReadByRules(SupplierUnavailable):
-    """The rules cannot read the text. `why` names what they could not read, for the sentence of the fallback."""
-
-    def __init__(self, why: str) -> None:
-        super().__init__(RULES_CANNOT_READ.format(why=why))
-        self.why = why
-
-
-@dataclass(frozen=True)
-class TypeNames:
-    """How a buyer's words name one product type: its key and name terms, and the terms that rule it out."""
-
-    key: str
-    names: tuple[tuple[str, ...], ...]
-    excluded: tuple[tuple[str, ...], ...]
-
-
-def _phrase(term: str) -> tuple[str, ...]:
-    return tuple(WORD.findall(term.casefold()))
-
-
-def type_names(product_types: Mapping[str, ProductType], keys: Sequence[str]) -> tuple[TypeNames, ...]:
-    """The words of the table's types for these keys; a key the table does not hold has none."""
-    return tuple(
-        TypeNames(
-            key=key,
-            names=(_phrase(key.replace("_", " ")), *(_phrase(term) for term in entry.name_terms)),
-            excluded=tuple(_phrase(term) for term in entry.exclude_terms),
-        )
-        for key in keys
-        if (entry := product_types.get(key)) is not None
-    )
-
-
-@dataclass(frozen=True)
-class _Text:
-    """One buyer's text as the rules see it: casefolded, its words with where they start, its parts."""
-
-    folded: str
-    words: tuple[str, ...]
-    starts: tuple[int, ...]
-    parts: tuple[Span, ...]
-    today: date
-
-    @classmethod
-    def of(cls, text: str, today: date) -> _Text:
-        folded = text.casefold()
-        found = list(WORD.finditer(folded))
-        cuts = [0, *(position for match in _BREAK.finditer(folded) for position in match.span()), len(folded)]
-        parts = tuple((start, end) for start, end in zip(cuts[::2], cuts[1::2], strict=True) if start < end)
-        return cls(folded, tuple(match.group() for match in found), tuple(match.start() for match in found),
-                   parts, today)
-
-    def indices_in(self, span: Span) -> tuple[int, ...]:
-        return tuple(index for index, start in enumerate(self.starts) if span[0] <= start < span[1])
-
-
-@dataclass(frozen=True)
-class _Part:
-    """One part of the text: a line when it gives a quantity."""
-
-    span: Span
-    indices: tuple[int, ...]  # the indices of its words
-    quantity: tuple[str, Unit] | None  # the digits and the unit
-    product_ids: tuple[str, ...]
-    other_numbers: tuple[str, ...]
-    quantities: int
-
-
-def _names(word: str, term: str) -> bool:
-    if word in (term, f"{term}s", f"{term}es") or term == f"{word}s":
-        return True
-    return len(term) >= LONG_TERM and word.startswith(term)
-
-
-def _phrase_at(words: Sequence[tuple[int, str]], phrase: tuple[str, ...]) -> frozenset[int]:
-    """The indices of every place the phrase stands, its words next to each other."""
-    found: set[int] = set()
-    for at in range(len(words) - len(phrase) + 1):
-        window = words[at:at + len(phrase)]
-        next_to_each_other = window[-1][0] - window[0][0] == len(phrase) - 1
-        if next_to_each_other and all(_names(word, term) for (_, word), term in zip(window, phrase, strict=True)):
-            found.update(index for index, _ in window)
-    return frozenset(found)
-
-
-def _types_named(words: Sequence[tuple[int, str]], table: Sequence[TypeNames]) -> dict[str, frozenset[int]]:
-    """Each type the words name, with the indices of the words that name it."""
-    named: dict[str, frozenset[int]] = {}
-    for entry in table:
-        covered = frozenset().union(*(_phrase_at(words, phrase) for phrase in entry.names if phrase))
-        if covered and not any(_phrase_at(words, phrase) for phrase in entry.excluded if phrase):
-            named[entry.key] = covered
-    return {key: covered for key, covered in named.items() if not any(covered < other for other in named.values())}
+# The question that goes with each refusal: what the person is asked instead of a guess.
+ASK_HOW_MUCH_OF_WHAT = "How much is needed, and of what? For example: 200 litres of oat drink by Monday."
+ASK_HOW_MUCH = (
+    "What quantity of {what} is needed? Write the number in digits with litres, kilograms or packs, for example 200 "
+    "litres."
+)
+ASK_WHICH_PRODUCT = (
+    "Which product is needed on line {line}? Name a product type the gateway knows, such as milk, cream or oat "
+    "drink, or give the 6-digit product number."
+)
+ASK_ONE_PRODUCT = "Which one is needed on line {line}? For both, write each product with its own quantity."
+ASK_COFFEE_MILK = 'Is it milk for coffee? Then write "coffee milk". For both, write each with its own quantity.'
+ASK_EACH_QUANTITY = "Which quantity belongs to which product? Write each product with its own quantity and unit."
+ASK_WHAT_NUMBER = (
+    "What does {number} stand for? Write each quantity with its unit, for example 200 litres, and leave other "
+    "numbers out."
+)
+ASK_FEWER_LINES = "Which {most} lines come first? Send the others as another request."
+ASK_WHICH_INSTEAD = "Which product should be offered instead? Name it, for example oat drink or soya drink."
+ASK_WHAT_TO_EXCLUDE = (
+    'What must be left out? The rules read allergens by their common names, for example "no milk", "no gluten", '
+    '"no nuts", "no soy".'
+)
+ASK_ONE_DAY = "By which one day are the goods needed?"
+ASK_A_COMING_DAY = "By which day are the goods needed? Name today or a later day."
+ASK_ONE_PREFERENCE = "Which one matters most?"
+ASK_ONE_STRICTNESS = "Which allergen rule applies: strict, or declared only?"
+COFFEE_AND_MILK = frozenset({"coffee", "milk"})
 
 
 @dataclass(frozen=True)
 class _Context:
     """What every line of one text shares."""
 
-    seen: _Text
+    seen: Text
     excluding: frozenset[int]  # the words that say an exclusion
     used: frozenset[int]  # the words that already say something (`_used`)
     shared: tuple[Span, ...]  # the parts that speak for every line
@@ -196,54 +135,79 @@ class RuleReader:
         self._table = tuple(table)
 
     def proposal(self, text: str, today: date) -> JsonDict:
-        seen = _Text.of(text, today)
+        seen = Text.of(text, today)
         excluded, excluding = exclusions(seen.words)
         _refuse_what_is_not_read(seen, excluding)
-        parts = [_part(seen, span) for span in seen.parts]
+        parts = with_lone_product_numbers(seen, [part_of(seen, span) for span in seen.parts])
         for part in parts:
             if part.quantity is None:
                 self._refuse_a_product_without_quantity(seen, part, excluding)
         lines = [part for part in parts if part.quantity is not None]
         if not lines:
-            raise NotReadByRules(NOTHING_TO_READ)
+            raise NotReadByRules(NOTHING_TO_READ, ASK_HOW_MUCH_OF_WHAT)
         if len(lines) > MAX_REQUEST_LINES:
-            raise NotReadByRules(TOO_MANY_LINES.format(most=MAX_REQUEST_LINES))
+            raise NotReadByRules(TOO_MANY_LINES.format(most=MAX_REQUEST_LINES),
+                                 ASK_FEWER_LINES.format(most=MAX_REQUEST_LINES))
         context = _Context(
             seen=seen, excluding=excluding, used=_used(seen, excluding),
             shared=tuple(part.span for part in parts if part.quantity is None), excluded=tuple(sorted(excluded)),
             strictness=next((strictness.value for strictness, _ in strictness_in(seen.folded)), None),
         )
-        return {**_request_facts(seen), "lines": [self._line(context, number, line)
-                                                  for number, line in enumerate(lines, start=1)]}
+        read = [self._line(context, number, line) for number, line in enumerate(lines, start=1)]
+        rule_words = {index for _, span in strictness_in(seen.folded) for index in seen.indices_in(span)}
+        refuse_an_allergen_left_unsaid(  # "declared allergens only" says the rule, not an allergen
+            seen.asked(excluding), self._product_words(seen, lines, excluding) | rule_words
+        )
+        return {**_request_facts(seen), "lines": read}
 
-    def _named(self, seen: _Text, part: _Part, excluding: frozenset[int]) -> dict[str, frozenset[int]]:
+    def _named(self, seen: Text, part: Part, excluding: frozenset[int]) -> dict[str, frozenset[int]]:
         """The types the part names, leaving out the words of an exclusion: "no milk" names no milk."""
-        return _types_named([(index, seen.words[index]) for index in part.indices if index not in excluding],
+        return types_named([(index, seen.words[index]) for index in part.indices if index not in excluding],
                             self._table)
 
-    def _refuse_a_product_without_quantity(self, seen: _Text, part: _Part, excluding: frozenset[int]) -> None:
+    def _refuse_a_product_without_quantity(self, seen: Text, part: Part, excluding: frozenset[int]) -> None:
         what = next(iter(sorted(self._named(seen, part, excluding))), None) or next(iter(part.product_ids), None)
         if what is not None:
-            raise NotReadByRules(NO_QUANTITY_FOR.format(what=what.replace("_", " ")))
+            name = what.replace("_", " ")
+            raise NotReadByRules(NO_QUANTITY_FOR.format(what=name), ASK_HOW_MUCH.format(what=name))
+        if part.other_numbers:  # "200 of them", "Ward 4": a number in a part that gives no quantity
+            number = part.other_numbers[0]
+            raise NotReadByRules(A_NUMBER_ALONE.format(number=number), ASK_WHAT_NUMBER.format(number=number))
 
-    def _line(self, context: _Context, number: int, part: _Part) -> JsonDict:
+    def _product_words(self, seen: Text, lines: Sequence[Part], excluding: frozenset[int]) -> frozenset[int]:
+        """The words that name a line's product: its type's own words and the one word that narrows it."""
+        words: set[int] = set()
+        for part in lines:
+            for covered in self._named(seen, part, excluding).values():
+                words |= covered | {min(covered) - 1}
+        return frozenset(words)
+
+    def _line(self, context: _Context, number: int, part: Part) -> JsonDict:
         if part.quantities > 1:
-            raise NotReadByRules(TWO_QUANTITIES.format(line=number))
+            raise NotReadByRules(TWO_QUANTITIES.format(line=number), ASK_EACH_QUANTITY)
         if part.other_numbers:
-            raise NotReadByRules(ANOTHER_NUMBER.format(line=number))
+            other = part.other_numbers[0]
+            raise NotReadByRules(ANOTHER_NUMBER.format(line=number, number=other),
+                                 ASK_WHAT_NUMBER.format(number=other))
         named = self._named(context.seen, part, context.excluding)
         if len(named) > 1:
-            raise NotReadByRules(TWO_TYPES.format(line=number, types=", ".join(sorted(named))))
+            ask = ASK_COFFEE_MILK if set(named) == COFFEE_AND_MILK else ASK_ONE_PRODUCT.format(line=number)
+            raise NotReadByRules(TWO_TYPES.format(line=number, types=", ".join(sorted(named))), ask)
         if not named and not part.product_ids:
-            raise NotReadByRules(NO_PRODUCT.format(line=number))
+            raise NotReadByRules(NO_PRODUCT.format(line=number), ASK_WHICH_PRODUCT.format(line=number))
         key, covered = next(iter(named.items()), (None, frozenset[int]()))
         digits, unit = part.quantity or ("", Unit.UNIT)
+        refuse_a_pack_of_unknown_size(number, digits, part.unit_word, numbered=bool(part.product_ids))
+        _refuse_an_unknown_word_after(context, number, part, covered)
         folded = context.seen.folded
         return {
             "product_type": key, "product_ids": list(part.product_ids),
-            "name_terms": _narrowing(context.seen, part, min(covered, default=None), context.used | covered),
+            # A product number names the product exactly: no word narrows it further.
+            "name_terms": [] if part.product_ids else _narrowing(
+                context.seen, part, min(covered, default=None), context.used | covered
+            ),
             "required_claims": _said_for(claims_in(folded), part.span, context.shared),
-            "quantity": str(_quantity(digits, number)), "unit": unit.value,
+            "quantity": str(quantity(digits, number)), "unit": unit.value,
             "exclude_allergens": list(context.excluded), "allergen_strictness": context.strictness, "pack": None,
             "required_labels": _said_for(labels_in(folded), part.span, context.shared),
         }
@@ -259,28 +223,46 @@ def _said_for(found: Sequence[tuple[str, Span]], line: Span, shared: Sequence[Sp
     return list(dict.fromkeys(codes))
 
 
-def _refuse_what_is_not_read(seen: _Text, excluding: frozenset[int]) -> None:
+def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int]) -> None:
     if SUBSTITUTE.search(seen.folded):
-        raise NotReadByRules(A_SUBSTITUTE)
+        raise NotReadByRules(A_SUBSTITUTE, ASK_WHICH_INSTEAD)
+    asked = seen.asked(excluding)
+    refuse_negations(asked)
+    refuse_an_unread_deadline(asked)
+    refuse_a_changed_amount(asked)
     claimed = {index for _, span in claims_in(seen.folded) for index in seen.indices_in(span)}
     for index in sorted(exclusion_triggers(seen.words) - excluding - claimed):
         following = seen.words[index + 1] if index + 1 < len(seen.words) else ""
         if following not in _ALLOWED_AFTER_NO:
             said = " ".join(seen.words[max(index - 1, 0):index + 2])
-            raise NotReadByRules(UNREAD_EXCLUSION.format(words=said))
+            raise NotReadByRules(UNREAD_EXCLUSION.format(words=said), ASK_WHAT_TO_EXCLUDE)
     days = named_dates(seen.folded, seen.today)
     if len(days) > 1:
-        raise NotReadByRules(TWO_DAYS)
+        raise NotReadByRules(TWO_DAYS, ASK_ONE_DAY)
     if days and days[0] < seen.today:
-        raise NotReadByRules(PAST_DAY)
+        raise NotReadByRules(PAST_DAY, ASK_A_COMING_DAY)
     preferences = {preference for preference, _ in preferences_in(seen.folded)}
     if len(preferences) > 1:
-        raise NotReadByRules(TWO_PREFERENCES.format(names=", ".join(sorted(preferences))))
+        raise NotReadByRules(TWO_PREFERENCES.format(names=", ".join(sorted(preferences))), ASK_ONE_PREFERENCE)
     if len({strictness for strictness, _ in strictness_in(seen.folded)}) > 1:
-        raise NotReadByRules(TWO_STRICTNESSES)
+        raise NotReadByRules(TWO_STRICTNESSES, ASK_ONE_STRICTNESS)
 
 
-def _used(seen: _Text, excluding: frozenset[int]) -> frozenset[int]:
+def _refuse_an_unknown_word_after(context: _Context, number: int, part: Part, covered: frozenset[int]) -> None:
+    """"Milk chocolate": the word right after the type's own words, when it says nothing the rules read."""
+    seen = context.seen
+    after = max(covered, default=-1) + 1
+    if not covered or after not in part.indices or after in context.used:
+        return
+    last_end = seen.starts[after - 1] + len(seen.words[after - 1])
+    word = seen.words[after]
+    if word in _MAY_FOLLOW or seen.folded[last_end:seen.starts[after]].strip(" -"):
+        return  # a plain word, or digits or a sign in between: not one product name
+    known = " ".join(seen.words[index] for index in sorted(covered))
+    raise unknown_product_word(number, known, word)
+
+
+def _used(seen: Text, excluding: frozenset[int]) -> frozenset[int]:
     """The words that already say something: none of them narrows a product type."""
     spans = [span for found in (claims_in, labels_in, preferences_in, strictness_in) for _, span in found(seen.folded)]
     spans += [match.span() for match in CONFIRMED.finditer(seen.folded)]
@@ -290,7 +272,7 @@ def _used(seen: _Text, excluding: frozenset[int]) -> frozenset[int]:
     return frozenset(said | dated | units | excluding)
 
 
-def _request_facts(seen: _Text) -> JsonDict:
+def _request_facts(seen: Text) -> JsonDict:
     days = named_dates(seen.folded, seen.today)
     preference = next((preference.value for preference, _ in preferences_in(seen.folded)), None)
     return {
@@ -300,56 +282,11 @@ def _request_facts(seen: _Text) -> JsonDict:
     }
 
 
-def _narrowing(seen: _Text, part: _Part, first: int | None, used: frozenset[int]) -> list[str]:
+def _narrowing(seen: Text, part: Part, first: int | None, used: frozenset[int]) -> list[str]:
     """The one word right before the type's own words, when it says nothing else: "oat" of "oat drink"."""
     if first is None or first - 1 not in part.indices or first - 1 in used:
         return []
     word = seen.words[first - 1]
-    return [] if len(word) < MIN_NARROWING_LETTERS or word in _NOT_A_TERM else [word]
+    return [] if len(word) < MIN_NARROWING_LETTERS or word in NOT_A_TERM else [word]
 
 
-def _part(seen: _Text, span: Span) -> _Part:
-    """A part's numbers: the quantity (digits followed by a unit word), product numbers and any other number."""
-    in_dates = date_spans(seen.folded)
-    tokens = id_tokens(seen.folded)
-    pairs: list[tuple[str, Unit]] = []
-    product_ids: list[str] = []
-    others: list[str] = []
-    for match in DIGIT_RUN.finditer(seen.folded, span[0], span[1]):
-        if any(start <= match.start() < end for start, end in in_dates):
-            continue
-        unit = _unit_after(seen, match.end(), span)
-        if unit is not None:
-            pairs.append((match.group(), unit))
-        elif PRODUCT_ID.fullmatch(match.group()) and match.group() in tokens:
-            product_ids.append(match.group())
-        else:
-            others.append(match.group())
-    return _Part(span=span, indices=seen.indices_in(span), quantity=pairs[0] if pairs else None,
-                 product_ids=tuple(dict.fromkeys(product_ids)), other_numbers=tuple(others), quantities=len(pairs))
-
-
-def _unit_after(seen: _Text, end: int, span: Span) -> Unit | None:
-    """The unit the word right after the digits names ("200 litres", "200l"), or `None`."""
-    index = next((index for index, start in enumerate(seen.starts) if start >= end), None)
-    if index is None or seen.starts[index] >= span[1] or seen.folded[end:seen.starts[index]].strip():
-        return None
-    return unit_of(seen.words[index])
-
-
-def _quantity(digits: str, line: int) -> Decimal:
-    """The number the digits give: thousands grouped by a separator and three digits, or one decimal separator."""
-    groups, separators = SEPARATOR.split(digits), SEPARATOR.findall(digits)
-    if not separators:
-        value = Decimal(digits)
-    elif all_thousands(groups):
-        value = Decimal("".join(groups))
-    elif separators[-1] in ".," and (len(groups) == ONE_SEPARATOR_GROUPS or all_thousands(groups[:-1])):
-        value = Decimal(f"{''.join(groups[:-1])}.{groups[-1]}")
-    else:
-        raise NotReadByRules(UNREADABLE_NUMBER.format(line=line, run=digits))
-    exponent = value.as_tuple().exponent
-    places = -exponent if isinstance(exponent, int) and exponent < 0 else 0
-    if not Decimal(0) < value <= MAX_QUANTITY or places > MAX_QUANTITY_DECIMALS:
-        raise NotReadByRules(OUT_OF_RANGE.format(line=line, most=MAX_QUANTITY, places=MAX_QUANTITY_DECIMALS))
-    return value

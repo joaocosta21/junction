@@ -2,8 +2,13 @@
 
 Scores on the 20% "how precisely the agent matches what the buyer actually asked for". The model's answer
 is a proposal held to a JSON Schema; this module validates it and turns it into the contract model.
-What the text does not say (a quantity, a unit, how strict an allergen exclusion is) is reported as
-`invalid-request` and never filled in. An answer that does not validate is asked for once more, then refused.
+What the text does not say (a quantity, a unit) is reported as `invalid-request` and never filled in. An answer
+that does not validate is asked for once more, then refused.
+
+An exclusion with no allergen rule at all (none in the text, none in the buyer's profile) is read as STRICT, and
+the reading's sentence says so (replan P4 M3, decided 14 Nov 2026; it used to be a 422). STRICT is the safe
+reading: it can only send more products to a person, never fewer. Valio Aimo, 14 Nov 2026: when the data leaves a
+doubt, the safe product wins.
 
 The answer is also held to the text itself, without a model (`tta.agent.textcheck`, task FIX-9): each quantity
 must be a number the text gives, each unit one it names, `needed_by` the date the calendar rule gives for the
@@ -52,10 +57,10 @@ NOTHING_TO_ORDER = (
 NO_PRODUCT = "Line {line} does not say which product is needed."
 NO_QUANTITY = "Line {line} does not say how much is needed: the quantity is missing. A quantity is never guessed."
 NO_UNIT = "Line {line} gives a quantity with no unit. Say litres, kilograms or sales units."
-NO_STRICTNESS = (
-    "Line {line} excludes {allergens} and does not say how strictly, and {profile} sets no allergen "
-    "strictness. Say STRICT (a product with no allergen statement goes to a human) or DECLARED_ONLY (it "
-    "passes, shown as unverified). The strictness is never guessed."
+SAFE_READING = "No allergen rule was given"  # how the sentence below starts: the fallback keeps it
+STRICT_ASSUMED = (
+    SAFE_READING + " for {allergens}: read as strict, the safe reading. A product with no allergen statement "
+    "goes to a person."
 )
 NOT_READ = (
     "The request could not be read into a typed request: after {answers} answers of the model, {faults}. "
@@ -106,6 +111,14 @@ class RequestProposal(_Proposal):
     require_confirmed: bool
     lines: tuple[LineProposal, ...]
     prefer: Preference | None = None
+
+
+@dataclass(frozen=True)
+class _Read:
+    """A request read from one answer, and the allergens whose rule was read as STRICT because none was given."""
+
+    request: PurchaseRequest
+    read_as_strict: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -194,9 +207,7 @@ def _faults(proposal: RequestProposal, facts: TextFacts, today: date, keys: Sequ
     return (*_request_faults(proposal, facts, today), *lines)
 
 
-def _line_missing(
-    index: int, line: LineProposal, facts: TextFacts, profile_name: str, profile_strictness: AllergenStrictness | None
-) -> list[Missing]:
+def _line_missing(index: int, line: LineProposal, facts: TextFacts) -> list[Missing]:
     at, number = f"lines[{index}]", index + 1
     missing = []
     if line.product_type is None and not line.product_ids and not line.name_terms:
@@ -205,11 +216,31 @@ def _line_missing(
         missing.append(Missing(f"{at}.quantity", NO_QUANTITY.format(line=number)))
     elif line.unit is None or not facts.units:
         missing.append(Missing(f"{at}.unit", NO_UNIT.format(line=number)))
-    if line.exclude_allergens and line.allergen_strictness is None and profile_strictness is None:
-        allergens = ", ".join(describe(normalise_code(code)) for code in line.exclude_allergens)
-        sentence = NO_STRICTNESS.format(line=number, allergens=allergens, profile=profile_name)
-        missing.append(Missing(f"{at}.allergen_strictness", sentence))
     return missing
+
+
+def _has_no_rule(line: LineProposal, profile_strictness: AllergenStrictness | None) -> bool:
+    return bool(line.exclude_allergens) and line.allergen_strictness is None and profile_strictness is None
+
+
+def _safely_strict(
+    proposal: RequestProposal, profile_strictness: AllergenStrictness | None
+) -> tuple[RequestProposal, tuple[str, ...]]:
+    """The proposal with STRICT on every line that excludes an allergen under no rule at all, and those allergens'
+    codes, each once."""
+    lines = tuple(
+        line.model_copy(update={"allergen_strictness": AllergenStrictness.STRICT})
+        if _has_no_rule(line, profile_strictness) else line
+        for line in proposal.lines
+    )
+    codes = [normalise_code(code) for line in proposal.lines if _has_no_rule(line, profile_strictness)
+             for code in line.exclude_allergens]
+    return proposal.model_copy(update={"lines": lines}), tuple(dict.fromkeys(codes))
+
+
+def strict_assumed(codes: Sequence[str]) -> str:
+    """"No allergen rule was given for cereals containing gluten (AW): read as strict, the safe reading. …"."""
+    return STRICT_ASSUMED.format(allergens=", ".join(describe(code) for code in codes))
 
 
 def _typed(proposal: RequestProposal, text: str) -> PurchaseRequest | tuple[Fault, ...]:
@@ -267,11 +298,14 @@ class ModelRequestParser:
         if len(words) > MAX_TEXT_LENGTH:
             raise InvalidRequest(TEXT_TOO_LONG.format(limit=MAX_TEXT_LENGTH))
         today = helsinki_date(self._clock.now())  # "by Monday" is resolved against the data clock's day
-        request = self._ask(words, today, identity)
+        read = self._ask(words, today, identity)
         answer = self._model.answer_source(words)
+        sentence = reading_sentence(answer)
+        if read.read_as_strict:
+            sentence = f"{sentence} {strict_assumed(read.read_as_strict)}"
         return Reading(
-            request=request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
-            sentence=reading_sentence(answer),
+            request=read.request, source=answer.source, model=answer.model, recorded_at=answer.recorded_at,
+            sentence=sentence,
         )
 
     def read_image(self, image: bytes, media_type: str, identity: Identity) -> tuple[list[str], Reading]:
@@ -279,7 +313,7 @@ class ModelRequestParser:
         `media_type` is what the sender declared; it is not trusted: the image's first bytes decide."""
         return read_photo(model=self._model, image=image, identity=identity, read=self.read)
 
-    def _ask(self, words: str, today: date, identity: Identity) -> PurchaseRequest:
+    def _ask(self, words: str, today: date, identity: Identity) -> _Read:
         call = ExtractCall(
             system=parser_instruction(today, self._keys), text=words, schema=self._schema,
             profile_id=identity.profile_id, today=today,
@@ -288,7 +322,7 @@ class ModelRequestParser:
         faults: tuple[Fault, ...] = ()
         for answer_number in range(1, MAX_ANSWERS + 1):
             read = self._read(self._model.extract(call), words, facts, today, identity)
-            if isinstance(read, PurchaseRequest):
+            if isinstance(read, _Read):
                 return read
             faults = read
             logger.info("Answer %d of the model did not validate: %s", answer_number, "; ".join(map(str, faults)))
@@ -299,7 +333,7 @@ class ModelRequestParser:
 
     def _read(
         self, answer: str, text: str, facts: TextFacts, today: date, identity: Identity
-    ) -> PurchaseRequest | tuple[Fault, ...]:
+    ) -> _Read | tuple[Fault, ...]:
         """The typed request, or the faults of this answer. Raises `InvalidRequest` for what the text lacks."""
         proposal = _proposal(answer)
         if not isinstance(proposal, RequestProposal):
@@ -307,20 +341,17 @@ class ModelRequestParser:
         faults = _faults(proposal, facts, today, self._keys)
         if faults:
             return faults
-        self._refuse_what_is_missing(proposal, facts, identity)
-        return _typed(proposal, text)
-
-    def _refuse_what_is_missing(self, proposal: RequestProposal, facts: TextFacts, identity: Identity) -> None:
-        if not proposal.lines:
-            raise InvalidRequest(NOTHING_TO_ORDER, missing=["lines"])
+        self._refuse_what_is_missing(proposal, facts)
         profile_id = identity.profile_id
         strictness = self._profile_strictness(profile_id) if profile_id is not None else None
-        profile_name = f"profile {profile_id}" if profile_id is not None else "the caller"
-        missing = [
-            item
-            for index, line in enumerate(proposal.lines)
-            for item in _line_missing(index, line, facts, profile_name, strictness)
-        ]
+        proposal, read_as_strict = _safely_strict(proposal, strictness)
+        typed = _typed(proposal, text)
+        return _Read(typed, read_as_strict) if isinstance(typed, PurchaseRequest) else typed
+
+    def _refuse_what_is_missing(self, proposal: RequestProposal, facts: TextFacts) -> None:
+        if not proposal.lines:
+            raise InvalidRequest(NOTHING_TO_ORDER, missing=["lines"])
+        missing = [item for index, line in enumerate(proposal.lines) for item in _line_missing(index, line, facts)]
         if missing:
             raise InvalidRequest(
                 " ".join(item.sentence for item in missing), missing=[item.path for item in missing]

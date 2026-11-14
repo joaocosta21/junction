@@ -76,8 +76,9 @@ def test_the_gateway_reads_a_pasted_sentence_with_the_recorded_parser(
     assert (request.lines[0].product_type, request.lines[0].quantity) == ("milk", Decimal(1000))
     with pytest.raises(InvalidRequest):
         parts.service.parse_request(agent_hotel, texts["no_quantity"])
-    with pytest.raises(SupplierUnavailable):
+    with pytest.raises(InvalidRequest) as asked:  # with no model, an unread text is a question (replan A2b M1)
         parts.service.parse_request(agent_hotel, "a sentence nobody recorded")
+    assert not isinstance(asked.value, SupplierUnavailable) and "How much is needed" in asked.value.detail
 
 
 def test_a_run_through_the_gateway_orders_and_records_the_pasted_text_once(

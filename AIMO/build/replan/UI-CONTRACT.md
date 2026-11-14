@@ -83,6 +83,17 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 - Facts a page may show for Valio: `facts.decision.rules[] {rule_id, title, fixed, verdict, approver_role, product_id}`, `facts.decision.required_roles`, `facts.offer.left_out[] {product_id, name, request_line_index, reason}`, `facts.offer.excluded_by_reason`.
 - A total with a product sold by weight, both readers: "for about €506.40 net (an estimate: sold by weight, Valio Aimo invoices the weight delivered)".
 
+### L1 — the reader
+| Field or sentence | Example request | What a person reads |
+|---|---|---|
+| 422 `question` (the question alone) | `Ward 4 200 litres of milk` | "Is the quantity 4,200, or 200? Write it without a space, for example 4200." |
+| 422 `not_read` | `100 litres of milk, not lactose-free` | it says "not lactose-free", and the rules cannot tell whether "lactose-free" is wanted or not |
+| 422 `detail` | `5 dl of cream` | "The fixed rules did not read this request, and nothing was guessed: it gives a quantity in "dl" … "5 dl" is 0.5 litres. Is that the quantity? Then write "0.5 litres"." |
+| 422 `read_by` | | `rule-based` |
+| `question` for a case | `10 cases of oat drink by Monday` | "How many litres, kilograms or single packs is that? Write the quantity in one of those units, or name the product by its 6-digit number." |
+| `question` for milk for coffee | `200 litres of milk for coffee` | 'Is it milk for coffee? Then write "coffee milk". For both, write each with its own quantity.' |
+| `Reading.sentence` when STRICT was assumed | `50 litres of gluten-free oat drink by Monday` | "… No allergen rule was given for cereals containing gluten (AW): read as strict, the safe reading. A product with no allergen statement goes to a person." |
+
 ## Changed under the interface (only figures, status words or field names; filled in by the build session)
 
 | Task | File and line | Before → after | Why |
