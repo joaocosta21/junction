@@ -18,8 +18,8 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
 | T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
-| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | running | the human chose to build it (Saturday); starts after FIX-10 and the first deployment |
-| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | review | built and committed (90 tests, 17 of 60 requests); waits for wiring in `src/tta/api/wiring.py` and the deploy secret after S1 |
+| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | done | 110 tests against the real service; append-only audit guarded by triggers; buyer and supplier views; read-only supplier role; SQLite fallback. `/healthz` reason and a page notice left (routes.py, ui) |
+| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | done | wired by the orchestrator (f3286e1): shared book and every sandbox; recordings answer without a key |
 | T14 | Deployment on Modal | T13 | done | **deployed** https://joaocostared--trusted-trade-agents.us-east.modal.run; `deploy/check.py` all 7 checks passed; a redeploy at the end is approved |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
@@ -90,6 +90,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 10:13 S2 built and committed: Context.dev evidence on the dietitian's approval card (demo: `469512` Elovena oat drink, maker's page 'Maidoton'). Wiring and deploy secret to add after S1 finishes with `wiring.py`. T18 asked for a fourth example button for this moment. `AIMO/OPEN-QUESTIONS.md` committed (23 questions, 32 examples verified); `AIMO/BOOTH-NOW.md` for the booth.
 - 10:25 Use-case check report in `AIMO/USE-CASES.md`: our own scenarios all hold; Valio's six examples: allergen-safe substitution, stock-out, last-minute and recipe partly, proactive selling and standing-order drift not at all. Its top fixes started as FIX-12a and FIX-12b. Booth questions ALMOND-1 (`465793` declared free from tree nuts, ingredients say almond) and DATA-1 (the product file and the API) added.
 - 10:33 Walkthrough rewritten and committed (17 sections; 25 open questions with examples; decisions split into Valio's and the team's). The human has about 1h30 and 40% of the weekly limit: FEAT-1 (profile page) and DOCS-2 (documents) started on Opus.
+- 10:38 S1 done and committed (67f3b00). The orchestrator wired S2's evidence into every order book (f3286e1) and added `DATABASE_URL` and `CONTEXT_DEV_API_KEY` to the deploy secret and the evidence recordings to the image (cf6681f), both approved by the human. Left for after T18: S1's one-line `/healthz` reason in `routes.py`.
 
 ## Live API calls used
 10 of 150 from this machine (T00 capture 2, T01 live check 2, T13 live run 6); the deployed app has its own budget of 120 (about 4 used by the post-deploy check)
