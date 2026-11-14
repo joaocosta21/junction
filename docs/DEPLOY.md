@@ -120,7 +120,7 @@ If a check fails, read the logs with `.venv/bin/modal app logs trusted-trade-age
 - One container at most, scaled to zero after 10 idle minutes. No minimum container and no GPU.
 - Modal bills per second only while a container runs. CPU and memory are charged on whichever is higher, the request or the actual use (Modal docs, "Resources").
 - At the listed prices ($0.0000131 per physical core per second, $0.00000222 per GiB per second, Modal pricing page), one running hour of this container (1 core, 1 GiB) costs about $0.055. Each idle tail of 10 minutes costs about $0.01. The Starter plan includes $30 of credits a month.
-- The call budget caps calls to the Valio mock at 150 (`TTA_VALIO_CALL_BUDGET`, default). The count is kept on the Volume, so it holds across restarts and is separate from the count on a laptop. When fewer than 10 calls are left, the capture answers. Raising the budget means setting that variable in `IMAGE_ENV`, or deleting `valio_call_budget.json` from the Volume while no container runs.
+- The call budget caps calls to the Valio mock at 120 (`TTA_VALIO_CALL_BUDGET` in `IMAGE_ENV`: the human approved 150 for the overnight run and 10 were used before the deployment). The count is kept on the Volume, so it holds across restarts and is separate from the count on a laptop. When fewer than 10 calls are left, the capture answers. Raising the budget means setting that variable in `IMAGE_ENV`, or deleting `valio_call_budget.json` from the Volume while no container runs.
 - Calls to Gemini are limited by the gateway's own ceiling of 30 model calls a minute (FIX-8).
 
 ## Per-visitor rate limits behind Modal

@@ -91,6 +91,8 @@ PINNED = (
 )
 NOT_INSTALLED = ("modal", "uvicorn")
 
+DEPLOYED_CALL_BUDGET = 120
+
 IMAGE_ENV = {
     "PYTHONPATH": f"{APP_ROOT}/src",
     "TTA_ENV": "demo",
@@ -101,6 +103,9 @@ IMAGE_ENV = {
     "TTA_PRODUCT_FILE": f"{APP_ROOT}/{PRODUCT_FILE}",
     "TTA_RELIABILITY_FILE": f"{APP_ROOT}/{RELIABILITY_FILE}",
     "TTA_CARBON_FILE": f"{APP_ROOT}/{CARBON_FILE}",
+    # The human approved 150 calls to the Valio mock for the overnight run; 10 were used before the deployment.
+    # The deployed app may make at most this many, then answers from the recorded capture, labelled replay.
+    "TTA_VALIO_CALL_BUDGET": str(DEPLOYED_CALL_BUDGET),
 }
 
 SECRET_NAMES = ("VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY")

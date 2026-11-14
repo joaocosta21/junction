@@ -243,3 +243,8 @@ def test_every_library_the_package_declares_is_pinned(modal_app: ModuleType) -> 
 
     assert {_name(requirement) for requirement in declared} - set(modal_app.NOT_INSTALLED) <= pinned
     assert set(modal_app.NOT_INSTALLED) == {"modal", "uvicorn"}
+
+
+def test_the_deployed_app_spends_at_most_120_live_calls(modal_app: ModuleType) -> None:
+    assert modal_app.IMAGE_ENV["TTA_VALIO_CALL_BUDGET"] == "120"
+
