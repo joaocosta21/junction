@@ -18,11 +18,12 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | T11 | MCP surface | T09 | done | 54 tests, 100% coverage; scenario 2 runs over MCP; endpoint `/mcp/` |
 | T12 | Pages: demo, approvals, order and audit | T09 | done | 159 tests, 99% coverage; CSP, CSRF, escaping; page-by-page description in the hand-back |
 | T13 | Scenarios end to end, demo script | T09 T10 T12 | done | 16 e2e tests; live run 6 calls, identical to replay; `docs/DEMO.md` with a 90-second cut |
-| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30 (usage limit 05:40–07:40). Task file ready for the day |
-| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | blocked | skipped by the runbook rule: T13 was not green before 06:30. Task file ready for the day |
+| S1 | Stretch: Aiven PostgreSQL for orders and audit | T13 | todo | the human chose to build it (Saturday); starts after FIX-10 and the first deployment |
+| S2 | Stretch: web evidence for missing allergen data (Context.dev) | T13 | todo | the human chose to build it (Saturday); ask Context.dev's CTO whether it counts as core flow; starts after FIX-10 |
 | T14 | Deployment on Modal | T13 | review | files built and committed (49 tests); deploy after the final review fixes |
 | T15 | Documents: README, assumptions, standards, award write-ups, pitch outline | T13 | done | 6 documents; 9 `<!-- check -->` marks wait on the deployment (README, AWARDS, PITCH) |
 | T16 | Review and fixes | each wave | running | rounds 1–3 done (FIX-1 to FIX-8 in); final round (agent, pages, MCP, API fix) running |
+| T18 | Gemini: a photo of a handwritten order list, and orders in Finnish | T10 FIX-9 | todo | added Saturday for the Gemini award; starts after FIX-10 |
 | T17 | Final check against the problem statement; `MORNING.md` | all | todo | |
 | FIX-1 | Policy reads the claims; fixed rules pinned (review round 1) | T05 | done | 310 tests; rule F-07 added; all six findings fixed |
 | FIX-2 | Audit and store: honest sentences, no rewrite, supplier view, chain fork | T06 | done | 165 tests; one item left for policy (product names in rule sentences) |
@@ -76,6 +77,7 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 08:33 T14 files committed: secret of three values read at deploy time, image without `.env`, SQLite on local disk with a copy on the Volume. Final review round: silent-failure report in (2 high: a second order when a run fails after placing one; a reading from a recording not labelled as such); two reports to come.
 - 08:38 T16 final round back: no critical finding; 6 high (shared order book; one visitor can fill the global ceilings; spoofable forwarded address; a second order on resend after a failure; a recorded reading not labelled; the model's quantity, date and exclusions not checked against the text). Decided: a private sandbox per browser for the pages; per-visitor limits by kind; the deployed budget at 120 live calls, so the night's total stays within the 150 approved. FIX-9 (agent) and FIX-10 (pages and API) started.
 - 09:13 FIX-9 done and committed.
+- 09:26 The human chose (Saturday morning): build what can win a tech award when it meets the brief, otherwise the best Aimo program; redeploy at the end is approved. Plan: first deployment after FIX-10, then S1 (Aiven), S2 (Context.dev), T18 (Gemini photo and Finnish) in parallel, then a final redeploy. `psycopg[binary]` added to `pyproject.toml` and installed. Walkthrough written: `AIMO/WALKTHROUGH.md`.
 
 ## Live API calls used
 10 of 150 (T00 capture 2, T01 live check 2, T13 live run 6)
