@@ -20,7 +20,7 @@ import pytest
 from tta.config import REPO_ROOT, Settings
 from tta.contracts.common import DataSource
 
-THREE_NAMES = {"VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY"}
+THREE_NAMES = {"VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY", "DATABASE_URL", "CONTEXT_DEV_API_KEY"}
 NEVER_IN_THE_IMAGE = (".env", ".claude", "var", ".git", ".venv")
 PRODUCT_FILE = "valio_aimo_junction26_product_data.json"
 RELIABILITY_FILE = "valio_aimo_junction26_delivery_reliability.csv"
@@ -79,7 +79,10 @@ def test_the_secret_holds_exactly_the_three_values_the_app_reads(modal_app: Modu
         "VALIO_AIMO_API_KEY": sentinels.valio_key,
         "VALIO_AIMO_BASE_URL": sentinels.base_url,
         "GEMINI_API_KEY": sentinels.gemini_key,
+        "DATABASE_URL": "sentinel-database-url",
+        "CONTEXT_DEV_API_KEY": "sentinel-context-key",
     }
+    assert "tta_tokens" not in str(values) and '{"t": 1}' not in values.values()  # never the whole environment
     assert set(modal_app.SECRET_NAMES) == THREE_NAMES
 
 
@@ -163,6 +166,7 @@ def test_the_image_holds_the_package_the_data_files_and_the_fixtures(modal_app: 
         (CARBON_FILE, f"{app_root}/{CARBON_FILE}", False),
         ("fixtures/valio", f"{app_root}/fixtures/valio", True),
         ("fixtures/agent", f"{app_root}/fixtures/agent", True),
+        ("fixtures/evidence", f"{app_root}/fixtures/evidence", True),
     }
     if (REPO_ROOT / "docs" / "ASSUMPTIONS.md").is_file():
         expected.add(("docs/ASSUMPTIONS.md", f"{app_root}/docs/ASSUMPTIONS.md", False))

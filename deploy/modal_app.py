@@ -109,14 +109,18 @@ IMAGE_ENV = {
     "TTA_VALIO_CALL_BUDGET": str(DEPLOYED_CALL_BUDGET),
 }
 
-SECRET_NAMES = ("VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY")
+# The values the app reads from its environment, as the human approved for the deployment: the Valio key and base
+# URL, the Gemini key, and the Aiven database URL and the Context.dev key now that S1 and S2 are built.
+SECRET_NAMES = (
+    "VALIO_AIMO_API_KEY", "VALIO_AIMO_BASE_URL", "GEMINI_API_KEY", "DATABASE_URL", "CONTEXT_DEV_API_KEY",
+)
 
 
 # --- the secret ---------------------------------------------------------------------------------------------------
 
 
 def secret_values(settings: Settings) -> dict[str, str]:
-    """The three values the app reads from its environment, as the deploying machine has them. A value that is not
+    """The values the app reads from its environment, as the deploying machine has them. A value that is not
     set is left out: without the supplier key the app answers from the recorded capture, without the Gemini key
     from the recorded model answers, and without the address it uses its default."""
     values: dict[str, str] = {}
@@ -126,6 +130,10 @@ def secret_values(settings: Settings) -> dict[str, str]:
         values["VALIO_AIMO_BASE_URL"] = settings.valio_aimo_base_url
     if settings.has_gemini_key and settings.gemini_api_key is not None:
         values["GEMINI_API_KEY"] = settings.gemini_api_key.get_secret_value()
+    if settings.has_database_url and settings.database_url is not None:
+        values["DATABASE_URL"] = settings.database_url.get_secret_value()
+    if settings.has_context_dev_key and settings.context_dev_api_key is not None:
+        values["CONTEXT_DEV_API_KEY"] = settings.context_dev_api_key.get_secret_value()
     return values
 
 
@@ -168,7 +176,7 @@ def image_sources(repo_root: Path = REPO_ROOT) -> tuple[Source, ...]:
         *(Source(repo_root / name, f"{APP_ROOT}/{name}", is_dir=False)
           for name in (PRODUCT_FILE, RELIABILITY_FILE, CARBON_FILE)),
         *(Source(repo_root / "fixtures" / name, f"{APP_ROOT}/fixtures/{name}", is_dir=True)
-          for name in ("valio", "agent")),
+          for name in ("valio", "agent", "evidence")),
     ]
     if (repo_root / ASSUMPTIONS_FILE).is_file():
         sources.append(Source(repo_root / ASSUMPTIONS_FILE, f"{APP_ROOT}/{ASSUMPTIONS_FILE}", is_dir=False))
