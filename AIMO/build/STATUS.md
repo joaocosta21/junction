@@ -42,10 +42,11 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 | FEAT-1 | "My kitchen": the buyer sets what its agent may decide alone (per-browser profile page) | FIX-10 | done | b91e135; 54 new tests; `/kitchen` in the menu; profile checked as a file is; in force only in that browser's book |
 | DOCS-2 | Documents say what the code does | — | done | 8 documents aligned; 26 marks wait on S1, T18, FIX-12a, FIX-12b, FEAT-1 |
 | DOCS-3 | Documents say what is committed: marks settled, limits checked, assumptions for price and the ceiling | DOCS-2 | done | d342dfb; 26 marks settled, 8 deploy marks settled by the orchestrator after the redeploy |
-| SUST-1 | Delivery time and sustainability comparison (brief's optional direction) | 576e4cc | running | asked by the human, 11:40; hand back by 15:30 |
-| STAND-1 | Standing orders with drift detection before renewal (rule P-08) | 576e4cc | running | asked by the human, 11:40; hand back by 15:30 |
-| MENU-1 | Recipe logic: menu → order, substitutions by role (rule F-09) | d4ad9b7 | running | asked by the human, 11:40; hand back by 15:30 |
-| FALLBACK-1 | Rule-based reader when the model cannot answer; model schema learns the new fields | 576e4cc | running | asked by the human, 11:40 (Gemini on a zero balance); hand back by 15:30 |
+| SUST-1 | Delivery time and sustainability comparison (brief's optional direction) | 576e4cc | done | fa07e39; 680 tests in its packages; example 5 (oat drink, most reliable): 470863 €140.00 over the cheapest 472145 €133.00; earliest and lower carbon change no choice in tonight's capture |
+| STAND-1 | Standing orders with drift detection before renewal (rule P-08) | 576e4cc | done | fa07e39; 825 tests; live PostgreSQL store tests pass; demo 100 L → AUTO, 290 L → P-08 to the purchasing manager |
+| MENU-1 | Recipe logic: menu → order, substitutions by role (rule F-09) | d4ad9b7 | done | fa07e39; F-09 wired by the orchestrator (stand-in fields on the offer line); demo menu €476.48, APPROVAL by F-09 and P-06 |
+| FALLBACK-1 | Rule-based reader when the model cannot answer; model schema learns the new fields | 576e4cc | done | de453e6; 505 agent tests; a 401/402/403 from Gemini now counts as out of reach (orchestrator) |
+| DOCS-4 | Documents describe the four new parts; their questions into BOOTH-QUESTIONS | fa07e39 | running | launched 13:03 |
 
 ## Log
 (one line per event: time, task, what happened)
@@ -109,3 +110,6 @@ The orchestrator is the only writer of this file. States: `todo` · `running` ·
 - 11:15 **redeploy** from d342dfb with the approved command; `deploy/check.py` 7 of 7; /healthz live, no fall-back; /kitchen 200; almond drink → P-04 on the deployed app.
 - 11:20 MORNING.md written; PLAN §5 and §8 updated; loop ended.
 - 12:10 the human asked for A (sustainability), B (standing-order drift), C (recipes) and a rule-based fallback, plus one more redeploy when they are verified. Contracts 576e4cc and d4ad9b7 by the orchestrator; four agents launched.
+- 12:40 FALLBACK-1 committed (de453e6) with 401/402/403 counted as out of reach. 12:45 SUST-1 checked (680 tests); its audit blocker fixed by the orchestrator.
+- 12:55 MENU-1 and STAND-1 handed back; stand-in fields carried to the offer line; routes, pages and menu links wired; whole suite 3,260 passed, 67 skipped; committed fa07e39.
+- 13:00 **redeploy** (the human's second approval) from 8163d5d: deploy/check.py 7 of 7; /menu, /standing-orders, /kitchen, /assumptions 200. Third booth copy of 8163d5d on port 8002 (replay, no keys).
