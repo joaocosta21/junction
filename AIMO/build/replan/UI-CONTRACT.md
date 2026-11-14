@@ -9,7 +9,7 @@ The review of `frontend-shop` says: build on top of it. It runs, it is safe on t
 
 | # | What | Where | Hours |
 |---|---|---|---|
-| **F1** | **Nothing is ordered or sent without a click.** One button, "Confirm order". Remove "Ordered by your agent". Today the school (€99.20) and the ward (€402.00) are ordered with no click | `views/assistant.js` (`act`, line 80; `verdictBox`), `views/parts.js` (`statusTag`), `kitchens.js` (`autoSend`), `store.js:5` (a new storage key, or a browser that already opened the page keeps the old defaults) | 1 |
+| **F1** | **Nothing is ordered or sent without a click.** The defaults are switched off already in the merged branch (`auto_order_enabled: false`, `autoSend: false` for all four, storage key `tt-shop-v2`). Still yours: one button, "Confirm order", and the wording "Ordered by your agent" | `views/assistant.js` (`act`, line 80; `verdictBox`), `views/parts.js` (`statusTag`), `kitchens.js` (`autoSend`), `store.js:5` (a new storage key, or a browser that already opened the page keeps the old defaults) | 1 |
 | **F4** | **Not a chat.** Valio's slide: "it is NOT a chatbot". Rename "Assistant", drop the greeting, the bubbles and "conversation"; show the typed request that was sent; link `/docs` and the MCP tools | `views/assistant.js`, `main.js`, `shop.css` | 1 |
 | **F3** (your half) | The rules shown are the rules in force: show limits and allergens from the gateway's answer, not from `localStorage`; when a settings call is refused, push again, retry and show the refusal | `core.js`, `main.js` | 0.5 |
 | F6 | The reader's refusal in plain words, and a place for the reader's question. Today an unreadable sentence shows "No GEMINI_API_KEY is set … POST /v1/offers" | `views/assistant.js` (`answer`, the `failed` branch) | 0.5 |
@@ -53,4 +53,8 @@ Everything else is folded away. No code words on the page: not `FREE_FROM_LACTOS
 
 | Task | File and line | Before → after | Why |
 |---|---|---|---|
-| — | — | — | — |
+| merge | `src/tta/ui/static/shop/js/kitchens.js:53` | `auto_order_enabled: true` → `false` | Valio: no order without a person. The setting stays on the settings view |
+| merge | `src/tta/ui/static/shop/js/kitchens.js:87,125,164,199` | `autoSend: true` → `false` | Nothing is sent for approval without a click; the page already shows "Send for approval" |
+| merge | `src/tta/ui/static/shop/js/store.js:5` | `tt-shop-v1` → `tt-shop-v2` | A browser that already opened the page would keep the old defaults |
+| merge | `src/tta/ui/templates/index.html` (the customer cards) | "Every order requires human approval." → the same, plus the limits and who they decide | Sofia's commit dropped the limits; a test pins them |
+| merge | `tests/ui/test_shop_api.py:106` | `ORDERED` → `PENDING_APPROVAL` | An order inside the kitchen's limit waits for a person too |

@@ -2,13 +2,13 @@
 
 The orchestrator is the only writer of this file. Procedure: [RUNBOOK.md](RUNBOOK.md) part 2. States: `todo`, `running`, `done`, `blocked` (with the reason).
 
-Branch: `replan-build`, to be created from `overnight-build`. Outside calls made in this run: 0 (none are approved).
+Branch: `replan-build` (exists; it holds the merges of `origin/frontend-shop` at `f292acd` and `origin/codex/mandatory-human-approval` at `5673ef2`). Outside calls made in this run: 0 (none are approved).
 
 ## Board
 
 | Wave | Task | What | Needs | State |
 |---|---|---|---|---|
-| 0 | B0 | Baseline: ordering alone off, coffee milk its own type, standing-order history, the demo-clock setting, pinned figures refreshed | — | todo |
+| 0 | B0 | Baseline, on top of the two merged branches: the buyer's setting back and off by default, where F-10 lives, coffee milk its own type, standing-order history, the demo-clock setting, pinned figures refreshed | — | todo |
 | 1 | L1 | Reader: asks instead of guessing, exclusions never dropped, numbers, units, "coffee milk" | B0 | todo |
 | 1 | L2a | Substitutes and formula: no category tiers, nutrition, the measure, the ranking, claim-keepers first | B0 | todo |
 | 1 | L2b | Options and safety: safe product first, the preference's gap, no dearer unconfirmed alternative | B0 | todo |
@@ -35,6 +35,7 @@ Branch: `replan-build`, to be created from `overnight-build`. Outside calls made
 | 5. The formula, bakery-café | — | — |
 
 ## Log
+- Sat 14 Nov 16:50 — **the merged base holds.** `replan-build` = `overnight-build` + `origin/frontend-shop` (`f292acd`) + `origin/codex/mandatory-human-approval` (`5673ef2`), one conflict resolved in `src/tta/api/sandbox.py`, then the commit "fix: the merged base holds". Whole suite: `3281 passed, 67 skipped, 1 deselected`; linter clean. Not yet the end state: every order needs a person through F-10 in code, whatever the profile says, and the path on which the agent orders alone is deleted. B0 starts with C1's X2 (RUNBOOK, "The baseline").
 - Sat 14 Nov 16:20 — `C2-frontend-branch.md` is in: build on top of Gabriela's shop page after fixes. Merge it first, then Sofia's commit. B0 starts with C2's F2 (the shop stops sending `auto_order_enabled: true`; three tests). The runbook names the shop files the build may edit and the fields the page already prints.
 - Sat 14 Nov 16:10 — `C1-human-approval-branch.md` is in: take Sofia's commit with fixes X1 to X4 (3 tests red on it; the buyer's setting must come back, off by default; her rule holds the id F-10, so the formula rule is F-11). `C2-frontend-branch.md` still running.
 - Sat 14 Nov 16:05 — the baseline now depends on two reviews: `C1-human-approval-branch.md` (Sofia's commit) and `C2-frontend-branch.md` (Gabriela's shop page). Both were still running. The four tech awards have their offline part in L1, L3, L4-2, E2 and wave 4.
