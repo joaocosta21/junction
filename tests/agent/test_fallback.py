@@ -34,7 +34,7 @@ KEY = "test-key-5c1e9a7f3b"  # not a real key
 SERVED = "Gemini did not answer; this run was served from "
 WARD_TEXT = "200 litres of plant drink by Monday, no milk, no gluten, confirmed data only"
 READ_FROM_THE_RECORDING = (
-    "Gemini did not answer; read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 06:14 UTC."
+    "Gemini did not answer; read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 07:13 UTC."
 )
 HAPPY_PATH = [[("get_authority", {})], [("create_offer", {})], [("place_order", {"option_id": "opt_1"})]]
 Handler = Callable[[httpx.Request], httpx.Response]

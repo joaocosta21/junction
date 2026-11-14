@@ -508,9 +508,9 @@ def test_a_reading_from_a_recording_names_the_model_and_when_it_was_made(
     reading = make_parser(recorded_model, demo_clock).read(texts["scenario_1"], agent_hotel)
 
     assert (reading.source, reading.model) == (ReadingSource.RECORDING, "gemini-3.6-flash")
-    assert reading.recorded_at == datetime(2026, 11, 14, 6, 14, 8, 168025, tzinfo=UTC)
+    assert reading.recorded_at == datetime(2026, 11, 14, 7, 13, 24, 396101, tzinfo=UTC)
     assert reading.sentence == (
-        "Read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 06:14 UTC; no model was asked."
+        "Read from a recording of gemini-3.6-flash made on 14 Nov 2026 at 07:13 UTC; no model was asked."
     )
     assert reading.request.lines[0].quantity == Decimal(1000)
 
