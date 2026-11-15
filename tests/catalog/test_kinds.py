@@ -125,7 +125,9 @@ def test_how_many_products_the_flavour_reading_marks_and_where(catalog: ProductC
     for plain in ("milk", "sour_milk", "coffee", "butter", "eggs", "rice", "pasta", "sausage", "minced_meat",
                   "vegetable_cream", "beef_chuck"):
         assert by_type[plain] == 0, plain
-    assert by_type["cream"] == 6  # the six "flavoured cooking cream" of Valio Keittiön
+    # The six "flavoured cooking cream" of Valio Keittiön left the type cream on 15 Nov 2026 (review finding
+    # C3-F3: a recipe's cream is plain cream), so no cream is marked any more. Before: 6.
+    assert by_type["cream"] == 0
     assert by_type["coffee_milk"] == 1  # 473142, vanilla
 
 
@@ -192,7 +194,9 @@ def test_a_drink_is_read_from_the_weight_of_a_litre_and_else_from_the_product_ty
     assert is_drink(catalog.get_product("469346")) is True  # whipping cream: 0.994 kg per litre
     assert is_drink(catalog.get_product("469148")) is False  # milk powder
     assert is_drink(catalog.get_product("465655")) is False  # a juice concentrate 1+7: no type, no weight for a volume
-    assert sum(is_drink(product) for product in catalog.products) == 855
+    # 855 before 15 Nov 2026: the 10 flavoured cooking creams and spray creams that left the type cream are
+    # read as drinks only where the file states the weight of a litre.
+    assert sum(is_drink(product) for product in catalog.products) == 845
 
 
 # --- raw meat and fish: a product type with no recipe of its own (lane G3) --------------------------------------

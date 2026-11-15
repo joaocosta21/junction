@@ -2,6 +2,8 @@
 
 A type may also name terms that a product of the type must not have in its name: category 10400
 holds milk, 11 sour milks, a coffee drink and a soy yoghurt, and a buyer who asks for milk means milk.
+And it may name its varieties: rye flour is flour, but it is not what "flour" means in a recipe or in a
+request, so a request for the type gets a variety only when it names it ("rye flour").
 
 The table is ours, not Valio's: the product file has category codes and no category names
 (AIMO/FINDINGS.md section 2). Each entry says how it was derived.
@@ -33,6 +35,12 @@ class ProductType(Contract):
     exclude_terms: tuple[str, ...] = Field(
         default=(), description="When given: neither the English nor the Finnish name has any of these"
     )
+    variety_terms: tuple[str, ...] = Field(
+        default=(),
+        description="When given: a product whose English or Finnish name has one of these is a variety of its own "
+        "(rye flour, icing sugar, egg yolk), not the type's plain product. A request for the type finds it only "
+        "when a name term of the request names the variety",
+    )
     claims: tuple[str, ...] = Field(default=(), description="Every one of these nutritionalClaim codes is present")
     products: int = Field(gt=0, description="Products of this type in the catalog when the entry was written")
     raw: bool = Field(
@@ -47,12 +55,12 @@ class ProductType(Contract):
     )
     derived_from: str = Field(min_length=1, description="How the entry was derived")
 
-    @field_validator("exclude_terms")
+    @field_validator("exclude_terms", "variety_terms")
     @classmethod
     def _no_blank_exclude_term(cls, terms: tuple[str, ...]) -> tuple[str, ...]:
         """A term with no letter or digit is in every name: it would leave the type with no product."""
         if any(not normalise(term) for term in terms):
-            raise ValueError("an exclude term needs at least one letter or digit")
+            raise ValueError("an exclude term or a variety term needs at least one letter or digit")
         return terms
 
 

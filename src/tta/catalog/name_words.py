@@ -37,7 +37,8 @@ _EXPLAINED_ELSEWHERE = frozenset({
     # pack
     "pack", "package", "pkt", "box", "bag", "bags", "bottle", "can", "carton", "tetra", "tray", "cup", "tub",
     "bucket", "jar", "pouch", "portion", "portions", "multipack", "multipackage", "homepackage", "case", "ca",
-    "approx", "appr", "about", "n", "novobox", "bib", "refill", "refil", "täyttöpakkaus", "pakkaus", "kotipakkaus",
+    "approx", "appr", "app", "about", "n", "novobox", "bib", "refill", "refil", "täyttöpakkaus", "pakkaus",
+    "kotipakkaus",
     "monipakkaus", "rasia", "pussi", "pullo", "tölkki", "annos", "laatikko", "prk",
     # sales channel
     "food", "service", "foodservice", "suurtalous", "catering", "horeca",
@@ -46,6 +47,7 @@ _EXPLAINED_ELSEWHERE = frozenset({
     # claims and labels
     "lactose", "lactosefree", "laktoositon", "free", "low", "vähälaktoosinen", "hyla", "gluten", "glutenfree",
     "gluteeniton", "vegan", "vegaaninen", "added", "sugar", "lisättyä", "sokeria", "organic", "luomu",
+    "fairtrade", "fair", "trade", "reilun", "reilu", "kaupan", "kauppa", "reilukauppa", "rainforest", "alliance",
     # origin
     "suomesta", "suomi", "finland", "finnish", "kotimainen",
     # fat
@@ -83,12 +85,14 @@ def _brand_words(*products: Product) -> frozenset[str]:
     return frozenset(word for product in products for word in normalise(product.brand).split())
 
 
-def _words(name: str, drop: frozenset[str]) -> tuple[str, ...]:
-    """The words of a name as written, without sizes, brand words and words explained elsewhere."""
+def _words(name: str, drop: frozenset[str], keep: frozenset[str] = frozenset()) -> tuple[str, ...]:
+    """The words of a name as written, without sizes, brand words and words explained elsewhere; `keep` names
+    explained words that stay."""
     kept = []
     for word in _WORD.findall(name):
         folded = normalise(word)
-        if not folded or _SIZE.match(folded) or folded in drop or folded in _EXPLAINED_ELSEWHERE:
+        explained = folded in _EXPLAINED_ELSEWHERE and folded not in keep
+        if not folded or _SIZE.match(folded) or folded in drop or explained:
             continue
         kept.append(word)
     return tuple(kept)
@@ -157,6 +161,23 @@ def name_difference(original: Product, other: Product) -> NameDifference | None:
         return None
     found = [_difference(original, other, names) for names in languages]
     return found[0] if all(each is not None for each in found) else None
+
+
+NameWords = tuple[tuple[str, str], ...]  # (as compared, as written), in name order
+# A claim word that is also what a product is: "no added sugar" and "vanilla sugar". Where a name is read for
+# what the product is, it stays. Ours.
+_ALSO_A_PRODUCT = frozenset({"sugar"})
+
+
+def own_name_words(product: Product) -> tuple[NameWords, NameWords]:
+    """The words of the English name and of the Finnish name: no size, no word of the product's own brand, no
+    word explained elsewhere. Each is compared without case or marks and kept as the name writes it."""
+    drop = _brand_words(product)
+
+    def read(name: str | None) -> NameWords:
+        return tuple((_plain(word), word) for word in _words(name or "", drop, _ALSO_A_PRODUCT))
+
+    return read(product.name_en), read(product.name_fi)
 
 
 def _product_words(product: Product, drop: frozenset[str]) -> frozenset[str]:

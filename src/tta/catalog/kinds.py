@@ -30,6 +30,8 @@ def product_types_of(product: Product, table: Mapping[str, ProductType] | None =
     """The keys of `product_types.yaml` the product is of, sorted; empty when the table does not cover it.
 
     The same four conditions as the search (`tta.catalog.search`): category, name terms, exclude terms, claims.
+    A variety of a type (`variety_terms`: rye flour, icing sugar, egg yolk) is not of the type here: it is
+    not the type's plain product, so it does not stand in for it like for like, nor the plain product for it.
     """
     names = names_of(product)
     found = []
@@ -40,7 +42,7 @@ def product_types_of(product: Product, table: Mapping[str, ProductType] | None =
             continue
         if entry.name_terms and not names.has_any(tuple(normalise(term) for term in entry.name_terms)):
             continue
-        if names.has_any(tuple(normalise(term) for term in entry.exclude_terms)):
+        if names.has_any(tuple(normalise(term) for term in (*entry.exclude_terms, *entry.variety_terms))):
             continue
         found.append(key)
     return tuple(sorted(found))

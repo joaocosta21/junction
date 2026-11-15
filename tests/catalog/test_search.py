@@ -369,11 +369,12 @@ def test_skimmed_milk_is_not_filled_with_semi_skimmed_milk(catalog: ProductCatal
 
 
 def test_salted_butter_was_never_filled_with_unsalted_butter(catalog: ProductCatalog) -> None:
-    # "unsalted" is one word, so "salted" never matched it: 8 salted and 3 unsalted of 19 butters, before and after.
+    # "unsalted" is one word, so "salted" never matched it: 8 salted and 2 unsalted of 15 butters (3 of 19
+    # before 15 Nov 2026, when the unsalted butter for laminating 464761 left the type).
     salted = catalog.search(ProductQuery(product_type="butter", name_terms=("salted",), limit=1000))
     unsalted = catalog.search(ProductQuery(product_type="butter", name_terms=("unsalted",), limit=1000))
 
-    assert (salted.total, unsalted.total) == (8, 3)
+    assert (salted.total, unsalted.total) == (8, 2)
     assert not {product.id for product in salted.products} & {product.id for product in unsalted.products}
     assert "463744" in {product.id for product in salted.products}  # "less salted" is salted
 

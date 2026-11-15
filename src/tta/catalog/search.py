@@ -2,7 +2,9 @@
 
 Every filter given must hold: product type, explicit ids, category prefix, claims, labels, name terms.
 A product type is its categories, its claims, its name terms and its exclude terms: a product whose
-name has an exclude term is not of the type ("milk" leaves out sour milk).
+name has an exclude term is not of the type ("milk" leaves out sour milk). A variety of the type
+(`variety_terms`: rye flour, icing sugar) is found only when a name term of the query names it: "flour"
+gets plain wheat flour, "rye" with the type flour gets rye flour (review finding C3-F3).
 A name term may be in the English or in the Finnish name (`tta.catalog.text`). With name terms and
 nothing that fixes the categories, the result keeps the categories that hold most of the matches.
 Order: products whose English name has every term first, then those found through the Finnish
@@ -71,7 +73,7 @@ def search(index: SearchIndex, product_types: Mapping[str, ProductType], query: 
         *_unknown_id_notes(index, query.product_ids), *_unknown_claim_notes(index, claims),
         *_unknown_label_notes(index, labels),
     ]
-    scope = _scope(index, product_type, query.product_ids, prefix, (claims, labels))
+    scope = _scope(index, product_type, query.product_ids, prefix, (claims, labels), terms)
     if not scope or not terms:
         return _result(scope, query.limit, notes)
     unmatched = tuple(term.text for term in terms if not any(index.names[p.id].has(term.key) for p in scope))
@@ -112,14 +114,17 @@ def _unique(values: Iterable[str]) -> tuple[str, ...]:
 
 def _scope(
     index: SearchIndex, product_type: ProductType | None, product_ids: Sequence[str], prefix: str,
-    claims_and_labels: tuple[Sequence[str], Sequence[str]],
+    claims_and_labels: tuple[Sequence[str], Sequence[str]], terms: Sequence[_Term] = (),
 ) -> list[Product]:
-    """The products that pass every filter except the name terms of the query."""
+    """The products that pass every filter except the name terms of the query. The name terms are read here
+    for one thing only: which varieties of the type the query names."""
     claims, labels = claims_and_labels
     wanted_ids = frozenset(product_ids)
     type_claims = product_type.claims if product_type else ()
     type_terms = tuple(normalise(term) for term in product_type.name_terms) if product_type else ()
     type_excluded = tuple(normalise(term) for term in product_type.exclude_terms) if product_type else ()
+    varieties = tuple(normalise(term) for term in product_type.variety_terms) if product_type else ()
+    asked = tuple(term.key for term in terms)
     required = frozenset((*claims, *type_claims))
     required_labels = frozenset(labels)
     return [
@@ -132,7 +137,19 @@ def _scope(
         and required_labels.issubset(product.labels)
         and (not type_terms or index.names[product.id].has_any(type_terms))
         and not index.names[product.id].has_any(type_excluded)
+        and not _is_a_variety_not_asked_for(index.names[product.id], varieties, asked)
     ]
+
+
+def _is_a_variety_not_asked_for(names: ProductNames, varieties: Sequence[str], asked: Sequence[str]) -> bool:
+    """The product is a variety of the type (its name has a variety term) and no name term of the query names
+    one of the varieties it is: "icing" names icing sugar, "granulated" does not name raw cane sugar."""
+    its_varieties = [variety for variety in varieties if names.has(variety)]
+    if not its_varieties:
+        return False
+    return not any(
+        variety.startswith(term) or term.startswith(variety) for variety in its_varieties for term in asked
+    )
 
 
 def _english_matches_first(index: SearchIndex, matches: Sequence[Product], terms: Sequence[_Term]) -> list[Product]:

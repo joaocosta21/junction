@@ -15,6 +15,10 @@ The order of the gates (AIMO/build/replan/P10-formula.md section 4.4), first dec
    flavoured one), is a last resort like a claim-loser. A pair Valio lists stays when only the type differs,
    after every candidate of the same type. Another use (made for coffee, for whipping, for cooking) and
    another flavour of a flavoured product only order the candidates.
+   Where no product type of ours says what the original is, or the type is raw meat or fish (the cut is the
+   product), the name says it (`tta.catalog.kind_words`): a candidate whose name does not carry the original's
+   kind words ("yolk", "brisket", "cocoa powder") is another product. It leaves the ranking altogether, so no
+   caller can offer it, and a note counts it (decision B65). A pair Valio lists stays, and says so.
 3. The formula (`tta.offers.formula`): same product in another pack, same brand, other brand, different,
    not known. It only orders the candidates; nothing is hidden by it.
 4. Listed by Valio, pack size closest, verification, price.
@@ -29,12 +33,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
-from tta.allergens import check_substitute
-from tta.catalog.kinds import flavours_of, is_other_use, is_same_type, product_types_of, uses_of
+from tta.allergens import check_substitute, statement_for
+from tta.catalog.kind_words import KindWords, count_category_words, kind_words, missing_kind_words, shared_weight
+from tta.catalog.kinds import flavours_of, is_other_use, is_raw_type, is_same_type, product_types_of, uses_of
 from tta.catalog.name_words import name_difference, shares_a_product_word
 from tta.contracts.allergen import SubstituteAllergenCheck
 from tta.contracts.availability import ClaimCheck, PriceLine
-from tta.contracts.common import ExclusionReason, PackPreference, Unit
+from tta.contracts.common import AllergenRelation, ExclusionReason, PackPreference, Unit
 from tta.contracts.offer import SubstituteCandidate, SubstituteQuery, SubstituteResult
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -54,8 +59,9 @@ from tta.offers.candidates import (
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
 from tta.offers.formula import compare_formula
+from tta.offers.substitute_kind import kind_reason, other_kind_note
+from tta.offers.substitute_trade_off import gives_up
 from tta.offers.substitute_wording import (
-    gives_up,
     per_measure_difference,
     replace_reasons,
     replace_sentence,
@@ -91,6 +97,9 @@ DIETARY_CLAIMS = frozenset(
         "VEGETARIAN",
     }
 )
+# The dietary claims that say how a person chooses to eat, not what a person cannot eat. Losing one of these
+# alone does not put a product of the same kind behind another kind of product (`_rank_key`). The list is ours.
+WAY_OF_EATING_CLAIMS = frozenset({"VEGAN", "VEGETARIAN"})
 # A claim that another claim covers: a product that carries the stronger one has not lost the weaker one. A
 # lactose-free product is also low in lactose, and a vegan product is also vegetarian. Nothing else is covered:
 # gluten-free does not cover wheat-free (decision D4 of AIMO/build/replan/P9b-booth-answers.md; the list is ours).
@@ -98,6 +107,12 @@ COVERED_BY: Mapping[str, frozenset[str]] = {
     "LOW_LACTOSE": frozenset({"FREE_FROM_LACTOSE"}),
     "VEGETARIAN": frozenset({"VEGAN"}),
 }
+# A claim that the candidate's own allergen data states: a product whose data says "free from soybeans" has
+# not lost FREE_FROM_SOY for want of the label (review finding C3-F9: the rice drink 473424). Only where the
+# claim names one allergen and the data says FREE_FROM of exactly that code; "may contain", no statement and a
+# general statement leave the claim lost. Gluten, wheat and lactose are not here: the claim promises more than
+# the allergen statement does (a limit in the product, not only no such ingredient). The list is ours.
+STATED_BY_ALLERGEN_DATA: Mapping[str, str] = {"FREE_FROM_SOY": "AY", "FREE_FROM_EGGS": "AE"}
 # Best first: where the formula stands in the ranking key, after the dietary claims.
 FORMULA_ORDER = {
     FormulaOutcome.SAME_PRODUCT_OTHER_PACK: 0,
@@ -130,6 +145,9 @@ class Judged:
     # It loses a dietary claim or is another kind of product, and is shown only because no candidate that
     # keeps every claim and is the same kind can be ordered.
     last_resort: bool = False
+    # How much of the original's kind its name says (`tta.catalog.kind_words.shared_weight`); 0 where the
+    # original's kind is not read from its name.
+    kind_said: int = 0
 
     @property
     def passes(self) -> bool:
@@ -219,24 +237,50 @@ def rank_substitutes(original: Product, need: Need, deps: OfferDeps, skip: Seque
     asked = need
     need, per_piece = _by_content(evaluate(original, asked, lookup, deps.catalog), asked)
     original_seen = evaluate(original, need, lookup, deps.catalog)
-    judged = [_judge(product, is_listed, distance, original, need, lookup, deps.catalog)
-              for product, is_listed, distance in pool]
+    kind = _kind_by_name(original, deps.catalog)
+    checked = [_judge(product, is_listed, distance, original, need, lookup, deps.catalog, kind)
+               for product, is_listed, distance in pool]
+    judged, other_products = _leave_out_other_products(checked)
     key = _rank_key(original_seen, need)
     kept, held_back = _hold_back_last_resorts(judged)
     kept = [replace(each, last_resort=True) if each.passes and each.unexplained_variant else each for each in kept]
-    shown, notes = _shown(kept, key, checked=len(judged))
+    shown, notes = _shown(kept, key, checked=len(checked))
     return Ranking(
         original=original,
         original_price=original_seen.price if price_problem(original_seen.price, lookup.now) is None else None,
         original_pack=original_seen.pack,
         ranked=tuple(sorted(shown, key=key)),
         lookup=lookup,
-        notes=(*notes, *held_back, *_missing_note(missing), *_pool_notes(pool),
-               *_content_note(asked, need, per_piece)),
+        notes=(*notes, *other_kind_note(original, len(other_products), sum(each.passes for each in judged)),
+               *held_back,
+               *_missing_note(missing), *_pool_notes(pool), *_content_note(asked, need, per_piece)),
         asked=asked,
         need=need,
         per_piece=per_piece,
     )
+
+
+def _kind_by_name(original: Product, catalog: Catalog) -> KindWords | None:
+    """The original's kind words, where its name has to say what it is: it has no product type of ours, or
+    its type is raw meat or fish, where the cut or the species is the product (`product_types.yaml`, `raw`).
+    None for any other type: the type says the kind, and its names need not ("milk drink" and "milk")."""
+    types = product_types_of(original)
+    raw = any(is_raw_type(key) for key in types)
+    if types and not raw:
+        return None
+    counts = count_category_words((original, *catalog.same_category(original.id)))
+    return kind_words(original, counts, of_one_type=raw)
+
+
+def _leave_out_other_products(judged: Sequence[Judged]) -> tuple[list[Judged], list[Judged]]:
+    """(candidates, other products). A candidate that is another kind of product by its name is no substitute
+    (decision B65): it leaves the ranking here, where the candidates are produced, so that neither the list
+    nor an offer can hold it. A pair Valio lists stays: Valio's own judgement, and the reason is said.
+    The allergen rule decides first, as everywhere: a candidate that fails it stays with that reason and is
+    counted in the allergen note, whatever its kind."""
+    others = [each for each in judged if each.passes and each.replaceable.no_shared_word and not each.listed]
+    left = {id(each) for each in others}
+    return [each for each in judged if id(each) not in left], others
 
 
 def _by_content(original: Candidate, need: Need) -> tuple[Need, Decimal | None]:
@@ -308,7 +352,8 @@ def _pool_notes(pool: Sequence[tuple[Product, bool, int]]) -> tuple[str, ...]:
 
 
 def _judge(
-    product: Product, is_listed: bool, distance: int, original: Product, need: Need, lookup: Lookup, catalog: Catalog
+    product: Product, is_listed: bool, distance: int, original: Product, need: Need, lookup: Lookup,
+    catalog: Catalog, kind: KindWords | None = None,
 ) -> Judged:
     candidate = evaluate(product, need, lookup, catalog)
     rule = check_substitute(original.allergen_statements, product.allergen_statements)
@@ -332,12 +377,14 @@ def _judge(
         claims_lost=(lost := claims_lost(original, product)),
         claims_not_carried=claims_not_carried(original, product),
         formula=(formula := compare_formula(original, product)),
-        replaceable=replace_check(original, product, formula, lost, listed=is_listed),
+        replaceable=replace_check(original, product, formula, lost, listed=is_listed, kind=kind),
+        kind_said=shared_weight(kind, product) if kind is not None else 0,
     )
 
 
 def replace_check(
-    original: Product, other: Product, formula: FormulaCheck, lost: Sequence[str] = (), *, listed: bool = False
+    original: Product, other: Product, formula: FormulaCheck, lost: Sequence[str] = (), *, listed: bool = False,
+    kind: KindWords | None = None,
 ) -> ReplaceCheck:
     """Can `other` take the original's place like for like? Type, flavour and use are read from the product
     file (`tta.catalog.kinds`, word lists ours); the formula and the dietary claims lost are given.
@@ -347,17 +394,24 @@ def replace_check(
     "Replaceable", and a candidate whose name shares no product word with the original's is not like for like.
     Two names of one brand that differ in a word no list explains are variants of a product line: not like
     for like either, and the words are said.
+
+    `kind`: the original's kind words (`_kind_by_name`), when the ranking measured them. A candidate whose
+    name does not carry them all is another kind of product (`no_shared_word`), whatever else its name shares.
+    Without them, or when the original's name has none, the older reading holds: an original with no product
+    type and a candidate that shares no product word with it.
     """
     original_types, types = product_types_of(original), product_types_of(other)
     original_flavours, flavours = flavours_of(original), flavours_of(other)
     original_uses, uses = uses_of(original), uses_of(other)
     words = name_difference(original, other)
+    not_said = missing_kind_words(kind, other) if kind is not None and kind.known else ()
+    no_word = not not_said and not original_types and not shares_a_product_word(original, other)
     facts = ReplaceCheck(
         name_difference=words is not None,
         original_name_words=words.original_words if words is not None else (),
         name_words=words.words if words is not None else (),
         type_not_judged=not original_types,
-        no_shared_word=not original_types and not shares_a_product_word(original, other),
+        no_shared_word=no_word,
         verdict=ReplaceVerdict.REPLACEABLE,
         original_types=original_types,
         types=types,
@@ -372,6 +426,9 @@ def replace_check(
         sentence="",
     )
     reasons = replace_reasons(facts, formula, lost, listed=listed)
+    if not_said:
+        facts = facts.model_copy(update={"no_shared_word": True})
+        reasons = (*reasons, kind_reason(not_said))
     if reasons:
         verdict = ReplaceVerdict.NOT_LIKE_FOR_LIKE
     elif formula.outcome is FormulaOutcome.NOT_KNOWN or facts.type_not_judged:
@@ -396,15 +453,28 @@ def claims_not_carried(original: Product, other: Product) -> tuple[str, ...]:
     """Every nutritional claim of the original that `other` neither carries nor covers, in the original's order.
 
     `COVERED_BY`: a lactose-free product has not lost LOW_LACTOSE, a vegan one has not lost VEGETARIAN.
+    `STATED_BY_ALLERGEN_DATA`: the allergen data is read before the label, so a product whose data says it is
+    free from soybeans has not lost FREE_FROM_SOY.
     """
     carried = frozenset(other.nutritional_claims)
     return tuple(
         dict.fromkeys(
             claim
             for claim in original.nutritional_claims
-            if claim not in carried and not COVERED_BY.get(claim, frozenset()) & carried
+            if claim not in carried
+            and not COVERED_BY.get(claim, frozenset()) & carried
+            and not _stated_free_from(other, claim)
         )
     )
+
+
+def _stated_free_from(product: Product, claim: str) -> bool:
+    """The product's own allergen data says FREE_FROM of the one allergen the claim names. The code families
+    are read as everywhere (`tta.allergens.statements`): the least safe statement counts."""
+    code = STATED_BY_ALLERGEN_DATA.get(claim)
+    if code is None:
+        return False
+    return statement_for(product.allergen_statements, code) is AllergenRelation.FREE_FROM
 
 
 def claims_lost(original: Product, other: Product) -> tuple[str, ...]:
@@ -519,11 +589,20 @@ def _shown(judged: Sequence[Judged], rank_key: RankKey, checked: int) -> tuple[l
 
 
 def _rank_key(original: Candidate, need: Need) -> RankKey:
-    """Passes the allergen rules, keeps every dietary claim of the original and is the same kind of product,
+    """Passes the allergen rules, lacks no claim of an intolerance, says most of the original's kind in its
+    name (where the name is what says it), keeps every dietary claim of the original and is the same kind of
+    product,
     same product type (only a pair Valio lists can differ here), same use, same flavour, formula outcome,
     listed by Valio, pack size closest to the original, verification status, price difference.
 
     Losing a dietary claim only orders the candidates that pass the allergen rules; it fails none of them.
+    Among the last resorts the kind comes before a claim of a way of eating: a product of the same kind,
+    flavour and use that lacks VEGAN or VEGETARIAN (plain fries with no VEGAN label) comes before another
+    kind of product that keeps it (seasoned fries; review C3-F2). A candidate of another flavour or use is
+    not put ahead this way: a plain oat drink of the brand still comes before an almond barista drink for a
+    chocolate oat drink. A claim of an intolerance (gluten, wheat, lactose, eggs, soy) still comes first:
+    a candidate that lacks one stays behind every candidate that keeps them all, whatever its kind (Valio,
+    answer B7: "it is better to not have gluten if you are unsure").
     A claim that is not dietary does not order them at all. The formula comes after the dietary claims and
     can never lift a candidate over them: 469050 has the six figures of 469126 and is not lactose-free. The
     formula took the place of the category distance, which no longer orders anything: a pair Valio lists
@@ -536,8 +615,11 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         verification = (not each.orderable, unconfirmed, _shortfall(candidate, need))
         return (
             not each.passes,
-            _is_last_resort(each),
-            bool(each.claims_lost),  # among the last resorts, one that keeps every dietary claim comes first
+            _lacks_an_intolerance_claim(each),  # the safe product first: such a candidate is a last resort
+            -each.kind_said,  # then the candidate whose name says most of what the original is
+            (last_resort := _is_last_resort(each)),
+            last_resort and _differs_in_kind(each),  # among the last resorts, the same kind, flavour and use first
+            bool(each.claims_lost),  # then one that keeps every dietary claim
             each.replaceable.other_type,
             each.replaceable.plain_against_flavoured,  # among the last resorts, after one of the same flavour
             each.replaceable.other_use,
@@ -552,6 +634,16 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         )
 
     return key
+
+
+def _differs_in_kind(each: Judged) -> bool:
+    """Another kind of product (`Judged.other_kind`), another flavour or another use than the original."""
+    return each.other_kind or each.replaceable.other_flavour or each.replaceable.other_use
+
+
+def _lacks_an_intolerance_claim(each: Judged) -> bool:
+    """It lacks a dietary claim of the original that is not one of `WAY_OF_EATING_CLAIMS`."""
+    return any(claim not in WAY_OF_EATING_CLAIMS for claim in each.claims_lost)
 
 
 def _shortfall(candidate: Candidate, need: Need) -> Decimal:

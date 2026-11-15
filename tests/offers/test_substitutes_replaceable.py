@@ -209,7 +209,7 @@ def test_at_the_demo_clock_the_suggestion_is_valios_listed_drink_and_not_the_nut
     assert [(line.product_id, int(line.quantity)) for line in option.lines] == [(LISTED_DELIGHT, 10)]
     assert str(option.totals.net) == "155.50"
     assert option.lines[0].substitute.gives_up.startswith(
-        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
+        "Not a like-for-like replacement: a different formula; it cannot be shown to be like "
         "for like: its name adds Delight, which the data does not explain. Compared with "
     )
 
@@ -277,8 +277,9 @@ def test_when_only_a_flavoured_drink_can_be_ordered_it_is_a_last_resort_and_says
     assert orderable[0].sentence.endswith(LAST_RESORT_OTHER_KIND)
     assert orderable[0].gives_up.startswith(
         "Not a like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured; "
-        "a different formula (contains flavourings, which the product asked for does not). "
+        "a different formula. Compared with "
     )
+    assert orderable[0].gives_up.count("flavourings") == 1  # the contents are said once (review finding C3-F9)
     assert not any("held back" in note for note in result.notes)
     option = next(each for each in offer.options if each.kind is OptionKind.SUBSTITUTE)
     assert option.lines[0].product_id == NUTTY_VANILLA
@@ -302,16 +303,21 @@ def test_one_plain_candidate_that_can_be_ordered_keeps_the_flavoured_one_out_of_
     assert FAZER_BARISTA in taken
 
 
-def test_a_price_difference_under_half_a_cent_is_not_said_as_dearer(demo_deps: OfferDeps, policy: Any) -> None:
-    result = find_substitutes(MILK_POWDER, policy.get_profile("hotel-kitchen"), demo_deps, SubstituteQuery())
+@pytest.mark.parametrize(("dearer_by", "said"), [("1.374", ""), ("1.38", "it costs €0.01 more per L")])
+def test_a_price_difference_under_half_a_cent_is_not_said_as_dearer(
+    fake_gateway: Callable[..., Any], deps_for: Callable[..., OfferDeps], policy: Any, price: Any, stock: Any,
+    dearer_by: str, said: str,
+) -> None:
+    # Before: "it costs €0.00 more per kg" (€2.7120 against €2.7115 per kg, the milk powders 469148 and 462224,
+    # which are no longer candidates of each other: decision B65). Hand-built prices, one litre each.
+    deps = deps_for(fake_gateway([price(BARISTA, "1.37"), price(FAZER_BARISTA, dearer_by)],
+                                 [stock(BARISTA, None), stock(FAZER_BARISTA, 100)]))
 
-    same_powder = next(candidate for candidate in result.candidates if candidate.product_id == "462224")
-    # Before: "it costs €0.00 more per kg" (€2.7120 against €2.7115 per kg).
-    assert "more per kg" not in same_powder.gives_up
-    assert same_powder.gives_up.startswith(
-        "Not a like-for-like replacement: it cannot be shown to be like for like: the names differ in high heat "
-        "against instant, which the data does not explain. Compared with "
-    )
+    result = find_substitutes(BARISTA, policy.get_profile("hotel-kitchen"), deps, SubstituteQuery())
+
+    other = next(candidate for candidate in result.candidates if candidate.product_id == FAZER_BARISTA)
+    assert ("more per L" in other.gives_up) is bool(said)
+    assert said in other.gives_up
 
 
 # --- Against Valio's own judgement ------------------------------------------------------------------------

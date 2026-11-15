@@ -62,11 +62,11 @@ def test_what_is_given_up_is_said_in_numbers(service: OfferService, agent_hotel:
 
     # Before, this sentence in full: "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list
     # it as a substitute; Valio does not confirm the quantity in stock."
+    # Review finding C3-F9: the contents and the figures are said once. Before, the verdict spelled them out
+    # too: "a different formula (contains water, modified starch, which the product asked for does not; ...)".
     assert by_id[COOKING_CREAM].gives_up == (
         "Not a like-for-like replacement: made for cooking; the product asked for is made for whipping; a "
-        "different formula (contains water, modified starch, which the product asked for does not; lacks "
-        "stabiliser (carrageenan), which the product asked for contains; fat 15 g, not 38 g, saturated fat 8.8 g, "
-        "not 22 g, carbohydrate 5.3 g, not 2.8 g). "
+        "different formula. "
         "Compared with Valio whipping cream 1 l UHT lactose free: Valio does not list it as a substitute; Valio "
         "does not confirm the quantity in stock. Different contents: this product's ingredient list names water "
         "and modified starch, which the list of the product asked for does not; the ingredient list of the "
@@ -105,8 +105,8 @@ def test_100_litres_of_whipping_cream_are_no_longer_topped_up_with_a_vegetable_f
     stand_in = alternative.lines[1]
     assert (stand_in.product_id, stand_in.quantity) == (VALIO_WHIPPING, 52)
     assert stand_in.substitute.gives_up == (
-        "Not a like-for-like replacement: a different formula (lacks lactase enzyme, which the product asked for "
-        "contains). Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; "
+        "Not a like-for-like replacement: a different formula. "
+        "Compared with Arla Pro Whipping cream 1 L UHT lactose free: the brand is Valio, not Arla Pro; "
         "Valio does not list it as a substitute; Valio does not confirm the quantity in stock. Different contents: "
         "the ingredient list of the product asked for names lactase enzyme, which this product's does not. The "
         "six nutrition figures are within our tolerance of 15% or 1 g per nutrient (salt 0.25 g)."

@@ -13,6 +13,8 @@ from tta.contracts.request import ProductQuery
 
 REQUIRED_KEYS = {"milk", "plant_drink", "beef_chuck"}
 CREAM_EXCLUDE_TERMS = ("vegetable", "kasvirasva", "alternative", "rama professional", "quark", "mousse")
+# Review finding C3-F3, 15 Nov 2026: varieties of cream, found through the type only when a request names them.
+CREAM_VARIETY_TERMS = ("flavoured", "sweet chili", "spray", "whipped", "kermavaahto")
 # Category 10401: the vegetable-fat blends. Each ingredient list (in Finnish for the three Rama products,
 # whose English list reads "-") names a vegetable oil or fat.
 VEGETABLE_FAT_WORDS = ("vegetable", "rapeseed", "kasvirasv", "kasviöljy", "palmuöljy")
@@ -86,6 +88,7 @@ def test_exclude_terms_are_read_from_the_table(tmp_path: Path) -> None:
 
     assert load_product_types(path)["milk"].exclude_terms == ("sour", "piimä")
     assert load_product_types(PRODUCT_TYPES_FILE)["cream"].exclude_terms == CREAM_EXCLUDE_TERMS
+    assert load_product_types(PRODUCT_TYPES_FILE)["cream"].variety_terms == CREAM_VARIETY_TERMS
 
 
 def test_missing_table_is_rejected(tmp_path: Path) -> None:
@@ -99,8 +102,10 @@ def test_cream_leaves_out_the_vegetable_fat_blends(catalog: ProductCatalog) -> N
 
     assert not VEGETABLE_FAT_BLENDS & {product.id for product in cream.products}
     assert {product.id for product in blends.products} == VEGETABLE_FAT_BLENDS
-    # Category 10401, whole catalog: 53 products, of which a quark and a protein mousse are of neither type.
-    assert cream.total + blends.total == 53 - 2
+    # Category 10401, whole catalog: 53 products, of which a quark and a protein mousse are of neither type;
+    # since 15 Nov 2026 the 7 flavoured cooking creams and the 3 whipped creams in a spray can are varieties
+    # of cream, which a request for plain "cream" does not find.
+    assert cream.total + blends.total == 53 - 2 - 10
 
 
 def test_every_vegetable_fat_blend_names_a_vegetable_fat_in_its_ingredient_list(catalog: ProductCatalog) -> None:
@@ -121,9 +126,11 @@ def test_butter_holds_no_plant_based_block_and_cream_no_quark_or_mousse(catalog:
     butter, cream = _of_type(catalog, "butter"), _of_type(catalog, "cream")
 
     assert "471792" not in butter
-    assert len(butter) == 19
+    assert len(butter) == 15  # 19 before 15 Nov 2026: clarified (2), brown and laminating butter are varieties
     assert all("VEGAN" not in catalog.get_product(product_id).nutritional_claims for product_id in butter)
     assert not {"473205", "473461"} & cream
-    assert len(cream) == 42
+    assert len(cream) == 32  # 42 before 15 Nov 2026
     assert {"464194", "464249", "469346"} <= cream  # whipping and cooking creams stay
-    assert {"464411", "464761", "472127"} <= butter  # butter, butter for laminating, clarified butter stay
+    assert {"464411", "464205", "475797"} <= butter  # unsalted and salted butter stay
+    # What a cook would not accept for "butter" in a recipe is found only when the request names it.
+    assert not {"464761", "472127", "475708", "474681"} & butter  # laminating, clarified (2), brown

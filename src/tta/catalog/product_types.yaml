@@ -12,10 +12,19 @@
 #                  or its Finnish name contains one
 #   exclude_terms  (when given) no word of its English name starts with one of these terms,
 #                  and its Finnish name contains none
+#   variety_terms  (when given) no word of its English name starts with one of these terms, and its
+#                  Finnish name contains none: such a product is a variety of the type (rye flour,
+#                  icing sugar, egg yolk), not its plain product
 #   claims         (when given) it carries every one of these nutritionalClaim codes
 # `products` is how many products that selects and `derived_from` says how the entry was derived.
 # `note` (optional) is a sentence for the buyer whenever a request asks for the type: what the type
 # leaves out and how to ask for it. The offer carries it as a note.
+# An exclude term and a variety term differ in what a request finds (review finding C3-F3, 15 Nov 2026: a
+# menu ordered an egg glaze spray as eggs and rye flour as flour). A product with an exclude term is another
+# product, and a request that says the term does not name the type at all ("sour milk" is not milk). A
+# variety is still found through the type when the request names it: "rye flour" is read as the type flour
+# with the name term "rye" and finds the rye flours, while "flour" alone, in a request or in a recipe, finds
+# plain wheat flour only. `products` counts the plain products.
 # `raw` (optional, ours) marks raw meat and fish sold as it is: a cut has no recipe of its own, so the agent
 # does not learn "a substitute must keep its recipe" for it from how a customer uses it.
 #
@@ -66,7 +75,8 @@ sour_milk:
 cream:
   categories: ["10401"]
   exclude_terms: ["vegetable", "kasvirasva", "alternative", "rama professional", "quark", "mousse"]
-  products: 42
+  variety_terms: ["flavoured", "sweet chili", "spray", "whipped", "kermavaahto"]
+  products: 32
   derived_from: >-
     Category 10401 holds 53 products; "cream" starts a word in 46 of their English names
     (cooking and whipping cream). The exclude terms leave out the 9 vegetable-fat blends, which are
@@ -75,7 +85,11 @@ cream:
     469162), and 3 are Rama Professional (467142, 467173, 467297), whose Finnish ingredient lists
     name vegetable oils or fats (their English lists read "-"). "quark" and "mousse" leave out the
     2 products of the category that are not cream: a layered quark (473205) and a protein mousse
-    (473461). 42 stay.
+    (473461). 42 are cream. The variety terms (review finding C3-F3, 15 Nov 2026) set apart the 10
+    of them a cook would not accept for "cream" in a recipe: the 6 cooking creams named "flavoured"
+    (smoked cheese, three cheeses, three onions, pepper cheese, lemon and pepper, red pesto), the
+    sweet chili one (468521), and the 3 whipped creams in a spray can (462652, 473847, 474206;
+    "kermavaahto" is whipped cream). 32 are plain cream.
 
 vegetable_cream:
   categories: ["10401"]
@@ -113,12 +127,17 @@ quark:
 butter:
   categories: ["10500"]
   exclude_terms: ["plant"]
-  products: 19
+  variety_terms: ["clarified", "concentrated", "kirkastettu", "brown", "ruskistettu", "laminating",
+                  "kaulintavoi"]
+  products: 15
   derived_from: >-
     Category 10500 holds 20 products; "butter" starts a word in 19 of their English names. The
     exclude term "plant" leaves out the one that is not butter: 471792 Eleplant "plant power", a
-    block of coconut, rapeseed and shea fat with the claim VEGAN. 19 stay. Spreads and margarine
-    (10515 to 10518) are not included.
+    block of coconut, rapeseed and shea fat with the claim VEGAN. 19 are butter. The variety terms
+    (review finding C3-F3, 15 Nov 2026) set apart what a cook would not accept for "butter" in a
+    recipe: 2 clarified butters (472127, and 475708, "concentrated" in English and "kirkastettu" in
+    Finnish), a brown butter (474681) and a butter for laminating dough (464761). 15 are plain
+    butter. Spreads and margarine (10515 to 10518) are not included.
 
 cheese:
   categories: ["10600", "10602", "10603"]
@@ -131,10 +150,18 @@ cheese:
 
 eggs:
   categories: ["10590", "10592"]
-  products: 30
+  variety_terms: ["yolk", "keltuai", "white", "albumen", "valkuai", "boiled", "keitet", "cooked",
+                  "scrambled", "kokkeli", "spread", "levite", "glaze", "mayo", "viiriäi"]
+  products: 13
   derived_from: >-
     Categories 10590 (shell eggs, 9) and 10592 (liquid and cooked egg products, 21) hold 30
-    products; "egg" starts a word in 28 of their English names.
+    products; "egg" starts a word in 28 of their English names. The plain product is the egg a
+    recipe means: hen's eggs in the shell and liquid whole egg. The variety terms (review finding
+    C3-F3, 15 Nov 2026: a menu ordered an egg glaze spray as eggs) set apart the parts of an egg (3
+    yolks, 3 whites and an albumen powder), what is already cooked (4 boiled and peeled, 2 scrambled
+    mixes, a cooked egg white), 2 egg and butter spreads, the glaze spray (468206), a mayonnaise
+    base (468127) and quail eggs (463692, "viiriäisen munia"). 13 are plain: 8 of hen's eggs in the
+    shell and 5 of liquid whole egg.
 
 olive_oil:
   categories: ["10531"]
@@ -227,17 +254,39 @@ pasta:
 flour:
   categories: ["21300", "21310"]
   name_terms: ["flour", "jauho"]
-  products: 82
+  variety_terms: ["breadcrumb", "bread crumbs", "panko", "korppujauho", "tempura", "gluten free",
+                  "gluteeniton", "mix", "jauhoseos", "pizza", "strewing", "sirote", "dusting",
+                  "durum", "semola", "wholegrain", "whole grain", "wholw grain", "täysjyvä", "graham",
+                  "rye", "ryeflour", "ruisjauho", "barley", "ohrajauho", "buckwheat", "tattari",
+                  "oat", "oatflour", "kaurajauho", "rice", "riisijauho", "corn", "cornflour",
+                  "maissijauho", "chickpea", "chickpeaflour", "gram", "kikherne", "coconut", "kookos",
+                  "spelt", "speltflour", "speltti", "teff", "sorghum", "kama", "talkkuna"]
+  products: 21
   derived_from: >-
     Categories 21300 (wheat flour, 28) and 21310 (other flours, 59) hold 87 products. The name
     terms keep the 82 flours and breadcrumb flours and leave out 5 others (spelt kernels, tapioca
-    pearls, potato fibre, xanthan gum).
+    pearls, potato fibre, xanthan gum). The variety terms (review finding C3-F3, 15 Nov 2026: a
+    menu ordered rye flour for a pancake) make the plain product the flour a recipe means, plain
+    wheat flour: they set apart breadcrumbs and panko ("korppujauho" holds "jauho"), tempura flour,
+    gluten-free flours and mixes, pizza flour, flour for strewing or dusting, durum and wholegrain
+    wheat, and the flours of another grain or seed (rye, barley, buckwheat, oat, rice, corn,
+    chickpea, coconut, spelt, teff, sorghum, kama). 21 are plain, all wheat flour.
 
 sugar:
   categories: ["22100"]
-  products: 40
+  variety_terms: ["jam", "hillo", "jelly", "jelling", "hyytelö", "icing", "tomusokeri", "nib",
+                  "raesokeri", "cubes", "lumps", "palasokeri", "sticks", "sugarstick", "sokeritikku",
+                  "portion", "annos", "café", "glucose", "syrup", "siirappi", "liquid", "neste",
+                  "fructose", "hedelmäsokeri", "brown", "ruskea", "fariini", "muscovado", "cane",
+                  "canesugar", "rawsugar", "ruoko", "coconut", "kookos"]
+  products: 9
   derived_from: >-
-    Category 22100 holds 40 products; "sugar" starts a word in 36 of their English names.
+    Category 22100 holds 40 products; "sugar" starts a word in 36 of their English names. The plain
+    product is the sugar a recipe means, white sugar in grains. The variety terms (review finding
+    C3-F3, 15 Nov 2026: a menu ordered golden cane sugar and icing sugar for a pancake) set apart
+    jam and jelly sugar (they hold pectin), icing sugar, nib sugar, cubes and lumps, sticks and
+    portion packs, glucose syrup, liquid sugar, fructose, and brown, muscovado, cane and coconut
+    sugar. 9 are plain: granulated, caster, white and beet sugar.
 
 coffee:
   categories: ["22300", "22410"]

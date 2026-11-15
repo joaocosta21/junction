@@ -85,10 +85,12 @@ def test_the_listed_substitute_that_passes_is_ranked_by_its_formula_like_any_oth
     passing = [candidate.product_id for candidate in result.candidates if candidate.passes]
 
     assert passing[0] == PASSES
+    # The verdict names the formula in three words; the figures are said once, in the formula sentence (C3-F9).
     assert by_id[PASSES].gives_up.startswith(
-        "Not a like-for-like replacement: a different formula (fat 1.5 g, not 3 g); it cannot be shown to be like "
+        "Not a like-for-like replacement: a different formula; it cannot be shown to be like "
         "for like: its name adds Delight, which the data does not explain. Compared with "
     )
+    assert by_id[PASSES].gives_up.count("fat 1.5 g, not 3 g") == 1  # before: twice
     assert "Different formula: fat 1.5 g, not 3 g, per 100 g against per 100 ml." in by_id[PASSES].gives_up
     # Before, the first three were the same brand's flavoured barista drinks (pumpkin spice, gingerbread, nutty
     # vanilla): the nutrition panel cannot tell a flavour. A flavoured drink no longer replaces a plain one.
@@ -221,7 +223,12 @@ def test_an_unlisted_candidate_that_fails_the_allergen_rule_is_counted_and_not_s
 def test_each_candidate_carries_the_replaceable_check_its_sentence_starts_with(result: SubstituteResult) -> None:
     for candidate in result.candidates:
         assert candidate.replaceable is not None
-        assert candidate.gives_up.startswith(candidate.replaceable.sentence)
+        # The sentence starts with the verdict and says the formula once: in the formula sentence, whole
+        # (review finding C3-F9; before, the reason of the verdict spelled the same figures out again).
+        assert candidate.gives_up.startswith(candidate.replaceable.sentence.split(":")[0])
+        assert candidate.gives_up.count(candidate.formula.sentence) == 1
+        spelled_out = [reason for reason in candidate.replaceable.reasons if reason.startswith("a different formula (")]
+        assert not any(reason in candidate.gives_up for reason in spelled_out)
 
 
 def test_the_price_difference_per_litre_compares_a_case_with_a_carton(
