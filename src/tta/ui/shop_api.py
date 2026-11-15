@@ -61,11 +61,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from tta.agent.dishes import read_dishes
+from tta.api.audit_pages import AUDIT_PAGE_MAX
 from tta.api.customers import customer_view
 from tta.api.insights import Period, insights, is_recorded
 from tta.api.sandbox import KITCHEN_AGENT, KITCHEN_APPROVERS, KITCHEN_PROFILE_ID, Sandbox, file_profile
 from tta.api.standing_routes import with_set_up_limits
 from tta.config import Settings
+from tta.contracts.audit import EVENT_TYPE_PREFIX, AuditEventType
 from tta.contracts.common import ApprovalStatus, ApproverRole, AuditReader, Identity, OrderStatus, Quantity, Unit
 from tta.contracts.customer import Customer, CustomerStandingOrder
 from tta.contracts.errors import InvalidRequest, SupplierUnavailable, TtaError
@@ -457,6 +459,18 @@ def _set_up_here(one: Sandbox, made: StandingOrder) -> StandingOrderView:
                              trend=None)
 
 
+def _audit(one: Sandbox, reader: AuditReader, order_id: str | None, event_type: AuditEventType | None) -> Any:
+    """This book's audit trail as the gateway's own audit view answers it (`GET /v1/audit`): one order's, or with no
+    order the newest events of the whole book, where a change of settings is (it belongs to no order). `event_type`
+    keeps only the events of one kind of the newest page (at most 200 events): the page's "What changed" asks for
+    `settings.changed`. Nothing is read past the service: the answer still says what was verified."""
+    if event_type is None:
+        return one.service.get_audit(KITCHEN_APPROVERS[0], reader=reader, order_id=order_id)
+    view = one.service.get_audit(KITCHEN_APPROVERS[0], reader=reader, order_id=order_id, limit=AUDIT_PAGE_MAX)
+    kept = tuple(event for event in view.events if event.type == EVENT_TYPE_PREFIX + event_type.value)
+    return view.model_copy(update={"events": kept})
+
+
 def _menu_plan(one: Sandbox, body: MenuAsk, settings: Settings) -> MenuPlan:
     """The recipe plan of a sentence ("I want to make a chocolate cake for 20 people") for this book's customer, as
     `POST /v1/menus/plan` answers it: its offer is one of this book's, ordered and confirmed like any other. A refusal
@@ -774,10 +788,14 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         )
 
     @app.get(API + "/audit")
-    def audit(request: Request, order_id: str, reader: AuditReader = AuditReader.BUYER) -> Response:
-        return answer(
-            request, lambda one: one.service.get_audit(KITCHEN_APPROVERS[0], reader=reader, order_id=order_id)
-        )
+    def audit(
+        request: Request, order_id: str | None = Query(default=None, min_length=1, max_length=MAX_ID),
+        reader: AuditReader = AuditReader.BUYER, event_type: AuditEventType | None = None,
+    ) -> Response:
+        """The audit trail of one order of this book, or with no `order_id` the newest events of the book: a change
+        of the customer's settings is an event of the book and of no order. `event_type` keeps one kind of event
+        (`settings.changed` for the Settings page's "What changed")."""
+        return answer(request, lambda one: _audit(one, reader, order_id, event_type))
 
     @app.get(API + "/backoffice")
     def backoffice(request: Request, period: Period = Period.TODAY) -> Response:

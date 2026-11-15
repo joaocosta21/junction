@@ -5,6 +5,8 @@
 // figure is the gateway's; the page only multiplies packs by their size to say what is left over.
 // The card has one decision box, the request page's own (assistant.js), which holds the button and follows the
 // order: the plan adds its reasons in a plain line while nothing is ordered, and nothing once an order exists.
+// With an option, the request page draws that option's total and its decision box first and this card under them,
+// so that "Confirm order" is in the window; the rows are what the person reads next.
 import { money } from "../core.js";
 import { html, num, unit } from "../dom.js";
 import { icon } from "../icons.js";
@@ -186,7 +188,7 @@ function needsPerson(plan, option, ordered) {
   const roles = d.required_roles || [];
   const why = reasons(plan, option);
   const sentence = why.length ? `${capital(why.join("; "))}.` : plain(d.sentence);
-  return html`<p class="small"><b>${roles.length ? `Needs ${who(roles)}` : "Needs a person"}:</b> ${sentence} The decision is asked below, with the order.</p>`;
+  return html`<p class="small"><b>${roles.length ? `Needs ${who(roles)}` : "Needs a person"}:</b> ${sentence} The decision is asked above, with the total.</p>`;
 }
 
 // ---- the card -------------------------------------------------------------------------------------------------

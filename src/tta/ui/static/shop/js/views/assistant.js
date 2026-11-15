@@ -6,15 +6,15 @@
 // table. A product request costs the one round trip it always did; a dish sentence costs one more.
 import { app, api, deliveryOf, on, refresh, render, reveal, toast, verifyRules, withRules } from "../core.js";
 import { contact, customerKnown, customerOf, loadCustomer, productLabel, unitWord } from "../customer.js";
-import { clock, html, longDate, num, unit } from "../dom.js";
+import { clock, html, longDate, num } from "../dom.js";
 import { MENU_EXAMPLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
 import { confirm, dismiss, prepare, review } from "../learning.js";
 import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
-import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
+import { REASONS, exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
 import { loadEvidence } from "./evidence.js";
-import { hasPerson, netTotal, nobodyHolds, optionLines, optionTotals, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
+import { hasPerson, netTotal, nobodyHolds, optionLines, optionTotals, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote, summaryParts, whatDiffers } from "./parts.js";
 import { planCard, planReadAs } from "./plan.js";
 import { DIETITIAN, askedOf, dietitianRules, isMine, otherPeople, ownQuestion, personWords, reasonOf, said } from "./question.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
@@ -25,8 +25,8 @@ import { loadWhyNot, suggestionsBox } from "./suggestions.js";
 import { openInterface, typedRequest } from "./typed.js";
 
 const SOURCES = {
-  model: "read by Gemini",
-  recording: "read from a recorded Gemini answer",
+  model: "read by a model",
+  recording: "read from a recorded answer of a model",
   "hand-built": "read from a hand-written answer",
   "rule-based": "read by fixed rules, no model",
   example: "example, sent as a typed request",
@@ -35,6 +35,15 @@ const SOURCES = {
   standing: "a standing order renewed once, sent as the gateway wrote it",
   plan: "planned from the recipe table by fixed rules, no model",
 };
+// Who read the text, in the page's words. A model is named as the gateway reports it (`Reading.model`), never by
+// a name the page holds: "read by the model <id>", or "a model" when the reading names none.
+const BY_A_MODEL = ["model", "recording"];
+function sourceWords(reading) {
+  const words = SOURCES[reading?.source];
+  const model = String(reading?.model || "").trim();
+  if (!words || !model || !BY_A_MODEL.includes(reading.source)) return words;
+  return words.replace("a model", `the model ${model}`);
+}
 const CONFIRM_NOTE = "Confirmed on the shop's request page.";
 
 const findTurn = (id) => mine().thread.find((t) => t.id === id);
@@ -90,7 +99,7 @@ async function ask(text, typed = null, { menu = false } = {}) {
         if (await planInstead(turn, text, menu ? null : refusal || unread(reading))) return;
       }
       request = reading.request;
-      turn.reading = { source: reading.source, sentence: reading.sentence };
+      turn.reading = { source: reading.source, sentence: reading.sentence, model: reading.model };
     }
     step = "offer";
     const prepared = prepare(request, k, mine(), app.data.authority?.profile);
@@ -376,27 +385,33 @@ on("clear", () => {
 const WITHOUT = { AW: "cereals containing gluten" };
 const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
-function readAs(request) {
+// `names`: product names the sender of a written request knew (a standing order's lines), by product id, for the
+// moment before the offer names them.
+function readAs(request, names = {}) {
+  const named = (id) => (names[id] ? `${names[id]} (${id})` : productLabel(id));
   const parts = (request?.lines || []).map((l) => {
     const terms = (l.name_terms || []).join(" ");
     const type = l.product_type ? l.product_type.replaceAll("_", " ") : "";
-    const what = l.product_ids?.length ? l.product_ids.map((id) => productLabel(id)).join(", ") : [terms, type].filter(Boolean).join(" ") || "products";
+    const what = l.product_ids?.length ? l.product_ids.map(named).join(", ") : [terms, type].filter(Boolean).join(" ") || "products";
     const claims = (l.required_claims || []).map((c) => c.replace(/^FREE_FROM_/, "").toLowerCase().replaceAll("_", " ") + "-free").join(", ");
     const without = listed((l.exclude_allergens || []).map((c) => `without ${WITHOUT[c] || allergenName(c).toLowerCase()}`));
-    return `${num(l.quantity)} ${unit(l.unit)} ${claims ? claims + " " : ""}${what}${without ? `, ${without}` : ""}`;
+    return `${num(l.quantity)} ${unitWord(l.unit)} ${claims ? claims + " " : ""}${what}${without ? `, ${without}` : ""}`;
   });
   return `${parts.join(" + ")}${request?.needed_by ? `, by ${longDate(request.needed_by)}` : ""}`;
 }
+// A standing order renewed once is asked under its own name ("Weekly lactose-free milk, hotel kitchen", the
+// result's text), then what this renewal holds.
+const renewalOf = (turn) => (turn.reading?.source === "standing" && turn.text ? `${turn.text}, renewed once: ` : "");
 
 function asked(turn) {
   const request = turn.offer?.request || turn.sent;
   const wrote = ["example", "suggestion", "reorder", "standing"].includes(turn.reading?.source) ? "" : `You wrote “${turn.text}”`;
   const data = turn.offer ? (turn.offer.source === "replay" ? "recorded Valio Aimo data" : "live Valio Aimo data") : "";
-  const meta = [request ? wrote : "", SOURCES[turn.reading?.source], data, turn.at ? clock(turn.at) : ""].filter(Boolean).join(" · ");
+  const meta = [request ? wrote : "", sourceWords(turn.reading), data, turn.at ? clock(turn.at) : ""].filter(Boolean).join(" · ");
   // What the reading itself says a person should know, e.g. "No allergen rule was given for …: read as strict,
   // the safe reading." Sentences about keys or routes are for developers and stay out (forPeople).
   const reading = turn.reading?.sentence ? forPeople(turn.reading.sentence) : [];
-  const read = turn.plan ? planReadAs(turn.plan) || turn.text : request ? readAs(request) : turn.text;
+  const read = turn.plan ? planReadAs(turn.plan) || turn.text : request ? `${renewalOf(turn)}${readAs(request, turn.names)}` : turn.text;
   return html`<div class="asked">
     <span class="label">Asked</span>
     <div class="read">
@@ -428,11 +443,13 @@ const outcome = (sentence) => said(sentence).replace(ROLE_AFTER_NAME, "").replac
 // as a cook reads it (which ingredients are covered, what arrives when), where the policy's sentence counts request
 // lines: the note of `plan.notes` that starts "Option <rank>, ", from after its totals. No such note: the policy's.
 const AFTER_TOTALS = "with tax. ";
+const IT_NEEDS = /\s*It needs [^.]*\.\s*$/;
 function planReason(turn, option) {
   const start = `Option ${option?.rank}, `;
   const note = (turn?.plan?.notes || []).find((n) => typeof n === "string" && n.startsWith(start));
   const at = note ? note.indexOf(AFTER_TOTALS) : -1;
-  return at < 0 ? "" : plain(note.slice(at + AFTER_TOTALS.length)).trim();
+  // Who it needs is said by the box itself, by name ("Needs your decision"): the note's last words are left out.
+  return at < 0 ? "" : plain(note.slice(at + AFTER_TOTALS.length)).replace(IT_NEEDS, "").trim();
 }
 const reasonFor = (turn, option, decision) => planReason(turn, option) || reasonOf(decision?.sentence);
 
@@ -533,9 +550,22 @@ function verdictTag(option) {
 // allergen not ruled out): then nothing is called suggested. An option the person picked is their choice.
 const NOT_CONFIRMED = "ALTERNATIVE_UNCONFIRMED";
 const isSuggestion = (turn, option) => isFirst(turn, option) && option.kind !== NOT_CONFIRMED;
+// An option the gateway offers for a later day than asked says so in its title ("delivered Monday 16 Nov, 3 days
+// later than asked"): its stock may be confirmed, so the label says what is true of it, the date.
+const LATER_THAN_ASKED = /\blater than asked\b/i;
+const isLater = (option) => LATER_THAN_ASKED.test(option?.title || "");
 function optionLabel(turn, option) {
   if (isSuggestion(turn, option)) return "Suggested";
-  return isFirst(turn, option) ? "No confirmed option" : "Your choice";
+  if (!isFirst(turn, option)) return "Your choice";
+  return isLater(option) ? "Later than asked" : "No confirmed option";
+}
+
+// An option that is not the one shown: what it offers and costs in the gateway's first words, then its substitutes.
+// Where the summary goes on to say what a substitute differs in, that part is folded ("What differs") and the
+// substitute's own sentence, which says the same, is not printed beside it.
+function otherSummary(option) {
+  const [first, rest] = summaryParts(option);
+  return html`<div class="small muted">${plain(first)}</div>${option.lines.map((l) => substituteNote(l, { sentence: !rest, table: false }))}${whatDiffers(rest)}`;
 }
 
 function others(turn, chosen) {
@@ -544,7 +574,7 @@ function others(turn, chosen) {
   const locked = Boolean(turn.order) || isReplaced(turn);
   return html`<div class="others"><h4>Other options</h4>${rest.map(
     (o) => html`<div class="other">
-      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}${isSuggestion(turn, o) ? html` <span class="tag info">Suggested</span>` : ""}<div class="small muted">${plain(o.summary)}</div>${o.lines.map((l) => substituteNote(l, { table: false }))}</div>
+      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}${isSuggestion(turn, o) ? html` <span class="tag info">Suggested</span>` : ""}${otherSummary(o)}</div>
       ${verdictTag(o)}
       ${locked || o.decision?.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="choose" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
     </div>`
@@ -565,10 +595,38 @@ function withoutPlanNotes(turn) {
   return said.size ? { ...turn.offer, notes: (turn.offer.notes || []).filter((n) => !said.has(n)) } : turn.offer;
 }
 
+// Why the products of an offer were left out, each reason once with how many it holds, most first: the gateway's
+// own sentence per product (`excluded[].sentence`), e.g. "The product declares that it contains milk, which the
+// buyer excludes." A product with no sentence is counted under its reason's words.
+function leftOutReasons(offer) {
+  const counts = new Map();
+  for (const e of offer.excluded || []) {
+    const why = plain(e.sentence || "") || REASONS[e.reason] || String(e.reason || "").toLowerCase().replaceAll("_", " ");
+    counts.set(why, (counts.get(why) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]);
+}
+
+// No option: how many products were checked and why each was left out, said first and in whole sentences ("26
+// products checked, 26 left out"); the gateway's own notes and the products by name are one fold away.
 function nothingOffered(turn) {
   const offer = turn.offer;
+  const checked = offer.candidates_considered ?? 0;
+  const out = offer.excluded || [];
+  const reasons = leftOutReasons(offer);
+  const notes = (offer.notes || []).map((n) => html`<p class="small">${plain(n)}</p>`);
+  const counted = (n) => (n === out.length && reasons.length === 1 ? `All ${num(n)}` : `${num(n)} of them`);
   return html`<div class="answer-body">
-    <div class="verdict stop">${icon("stop")}<div><b>Nothing can be offered for this request</b><p>Looked at ${offer.candidates_considered ?? 0} products: ${exclusionsSummary(offer) || "none matched"}.</p>${(offer.notes || []).map((n) => html`<p>${plain(n)}</p>`)}</div></div>
+    <div class="verdict stop">${icon("stop")}<div><b>Nothing can be offered for this request</b>
+      ${reasons.length
+        ? html`<p>${num(checked)} ${checked === 1 ? "product" : "products"} checked, ${num(out.length)} left out.${reasons.length === 1 ? ` ${counted(reasons[0][1])}: ${reasons[0][0]}` : ""}</p>
+          ${reasons.length > 1 ? html`<ul class="asks">${reasons.map(([why, n]) => html`<li>${counted(n)}: ${why}</li>`)}</ul>` : ""}`
+        : html`<p>Looked at ${num(checked)} products: ${exclusionsSummary(offer) || "none matched"}.</p>${notes}`}
+    </div></div>
+    ${reasons.length
+      ? html`<details class="why fold"><summary>${icon("right")}The ${num(out.length)} ${out.length === 1 ? "product" : "products"} left out, and the gateway's notes</summary>
+          <div class="why-body"><ul class="left-out">${out.map((e) => html`<li>${e.name || "Product"} (${e.product_id})</li>`)}</ul><div>${notes}</div></div></details>`
+      : ""}
     ${suggestionsBox(turn)}
     ${typedRequest(turn)}
   </div>`;
@@ -582,22 +640,27 @@ function answer(turn) {
   if (turn.phase === "failed") return card(turn, html`<div class="answer-body">${failedAnswer(turn)}</div>`);
   if (isReplaced(turn)) return replacedCard(turn);
   const option = chosenOf(turn);
-  // A recipe plan leads with its own three lines; its offer's options follow as on any result.
+  // A recipe plan with nothing to order leads with its own lines. With an option, what is offered, its total and
+  // the button come first, and the recipe's rows follow them (below).
   const plan = turn.plan ? html`<div class="answer-body">${planCard(turn, option)}</div>` : "";
   if (turn.plan && !turn.offer) return card(turn, plan);
   if (!option) return card(turn, html`${plan}${nothingOffered(turn)}`);
   const first = isFirst(turn, option);
+  const [summary, differs] = summaryParts(option);
   // What is offered, what it costs and the button come first, so that a window shows them without scrolling; the
   // product lines follow. A request that repeats a regular order is said once, in one line under the headline.
-  return card(turn, html`${plan}<div class="answer-body">
+  // What a substitute of the option differs in is one fold under the headline, in the gateway's words.
+  return card(turn, html`<div class="answer-body">
     <div class="label-row"><span class="label">${optionLabel(turn, option)}</span><span class="small muted">${plain(option.title)}</span></div>
-    <p class="headline">${plain(option.summary)}</p>
+    <p class="headline">${plain(summary)}</p>
+    ${whatDiffers(differs)}
     ${regularBar(turn)}
     ${turn.resolved ? html`<p class="small muted">${turn.resolved}</p>` : ""}
     ${optionTotals(option)}
     ${verdictBox(turn, option)}
     ${first ? (turn.flags || []).map((f) => flagBox(turn, f)) : ""}
     ${turn.problem ? html`${problemBox(turn.problem)}<div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Ask again</button></div>` : ""}
+    ${turn.plan ? planCard(turn, option) : ""}
     ${optionLines(option, prefs.short)}
     ${others(turn, option)}
     ${suggestionsBox(turn)}

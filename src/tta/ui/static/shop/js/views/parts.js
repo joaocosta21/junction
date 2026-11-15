@@ -76,27 +76,61 @@ function formulaTable(formula) {
   <p class="tiny muted">Only the nutrients whose figures differ are listed.</p>`;
 }
 
-// "Last resort": the substitute lacks a dietary claim of the product asked for, and no substitute that keeps it
-// can be supplied, so a person decides (B7, as João clarified it on 14 Nov 2026).
+// "Last resort": nothing like for like can be ordered, so a person decides. Where the substitute lacks a dietary
+// claim of the product asked for (`claims_lost`), the claim is named (B7, as João clarified it on 14 Nov 2026);
+// a last resort that loses no claim (coffee milk for milk, both lactose free) is said without one.
+const NOT_LIKE_FOR_LIKE = "Not a like-for-like replacement, and nothing like for like can be ordered. A person decides.";
 function lastResort(s) {
   const claims = (s.claims_lost || []).map((c) => `“${plain(c).toLowerCase()}”`);
-  const what = !claims.length ? "a dietary claim of the product asked for"
-    : `${listed(claims)}, ${claims.length > 1 ? "claims" : "a claim"} of the product asked for`;
+  if (!claims.length) return NOT_LIKE_FOR_LIKE;
+  const what = `${listed(claims)}, ${claims.length > 1 ? "claims" : "a claim"} of the product asked for`;
   return `Last resort: it does not carry ${what}, and no substitute that keeps ${claims.length > 1 ? "them" : "it"} can be supplied. A person decides.`;
 }
 
+// The ingredients only one of the two lists names and the two columns of figures, folded: the row's sentence has
+// said what differs once, and the side-by-side figures are one click away.
+function formulaFold(formula) {
+  const components = formulaComponents(formula);
+  const table = formulaTable(formula);
+  if (!String(components) && !String(table)) return "";
+  return html`<details class="why fold"><summary>${icon("right")}Ingredients and nutrition, side by side</summary>
+    <div class="why-body"><div>${components}${table}</div></div></details>`;
+}
+
+// An option's summary in two parts, where it goes on to say what a substitute of the option differs in: what is
+// offered and its price, and the rest, which the page folds under "What differs". The cut is where the gateway's
+// summary starts to say what the substitute's own row says (the lead of its `gives_up`); no word is rewritten. A
+// summary that does not do so is whole, and nothing is folded.
+export function summaryParts(option) {
+  const summary = String(option?.summary || "");
+  for (const line of option?.lines || []) {
+    const lead = String(line.substitute?.gives_up || "").split(":")[0].trim();
+    const at = lead.length >= 12 ? summary.indexOf(`. ${lead}`) : -1;
+    if (at > 0) return [summary.slice(0, at + 1), summary.slice(at + 2)];
+  }
+  return [summary, ""];
+}
+export function whatDiffers(rest) {
+  if (!rest) return "";
+  return html`<details class="why fold differs"><summary>${icon("right")}What differs</summary>
+    <div class="why-body"><p class="small">${plain(rest)}</p></div></details>`;
+}
+
 // A substitute line: what it stands in for, whether it keeps the formula, "Last resort", and what it gives up as the
-// gateway wrote it. `sentence`: the gives-up sentence; `table`: the two columns of numbers.
+// gateway wrote it, once. `sentence`: the gives-up sentence (false where a fold next to it says what differs: only
+// the last-resort line stays); `table`: the ingredients and the two columns of numbers, under a fold.
 export function substituteNote(line, { sentence = true, table = true } = {}) {
   const s = line.substitute;
   if (!s) return "";
   const tag = formulaTag(s.formula);
   const formula = s.formula?.sentence || "";
   const extra = formula && !String(s.gives_up || "").includes(formula.replace(/\.$/, "")) ? ` ${plain(formula)}` : "";
+  const resort = s.last_resort ? html`<b>${lastResort(s)}</b>` : "";
   return html`<div class="subst">
     <div class="subst-head"><span class="tag info">Substitute</span>${s.last_resort ? html`<span class="tag stop">Last resort</span>` : ""}${tag ? html`<span class="tag ${tag[0]}">${tag[1]}</span>` : ""}<span class="small">in place of ${s.original_name || "the product asked for"} (${s.original_id})</span></div>
-    ${sentence ? html`<p class="small">${s.last_resort ? html`<b>${lastResort(s)}</b> ` : ""}${plain(s.gives_up)}${extra}</p>` : ""}
-    ${table ? html`${formulaComponents(s.formula)}${formulaTable(s.formula)}` : ""}
+    ${s.last_resort ? html`<p class="small">${resort}</p>` : ""}
+    ${sentence ? html`<p class="small">${plain(s.gives_up)}${extra}</p>` : ""}
+    ${table ? formulaFold(s.formula) : ""}
   </div>`;
 }
 

@@ -664,6 +664,13 @@ select { height: 40px; border: 1px solid var(--line); border-radius: 6px; paddin
 .valio-view p { margin: 2px 0 0; font-size: 13px; }
 details.why.fold { margin-top: 6px; padding-top: 6px; }
 details.why.fold summary { font-size: 13px; }
+/* "What differs" under an option's headline, and the figures of a substitute's row: folds with no rule above them. */
+details.why.fold.differs { border-top: 0; padding-top: 0; margin: -6px 0 12px; }
+.other details.why.fold.differs { margin: 6px 0 0; }
+.subst details.why.fold { border-top: 0; padding-top: 0; }
+.subst .why-body { margin-top: 6px; }
+/* The recipe's rows under the option's total and its decision box. */
+.answer-body > .plan { margin-top: 16px; }
 .fold .why-list span svg { width: 12px; height: 12px; margin: 0 2px 0 0; vertical-align: -1px; }
 .left-out { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
 

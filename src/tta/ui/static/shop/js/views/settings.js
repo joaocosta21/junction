@@ -2,22 +2,44 @@
 // The buyer-profile part is sent to the gateway and enforced there; answer style and learned notes stay here.
 import { app, api, money, on, pushKitchen, refresh, render, toast } from "../core.js";
 import { contact, customerKnown, customerNote, customerOf, myRoles, unitWord, usualProducts } from "../customer.js";
-import { html } from "../dom.js";
+import { html, realTime } from "../dom.js";
 import { icon } from "../icons.js";
 import { ALLERGENS, ALLERGEN_RULES, NEW_ALLERGEN_RULE, ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { restore, confirm, dismiss } from "../learning.js";
 import { active, mine, resetKitchen, save } from "../store.js";
-import { ended, plain } from "../words.js";
+import { ended, plain, refusalWords } from "../words.js";
 import { customerPending, personFor } from "./parts.js";
 import { otherPeople } from "./question.js";
 
 let draft = null;
 let message = null;
 let saving = false;
+// The changes of this customer's settings as the gateway's audit trail holds them, newest first; null until read.
+// `changesFor`: the customer they were read for, so another customer's are never shown.
+let changes = null;
+let changesFor = null;
+const CHANGES_SHOWN = 5;
 
 export function forget() {
   draft = null;
   message = null;
+  changes = null;
+  changesFor = null;
+}
+
+// Read after the page opens and after each save: what is shown is what the log holds, never what the page sent.
+async function loadChanges() {
+  const id = active().id;
+  try {
+    const view = await api().settingsLog();
+    if (active().id !== id) return;
+    changes = (view?.events || []).slice().reverse();
+  } catch {
+    if (active().id !== id) return;
+    changes = changes || [];
+  }
+  changesFor = id;
+  render();
 }
 
 function ensureDraft() {
@@ -140,10 +162,11 @@ on("save", async () => {
     message = { ok: true, text: "Saved. The gateway now applies these limits to every order of this customer." };
   } catch (error) {
     // A refused form changes nothing in the gateway (tta.api.sandbox, Kitchen.set_up).
-    message = { ok: false, text: `Not saved: ${ended(plain(error.message))} The rules in force did not change.` };
+    message = { ok: false, text: `Not saved: ${ended(plain(refusalWords(error.message)))} The rules in force did not change.` };
   }
   saving = false;
   render();
+  if (message.ok) loadChanges();
 });
 
 on("undo", () => {
@@ -168,6 +191,7 @@ on("reset", async () => {
   }
   await refresh();
   toast("Demo reset for this customer.");
+  loadChanges();
 });
 
 // ---- pieces -------------------------------------------------------------------------------------------------
@@ -207,6 +231,22 @@ function learnedList() {
     return html`<li><div><b>${r.title}</b> <span class="tag ${tone}">${label}</span><div class="small">${r.detail}</div><div class="basis">${r.basis}</div></div>
       <div class="acts">${r.state === "assumed" ? html`<button class="link" data-act="learn" data-do="confirm" data-id="${r.id}">Confirm</button><button class="link quiet" data-act="learn" data-do="off" data-id="${r.id}">Turn off</button>` : r.state === "confirmed" ? html`<button class="link quiet" data-act="learn" data-do="off" data-id="${r.id}">Turn off</button>` : html`<button class="link" data-act="learn" data-do="back" data-id="${r.id}">Use again</button>`}</div></li>`;
   })}</ul>`;
+}
+
+// "What changed": the last changes of the settings, newest first, each in the gateway's own sentence with who made
+// it and when (the log keeps the real time). A change of settings is an event of the audit trail like an order's.
+function whatChanged() {
+  const known = changesFor === active().id ? changes : null;
+  const body = !known
+    ? html`<p class="small muted">Reading the log…</p>`
+    : !known.length
+      ? html`<p class="small muted">No setting was changed yet. Each change you save is written here and in the audit trail, with who made it and each value before and after.</p>`
+      : html`<ul class="side-list">${known.slice(0, CHANGES_SHOWN).map((e) => html`<li><span>${plain(e.sentence)}<br><span class="small muted">${realTime(e.time)} · real time, as the audit trail keeps it</span></span></li>`)}</ul>
+        ${known.length > CHANGES_SHOWN ? html`<p class="small muted">The ${CHANGES_SHOWN} newest of ${known.length} changes. Every change is in the audit trail.</p>` : html`<p class="small muted">Every change is an event of the audit trail, with each value before and after.</p>`}`;
+  return html`<section class="card" id="s-changes">
+    <div class="card-title"><h2>What changed</h2><span class="tag">from the audit trail</span></div>
+    ${body}
+  </section>`;
 }
 
 // What no setting changes, said once in plain words: the rules themselves, with their ids, are for developers and
@@ -277,6 +317,7 @@ export function view() {
       <nav class="toc" aria-label="Sections">
         <a href="#/settings" data-act="jump" data-to="s-allergens">Allergens</a>
         <a href="#/settings" data-act="jump" data-to="s-autonomy">What the agent may do</a>
+        <a href="#/settings" data-act="jump" data-to="s-changes">What changed</a>
         <a href="#/settings" data-act="jump" data-to="s-answers">How it answers</a>
         <a href="#/settings" data-act="jump" data-to="s-learned">What it has learned</a>
         <a href="#/settings" data-act="jump" data-to="s-kitchen">Customer details</a>
@@ -317,6 +358,8 @@ export function view() {
           <div class="field"><div><label for="f-deposits">Deposits</label><div class="help">Bottles and crates with a deposit that has no published price.</div></div>
             <select id="f-deposits" data-change="set" data-key="deposits"><option value="APPROVAL" ${s.deposits === "APPROVAL" ? "selected" : ""}>Ask a person</option><option value="NOTE" ${s.deposits === "NOTE" ? "selected" : ""}>Agent may order, noted</option></select></div>
         </section>
+
+        ${whatChanged()}
 
         <section class="card" id="s-answers">
           <div class="card-title"><h2>How the agent answers</h2><span class="tag">kept in this browser</span></div>
@@ -363,4 +406,5 @@ export function enter() {
   message = null;
   jumpTo = app.route.id;
   render();
+  loadChanges();
 }

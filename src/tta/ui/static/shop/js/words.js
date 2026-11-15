@@ -50,6 +50,13 @@ export function sentences(text) {
     .filter(Boolean);
 }
 
+// A refused settings form as a person reads it. The gateway names the form and the field before its sentence
+// ("Your kitchen: excluded_allergens: The allergen exclusions of Kilo School are set by its dietitian and cannot
+// be removed here: …"): the page shows the sentence, where the person is. Any other field keeps its name.
+const FORM_NAME = /^Your kitchen:\s*/;
+const ALLERGEN_FIELD = /(^|;\s*)(?:excluded_allergens|allergen_strictness(?:_by_code)?):\s*/g;
+export const refusalWords = (text) => String(text || "").replace(FORM_NAME, "").replace(ALLERGEN_FIELD, "$1");
+
 // One sentence, closed with a full stop when it has no end mark, so that two of them never run together.
 export function ended(text) {
   const t = String(text || "").trim();

@@ -82,7 +82,7 @@ export function instant(value) {
   return `${longDate(text)} ${text.slice(0, 4)}, ${text.slice(11, 16)}${zone}`;
 }
 
-const UNITS = { ST: "pcs", KPL: "pcs", KI: "crt", KG: "kg", L: "l", PAK: "pac", PS: "bag", RS: "box", PLO: "bot" };
+const UNITS = { ST: "pcs", KPL: "pcs", KI: "crt", KG: "kg", L: "L", PAK: "pac", PS: "bag", RS: "box", PLO: "bot" };
 export const unit = (code) => UNITS[code] || String(code || "").toLowerCase();
 
 export function initials(name) {

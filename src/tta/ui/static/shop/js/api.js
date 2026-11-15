@@ -71,6 +71,8 @@ export function gateway(kitchen) {
         decision: { decision, note: note || null, option_id: optionId || null },
       }),
     audit: (orderId, reader) => call(kitchen, "GET", `/audit?order_id=${q(orderId)}&reader=${q(reader)}`),
+    // The changes of this customer's settings, as the book's audit trail holds them (they belong to no order).
+    settingsLog: () => call(kitchen, "GET", "/audit?event_type=settings.changed"),
     reset: () => call(kitchen, "POST", "/start-again"),
   };
 }

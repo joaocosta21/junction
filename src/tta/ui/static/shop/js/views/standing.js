@@ -116,7 +116,8 @@ const refuse = (id, from, problem) => {
 // renewal the gateway refuses keeps the person here, with the gateway's own sentence under the button they used.
 async function send(so, from, request) {
   const id = so.standing_order_id;
-  const turn = await sendAsWritten("standing", so.name || id, request);
+  const names = Object.fromEntries(linesOf(so).filter((l) => l.product_id && l.name).map((l) => [l.product_id, l.name]));
+  const turn = await sendAsWritten("standing", so.name || id, request, { names });
   if (turn.phase === "failed") return refuse(id, from, turn.problem);
   state.renewing = null;
   state.typed = { ...state.typed, [id]: undefined };

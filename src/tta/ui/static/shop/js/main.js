@@ -6,7 +6,7 @@ import { html, initials } from "./dom.js";
 import { icon } from "./icons.js";
 import { KITCHENS, kitchenById } from "./kitchens.js";
 import { active, memory, save } from "./store.js";
-import { ended, plain } from "./words.js";
+import { ended, plain, refusalWords } from "./words.js";
 import { loadReorder } from "./views/reorder.js";
 import * as approvals from "./views/approvals.js";
 import * as assistant from "./views/assistant.js";
@@ -217,7 +217,7 @@ function rulesBanner() {
   if (!refused) return "";
   return html`<div class="verdict stop banner" role="alert">${icon("alert")}<div>
     <b>This customer's settings are not in force</b>
-    <p>${ended(plain(refused.message)) || "The gateway did not accept them."} Nothing is asked or ordered until the gateway accepts them.</p>
+    <p>${ended(plain(refusalWords(refused.message))) || "The gateway did not accept them."} Nothing is asked or ordered until the gateway accepts them.</p>
     <div class="actions"><button class="btn small dark" data-act="push-again" ${app.data.pushing ? "disabled" : ""}>${app.data.pushing ? "Sending…" : "Send them again"}</button><a class="link" href="#/settings">Settings</a></div>
   </div></div>`;
 }

@@ -346,9 +346,9 @@ def test_the_asked_line_says_each_allergen_it_is_without() -> None:
     say([without(["AM", "AW"]), without(["AN"]), without(["AN", "AP", "AS"])]);
     """)
 
-    assert found[0] == "200 l plant drink, without milk and without cereals containing gluten, by Mon 16 Nov"
-    assert found[1] == "200 l plant drink, without tree nuts, by Mon 16 Nov"
-    assert found[2] == "200 l plant drink, without tree nuts, without peanuts and without sesame, by Mon 16 Nov"
+    assert found[0] == "200 L plant drink, without milk and without cereals containing gluten, by Mon 16 Nov"
+    assert found[1] == "200 L plant drink, without tree nuts, by Mon 16 Nov"
+    assert found[2] == "200 L plant drink, without tree nuts, without peanuts and without sesame, by Mon 16 Nov"
 
 
 def test_the_page_says_what_is_true_when_the_agent_may_order_alone() -> None:
