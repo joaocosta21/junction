@@ -36,6 +36,12 @@ CREAM = {
     "needed_by": MONDAY,
     "lines": [{"text": "10 litres of whipping cream", "product_type": "cream", "quantity": 10, "unit": "L"}],
 }
+# A soya drink whose data rules out the allergens the ward and the school exclude: nothing in it asks a dietitian.
+SOYA = {
+    "needed_by": MONDAY,
+    "lines": [{"text": "10 litres of product 464013 by Monday", "product_ids": ["464013"], "quantity": 10,
+               "unit": "L"}],
+}
 DOUBTFUL = "469512"  # the option the dietitian is asked about (rule P-04)
 DOUBTFUL_AND_UNCONFIRMED = "473609"  # asks the purchasing manager (F-01) and the dietitian (P-04)
 
@@ -139,7 +145,9 @@ def test_the_hotels_allergen_question_is_decided_by_hanna_in_one_confirmation(
     assert "Hanna Laine, Harbourside Hotel" in order["status_sentence"]
     sentences = _trail(client, "hotel", order["order_id"])
     assert any("says nothing about milk" in sentence and "P-04" in sentence for sentence in sentences)  # what was asked
-    assert any("Hanna Laine, Harbourside Hotel" in sentence and "dietitian" in sentence for sentence in sentences)
+    # Since FIX-A1 the hotel's book reads as its one person: her name, and no role she would hold beside herself.
+    assert any("Hanna Laine, Harbourside Hotel approved order" in sentence for sentence in sentences)
+    assert not any("dietitian" in sentence for sentence in sentences)
     assert _call(client, "GET", "/approvals", "hotel").json() == []
 
 
@@ -157,9 +165,8 @@ def test_one_confirmation_signs_every_role_hanna_holds(
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["status"] == "ORDERED"
     decided = _call(client, "GET", "/approvals?pending=false", "hotel").json()[0]
-    assert sorted(role for decision in decided["decisions"] for role in decision["roles"]) == [
-        "dietitian", "purchasing_manager",
-    ]
+    # Since FIX-A1 the book lists every role under the one approver who stands for her: one decision, her roles.
+    assert [decision["roles"] for decision in decided["decisions"]] == [["purchasing_manager", "dietitian", "finance"]]
     assert {decision["approver_name"] for decision in decided["decisions"]} == {"Hanna Laine, Harbourside Hotel"}
 
 
@@ -223,17 +230,20 @@ def test_the_buyers_confirmation_signs_their_part_and_the_order_waits_for_the_di
     assert sent.status_code == 200, sent.text
     assert sent.json()["status"] == "PENDING_APPROVAL"
     waiting = _call(client, "GET", "/approvals", "school").json()[0]
-    assert [decision["roles"] for decision in waiting["decisions"]] == [["purchasing_manager"]]
+    # Päivi's own roles (FIX-A1: the book lists her under both), and never the dietitian's.
+    assert [decision["roles"] for decision in waiting["decisions"]] == [["purchasing_manager", "finance"]]
 
 
 @pytest.mark.parametrize(("kitchen", "buyer"), [("ward", "Jussi Nieminen"), ("school", "Päivi Korhonen")])
 def test_a_daily_limit_is_decided_by_the_person_who_orders_also_where_there_is_a_dietitian(
     kitchen: str, buyer: str, client: TestClient, shop_profile_settings: dict[str, dict[str, Any]]
 ) -> None:
-    _set_up(client, kitchen, shop_profile_settings, max_daily_net_eur=10, excluded_allergens=[],
-            allergen_strictness=None, allergen_strictness_by_code={}, require_confirmed=False)
-    approval = _waiting(client, kitchen, CREAM)
-    assert "finance" in approval["required_roles"] and "dietitian" not in approval["required_roles"]
+    # The exclusions stay as the profile has them: since FIX-A1 a set-up that removes one is refused (422) where
+    # the customer has a dietitian. So the order is of a product whose data rules those allergens out.
+    _set_up(client, kitchen, shop_profile_settings, max_daily_net_eur=10)
+    approval = _waiting(client, kitchen, SOYA)
+    assert approval["required_roles"] == ["finance"]  # the daily limit, and nothing for the dietitian
+    assert any("above the €10 limit per day" in reason for reason in approval["reasons"])
 
     confirmed = _confirm(client, kitchen, approval, approval["required_roles"][0], buyer)
 

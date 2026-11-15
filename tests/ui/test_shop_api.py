@@ -75,7 +75,8 @@ SHOP_CUSTOMERS: dict[str, dict[str, Any]] = {
     },
 }
 # One of each customer's own example buttons: an order inside that customer's limits, with every statement
-# confirmed in the recording (measured at the recording's own clock, Saturday 14 Nov 2026 02:52).
+# confirmed in the recording (measured at the recording's own clock, Saturday 14 Nov 2026 02:52). The school's is
+# the exception: its milk 469363 states nothing about tree nuts, peanuts or sesame, so the dietitian is asked.
 SHOP_EXAMPLES: dict[str, dict[str, Any]] = {
     "school": {"text": "40 litres of lactose-free milk by Monday", "product_type": "milk",
                "required_claims": ["FREE_FROM_LACTOSE"], "quantity": 40, "unit": "L"},
@@ -143,7 +144,9 @@ def test_the_kitchen_limit_decides_the_verdict(client: TestClient) -> None:
 
 def test_each_kitchen_has_a_book_of_its_own(client: TestClient) -> None:
     _set_up(client, "bakery", max_order_net_eur=100)
-    _set_up(client, "school", max_order_net_eur=50)
+    # The school's own settings: since FIX-A1 a set-up that drops the exclusions of its profile is refused (422).
+    school = {**SHOP_CUSTOMERS["school"], "max_order_net_eur": 50}
+    assert _call(client, "PUT", "/kitchen", "school", json=school).status_code == 200
     offer = _call(client, "POST", "/offers", "bakery", json=CREAM).json()
     first = offer["options"][0]
     order = _call(
@@ -395,14 +398,31 @@ def test_the_signer_is_one_of_the_customers_people(client: TestClient) -> None:
         refused = _sign(client, path, "purchasing_manager", name=stranger)
         assert refused.status_code == 422, stranger
         assert "Marko Heikkinen" in refused.json()["detail"]
-    # The bakery's owner is its dietitian too (decision B27), so the role has a person; this approval does not ask
-    # the dietitian, and the gateway refuses the signature.
-    not_asked = _sign(client, path, "dietitian")
-    assert not_asked.status_code == 403, not_asked.text
-
-    signed = _sign(client, path, "purchasing_manager")  # no name sent: the customer's own person signs
+    # The bakery's owner is its dietitian too (decision B27). Since FIX-A1 his book lists every role under the one
+    # approver who stands for him, so his confirmation is his whichever of his roles the page names: this approval
+    # asks the purchasing manager, he signs under "dietitian", and it is the same one person who confirmed.
+    signed = _sign(client, path, "dietitian")  # no name sent: the customer's own person signs
     assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "ORDERED"
     assert "Marko Heikkinen, Kallio Bakery" in signed.json()["status_sentence"]
+
+
+def test_where_the_dietitian_is_a_second_person_she_cannot_sign_what_does_not_ask_her(client: TestClient) -> None:
+    """The ward has a dietitian of its own (decision B54): her signature is not the buyer's confirmation."""
+    assert _call(client, "PUT", "/kitchen", "ward", json=SHOP_CUSTOMERS["ward"]).status_code == 200
+    order = _order_example(client, "ward", "test.ward.not-asked")
+    approval = _call(client, "GET", "/approvals", "ward").json()[0]
+    assert order["status"] == "PENDING_APPROVAL" and approval["required_roles"] == ["purchasing_manager"]
+
+    not_asked = _sign(client, approval["approval_id"], "dietitian", "ward")
+    under_his_name = _sign(client, approval["approval_id"], "dietitian", "ward", name="Jussi Nieminen")
+
+    assert not_asked.status_code == 403, not_asked.text
+    assert under_his_name.status_code == 422, under_his_name.text
+    still = _call(client, "GET", "/approvals", "ward").json()
+    assert [(one["approval_id"], one["decisions"]) for one in still] == [(approval["approval_id"], [])]
+    signed = _sign(client, approval["approval_id"], "purchasing_manager", "ward")
+    assert signed.status_code == 200 and signed.json()["status"] == "ORDERED", signed.text
 
 
 @pytest.mark.parametrize("name", ["Päivi Korhonen", "Päivi Korhonen, Kilo School"])
@@ -422,13 +442,14 @@ def test_an_approval_keeps_required_roles_and_the_roles_of_each_decision(client:
     approval = _waiting_cream(client, max_order_net_eur=10, max_daily_net_eur=10)
     assert approval["required_roles"] == ["purchasing_manager", "finance"]
 
-    # One person confirms: the owner holds both roles, so his one confirmation signs both (tests/ui/
-    # test_shop_one_person.py); each role is still a decision of its own in the approval's record.
+    # One person confirms: the owner holds every role, so his one confirmation signs both (tests/ui/
+    # test_shop_one_person.py). Since FIX-A1 the book lists every role under the one approver who stands for him,
+    # so the record holds one decision, with the roles he holds.
     assert _sign(client, approval["approval_id"], "purchasing_manager").json()["status"] == "ORDERED"
     decided = _call(client, "GET", "/approvals?pending=false", "bakery").json()[0]
 
     assert decided["required_roles"] == ["purchasing_manager", "finance"]
-    assert [decision["roles"] for decision in decided["decisions"]] == [["purchasing_manager"], ["finance"]]
+    assert [decision["roles"] for decision in decided["decisions"]] == [["purchasing_manager", "dietitian", "finance"]]
 
 
 def test_a_readers_question_reaches_the_page_with_its_lists_and_objects(

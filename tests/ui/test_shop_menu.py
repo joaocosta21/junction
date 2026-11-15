@@ -84,7 +84,11 @@ def test_the_bakerys_chocolate_cake_for_20_is_planned_from_the_sentence(
     # the products of the baking recording are said once, as the plan's last note
     assert LATER.match(plan["notes"][-1]), plan["notes"][-1]
     offer = _call(client, "GET", f"/offers/{plan['offer_id']}").json()
-    assert _totals(offer) == [Decimal("15.19"), Decimal("22.50")]  # the lowest total for a small need (FC2)
+    # The lowest total for a small need (FC2). Since FIX-O1 the alternative's sugar is granulated sugar 468569,
+    # never the raw sugar 461329 that made it 22.50.
+    assert _totals(offer) == [Decimal("15.19"), Decimal("23.44")]
+    in_the_alternative = [line["product_id"] for line in offer["options"][1]["lines"]]
+    assert "468569" in in_the_alternative and "461329" not in in_the_alternative
     assert [option["decision"]["required_roles"] for option in offer["options"]] == [["purchasing_manager"]] * 2
 
 
@@ -102,7 +106,7 @@ def test_at_the_demo_clock_the_cake_for_20_costs_what_it_costs_at_the_recordings
 
     # Before lane FC2 the demo clock's alternative took a 4x5 kg butter and cost 104.65: the lowest total for a
     # small need now wins at both clocks.
-    assert _totals(offer) == [Decimal("15.19"), Decimal("22.50")]
+    assert _totals(offer) == [Decimal("15.19"), Decimal("23.44")]
 
 
 @pytest.mark.parametrize("servings", [2, 200])

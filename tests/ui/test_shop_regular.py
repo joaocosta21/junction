@@ -234,8 +234,11 @@ def test_a_buyer_holds_at_most_twenty_standing_orders(shop: TestClient) -> None:
     assert [answer.status_code for answer in answers[:19]] == [201] * 19  # the bakery's own is the first of the 20
     assert answers[19].status_code == 422
     assert "already has 20 standing orders" in answers[19].json()["detail"]
-    # a set-up is counted by the rate limit as an offer is: 20 a minute for one visitor
-    assert _call(shop, "POST", "/standing-orders", json=body).status_code == 429
+    # A set-up is counted by the rate limit as an offer is: 60 a minute for one visitor since decision B55 (20
+    # before), so the limit of 20 standing orders answers first, and the rate limit at the 61st set-up of the minute.
+    more = [_call(shop, "POST", "/standing-orders", json=body) for _ in range(41)]
+    assert [answer.status_code for answer in more] == [422] * 40 + [429]
+    assert "at most 60 in 60 seconds" in more[40].json()["detail"]
 
 
 def test_a_standing_order_takes_the_demonstrations_five_lines_at_most(shop: TestClient) -> None:

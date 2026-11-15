@@ -70,7 +70,8 @@ def test_scenario_3_has_no_recording_so_the_fixed_rules_read_and_run_it(
 
     assert AGENT_STEPS in page and "read and made by fixed rules, not by a model" in page
     assert "The buyer agent could not run" not in page
-    assert "Prepared: confirm to order" in page
+    # Since FIX-P and FP-S its substitute is not like for like and dearer (F-12, P-05): a person decides.
+    assert "Sent for approval" in page
     assert only_order(agent_client).status is OrderStatus.PENDING_APPROVAL
 
 
