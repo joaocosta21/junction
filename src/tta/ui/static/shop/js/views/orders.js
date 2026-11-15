@@ -1,13 +1,17 @@
 // Orders: everything this kitchen has ordered, and for each order the audit trail as the buyer or Valio sees it.
-import { app, api, deliveryOf, on, refresh, render } from "../core.js";
+// One order is shown as one of two readers, chosen at the top of its page. As the buyer: the order, who confirmed it,
+// the rules that applied with the buyer's own limits, and the buyer's log. As Valio Aimo: what an order message
+// would carry (products, quantities, prices) and Valio Aimo's view of the log, and nothing else. No limit amount,
+// allergen, name or sentence of the buyer's stays on the page then, and the page says whose view it is.
+import { app, api, deliveryOf, money, on, refresh, render } from "../core.js";
 import { customerKnown, customerNote, historyRows } from "../customer.js";
-import { html, longDate, money, num, shortDate } from "../dom.js";
+import { html, longDate, num, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { SYNTHETIC } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
-import { customerPending, netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag } from "./parts.js";
-import { trailView } from "./trail.js";
+import { customerPending, netTotal, optionBlock, problemBox, progress, ruleList, signers, spinner, statusTag, stockUnit } from "./parts.js";
+import { supplierHead, trailView } from "./trail.js";
 
 // A same-origin path only, such as "/.well-known/jwks.json": never a link the record could point elsewhere.
 const LOCAL_PATH = /^\/(?!\/)[A-Za-z0-9._~\/-]*$/;
@@ -44,35 +48,83 @@ on("reader", (el) => {
   return loadTrail();
 });
 
-function detail(order) {
-  const k = active();
-  const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
+// A short title: what was ordered, the total and the delivery day. The option's own summary is a paragraph, shown
+// as text in the buyer's view (it can name what the buyer excludes, so Valio Aimo's view leaves it out).
+export function shortTitle(order) {
+  const lines = order.option?.lines || [];
+  const what = lines.length === 1 ? lines[0].name : `${lines.length} products`;
+  const delivery = deliveryOf(order.option);
+  return [what, netTotal(order.option?.totals), delivery ? `delivery ${longDate(delivery)}` : ""].filter(Boolean).join(" · ");
+}
+
+// What an order message to Valio Aimo would carry: the products, how many, at which price, and the total.
+function supplierLines(option) {
+  return html`<table class="table"><thead><tr><th>Product</th><th class="num">Quantity</th><th class="num">Price, before tax</th><th class="num">Line total</th></tr></thead><tbody>
+    ${(option.lines || []).map((l) => html`<tr><td>${l.name} <span class="small muted">(${l.product_id})</span></td><td class="num">${num(l.quantity)} ${stockUnit(l.sales_unit)}</td><td class="num">${money(l.unit_net_price)}</td><td class="num">${money(l.net)}</td></tr>`)}
+    </tbody></table>
+    <div class="kv"><span>Total before tax</span><b>${netTotal(option.totals)}</b></div>`;
+}
+
+function readerSwitch() {
+  const tab = (reader, label) => html`<button role="tab" aria-selected="${String(trail.reader === reader)}" class="${trail.reader === reader ? "on" : ""}" data-act="reader" data-reader="${reader}">${label}</button>`;
+  return html`<div class="right"><div class="small muted">Show this order as</div>
+    <div class="seg" role="tablist" aria-label="Whose view of this order">${tab("buyer", active().name)}${tab("supplier", "What Valio Aimo sees")}</div></div>`;
+}
+
+function trailCard(title) {
   const t = trail.data;
-  return html`
-    <div class="page-head">
-      <div><div class="crumbs"><a href="#/orders">Orders</a> · ${order.order_id}</div><h1>${plain(order.option.summary)}</h1>
-      <div class="sub">${statusTag(order)} ${deliveryOf(order.option) ? html`<span class="tag info">${icon("truck")}${longDate(deliveryOf(order.option))}</span>` : ""}</div></div>
-    </div>
+  return html`<div class="card">
+    <div class="card-title"><h3>${title}</h3></div>
+    ${trail.loading ? spinner("Reading the trail…") : ""}
+    ${trail.problem ? problemBox(trail.problem) : ""}
+    ${t && !trail.loading ? trailView(t, trail.reader) : ""}
+  </div>`;
+}
+
+function reliedOn(order) {
+  return html`<div class="card">
+          <div class="card-title"><h3>What the order relied on</h3></div>
+          <ul class="side-list">${(order.reliance || []).map(
+            (r) => html`<li><span><b>${r.product_id}</b> · ${money(r.unit_net_price)} · ${String(r.availability_state).toLowerCase().replaceAll("_", " ")}<br><span class="small muted">${r.rechecked_at ? `checked again ${shortDate(r.rechecked_at)} ${String(r.rechecked_at).slice(11, 16)}` : ""}${r.closing_time ? ` · closing time ${shortDate(r.closing_time)} ${String(r.closing_time).slice(11, 16)}` : ""} · ${r.source === "replay" ? "recorded data" : "live data"}</span></span></li>`
+          )}</ul>
+          <p class="small muted">${order.record_note}</p>
+        </div>`;
+}
+
+function detail(order) {
+  const supplier = trail.reader === "supplier";
+  const approval = app.data.approvals.find((a) => a.order_id === order.order_id);
+  const head = html`<div class="page-head">
+      <div><div class="crumbs"><a href="#/orders">Orders</a> · ${order.order_id}</div><h1>${shortTitle(order)}</h1>
+      <div class="sub">${statusTag(order)}</div></div>
+      ${readerSwitch()}
+    </div>`;
+  if (supplier) {
+    return html`${head}
+    ${supplierHead(active().name)}
+    <div class="grid">
+      <section class="stack">
+        <div class="card">
+          <div class="card-title"><h3>What Valio Aimo receives</h3></div>
+          ${supplierLines(order.option)}
+        </div>
+        ${trailCard("Every step, as Valio Aimo sees it")}
+      </section>
+      <aside class="side">${reliedOn(order)}</aside>
+    </div>`;
+  }
+  return html`${head}
     <div class="grid">
       <section class="stack">
         <div class="card">
           <div class="card-title"><h3>What was ordered</h3></div>
+          <p class="small">${plain(order.option.summary)}</p>
           ${optionBlock(order.option)}
           <p class="small muted">${plain(order.status_sentence)}</p>
           ${proofLine(order)}
           ${approval && order.status === "PENDING_APPROVAL" ? html`<div class="decide">${signers(approval)}${progress(approval)}<div class="row"><a class="btn small" href="#/approvals">Go to approvals</a></div></div>` : ""}
         </div>
-        <div class="card">
-          <div class="card-title"><h3>Audit trail</h3>
-            <div class="seg" role="tablist">
-              <button class="${trail.reader === "buyer" ? "on" : ""}" data-act="reader" data-reader="buyer">${k.name}</button>
-              <button class="${trail.reader === "supplier" ? "on" : ""}" data-act="reader" data-reader="supplier">What Valio Aimo sees</button>
-            </div>
-          </div>
-          ${trail.loading ? spinner("Reading the trail…") : ""}
-          ${trail.problem ? problemBox(trail.problem) : ""}
-          ${t && !trail.loading ? trailView(t, trail.reader) : ""}
-        </div>
+        ${trailCard("Audit trail")}
       </section>
       <aside class="side">
         <div class="card">
@@ -80,13 +132,7 @@ function detail(order) {
           ${ruleList(order.decision?.fired)}
           ${order.decision?.policy_hash ? html`<p class="small muted">Policy fingerprint <span class="rule-id">${String(order.decision.policy_hash).slice(7, 19)}</span> is stored with the order, so anyone can tell later which rules decided.</p>` : ""}
         </div>
-        <div class="card">
-          <div class="card-title"><h3>What the order relied on</h3></div>
-          <ul class="side-list">${(order.reliance || []).map(
-            (r) => html`<li><span><b>${r.product_id}</b> · ${money(r.unit_net_price)} · ${String(r.availability_state).toLowerCase().replaceAll("_", " ")}<br><span class="small muted">${r.rechecked_at ? `checked again ${shortDate(r.rechecked_at)} ${String(r.rechecked_at).slice(11, 16)}` : ""}${r.closing_time ? ` · closing time ${shortDate(r.closing_time)} ${String(r.closing_time).slice(11, 16)}` : ""} · ${r.source === "replay" ? "recorded data" : "live data"}</span></span></li>`
-          )}</ul>
-          <p class="small muted">${order.record_note}</p>
-        </div>
+        ${reliedOn(order)}
       </aside>
     </div>`;
 }

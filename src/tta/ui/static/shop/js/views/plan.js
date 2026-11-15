@@ -3,7 +3,10 @@
 // what was asked, what the recipe needs and what is offered for it (one row per ingredient, for the option chosen),
 // and what needs a person and why. The option cards under it are the request page's own (assistant.js). Every
 // figure is the gateway's; the page only multiplies packs by their size to say what is left over.
-import { html, money, num, unit } from "../dom.js";
+// The card has one decision box, the request page's own (assistant.js), which holds the button and follows the
+// order: the plan adds its reasons in a plain line while nothing is ordered, and nothing once an order exists.
+import { money } from "../core.js";
+import { html, num, unit } from "../dom.js";
 import { icon } from "../icons.js";
 import { plain } from "../words.js";
 import { peopleFor, stockLine } from "./parts.js";
@@ -174,14 +177,16 @@ function reasons(plan, option) {
   return [...found.map(([, sentence]) => sentence), ...new Set(others)];
 }
 
-function needsPerson(plan, option) {
+// Not a second decision box: the box with the button is the request page's, under the option, and it alone says
+// what happened once the option is ordered (`ordered`). Until then the plan says, in its own words, why a person
+// decides. An option the agent may order alone, or one that cannot be ordered, is said by that box only.
+function needsPerson(plan, option, ordered) {
   const d = option?.decision || {};
-  if (d.verdict === "AUTO") return html`<div class="verdict ok">${icon("checkCircle")}<div><b>No person is needed for this option</b><p>Every statement is confirmed and no rule asks for a person.</p></div></div>`;
-  if (d.verdict === "BLOCK") return html`<div class="verdict stop">${icon("stop")}<div><b>This option cannot be ordered, not even with approval</b><p>${plain(d.sentence)}</p></div></div>`;
+  if (ordered || d.verdict !== "APPROVAL") return "";
   const roles = d.required_roles || [];
   const why = reasons(plan, option);
   const sentence = why.length ? `${capital(why.join("; "))}.` : plain(d.sentence);
-  return html`<div class="verdict wait">${icon("clock")}<div><b>${roles.length ? `Needs ${who(roles)}` : "Needs a person"}</b><p>${sentence}</p></div></div>`;
+  return html`<p class="small"><b>${roles.length ? `Needs ${who(roles)}` : "Needs a person"}:</b> ${sentence} The decision is asked below, with the order.</p>`;
 }
 
 // ---- the card -------------------------------------------------------------------------------------------------
@@ -215,7 +220,7 @@ export function planCard(turn, option) {
     <div class="label-row"><span class="label">What the recipe needs</span><span class="small muted">${option ? `and what option ${option.rank} (${plain(option.title)}) offers for it` : "and nothing could be offered for it"}</span></div>
     <ul class="plan-rows">${rows}</ul>
     ${option ? packsNote(plan, option) : ""}
-    ${option ? needsPerson(plan, option) : ""}
+    ${option ? needsPerson(plan, option, Boolean(turn.order)) : ""}
     ${cannotBeSupplied(plan)}
     ${leftOut(plan)}
     ${illustrative ? html`<p class="tiny muted">${plain(illustrative)}</p>` : ""}

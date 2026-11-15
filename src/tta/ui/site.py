@@ -48,6 +48,18 @@ MODE_LABELS = {
 DEMO_CLOCK_LABEL = "Replay: recorded Valio Aimo data, demo clock set to {now} (we chose it; the log keeps real time)"
 
 
+GEMINI = "Gemini"
+
+
+def model_asked(settings: Settings) -> str | None:
+    """The language model that is asked first to read a sentence, by the name the pages give it, as `/healthz`
+    names the active reader (`agent_reader`): the model of the OpenAI-compatible endpoint when that provider is set
+    up, Gemini when its key is set, and None when no model is asked (the demonstration and the public link)."""
+    if not settings.has_agent_model:
+        return None
+    return settings.tta_agent_model if settings.has_agent_endpoint else GEMINI
+
+
 def mode_label(settings: Settings) -> str:
     """The line every page shows about where the data comes from and which clock judges the deadlines."""
     if settings.demo_clock is not None:
@@ -176,7 +188,7 @@ class Site:
         token = token or security.new_token()
         html = self.templates.get_template(template).render(
             csrf=token, mode_label=mode_label(self.settings), path=request.url.path, own_book=OWN_BOOK,
-            live_model=self.settings.has_gemini_key, **context,
+            live_model=model_asked(self.settings), **context,
         )
         response = HTMLResponse(html, status_code=status)
         if is_new:

@@ -115,7 +115,7 @@ on("regular-usual", async (el) => {
   const request = turn?.regular?.usualRequest;
   if (!request || busy.has(turn.id) || turn.regularState?.done) return;
   settle(turn, { done: SENT_AT_USUAL });
-  return sendAsWritten("reorder", turn.text || "At your usual quantity", request);
+  return sendAsWritten("reorder", turn.text || "At your usual quantity", request, { replaces: turn.id });
 });
 
 // ---- the bar ---------------------------------------------------------------------------------------------------

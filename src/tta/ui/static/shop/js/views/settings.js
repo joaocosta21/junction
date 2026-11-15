@@ -1,8 +1,8 @@
 // Settings: the few things a kitchen sets, filled in from the kind of kitchen so there is little to do.
 // The buyer-profile part is sent to the gateway and enforced there; answer style and learned notes stay here.
-import { app, api, on, pushKitchen, refresh, render, toast } from "../core.js";
+import { app, api, money, on, pushKitchen, refresh, render, toast } from "../core.js";
 import { contact, customerKnown, customerNote, customerOf, myRoles, unitWord, usualProducts } from "../customer.js";
-import { html, money } from "../dom.js";
+import { html } from "../dom.js";
 import { icon } from "../icons.js";
 import { ALLERGENS, ALLERGEN_RULES, NEW_ALLERGEN_RULE, ROLES, allergenName, allergenRule } from "../kitchens.js";
 import { restore, confirm, dismiss } from "../learning.js";
@@ -26,6 +26,36 @@ function ensureDraft() {
 }
 
 const dirty = () => draft && JSON.stringify(draft.settings) !== JSON.stringify(mine().settings);
+
+// ---- the dietitian's allergen settings -------------------------------------------------------------------------
+// Where a customer has a dietitian of its own (the ward and the school), the allergens its profile excludes and
+// their strict rule are hers: the gateway refuses a change that removes one or relaxes its rule, so the page does
+// not offer that change, and says why in one line. Adding an allergen or making a rule stricter stays possible.
+// Should a refusal arrive all the same, its sentence is shown in the allergen section, where the person is.
+const DIETITIAN = "dietitian";
+const STRICT = "STRICT";
+const dietitian = () => otherPeople([DIETITIAN])[0] || null;
+const ofTheProfile = () => active().settings;
+const keptByDietitian = (code) => Boolean(dietitian()) && (ofTheProfile().excluded_allergens || []).includes(code);
+const strictByDietitian = (code) => keptByDietitian(code) && allergenRule(ofTheProfile(), code) === STRICT;
+const allergenPart = (s) => JSON.stringify([s.excluded_allergens, s.allergen_strictness_by_code, s.allergen_strictness]);
+const allergensDirty = () => Boolean(draft) && allergenPart(draft.settings) !== allergenPart(mine().settings);
+const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
+function dietitianLine() {
+  const who = dietitian();
+  const codes = ofTheProfile().excluded_allergens || [];
+  if (!who || !codes.length) return "";
+  const kept = listed(codes.map((code) => allergenName(code).toLowerCase()));
+  const rule = codes.every(strictByDietitian) ? ", under the strict rule" : "";
+  return html`<p class="small"><b>Set by ${who.name}, the dietitian:</b> ${kept} ${codes.length === 1 ? "stays" : "stay"} excluded${rule}. This cannot be removed or made less strict here. You can add an allergen, or make a rule stricter.</p>`;
+}
+
+// The gateway's refusal of a change to the allergen settings, said in the section the person changed.
+function allergenRefusal() {
+  if (!message || message.ok || !allergensDirty()) return "";
+  return html`<p class="small" role="alert"><b>${message.text}</b></p>`;
+}
 
 on("set", (el) => {
   const d = ensureDraft();
@@ -62,6 +92,7 @@ on("allergen", (el) => {
   const code = el.dataset.code;
   const rules = { ...(d.settings.allergen_strictness_by_code || {}) };
   const set = new Set(d.settings.excluded_allergens);
+  if (!el.checked && keptByDietitian(code)) return render(); // the dietitian's: it stays, and the line says why
   if (el.checked) {
     set.add(code);
     rules[code] = rules[code] || NEW_ALLERGEN_RULE;
@@ -78,6 +109,7 @@ on("allergen", (el) => {
 
 on("allergen-rule", (el) => {
   const d = ensureDraft();
+  if (el.dataset.rule !== STRICT && strictByDietitian(el.dataset.code)) return render(); // hers to relax, not here
   d.settings.allergen_strictness_by_code = { ...(d.settings.allergen_strictness_by_code || {}), [el.dataset.code]: el.dataset.rule };
   message = null;
   render();
@@ -160,7 +192,7 @@ function allergenRules(s) {
       const current = allergenRule(s, code);
       return html`<li><span><b>${allergenName(code)}</b></span>
         <span class="seg" role="radiogroup" aria-label="Rule for ${allergenName(code)}">${Object.entries(ALLERGEN_RULES).map(
-          ([value, r]) => html`<button type="button" role="radio" aria-checked="${current === value}" class="${current === value ? "on" : ""}" data-act="allergen-rule" data-code="${code}" data-rule="${value}">${r.name}</button>`
+          ([value, r]) => html`<button type="button" role="radio" aria-checked="${current === value}" class="${current === value ? "on" : ""}" data-act="allergen-rule" data-code="${code}" data-rule="${value}" ${value !== STRICT && strictByDietitian(code) ? "disabled" : ""}>${r.name}</button>`
         )}</span></li>`;
     })}</ul>
     <p class="small muted"><b>Declared only:</b> a product that says nothing about the allergen is offered, marked unverified. <b>Strict:</b> it goes to ${personFor("dietitian")} first. Either way, a product that contains it is never offered.</p>`;
@@ -254,8 +286,10 @@ export function view() {
           <div class="card-title"><h2>Allergens</h2></div>
           <p class="small muted">Products that declare one of these are never offered. A nutritional claim such as "lactose free" is not an allergen statement; the agent reads the declaration and the ingredient list.</p>
           <div class="allergens">${ALLERGENS.map(
-            ([code, name]) => html`<label class="allergen ${s.excluded_allergens.includes(code) ? "on" : ""}"><input type="checkbox" data-change="allergen" data-code="${code}" ${s.excluded_allergens.includes(code) ? "checked" : ""}>${name}</label>`
+            ([code, name]) => html`<label class="allergen ${s.excluded_allergens.includes(code) ? "on" : ""}"><input type="checkbox" data-change="allergen" data-code="${code}" ${s.excluded_allergens.includes(code) ? "checked" : ""} ${keptByDietitian(code) && s.excluded_allergens.includes(code) ? "disabled" : ""}>${name}</label>`
           )}</div>
+          ${dietitianLine()}
+          ${allergenRefusal()}
           ${s.excluded_allergens.length ? allergenRules(s) : ""}
         </section>
 

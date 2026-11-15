@@ -1,8 +1,8 @@
 // The side panel of the request page: the rules in force as the gateway states them (its answer to this
 // customer's settings call, never this browser's copy), the coming deliveries and what the agent knows.
-import { api, app, dataToday, deliveryOf, pendingApprovals, render, spendToday } from "../core.js";
+import { api, app, dataToday, deliveryOf, money, pendingApprovals, render, spendToday } from "../core.js";
 import { customerOf } from "../customer.js";
-import { html, isoDay, money, shortDate } from "../dom.js";
+import { html, isoDay, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { allergenName, allergenRule } from "../kitchens.js";
 import { active, memory, mine } from "../store.js";

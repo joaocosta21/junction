@@ -11,9 +11,13 @@ another's daily spend or show on its approvals.
 
 Nothing here decides anything: every call goes to the same gateway service as REST, MCP and the pages, under
 the same rules and rate limits. The agent is "My kitchen agent"; the approvers are the book's three
-approvers (purchasing manager, finance, dietitian), shown under the name of the shop's demo person who signs. An
-agent still cannot approve (F-06): the decision route acts as the approver of the role asked for, never as the
-agent.
+approvers (purchasing manager, finance, dietitian), shown under the name of the shop's demo person who signs.
+
+That an agent cannot approve (F-06) holds over REST and MCP, where a token says who is calling. These routes take
+no credential, by design: they serve a demonstration page with no login, on which one visitor acts in turn as each
+of a customer's people, so whoever calls the decision route signs as the person of the role it names. They exist
+only where the pages are mounted, in the dev and demo environments (`tta.api.app`); in production no page is
+mounted, and people sign with their own tokens over REST.
 
 Cross-site requests: every route asks for the header `X-Shop-Request`, which a form or a link on another
 site cannot send, and refuses a request the browser marks as cross-site (`Sec-Fetch-Site`).
@@ -32,6 +36,11 @@ profile file until the book has settings of its own: `GET /reorder` (the "you us
 prompt, computed from the customer's past orders on every call by `tta.suggestions.reorder_prompt`; it orders
 nothing, its `request` is posted to `POST /offers` like any request) and `GET /standing-orders` (the customer
 file's standing orders, each with the trend of its quantities, `tta.suggestions.standing_order_trends`).
+
+Every standing order of a book can be renewed from the page: `POST /standing-orders/{id}/renewal` writes one renewal
+as a request, at the stored quantities or at this week's, and offers and orders nothing. The page posts that request
+to `POST /offers`, as it posts a trend's, so the renewal is judged against the past renewals (rule P-08) and a
+person confirms it.
 """
 
 from __future__ import annotations
@@ -65,14 +74,15 @@ from tta.contracts.order import DecisionRequest, Order
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import ValioGateway
 from tta.contracts.request import PurchaseRequest
-from tta.contracts.standing import NewStandingOrder, StandingOrder
+from tta.contracts.standing import NewStandingOrder, RenewStandingOrder, StandingOrder
 from tta.customers import shipped_customers
 from tta.menus import shipped_recipes
 from tta.menus.recipes import dish_names
 from tta.menus.sentence import MenuAsk, data_today, plan_from_ask
 from tta.policy import PolicyLoadError
 from tta.standing import StandingOrders
-from tta.standing.demo import NO_PRICE, past_renewals, standing_order_of
+from tta.standing.demo import NO_PRICE, past_renewals, standing_order_of, standing_request
+from tta.standing.service import renewal_request
 from tta.suggestions import ReorderPrompt, SuggestionPorts, history_of, reorder_prompt, standing_order_trends
 from tta.suggestions.regular import RegularAlert, chosen_products, held_lines, regular_alert
 from tta.suggestions.reorder import rhythm_of
@@ -405,6 +415,25 @@ def _standing_order(customer: Customer, entry: CustomerStandingOrder, names: dic
     )
 
 
+def _renewal(standing: StandingOrders, customer: Customer, standing_order_id: str,
+             body: RenewStandingOrder) -> PurchaseRequest:
+    """One renewal of a standing order of this book, written as a request: the stored one, naming the standing order
+    it renews, at this week's quantities when given. Nothing is offered or ordered here: the page posts the request
+    to `POST /offers`, as it posts a trend's. A standing order of the customer file has its lines written again at
+    this week's quantities, so the first step of the order's log says what was asked ("290 litres of product
+    469363, every week") and not the stored quantity; one set up on the page keeps the buyer's own words.
+    Raises `NotFound` for a standing order this book does not hold, another customer's included."""
+    stored = standing.get(KITCHEN_AGENT, standing_order_id).standing_order
+    entry = next((each for each in customer.standing_orders if each.standing_order_id == standing_order_id), None)
+    quantities = body.quantities
+    if entry is not None and quantities is not None and len(quantities) == len(entry.lines):
+        lines = tuple(line.model_copy(update={"quantity": quantity})
+                      for line, quantity in zip(entry.lines, quantities, strict=True))
+        this_week = standing_request(customer, entry.model_copy(update={"lines": lines}))
+        stored = stored.model_copy(update={"request": this_week})
+    return renewal_request(stored, quantities)
+
+
 def _name_of(one: Sandbox, product_id: str, otherwise: str) -> str:
     try:
         return one.service.get_product(KITCHEN_AGENT, product_id).display_name
@@ -632,6 +661,20 @@ def add_routes(app: FastAPI, site: Site, index_file: str) -> None:
         if made.status_code == OK:
             made.status_code = CREATED
         return made
+
+    @app.post(API + "/standing-orders/{standing_order_id}/renewal")
+    async def renewal(request: Request, standing_order_id: str) -> Response:
+        """One renewal of a standing order of this book as a `PurchaseRequest` that names it (`RenewStandingOrder`,
+        as `POST /v1/standing-orders/{id}/renew` takes it: `quantities`, one per line in order, or none for the
+        stored ones). It offers and orders nothing: the page posts the request to `POST /offers`, where it is
+        judged against the past renewals like any renewal, and a person confirms the offer."""
+        body = await _body(request, RenewStandingOrder)
+        if isinstance(body, JSONResponse):
+            return body
+        customer_id = str(_customer_id(request))
+        return await in_a_worker(
+            request, lambda one: _renewal(standing_books.of(one), customers[customer_id], standing_order_id, body)
+        )
 
     @app.get(API + "/customer")
     def customer(request: Request) -> Response:

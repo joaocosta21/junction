@@ -3,12 +3,16 @@
 // Valio Aimo's view of the audit trail of this browser's order books (GET /shop/api/backoffice, tta.api.insights),
 // so a customer's limits, allergens, names and own words are not in it. The page computes nothing: each number and
 // each sentence is the gateway's, shown in the page's own money and number format.
-import { on, render } from "../core.js";
-import { html, money, num } from "../dom.js";
+import { money, on, render } from "../core.js";
+import { html, num } from "../dom.js";
 import { icon } from "../icons.js";
-import { memory } from "../store.js";
+import { active, memory } from "../store.js";
 
-const WHOSE = "This is what Valio Aimo sees of this demonstration's orders. A customer never sees it.";
+// Whose page this is, said where the header still names the customer chosen for the shop: the visitor is looking at
+// it as Valio Aimo. It sits beside the customer's pages only because one visitor walks both sides of the demo.
+const whose = () => `You are looking at this page as Valio Aimo, the wholesaler, not as ${active().name}, the customer chosen at the top of the page. It stands beside the customer's pages here so that one visitor can see both sides of the demonstration: a customer is never shown it.`;
+// The shortfalls count the product asked for; what a substitute sold is in the orders above, not in these rows.
+const OF_THE_PRODUCT_ASKED = "Each line counts confirmed stock of the product that was asked for. Where a substitute was offered in its place and a person accepted it, that sale is in “Sold through the agent” above, not in these lines.";
 const UNITS = { L: "L", KG: "kg", UNIT: "units" };
 const PERIODS = [["today", "Today"], ["all", "All time"]];
 const state = { period: "today", data: null, error: null, loading: false, asked: 0 };
@@ -158,9 +162,9 @@ function missed(found) {
       ${tile(euros(found.value_net_eur), "at offered prices, before tax")}
     </div>` : ""}
     <p class="bo-say">${found.sentence}</p>
-    ${rows.length ? html`<ul class="bo-short">${rows.map(shortfall)}</ul>` : ""}
-    ${detail("Products most often asked for and not confirmed", html`${topProducts(list(found.top_products))}
-      <p class="small muted">Substitutes: ${num(subs.offered ?? 0)} offered, ${num(subs.accepted ?? 0)} accepted by a person, ${num(subs.refused ?? 0)} refused.</p>`)}
+    ${rows.length ? html`<p class="small muted">${OF_THE_PRODUCT_ASKED}</p><ul class="bo-short">${rows.map(shortfall)}</ul>` : ""}
+    ${Number(subs.offered) > 0 ? html`<p class="bo-say"><b>Sold as a substitute instead:</b> ${num(subs.accepted ?? 0)} order${Number(subs.accepted) === 1 ? "" : "s"} with a substitute confirmed by a person, of ${num(subs.offered ?? 0)} offered; ${num(subs.refused ?? 0)} refused.</p>` : ""}
+    ${detail("Products most often asked for and not confirmed", topProducts(list(found.top_products)))}
     ${counted(found)}
   </section>`;
 }
@@ -184,7 +188,7 @@ export function view() {
   const data = state.data;
   return html`
     <div class="page-head bo-head">
-      <div><h1>Valio Aimo back office</h1><div class="sub">What the buying agents brought, and where sales were lost.</div></div>
+      <div><div class="crumbs">Valio Aimo · the wholesaler's side of the demonstration</div><h1>Valio Aimo's back office (demo)</h1><div class="sub">What the buying agents brought, and where sales were lost.</div></div>
       <div class="right bo-tools">
         <div class="seg" role="group" aria-label="Period">${PERIODS.map(
           ([id, label]) => html`<button class="${state.period === id ? "on" : ""}" data-act="bo-period" data-period="${id}" aria-pressed="${String(state.period === id)}">${label}</button>`
@@ -192,8 +196,8 @@ export function view() {
         <button class="btn small line" data-act="bo-refresh" ${state.loading ? "disabled" : ""}>${icon("refresh")}${state.loading ? "Counting…" : "Count again"}</button>
       </div>
     </div>
-    <div class="valio-view">${icon("shield")}<div><b>Valio Aimo's screen, not the customer's</b>
-      <p>${WHOSE}</p>
+    <div class="valio-view" role="status">${icon("shield")}<div><b>Valio Aimo's screen, not the customer's</b>
+      <p>${whose()}</p>
       ${data ? html`<p>${data.note}</p><p class="small muted">${data.period_sentence} ${data.never_here}</p>` : ""}</div></div>
     ${body()}`;
 }

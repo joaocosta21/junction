@@ -37,6 +37,11 @@ export function exclusionsSummary(offer) {
 
 const CHECK_ICONS = { MET: ["check", "yes"], NOT_MET: ["x", "no"] };
 
+// What a statement is about, as a person reads it: the five kinds of statement by name, and a label or claim of
+// Valio Aimo's lists in its own words, as a title ("Goods From Finland Blue Swan"), never as a code.
+const CLAIMS = { price: "Price", quantity: "Quantity in stock", delivery_date: "Delivery date", allergens: "Allergens", origin: "Origin" };
+export const claimLabel = (claim) => CLAIMS[String(claim).toLowerCase()] || titleCase(String(claim || "").replaceAll("_", " "));
+
 export function whyBlock(offer, option, open) {
   const doubts = (option.lines || []).flatMap((l) => (l.claims || []).filter((c) => c.status !== "CONFIRMED").map((c) => ({ ...c, product: l.name })));
   const checks = option.constraint_checks || [];
@@ -49,7 +54,7 @@ export function whyBlock(offer, option, open) {
         return html`<li>${icon(name, tone)}<span>${plain(c.sentence)}</span></li>`;
       })}</ul></div>
       ${doubts.length
-        ? html`<div><h4>Not confirmed by Valio Aimo</h4><ul class="why-list">${doubts.map((c) => html`<li>${icon("info", "maybe")}<span><b>${String(c.claim).replaceAll("_", " ")}</b> · ${plain(c.sentence)}</span></li>`)}</ul></div>`
+        ? html`<div><h4>Not confirmed by Valio Aimo</h4><ul class="why-list">${doubts.map((c) => html`<li>${icon("info", "maybe")}<span><b>${claimLabel(c.claim)}</b> · ${plain(c.sentence)}</span></li>`)}</ul></div>`
         : html`<div><h4>Data</h4><p class="muted small">Price, stock, delivery date, allergens and origin are confirmed for every product.</p></div>`}
       <div><h4>Looked at ${offer.candidates_considered ?? 0} products, left out ${offer.excluded?.length || 0}</h4>
         <p class="small muted">${exclusionsSummary(offer) || "None left out."}</p>

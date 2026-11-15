@@ -70,12 +70,13 @@ const TYPE_WORD = (type) => String(type || "product").replaceAll("_", " ");
 const UNIT_WORD = { L: "L", KG: "kg", UNIT: "pcs" };
 export const unitWord = (code) => UNIT_WORD[code] || String(code || "").toLowerCase();
 
-// The usual products, each with the words the page shows: its name when known, else its type and id.
+// The usual products, each with the words the page shows: its name with its number (the name an offer or order
+// gave, else the catalog's, which the customer route sends with each usual product), else its type and number.
 export function usualProducts(id = memory.active) {
   const names = knownNames();
   return (customerOf(id)?.usual || []).map((u) => ({
     ...u,
-    label: names.has(u.product_id) ? `${names.get(u.product_id)} (${u.product_id})` : `${TYPE_WORD(u.product_type)} ${u.product_id}`,
+    label: names.has(u.product_id) || u.name ? `${names.get(u.product_id) || u.name} (${u.product_id})` : `${TYPE_WORD(u.product_type)} ${u.product_id}`,
   }));
 }
 

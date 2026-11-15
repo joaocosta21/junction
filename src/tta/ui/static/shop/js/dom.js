@@ -31,12 +31,11 @@ export const raw = (text) => new Safe(text);
 
 // ---- formatting -----------------------------------------------------------------------------------
 
-const EUR = new Intl.NumberFormat("fi-FI", { style: "currency", currency: "EUR" });
 const NUM = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 2 });
 const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export const money = (n) => (n === null || n === undefined ? "–" : EUR.format(Number(n)));
+// Money is written by one function, `money` of core.js, in the gateway's own form ("€1,083.39").
 export const num = (n) => NUM.format(Number(n));
 
 // "2026-11-16" or an ISO time -> a Date at local midnight of that calendar day (the shop shows Helsinki days).

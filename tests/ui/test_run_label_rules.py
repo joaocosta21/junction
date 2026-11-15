@@ -14,7 +14,7 @@ def _run(model: str, recorded: bool) -> AgentRun:
 
 @pytest.mark.parametrize(
     ("live_model", "expected"),
-    [(True, view.RUN_BY_RULES_FOR_GEMINI), (False, view.RUN_BY_RULES_WITHOUT_KEY)],
+    [(True, view.RUN_BY_RULES_AFTER_A_MODEL.format(model=view.THE_MODEL)), (False, view.RUN_BY_RULES_WITHOUT_A_MODEL)],
 )
 def test_a_rule_based_run_says_fixed_rules_made_it(live_model: bool, expected: str) -> None:
     label = view.run_label(_run("rule-based", recorded=False), live_model)

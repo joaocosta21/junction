@@ -128,6 +128,16 @@ function theirPart(approval, order, needed, off) {
   </div>`;
 }
 
+// The reasons of an approval, less any that only repeats what the evidence block above it already prints in full
+// (the gateway lists the web page's sentence as a reason too): the page says it once, in the block that names its
+// source. Nothing is left out that the block does not show.
+function reasonsOf(approval) {
+  const shown = (Array.isArray(approval.evidence) ? approval.evidence : [])
+    .map((e) => (e && typeof e.sentence === "string" ? e.sentence.trim() : ""))
+    .filter(Boolean);
+  return (approval.reasons || []).filter((reason) => !shown.some((sentence) => String(reason).includes(sentence)));
+}
+
 function card(approval) {
   const order = app.data.orders.find((o) => o.order_id === approval.order_id);
   const option = order?.option;
@@ -143,7 +153,7 @@ function card(approval) {
       ${option ? html`<span class="tag wait">${netTotal(option.totals)}</span>` : ""}
     </div>
     ${evidenceBlock(approval)}
-    <ul class="reasons">${(approval.reasons || []).map((r) => html`<li>${icon("clock")}<span>${said(r)}</span></li>`)}</ul>
+    <ul class="reasons">${reasonsOf(approval).map((r) => html`<li>${icon("clock")}<span>${said(r)}</span></li>`)}</ul>
     ${option ? optionBlock(option, true) : ""}
     ${!customerKnown() ? html`<div class="decide">${customerPending()}</div>`
       : needed.some(isMine) ? myPart(approval, order, needed, off)

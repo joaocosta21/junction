@@ -23,9 +23,15 @@ const EVENT_NAMES = {
   "order.placed_by_agent": "Ordered by the agent",
   "order.rejected": "Rejected",
   "order.expired": "Expired",
+  "order.blocked": "Not ordered: a rule forbids it",
+  "order.not_placed": "Not ordered: the offer had changed",
   "authorisation.refused": "Refused",
+  "evidence.attached": "Web page read for the allergen question",
+  "standing_order.created": "Standing order set up",
+  "standing_order.renewed": "Standing order renewed",
   "suggestions.shown": "Suggestions shown",
   "suggestion.accepted": "Suggestion accepted",
+  "settings.changed": "Settings changed",
 };
 
 // Left out for a requirement of the buyer's (an allergen it excludes): Valio Aimo gets neither the products nor
@@ -36,9 +42,13 @@ const NOT_SHOWN_OR_COUNTED = "Products left out for a requirement of the buyer's
 const MAX_NAMED_PER_REASON = 10;
 export const MASKED = "Limit amounts and allergens are not shown to Valio Aimo";
 
-function eventName(type) {
+// Every step has a title a person reads: a kind of step this table does not know yet is said in its own words
+// ("delivery.confirmed" as "Delivery confirmed"), never as its code.
+export function eventName(type) {
   const key = String(type).replace(/^tta\.v1\./, "");
-  return EVENT_NAMES[key] || key;
+  if (EVENT_NAMES[key]) return EVENT_NAMES[key];
+  const words = key.replace(/[._]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Step";
 }
 
 const list = (value) => (Array.isArray(value) ? value.filter((x) => x && typeof x === "object") : []);
@@ -90,7 +100,7 @@ function supplierFold(facts) {
   const offer = facts?.offer && typeof facts.offer === "object" ? facts.offer : null;
   const left = leftOutPart(offer);
   if (!rules.length && !left) return "";
-  const label = [rules.length ? `${rules.length} rule${rules.length === 1 ? "" : "s"} and their outcome` : "", left ? "products left out" : ""].filter(Boolean).join(", ");
+  const label = [rules.length ? `${rules.length} ${rules.length === 1 ? "rule and its outcome" : "rules and their outcome"}` : "", left ? "products left out" : ""].filter(Boolean).join(", ");
   return html`<details class="why fold"><summary>${icon("right")}${label[0].toUpperCase() + label.slice(1)}</summary>
     <div class="why-body">${rulesPart(rules)}${left}</div></details>`;
 }
@@ -104,16 +114,17 @@ function step(event, reader) {
     ${reader === "supplier" ? supplierFold(event.facts) : ""}</li>`;
 }
 
-function supplierHead() {
-  return html`<div class="valio-view">${icon("shield")}<div><b>What Valio Aimo sees</b>
-    <p>Every step and decision: each rule that applied with its outcome, the logic, and the products considered and left out. ${MASKED}; a role stands for each person's name; notes and your own words stay out.</p></div></div>`;
+// Said at the top of an order's page when it is shown as Valio Aimo reads it (orders.js): whose view it is, what
+// is in it and what is kept out. `buyer`: the customer's name, so the two views cannot be taken for one another.
+export function supplierHead(buyer) {
+  return html`<div class="valio-view" role="status">${icon("shield")}<div><b>This is Valio Aimo's view of the order, not ${buyer}'s</b>
+    <p>Valio Aimo sees what was ordered and every step and decision: each rule that applied with its outcome, the logic, and the products considered and left out. ${MASKED}; a role stands for each person's name; notes and the buyer's own words stay out.</p></div></div>`;
 }
 
 export function trailView(view, reader) {
   const events = list(view?.events);
   const chain = view?.chain || {};
   return html`
-    ${reader === "supplier" ? supplierHead() : ""}
     <div class="verdict ${chain.ok ? "ok" : "stop"}">${icon(chain.ok ? "shield" : "alert")}<div><b>${chain.ok ? "Trail intact" : "Trail does not verify"}</b><p>${chain.sentence || ""}</p></div></div>
     <p class="small muted">Each step is stamped with the real time it happened. Prices, stock and closing times are judged at the clock shown at the top of the page.</p>
     ${events.length ? html`<ol class="timeline" aria-label="Events">${events.map((e) => step(e, reader))}</ol>` : html`<p class="muted small">No step recorded for this order yet.</p>`}`;

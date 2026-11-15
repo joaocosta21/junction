@@ -43,14 +43,15 @@ MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 # hand "hand-built" and one replayed from a model's recording "recorded" (`tta.agent.recorded`).
 HAND_BUILT_MODEL = "hand-built"
 RULE_BASED_MODEL = "rule-based"  # a run read and made by fixed rules (task FALLBACK-1)
-RUN_BY_RULES_FOR_GEMINI = "Gemini did not answer, so this run was read and made by fixed rules, not by a model."
-RUN_BY_RULES_WITHOUT_KEY = "No Gemini key is set, so this run was read and made by fixed rules, not by a model."
+RUN_BY_RULES_AFTER_A_MODEL = "{model} did not answer, so this run was read and made by fixed rules, not by a model."
+RUN_BY_RULES_WITHOUT_A_MODEL = "No model is asked here, so this run was read and made by fixed rules, not by a model."
+THE_MODEL = "The model"  # when the page knows a model is asked and not which
 RECORDED_MODEL = "recorded"
 BY_HAND = "answers written by hand, not by a model"
 FROM_A_RECORDING = "a recording of the model's earlier answers"
 FROM_A_RECORDING_OF = "a recording of {model}'s earlier answers"
 RUN_FROM = "Run from {what}: no live model call."
-RUN_FALLBACK = "Gemini did not answer, so this run was served from {what}."
+RUN_FALLBACK = "{model} did not answer, so this run was served from {what}."
 RUN_LIVE = "Run live by {model}."
 CAN_BE_ORDERED = "Can be ordered"
 NEEDS_APPROVAL = "Can be ordered, needs approval"  # its quantity is not confirmed: a human decides (rule F-01)
@@ -229,18 +230,21 @@ def reason_counts(excluded: tuple[Exclusion, ...]) -> tuple[tuple[ExclusionReaso
     return tuple(Counter(entry.reason for entry in excluded).most_common())
 
 
-def run_label(run: AgentRun, live_model: bool) -> str:
+def run_label(run: AgentRun, live_model: str | bool | None) -> str:
     """What served a run of the buyer agent, in a sentence: a live model, a recording or answers written by
-    hand, and whether the recording stood in for Gemini (`live_model`: a Gemini key is set)."""
+    hand, and whether the recording or the fixed rules stood in for a model that did not answer. `live_model`: the
+    model that is asked first, by the name the page gives it (`tta.ui.site.model_asked`, as `/healthz` names the
+    active reader); True when one is asked and its name is not given; None or False when no model is asked."""
+    asked = live_model if isinstance(live_model, str) and live_model else THE_MODEL
     if run.model == RULE_BASED_MODEL:
-        return RUN_BY_RULES_FOR_GEMINI if live_model else RUN_BY_RULES_WITHOUT_KEY
+        return RUN_BY_RULES_AFTER_A_MODEL.format(model=asked) if live_model else RUN_BY_RULES_WITHOUT_A_MODEL
     if not run.recorded:
         return RUN_LIVE.format(model=run.model)
     if run.model == HAND_BUILT_MODEL:
         what = BY_HAND
     else:
         what = FROM_A_RECORDING if run.model == RECORDED_MODEL else FROM_A_RECORDING_OF.format(model=run.model)
-    return RUN_FALLBACK.format(what=what) if live_model else RUN_FROM.format(what=what)
+    return RUN_FALLBACK.format(model=asked, what=what) if live_model else RUN_FROM.format(what=what)
 
 
 def can_be_ordered(candidate: SubstituteCandidate) -> tuple[str, str]:
