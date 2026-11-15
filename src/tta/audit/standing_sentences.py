@@ -94,5 +94,7 @@ def supplier_standing_order_renewed(actor: Actor, context: AuditContext, scope: 
     offer = f" as offer {scope.offer_id}" if scope.offer_id else ""
     order = context.order
     placed = f" Order {order.order_id} is {order.status.value.lower().replace('_', ' ')}." if order else NO_ORDER
-    rules = rules_applied(scope.decision.fired) if scope.decision is not None else ""
+    rules = ""
+    if scope.decision is not None:
+        rules = rules_applied(scope.decision.fired, scope.own_dietitian, one_line=scope.has_one_line)
     return f"{who} renewed a standing order{offer}.{placed}{rules}"

@@ -29,7 +29,7 @@ OWN_REASONS = {
 }
 UNIT_WORDS = {"L": "L", "KG": "kg", "UNIT": "units"}
 FREE_FROM = "FREE_FROM_"
-EVERYTHING_COVERED = "Every quantity asked for was covered by confirmed stock."
+EVERYTHING_COVERED = "Every quantity asked for was covered by confirmed stock of the product asked for."
 MISSED_COUNTED = (
     HowCounted(figure="Not confirmed", how="Per requested line of each offer: the quantity asked for minus what "
                "the best confirmed option covers. An offer replaced by an accepted suggestion is counted once, "
@@ -41,6 +41,10 @@ MISSED_COUNTED = (
                "a requirement of the buyer's are not shown or counted."),
     HowCounted(figure="Substitutes", how="Offers with a substitute line; orders with one that a person confirmed, "
                "or rejected."),
+    HowCounted(figure="Ordered as a substitute", how="For a request that was not fully confirmed: what the "
+               "substitute lines of its orders cover, once the order is confirmed by a person or placed by the "
+               "agent. It is sold, though not as the product asked for, so it is said beside the quantity not "
+               "confirmed and never taken off it. Counted where the request has one line that fell short."),
 )
 
 
@@ -68,7 +72,7 @@ class _Short:
     """What one product type, in one unit, was asked for and not confirmed, summed over the offers of the period."""
 
     def __init__(self) -> None:
-        self.asked = self.confirmed = self.missing = ZERO
+        self.asked = self.confirmed = self.missing = self.substituted = ZERO
         self.value: Decimal | None = None
         self.requests = 0
         self.products: defaultdict[str, set[str]] = defaultdict(set)  # reason -> the products it kept out
@@ -140,20 +144,33 @@ def missed(steps: Sequence[Step], requests: dict[str, JsonDict], orders: dict[st
                     entry.products[str(one.get("reason"))].add(str(one.get("product_id")))
             if len(short) == 1:  # an option line does not say which requested line it serves
                 entry.products["QUANTITY_NOT_CONFIRMED"].update(unconfirmed)
+                entry.substituted += _sold_as_substitute(str(offer.get("offer_id")), orders)
     return _missed_figures(shorts, times, names, offers, orders)
+
+
+def _sold_as_substitute(offer_id: str, orders: dict[str, Order]) -> Decimal:
+    """What the substitute lines of this offer's orders cover, for the orders that were made: confirmed by a
+    person or placed by the agent. An order that waits, was rejected or expired sold nothing."""
+    made = (order for order in orders.values() if order.offer_id == offer_id and order.status == OrderStatus.ORDERED)
+    return sum((order.substitute_covers for order in made), ZERO)
 
 
 def _shortfall(label: str, unit: str, short: _Short) -> Shortfall:
     word = UNIT_WORDS.get(unit, unit.lower())
     valued = f", about €{short.value:,.0f} at the offered price," if short.value is not None else ""
+    instead = ""
+    if short.substituted > ZERO:
+        verb = "was" if short.substituted == 1 else "were"
+        instead = f" {number(short.substituted)} {word} {verb} ordered as a substitute instead."
     sentence = (
         f"{number(short.confirmed)} of {number(short.asked)} {word} of {label} could be confirmed: "
-        f"{number(short.missing)} {word}{valued} {'was' if short.missing == 1 else 'were'} not."
+        f"{number(short.missing)} {word}{valued} {'was' if short.missing == 1 else 'were'} not.{instead}"
     )
     reasons = tuple(ReasonCount(reason=reason, label=OWN_REASONS[reason], products=len(short.products[reason]))
                     for reason in OWN_REASONS if short.products.get(reason))
     return Shortfall(label=label, unit=unit, requests=short.requests, asked=short.asked, confirmed=short.confirmed,
-                     not_confirmed=short.missing, value_net_eur=short.value, reasons=reasons, sentence=sentence)
+                     not_confirmed=short.missing, value_net_eur=short.value,
+                     ordered_as_substitute=short.substituted, reasons=reasons, sentence=sentence)
 
 
 def _missed_figures(
@@ -163,8 +180,11 @@ def _missed_figures(
     rows = sorted((_shortfall(label, unit, short) for (label, unit), short in shorts.items()),
                   key=lambda row: (-(row.value_net_eur or ZERO), -row.not_confirmed, row.label))
     by_unit: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+    instead: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
     for row in rows:
         by_unit[row.unit] += row.not_confirmed
+        if row.ordered_as_substitute > ZERO:
+            instead[row.unit] += row.ordered_as_substitute
     value = sum((row.value_net_eur or ZERO for row in rows), ZERO)
     top = tuple(
         MissedProduct(product_id=product_id, name=names.get(product_id), times=number_of, reason=reason,
@@ -180,10 +200,25 @@ def _missed_figures(
     )
     amounts = joined(f"{number(amount)} {UNIT_WORDS.get(unit, unit.lower())}" for unit, amount in by_unit.items())
     sentence = EVERYTHING_COVERED if not rows else (
-        f"{amounts} asked for could not be covered by confirmed stock: about €{value:,.0f} at offered prices."
+        # "Of the product asked for": an offer may also hold an option that fills the quantity from confirmed
+        # stock with a substitute, which a person confirms. That is another product; this figure is the product
+        # asked for, as the first option of the answer says it.
+        f"{amounts} asked for could not be covered by confirmed stock of the product asked for: about "
+        f"€{value:,.0f} at offered prices.{_ordered_instead(instead)}"
     )
     return Missed(
         shortfalls=tuple(rows), value_net_eur=value, top_products=top, substitutes=substitutes, sentence=sentence,
         not_confirmed=tuple(UnitTotal(unit=unit, quantity=amount) for unit, amount in by_unit.items()),
+        ordered_as_substitute=tuple(UnitTotal(unit=unit, quantity=amount) for unit, amount in instead.items()),
         counted=MISSED_COUNTED,
     )
+
+
+def _ordered_instead(instead: dict[str, Decimal]) -> str:
+    """ " 300 L of that were ordered as a substitute instead." or nothing: said after the quantity not confirmed,
+    which it never reduces."""
+    if not instead:
+        return ""
+    amounts = joined(f"{number(amount)} {UNIT_WORDS.get(unit, unit.lower())}" for unit, amount in instead.items())
+    verb = "was" if len(instead) == 1 and next(iter(instead.values())) == 1 else "were"
+    return f" {amounts} of that {verb} ordered as a substitute instead."

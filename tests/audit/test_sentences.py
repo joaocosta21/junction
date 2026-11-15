@@ -33,8 +33,8 @@ def test_an_order_placed_by_the_agent_within_its_authority(trail: AuditTrail, sa
 
     assert event.data.sentence == (
         "The agent placed order ord_2 alone, within its authority under the rules of profile allergy-ward: "
-        "200 pcs of 464056 for €428.00 net. No rule asked for a human. "
-        "The order is recorded in the gateway's order book."
+        "200 pcs of 464056 for €428.00 net. Why it was allowed: the total of €428.00 before tax is within the "
+        "€500 limit per order and no rule asks for a human. The order is recorded in the gateway's order book."
     )
     assert event.data.supplier_sentence == (
         "The agent placed order ord_2 within its authority, without human approval: "
@@ -55,10 +55,10 @@ def test_an_order_sent_to_a_human_names_the_rules(trail: AuditTrail, samples) ->
     )
     assert event.data.supplier_sentence == (
         "The agent could not place order ord_1 alone under the buyer's rules. "
-        f"The order ({PARTIAL}) was sent to the buyer's purchasing manager for approval. Rules that applied: "
-        "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by the buyer's purchasing "
-        "manager. P-03, a rule the buyer set (rule P-03; the buyer's minimum is not shown): approval by the "
-        "buyer's purchasing manager."
+        f"The order ({PARTIAL}) was sent to a person of the buyer for approval. Rules that applied: "
+        "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by a person of the buyer. "
+        "P-03, a rule the buyer set (rule P-03; the buyer's minimum is not shown): approval by a person of the "
+        "buyer."
     )
     assert event.data.rule_ids == ("P-01", "P-03")
 
@@ -97,7 +97,7 @@ def test_an_approval_by_a_named_role_choosing_another_option(trail: AuditTrail, 
         'Note: "The cheaper milk is fine if the stock is there."'
     )
     assert event.data.supplier_sentence == (
-        "The buyer's purchasing manager approved order ord_1 and chose another option of the same offer: "
+        "A person of the buyer approved order ord_1 and chose another option of the same offer: "
         f"opt_2 ({UNCONFIRMED}) instead of opt_1. This approval accepts rules F-01 and P-01."
     )
     assert event.data.rule_ids == ("F-01", "P-01")
@@ -118,8 +118,8 @@ def test_an_approval_of_the_option_first_asked_for(trail: AuditTrail, samples) -
         "The order still needs approval by finance."
     )
     assert event.data.supplier_sentence == (
-        "The buyer's purchasing manager approved order ord_1. This approval accepts rules P-01 and P-03. "
-        "The order still needs approval by the buyer's finance."
+        "A person of the buyer approved order ord_1. This approval accepts rules P-01 and P-03. "
+        "The order still needs approval by a person of the buyer."
     )
 
 
@@ -140,9 +140,9 @@ def test_a_rejection(trail: AuditTrail, samples) -> None:
         "Order ord_1 was rejected by Maija Virtanen (purchasing manager). Nothing was ordered. "
         'Note: "Too expensive this week."'
     )
-    assert decision_event.data.supplier_sentence == "The buyer's purchasing manager rejected order ord_1."
+    assert decision_event.data.supplier_sentence == "A person of the buyer rejected order ord_1."
     assert order_event.data.supplier_sentence == (
-        "Order ord_1 was rejected by the buyer's purchasing manager. Nothing was ordered."
+        "Order ord_1 was rejected by a person of the buyer. Nothing was ordered."
     )
 
 
@@ -157,7 +157,7 @@ def test_an_expiry(trail: AuditTrail, samples) -> None:
         f"{ORDER_BY}, when the offer stopped being valid. Nothing was ordered."
     )
     assert event.data.supplier_sentence == (
-        "Order ord_1 expired while it waited for approval by the buyer's purchasing manager. Nothing was ordered."
+        "Order ord_1 expired while it waited for approval by a person of the buyer. Nothing was ordered."
     )
 
 
@@ -193,8 +193,8 @@ def test_the_ward_request_names_its_allergen_exclusions_for_the_buyer_only(ward_
     supplier = ward_flow.view(AuditReader.SUPPLIER, offer_id="off_2").events
 
     assert buyer[0].sentence == (
-        "The request was read as: 200 litres of product type milk_substitute, excluding allergens AM and AW "
-        "(STRICT), needed by Monday 16 November 2026, confirmed data only."
+        "The request was read as: 200 litres of product type milk_substitute, excluding allergens milk and cereals "
+        "containing gluten (strict rule), needed by Monday 16 November 2026, confirmed data only."
     )
     assert supplier[0].sentence == (
         "The request was read as: 200 litres of product type milk_substitute, needed by Monday 16 November 2026, "
@@ -277,7 +277,7 @@ def test_a_human_who_may_not_decide_is_refused_with_the_reason(trail: AuditTrail
         "The approval needs finance."
     )
     assert event.data.supplier_sentence == (
-        "The buyer's purchasing manager was refused on approval apr_1: this caller may not decide it."
+        "A person of the buyer was refused on approval apr_1: this caller may not decide it."
     )
     assert event.data.rule_ids == ()
 
@@ -291,8 +291,8 @@ def test_evidence_is_described_as_outside_valio_data(trail: AuditTrail, samples)
         "The manufacturer's page lists oats and no milk. It changes no status and no verdict."
     )
     assert event.data.supplier_sentence == (
-        "Evidence from outside Valio Aimo's data was attached to an approval (which product is not shown). "
-        "It changes no status and no verdict."
+        "Evidence from outside Valio Aimo's data was attached to an approval (the product is not named in this "
+        "step). It changes no status and no verdict."
     )
     # Evidence is attached for a product rule P-04 fired on: Valio Aimo reads that it was found, not for which.
     assert event.data.supplier_facts["evidence"] == {"found": True}
@@ -356,7 +356,8 @@ def test_a_typed_request_sent_without_pasted_text_is_described_from_its_fields(t
 
     assert event.data.sentence == (
         "The agent sent a request for profile allergy-ward: 200 litres of product type milk_substitute, "
-        "excluding allergens AM and AW (STRICT), needed by Monday 16 November 2026, confirmed data only."
+        "excluding allergens milk and cereals containing gluten (strict rule), needed by Monday 16 November 2026, "
+        "confirmed data only."
     )
     assert event.data.supplier_sentence == "The buyer's agent sent a purchase request."
 
@@ -385,7 +386,7 @@ def test_a_blocking_verdict_is_explained_to_the_buyer(trail: AuditTrail, samples
     assert event.data.rule_ids == ("F-02",)
     assert event.data.supplier_sentence == (
         "The buyer's rules were checked for option opt_1: this order cannot be placed. "
-        "Rule that applied: F-02, a fixed rule (rule F-02; which allergen and which product are not shown): "
+        "Rule that applied: F-02, a fixed rule (rule F-02; which allergen is not shown): "  # an order of one line
         "the order cannot be placed. The strictest outcome among the rules that applied decides."
     )
     assert "464306" not in event.data.supplier_sentence and "AM" not in event.data.supplier_sentence
@@ -454,7 +455,7 @@ def test_a_rule_that_fires_on_two_lines_is_counted_once_and_explained_twice(trai
     )
     assert requested.data.supplier_sentence.endswith(
         "Rule that applied: F-01, a fixed rule (rule F-01), on products 464306 and 473609: "
-        "approval by the buyer's purchasing manager."
+        "approval by a person of the buyer."
     )
     assert approved.data.sentence == (
         "Maija Virtanen (purchasing manager) approved order ord_1. This approval accepts rule F-01."

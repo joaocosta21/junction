@@ -6,11 +6,13 @@ short) and on the 15% path to production.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic_core import to_json
 
 import tta.api.app as app_module
 from tta.api import create_app, wiring
@@ -51,10 +53,11 @@ def test_the_audit_head_moves_with_every_event(
     assert head["last_hash"] == parts.store.last_audit_hash() != GENESIS_HASH
 
 
-def test_health_reads_the_whole_trail_once_and_then_only_its_last_hash(
+def test_health_reads_the_whole_trail_for_its_head_once_and_walks_the_chain_once_in_ten_calls(
     client: TestClient, parts: Any, scenario_2: dict[str, Any], make_offer: Flow, monkeypatch: Any
 ) -> None:
     # The route is public and not rate limited: a caller must not be able to make it read every event each time.
+    # The head is read whole once and then by its last hash; the chain is walked once in 30 seconds (C1-4).
     whole_trail_reads: list[int] = []
     genuine = parts.store.list_audit_events
 
@@ -73,7 +76,7 @@ def test_health_reads_the_whole_trail_once_and_then_only_its_last_hash(
 
     assert empty == [{"events": 0, "last_hash": GENESIS_HASH}] * 5
     assert after == [{"events": len(genuine()), "last_hash": parts.store.last_audit_hash()}] * 5
-    assert len(whole_trail_reads) == 1
+    assert len(whole_trail_reads) == 2  # one for the head, one walk of the chain: ten calls within 30 seconds
 
 
 @pytest.mark.parametrize(
@@ -264,3 +267,131 @@ def test_outside_dev_and_demo_health_says_nothing_about_the_caller(tmp_path: Any
         body = client.get("/healthz").json()
 
     assert body["rate_limit_caller"] is None
+
+
+# --- checks C1-4 and C4-F4: /healthz walks the chain, at most every 30 seconds -----------------------------------
+
+DROP_THE_GUARDS = "DROP TRIGGER IF EXISTS audit_events_no_update; DROP TRIGGER IF EXISTS audit_events_no_delete;"
+
+
+class FakeTime:
+    def __init__(self) -> None:
+        self.seconds = 1000.0
+
+    def __call__(self) -> float:
+        return self.seconds
+
+
+def _change_the_second_event(settings: Settings, parts: Any) -> str:
+    """Rewrite one stored event behind the store's back, as somebody who can write the database would."""
+    event = parts.store.list_audit_events()[1]
+    changed = event.model_copy(update={"data": event.data.model_copy(update={"sentence": "Nothing happened."})})
+    with sqlite3.connect(settings.db_path) as database:
+        database.executescript(DROP_THE_GUARDS)
+        database.execute(
+            "UPDATE audit_events SET body = ? WHERE event_id = ?", (to_json(changed.model_dump()).decode(), event.id)
+        )
+    return event.id
+
+
+def test_with_one_stored_event_changed_health_is_degraded_and_names_the_first_bad_event(
+    client: TestClient, parts: Any, settings: Settings, scenario_2: dict[str, Any], make_offer: Flow, auth: Any
+) -> None:
+    offer = make_offer(client, "agent_ward", scenario_2)
+    changed_id = _change_the_second_event(settings, parts)
+
+    answer = client.get("/healthz")
+    seen_by_a_reader = client.get(f"/v1/audit?offer_id={offer['offer_id']}", headers=auth("agent_ward")).json()
+
+    body = answer.json()
+    total = body["audit_head"]["events"]
+    assert seen_by_a_reader["chain"]["ok"] is False and seen_by_a_reader["chain"]["first_bad_event_id"] == changed_id
+    assert answer.status_code == 200 and body["status"] == "degraded"  # dev and demo stay reachable
+    assert body["reasons"] == [
+        f"The audit trail does not verify: event {changed_id} (number 2 of {total}) was changed after it was "
+        "written. It and every later event cannot be trusted."
+    ]
+
+
+def test_an_intact_trail_leaves_health_ok(
+    client: TestClient, scenario_2: dict[str, Any], make_offer: Flow
+) -> None:
+    make_offer(client, "agent_ward", scenario_2)
+
+    body = client.get("/healthz").json()
+
+    assert (body["status"], body["reasons"]) == ("ok", [])
+
+
+def test_health_walks_the_chain_at_most_once_in_30_seconds_and_keeps_the_last_result(
+    app: Any, parts: Any, settings: Settings, scenario_2: dict[str, Any], make_offer: Flow, monkeypatch: Any
+) -> None:
+    from tta.api.health import CHAIN_WALK_SECONDS, ChainWatch
+
+    assert CHAIN_WALK_SECONDS == 30
+    time, walks = FakeTime(), []
+    genuine = parts.audit.verify_chain
+
+    def counted() -> Any:
+        walks.append(time.seconds)
+        return genuine()
+
+    with TestClient(app) as client:
+        app.state.chain_watch = ChainWatch(counted, monotonic=time)
+        make_offer(client, "agent_ward", scenario_2)
+        before = [client.get("/healthz").json()["status"] for _ in range(5)]
+        _change_the_second_event(settings, parts)
+        time.seconds += CHAIN_WALK_SECONDS - 1
+        still = client.get("/healthz").json()["status"]  # the last result, 29 seconds old
+        time.seconds += 1
+        after = [client.get("/healthz").json()["status"] for _ in range(5)]
+
+    assert (before, still, after) == (["ok"] * 5, "ok", ["degraded"] * 5)
+    assert walks == [1000.0, 1000.0 + CHAIN_WALK_SECONDS]
+
+
+def test_outside_dev_and_demo_a_changed_trail_answers_503(tmp_path: Any, catalog: ProductCatalog) -> None:
+    tokens = ('{"prod-agent-token-of-32-characters-x": {"kind": "AGENT", "id": "agent:hotel-kitchen", '
+              '"display_name": "Hotel agent", "profile_id": "hotel-kitchen"}}')
+    settings = Settings.for_tests(
+        tta_env="prod", tta_data_dir=tmp_path / "var", tta_tokens=tokens, tta_replay_capture="2026-11-14-demo",
+    )
+    parts = build_parts(settings, catalog=catalog)
+    headers = {"Authorization": "Bearer prod-agent-token-of-32-characters-x"}
+    request = {"lines": [{"text": "10 litres of milk", "product_type": "milk", "quantity": 10, "unit": "L"}]}
+    with TestClient(create_app(settings, parts=parts)) as client:
+        assert client.post("/v1/offers", json=request, headers=headers).status_code == 201
+        changed_id = _change_the_second_event(settings, parts)
+        answer = client.get("/healthz")
+
+    assert answer.status_code == 503 and answer.json()["status"] == "degraded"
+    assert any(changed_id in reason for reason in answer.json()["reasons"])
+
+
+# --- check C4-F5: a row that is not an audit event --------------------------------------------------------------
+
+
+def test_a_row_that_is_no_audit_event_degrades_health_and_breaks_the_chain_for_every_reader(
+    client: TestClient, settings: Settings, scenario_2: dict[str, Any], make_offer: Flow, auth: Any
+) -> None:
+    """Before: `/v1/audit` and `/healthz` answered 500 after this insert (a `ValidationError` in the store)."""
+    offer = make_offer(client, "agent_ward", scenario_2)
+    with sqlite3.connect(settings.db_path) as database:
+        database.execute(
+            "INSERT INTO audit_events (event_id, type, time, previous_hash, hash, body) "
+            "VALUES ('x', 't', '2026-01-01', 'abc', 'def', '{}')"
+        )
+
+    health = client.get("/healthz")
+    for_valio = client.get("/v1/audit", headers=auth("supplier"))
+    for_the_buyer = client.get(f"/v1/audit?offer_id={offer['offer_id']}", headers=auth("agent_ward"))
+
+    assert (health.status_code, for_valio.status_code, for_the_buyer.status_code) == (200, 200, 200)
+    assert health.json()["status"] == "degraded"
+    assert any("event x " in reason and "does not follow the event before it" in reason
+               for reason in health.json()["reasons"])
+    chain = for_valio.json()["chain"]
+    assert (chain["ok"], chain["first_bad_event_id"]) == (False, "x")
+    assert for_valio.json()["events"][-1]["sentence"].startswith("This stored audit event cannot be read")
+    assert for_the_buyer.json()["chain"]["ok"] is False  # the break is outside the buyer's view, and is said
+    assert "broken at an event outside this view" in for_the_buyer.json()["chain"]["sentence"]

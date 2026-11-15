@@ -27,16 +27,16 @@ from tta.contracts.offer import Exclusion
 from tta.contracts.policy import FiredRule
 from tta.contracts.request import PurchaseRequest, RequestLine
 
-MANAGER = "the buyer's purchasing manager"
+MANAGER = "a person of the buyer"
 UNCONFIRMED = "1,000 pcs of 464306 for €1,010.00 net"
 PARTIAL = "698 pcs of 463380 and 51 pcs of 462775 for €1,980.77 net"
-F01 = "F-01, a fixed rule (rule F-01), on product 464306: approval by the buyer's purchasing manager."
+F01 = "F-01, a fixed rule (rule F-01), on product 464306: approval by a person of the buyer."
 P01 = (
-    "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by the buyer's purchasing manager."
+    "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by a person of the buyer."
 )
 P03 = (
     "P-03, a rule the buyer set (rule P-03; the buyer's minimum is not shown): "
-    "approval by the buyer's purchasing manager."
+    "approval by a person of the buyer."
 )
 
 
@@ -298,7 +298,7 @@ def test_a_missing_allergen_fact_does_not_name_its_product_and_a_missing_price_f
     assert (
         "F-03, a fixed rule (rule F-03; a product is not shown where the missing fact is about a requirement of "
         "the buyer's): approval by the buyer's dietitian. "
-        "F-03, a fixed rule (rule F-03), on product 470002: approval by the buyer's purchasing manager."
+        "F-03, a fixed rule (rule F-03), on product 470002: approval by a person of the buyer."
     ) in event.data.supplier_sentence
     # the two firings that hide their product are one entry: how many lines they are is not Valio Aimo's to read
     assert [rule["product_id"] for rule in event.data.supplier_facts["decision"]["rules"]] == [None, "470002"]
@@ -372,7 +372,7 @@ def test_the_role_stands_for_the_approver_s_name_from_the_request_to_the_order(h
         f"The order ({PARTIAL}) was sent to {MANAGER} for approval. Rules that applied: {P01} {P03}"
     )
     assert decided.sentence == (
-        "The buyer's purchasing manager approved order ord_1 and chose another option of the same offer: "
+        "A person of the buyer approved order ord_1 and chose another option of the same offer: "
         f"opt_2 ({UNCONFIRMED}) instead of opt_1. This approval accepts rules F-01 and P-01."
     )
     assert confirmed.sentence.startswith(f"Order ord_1 is ordered, with approval by {MANAGER}: {UNCONFIRMED}.")
@@ -395,7 +395,7 @@ def test_an_approval_that_leaves_a_role_missing_says_which_role_and_no_name(trai
                          AuditContext(order=order, approval=approval, approval_decision=samples.approve()))
 
     assert event.data.supplier_sentence == (
-        "The buyer's purchasing manager approved order ord_1. This approval accepts rules P-01 and P-03. "
+        "A person of the buyer approved order ord_1. This approval accepts rules P-01 and P-03. "
         "The order still needs approval by the buyer's dietitian."
     )
 

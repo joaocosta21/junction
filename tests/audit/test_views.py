@@ -52,7 +52,7 @@ def test_the_buyer_view_has_the_limits_the_exclusions_the_approver_and_the_note(
     assert "€750.00 limit" in hotel
     assert '"max_order_net_eur": 750.0' in hotel and '"max_daily_net_eur": 3000.0' in hotel
     assert "Maija Virtanen (purchasing manager)" in hotel and "Weekly volume, OK." in hotel
-    assert "excluding allergens AM and AW (STRICT)" in ward
+    assert "excluding allergens milk and cereals containing gluten (strict rule)" in ward
     assert '"exclude_allergens": ["AM", "AW"]' in ward
     assert '"ALLERGEN_DECLARED": 2' in ward
 
@@ -62,7 +62,7 @@ def test_the_supplier_sees_what_was_ordered_and_the_statements_it_relied_on(hote
 
     order = confirmed.facts["order"]
     assert confirmed.sentence == (
-        "Order ord_1 is ordered, with approval by the buyer's purchasing manager: "
+        "Order ord_1 is ordered, with approval by a person of the buyer: "
         "1,000 pcs of 464306 for €1,010.00 net. "
         "Price and availability were checked again and had not changed. "
         "The order is recorded in the gateway's order book."
@@ -120,10 +120,10 @@ def test_a_supplier_rule_is_explained_without_the_buyer_s_wording(trail: AuditTr
     trail.record(AuditEventType.POLICY_EVALUATED, samples.gateway, AuditContext(offer_id="off_1", option=option))
 
     assert trail.view(AuditReader.SUPPLIER).events[0].sentence == (
-        "The buyer's rules were checked for option opt_2: the buyer's purchasing manager must approve this order. "
-        "Rules that applied: F-01, a fixed rule (rule F-01), on product 464306: approval by the buyer's purchasing "
-        "manager. P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by the buyer's "
-        "purchasing manager. The strictest outcome among the rules that applied decides."
+        "The buyer's rules were checked for option opt_2: a person of the buyer must approve this order. "
+        "Rules that applied: F-01, a fixed rule (rule F-01), on product 464306: approval by a person of the buyer. "
+        "P-01, a rule the buyer set (rule P-01; the amount is not shown): approval by a person of the buyer. "
+        "The strictest outcome among the rules that applied decides."
     )
 
 

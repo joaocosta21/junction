@@ -138,8 +138,10 @@ INSERT INTO audit_events
     (event_id, type, time, profile_id, offer_id, order_id, approval_id, previous_hash, hash, body)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+# The row's own id, type, time and hash come with the body: a body that is not an audit event is still named
+# (`tta.store.audit_rows`, check C4-F5).
 LIST_AUDIT_EVENTS = """
-SELECT body FROM audit_events
+SELECT event_id, type, time, hash, body FROM audit_events
 WHERE (:order_id IS NULL OR order_id = :order_id)
   AND (:offer_id IS NULL OR offer_id = :offer_id)
   AND (:profile_id IS NULL OR profile_id = :profile_id)

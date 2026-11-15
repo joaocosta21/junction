@@ -68,7 +68,7 @@ def test_a_renewal_sent_to_a_human_states_the_drift_and_who_must_approve(trail: 
     assert event.data.supplier_sentence == (
         "The buyer's agent renewed a standing order as offer off_7. Order ord_7 is pending approval. "
         "Rule that applied: P-08, a rule the buyer set (rule P-08; the buyer's tolerance is not shown): "
-        "approval by the buyer's purchasing manager."
+        "approval by a person of the buyer."
     )
     assert "25%" not in event.data.supplier_sentence and "drift" not in event.data.supplier_facts
     found = trail.view(AuditReader.BUYER, order_id="ord_7").events

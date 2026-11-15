@@ -164,7 +164,7 @@ def test_the_buyer_reads_who_accepted_which_suggestion_and_the_new_offer(trail: 
 @pytest.mark.parametrize(
     ("actor", "suggestion", "expected"),
     [
-        (CHEF, CREAM, "The buyer's purchasing manager accepted a forgotten item suggested with offer off_1. "
+        (CHEF, CREAM, "A person of the buyer accepted a forgotten item suggested with offer off_1. "
                       "The amended request became offer off_2."),
         (AGENT, OWN, "The buyer's agent accepted Valio Aimo's own suggestion Arla Milkdrink 1L lactose free fat "
                      "free UHT Suomesta (462775), suggested with offer off_1. The amended request became offer "

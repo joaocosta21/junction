@@ -195,7 +195,7 @@ def test_an_order_only_f10_held_back_is_confirmed_by_a_person_for_both_readers(t
         "Order ord_1 is ordered, confirmed by Maija Virtanen (purchasing manager): 200 pcs of 464013 for €402.00 net."
     )
     assert event.data.supplier_sentence.startswith(
-        "Order ord_1 is ordered, confirmed by the buyer's purchasing manager: 200 pcs of 464013 for €402.00 net."
+        "Order ord_1 is ordered, confirmed by a person of the buyer: 200 pcs of 464013 for €402.00 net."
     )
 
 
@@ -203,7 +203,7 @@ def test_an_order_another_rule_held_back_is_still_ordered_with_approval(trail: A
     event = _confirmed(trail, samples, samples.decision(samples.rule("P-01", SPEND_SENTENCE)))
 
     assert "with approval by Maija Virtanen (purchasing manager)" in event.data.sentence
-    assert "with approval by the buyer's purchasing manager" in event.data.supplier_sentence
+    assert "with approval by a person of the buyer" in event.data.supplier_sentence
 
 
 def test_a_renewal_only_f10_holds_back_is_prepared_and_waits_to_be_confirmed(trail: AuditTrail, samples) -> None:

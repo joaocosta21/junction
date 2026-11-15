@@ -73,11 +73,20 @@ LOCAL_DB = "/tmp/tta/tta.sqlite3"  # noqa: S108 - the container's own disk, wher
 VOLUME_DB = f"{VOLUME_MOUNT}/tta.sqlite3"
 
 MAX_CONTAINERS = 1  # SQLite, the rate limiter and the run log are per process
-MIN_CONTAINERS = 0  # scale to zero when idle
-SCALEDOWN_SECONDS = 600  # idle time before the container stops; Modal accepts 2 to 3600
+# For the review day (Sunday 15 Nov, decision B55): one container is kept running. The pages' order books and the
+# demo signing key live in its memory, so when it stopped after 10 idle minutes a reviewer's orders were gone and
+# earlier signed records no longer verified (check C2-2). It costs Modal credit for as long as the app is deployed:
+# stop the app after the judging (`modal app stop trusted-trade-agents`), or go back to scale-to-zero with
+# MIN_CONTAINERS = 0 and MEMORY_MIB = 1024 and redeploy.
+MIN_CONTAINERS = 1  # was 0: scale to zero when idle
+SCALEDOWN_SECONDS = 600  # idle time before a container above the minimum stops; Modal accepts 2 to 3600
 MAX_CONCURRENT_REQUESTS = 100  # the value of Modal's own ASGI examples; requests above it wait
 CPU_CORES = 1.0  # Modal's default request is 0.125 cores; loading the catalog takes about 2 s on one core
-MEMORY_MIB = 1024  # measured locally: about 630 MiB at its peak with the catalog loaded
+# Measured on 15 Nov (check CK2): 553 MiB after start and about 1 MiB for each used book of the pages, of which
+# `tta.api.sandbox.MAX_SANDBOXES` (1,000) are kept. 1024 before, measured on 14 Nov at about 630 MiB with no book.
+MEASURED_START_MIB = 553
+MEASURED_MIB_PER_BOOK = 1
+MEMORY_MIB = 4096
 SAVE_DELAY_SECONDS = 1.0  # one copy for the writes of one burst of requests
 
 PRODUCT_FILE = "valio_aimo_junction26_product_data.json"

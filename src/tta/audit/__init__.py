@@ -35,6 +35,9 @@ leaves its clause out, and where that would mislead the sentence says what is no
     suggestions.shown       offer_id · facts["suggestions"] and facts["supplier_view"]["suggestions"]
     suggestion.accepted     offer_id · facts["suggestion"] and facts["supplier_view"]["suggestion"]
                             (both written by `tta.suggestions.events`; the supplier's view reaches only Valio Aimo)
+    settings.changed        profile (as it stands after the change) · facts["changes"], one entry per changed
+                            setting with its value before and after (`tta.audit.settings_sentences`); Valio Aimo
+                            reads that a setting changed and no value
 
 Give `offer_id` on the request and lookup events as well: the trail of an order is found through its offer.
 An event given ids only takes its buyer profile from the stored order, approval or offer, so the buyer's view

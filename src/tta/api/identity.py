@@ -42,7 +42,7 @@ BEARER_DESCRIPTION = (
     + ", ".join(f"`{name}`" for name in DEMO_TOKEN_NAMES[:-1]) + f" and `{DEMO_TOKEN_NAMES[-1]}`. "
     "Four customers (hotel kitchen, allergy ward, school kitchen, bakery and café), each with one agent and its "
     "people. One person confirms: the hotel's purchasing manager and the bakery's owner hold every role; the ward "
-    "and the school have a dietitian besides, for allergen questions only. "
+    "and the school have a dietitian besides, and `GET /v1/authority` says which questions go to her. "
     "In any other environment tokens come from the environment and the demonstration tokens do not exist."
 )
 # A token from the environment is a secret someone chose: shorter than this it can be guessed. The

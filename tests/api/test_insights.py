@@ -54,7 +54,12 @@ SUGGESTIONS = (
 MILK_SHORT = (
     "435 of 1,000 L of lactose-free milk could be confirmed: 565 L, about €1,407 at the offered price, were not."
 )
-MISSED = "565 L asked for could not be covered by confirmed stock: about €1,407 at offered prices."
+# The figure spoken in the pitch. "Of the product asked for" since 15 Nov: the hotel's answer may also hold an
+# option that fills 1,000 L from confirmed stock with a substitute, and this figure is not about that product.
+MISSED = (
+    "565 L asked for could not be covered by confirmed stock of the product asked for: about €1,407 at offered "
+    "prices."
+)
 NOTHING_YET = "Nothing has been ordered in this demonstration yet. Make a request as a customer, then come back."
 
 
@@ -170,7 +175,10 @@ def test_sales_not_made_by_product_type_with_the_reason_and_the_value(filled: Te
     assert missed["sentence"] == MISSED
     top = {row["product_id"]: (row["times"], row["reason"]) for row in missed["top_products"]}
     assert top == {"464306": (1, "QUANTITY_NOT_CONFIRMED"), "464440": (1, "NOT_DELIVERABLE")}
-    assert missed["substitutes"] == {"offered": 0, "accepted": 0, "refused": 0}
+    # One offer holds a substitute line since decision B56: scenario 1's third option fills the 1,000 L from
+    # confirmed stock with 565 L of coffee milk as a substitute. Nobody ordered it here.
+    assert missed["substitutes"] == {"offered": 1, "accepted": 0, "refused": 0}
+    assert short["ordered_as_substitute"] == 0 and missed["ordered_as_substitute"] == []
 
 
 def test_every_block_says_how_it_was_counted_and_the_page_says_what_it_rests_on(filled: TestClient) -> None:
@@ -289,3 +297,108 @@ def test_the_figures_do_not_change_when_everything_valio_aimo_may_not_see_is_tak
     own_words = SCENARIO_1["lines"][0]["text"]  # type: ignore[index]
     assert any(own_words in str(event.data.facts) for event in events)  # the buyer's side does hold them
     assert insights(stripped, now=now) == insights(events, now=now)
+
+
+# --- the browser walk of 15 Nov (lane FIX-A1, item 11): the two counts agree, and substitutes are said apart ----
+# Steps typed by hand, as Valio Aimo's view holds them: the figures read nothing else of an event.
+
+CLOCK = "2026-11-12T14:15:00+02:00"  # the order book's clock: the demo clock stands still
+REAL = "2026-11-15T01:40:00+00:00"  # when the audit trail stamped the step: three days later by the calendar
+SUBSTITUTE_OPTION = {
+    "option_id": "opt_3", "kind": "SUBSTITUTE", "totals": {"net": 600.0},
+    "coverage": [{"request_line_index": 0, "requested": 320, "covered": 300, "unit": "L", "missing": 20}],
+    "lines": [{"product_id": "464013", "name": "Soya drink 1 L", "covers": 300, "net": 600.0,
+               "substitute_for": "465793", "availability": {"state": "CONFIRMED"}}],
+}
+PLANT_DRINK_ASKED = {"lines": [{"product_type": "plant_drink", "quantity": 320, "unit": "L", "required_claims": [],
+                                "product_ids": []}]}
+
+
+def _step(number: int, kind: str, offer_id: str | None, facts: dict[str, Any]) -> Any:
+    from datetime import datetime
+
+    from tta.contracts.audit import SYSTEM_ACTOR, AuditData, AuditEvent
+
+    data = AuditData(actor=SYSTEM_ACTOR, sentence="", supplier_sentence="", offer_id=offer_id, supplier_facts=facts,
+                     previous_hash="0" * 64, hash=f"{number:064d}")
+    return AuditEvent(id=f"evt_{number}", type=f"tta.v1.{kind}", time=datetime.fromisoformat(REAL), data=data)
+
+
+def _offer_steps(first: int, offer_id: str, options: list[dict[str, Any]]) -> list[Any]:
+    offer = {"offer_id": offer_id, "created_at": CLOCK, "options": options, "left_out": []}
+    return [
+        _step(first, "request.received", offer_id, {}),
+        _step(first + 1, "request.parsed", offer_id, {"request": PLANT_DRINK_ASKED}),
+        _step(first + 2, "offer.created", offer_id, {"offer": offer}),
+    ]
+
+
+def _now() -> Any:
+    from datetime import datetime
+
+    return datetime.fromisoformat(CLOCK)
+
+
+@pytest.mark.parametrize("asked_first", [True, False])
+def test_a_request_that_ended_in_a_question_counts_today_as_it_counts_in_all_time(asked_first: bool) -> None:
+    """After one pass of the demo, Today counted 12 requests and All time 13: a sentence the reader answered with
+    a question has no offer, so its step carries the real time only, and under the demo clock that is never the
+    clock's day. It is now dated as the steps around it in the same trail."""
+    question = [_step(90, "request.received", None, {})]
+    offered = _offer_steps(1, "off_1", [])
+    events = [*question, *offered] if asked_first else [*offered, *question]
+
+    today = insights(events, now=_now(), period=Period.TODAY).demand
+    all_time = insights(events, now=_now(), period=Period.ALL).demand
+
+    assert (today.requests, today.offers) == (all_time.requests, all_time.offers) == (2, 1)
+
+
+def test_a_trail_with_no_step_of_the_books_clock_counts_today_in_a_recorded_book_and_by_real_time_live() -> None:
+    lonely = [_step(1, "request.received", None, {})]
+
+    def requests(period: Period, recorded: bool) -> int:
+        return insights(lonely, now=_now(), period=period, recorded=recorded).demand.requests
+
+    # A recorded book's clock stands still: whatever was asked was asked on its day.
+    assert (requests(Period.TODAY, True), requests(Period.ALL, True)) == (1, 1)
+    # Where the clock is the supplier's own, the real time of the step is the day it was made: three days later.
+    assert (requests(Period.TODAY, False), requests(Period.ALL, False)) == (0, 1)
+
+
+def test_what_was_ordered_as_a_substitute_is_said_apart_from_what_could_not_be_confirmed() -> None:
+    """The page said "0 of 320 L of plant drink could be confirmed" on a day 300 L were ordered as stand-ins."""
+    order = {"order_id": "ord_1", "offer_id": "off_1", "status": "ORDERED", "placed_by": "HUMAN_APPROVAL",
+             "updated_at": CLOCK, "option": SUBSTITUTE_OPTION}
+    events = [*_offer_steps(1, "off_1", [SUBSTITUTE_OPTION]), _step(9, "order.confirmed", "off_1", {"order": order})]
+
+    missed = insights(events, now=_now()).missed
+    short, = missed.shortfalls
+
+    assert (short.asked, short.confirmed, short.not_confirmed, short.ordered_as_substitute) == (320, 0, 320, 300)
+    assert short.sentence == (
+        "0 of 320 L of plant drink could be confirmed: 320 L, about €640 at the offered price, were not. "
+        "300 L were ordered as a substitute instead."
+    )
+    assert missed.sentence == (
+        "320 L asked for could not be covered by confirmed stock of the product asked for: about €640 at offered "
+        "prices. 300 L of that were ordered as a substitute instead."
+    )
+    assert [(total.unit, total.quantity) for total in missed.ordered_as_substitute] == [("L", 300)]
+    assert missed.substitutes.accepted == 1
+    assert any(row.figure == "Ordered as a substitute" for row in missed.counted)
+
+
+def test_a_substitute_that_was_offered_and_not_ordered_adds_nothing_to_what_was_sold() -> None:
+    waiting = {"order_id": "ord_1", "offer_id": "off_1", "status": "PENDING_APPROVAL", "placed_by": None,
+               "updated_at": CLOCK, "option": SUBSTITUTE_OPTION}
+    asked = _step(9, "approval.requested", "off_1", {"order": waiting})
+    events = [*_offer_steps(1, "off_1", [SUBSTITUTE_OPTION]), asked]
+
+    missed = insights(events, now=_now()).missed
+
+    assert missed.shortfalls[0].ordered_as_substitute == 0 and missed.ordered_as_substitute == ()
+    assert missed.sentence == (
+        "320 L asked for could not be covered by confirmed stock of the product asked for: about €640 at offered "
+        "prices."
+    )

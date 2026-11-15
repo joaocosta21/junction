@@ -34,6 +34,7 @@ from tta.api.limits import (
     MAX_ORDERS_PER_ADDRESS_PER_MINUTE,
     MAX_ORDERS_PER_VISITOR_PER_MINUTE,
 )
+from tta.api.product_lookup import MAX_PRICED_PRODUCTS
 from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_MINUTES
 from tta.api.service import (
     MAX_DEMO_NAME_TERMS,
@@ -61,6 +62,13 @@ from tta.contracts.request import MAX_PRODUCT_IDS
 
 TITLE = "Trusted Trade Agents gateway"
 VERSION = "0.1.0"
+# Where ordering alone is shown (decision B57, its fallback): the two orders this description and `/llms.txt`
+# quote, at Harbourside Hotel with the setting switched on. Measured on 15 Nov at the demo clock (Thu 12 Nov 2026
+# 14:15) and at the recording's own; `tests/api/test_texts_on_ordering_alone.py` places both and fails when an
+# answer moves.
+ALONE_LITRES, ALONE_NET = 302, "748.96"
+TO_A_PERSON_LITRES, TO_A_PERSON_NET = 303, "751.44"
+HOTEL_ORDER_LIMIT = "750"
 # OpenAPI 3.1 allows a relative URI here, read against the document's own address (P12 W2).
 EXTERNAL_DOCS = {
     "description": "What this gateway is, the flow and every link, as llms.txt; the same links as an RFC 9727 "
@@ -77,6 +85,12 @@ on Valio Aimo's mock API.
 (`GET /v1/approvals` and `POST /v1/approvals/{{id}}/decision`), or is placed by the agent where its buyer
 allows it → `GET /v1/audit`.
 
+**Lookup with price and availability.** `POST /v1/products/search` and `GET /v1/products/{{id}}` answer the
+product file; with `price_and_availability=true` (and `needed_by` for the date the goods are needed) each product
+also carries the supplier's fixed price and what its data says is available, judged as an offer line of the same
+buyer would be, for at most {MAX_PRICED_PRODUCTS} products a call. That is a look, not an offer: to order, ask
+for an offer.
+
 **What an agent can trust.** Every offer line states, claim by claim (price, quantity, delivery date,
 allergens, origin), whether the supplier's data confirms it. Every option carries the policy verdict with the
 rules that fired: `AUTO` (the agent may place it alone), `APPROVAL` (a person confirms it) or `BLOCK` (it
@@ -84,13 +98,19 @@ cannot be ordered). **Ordering alone is a buyer setting, off by default** (`auto
 `GET /v1/authority`, rule F-10): it is off in every shipped profile, so with the demonstration tokens every order
 waits for a person. A buyer who switches it on gets `AUTO` only when no rule asks for a person and every
 statement of every line is confirmed; `POST /v1/orders` then answers `ORDERED` with `placed_by: AGENT`. Any other
-order waits as `PENDING_APPROVAL` for a person in each role named. No model decides a price, a quantity, an
-allergen status or a verdict.
+order waits as `PENDING_APPROVAL` for a person in each role named. In the `dev` and `demo` environments the switch
+is on the shop page (`/shop` → Settings, in a browser's own order book): switched on at Harbourside Hotel,
+{ALONE_LITRES} litres of lactose-free milk (€{ALONE_NET} before tax) are ordered by the agent alone and
+{TO_A_PERSON_LITRES} litres (€{TO_A_PERSON_NET}) go to a person, because of the hotel's limit of €{HOTEL_ORDER_LIMIT}
+an order. No model decides a price, a quantity, an allergen status or a verdict.
 
 **Open formats.** OpenAPI 3.1 generated from the typed models (this document); JSON Schema 2020-12 of every
 model at `GET /v1/schemas`, each naming its dialect in `$schema`; errors as RFC 9457 problem details
-(`application/problem+json`) with one stable `type` per kind of problem; audit events in a CloudEvents 1.0
-envelope, hash-chained; `Idempotency-Key` on order placement (the IETF draft: missing is `400`, the quoted
+(`application/problem+json`) with one stable `type` per kind of problem; audit events stored in a CloudEvents 1.0
+envelope (`specversion`, `id`, `source`, `type`, `time`, `subject`, `datacontenttype`, `data`) and hash-chained,
+of which `GET /v1/audit` answers each reader's view (`id`, `type`, `time`, `actor`, `sentence`, `rule_ids`,
+`facts`, `hash`), not the stored envelope; `Idempotency-Key` on order placement (the IETF draft: missing is `400`,
+the quoted
 Structured Field String of RFC 9651 is read as the bare key); `Location` on the `201` of a new offer and a new
 order (RFC 9110); ISO 8601 timestamps with offset, ISO 4217 currency, GS1 allergen codes. **Signed records:**
 every offer and order record answered carries `proof`, the gateway's detached JSON Web Signature (RFC 7515, EdDSA
@@ -100,7 +120,8 @@ and `demo_key: true` marks a key generated at start, about which nothing is clai
 in the protected header, in the key id (`demo-...`) and in the published key; the header's `typ` (`tta-offer+jws`
 or `tta-order+jws`) says which kind of record was signed. The same functions are
 offered as MCP tools at `/mcp` when that surface is installed, menus, standing orders and the caller's customer
-(`GET /v1/customers`, synthetic) included; a request there whose `Origin` names a foreign
+(`GET /v1/customers`, synthetic) included; an argument a tool does not know is refused there, as REST refuses a
+field it does not know; a request there whose `Origin` names a foreign
 site is refused with `403`, as MCP revision 2026-07-28 requires. **Discovery:** an agent that knows only the
 address finds all of this in the API catalog of RFC 9727 at `/.well-known/api-catalog`
 (`application/linkset+json`) and in `/llms.txt`, with no token.
@@ -113,10 +134,14 @@ profile is never a request field. The demonstration tokens are **public by desig
 **Assumptions to know.** The limits in a buyer profile are **illustrative** values of ours: the mock has no
 customer model. `ORDERED` means recorded in this gateway's order book: the mock has no order endpoint, and
 the record commits nobody. Answers say whether their data is `live` or a `replay` of recorded responses.
-`POST /v1/requests/parse` says who read the text in two headers, `TTA-Read-By` and `TTA-Reading-Source`
-(`model`, `recording`, `hand-built`, or `rule-based` when fixed rules read it because no model answered).
+`POST /v1/requests/parse` says who read the text in three headers: `TTA-Read-By`, `TTA-Reading-Source`
+(`model`, `recording`, `hand-built`, or `rule-based` when fixed rules read it because no model answered) and
+`TTA-Reading-Sentence`, what the reader says of its own reading.
 The REST routes and MCP share one order book per buyer; the
-demonstration pages keep each browser's orders in an order book of its own, which this API does not see.
+demonstration pages keep each browser's orders in an order book of its own, which this API does not see. Those
+pages have no login (they act as a demonstration identity chosen on the page) and are mounted only in the `dev`
+and `demo` environments: that an agent cannot approve is enforced over REST and MCP, where the token says who
+calls.
 
 **Limits** (illustrative as well). A request body is at most {MAX_BODY_KILOBYTES} KB (`413` otherwise; a
 `Content-Length` that is not a number is `400`). A request names at most {MAX_PRODUCT_IDS:,} product ids and,

@@ -120,7 +120,7 @@ def test_one_audit_event_records_the_link_and_the_hash_and_the_supplier_sees_nei
     # Nor the product: evidence is attached for the product rule P-04 fired on, which Valio Aimo is not shown.
     assert event.facts["evidence"]["product_id"] == ids.elovena and f"product {ids.elovena}" in event.sentence
     assert seen.facts["evidence"] == {"found": True}
-    assert ids.elovena not in seen.sentence and "(which product is not shown)" in seen.sentence
+    assert ids.elovena not in seen.sentence and "(the product is not named in this step)" in seen.sentence
     assert stack.audit.verify_chain().ok
 
 

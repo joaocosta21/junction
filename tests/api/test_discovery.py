@@ -170,3 +170,65 @@ def test_the_openapi_document_has_external_docs_and_lists_the_discovery_routes(c
     assert set(document["paths"][API_CATALOG_PATH]) == {"get", "head"}
     assert "security" not in document["paths"][API_CATALOG_PATH]["get"]
     assert "get" in document["paths"][LLMS_PATH]
+
+
+# --- checks C2-5, C2-7 and C4-F1, decisions B57 (its fallback) and B62: the texts say what is true --------------
+
+
+def _read(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_the_flow_of_llms_txt_names_the_reading_of_a_sentence_before_the_offer(client: TestClient) -> None:
+    reading = _read(client.get(LLMS_PATH).text)
+
+    steps = [reading.index(step) for step in ("`GET /v1/authority`", "`POST /v1/requests/parse`", "`POST /v1/offers`")]
+    assert steps == sorted(steps)
+
+
+def test_llms_txt_says_where_an_agent_cannot_approve_and_that_the_pages_have_no_login(
+    client: TestClient, demo_client: TestClient
+) -> None:
+    anywhere, in_demo = _read(client.get(LLMS_PATH).text), _read(demo_client.get(LLMS_PATH).text)
+    outside = _read(llms_text(BASE, with_mcp=True, demo=False))
+
+    for text in (anywhere, in_demo, outside):
+        assert "over REST and MCP an agent's token cannot" in text
+        assert "; an agent's token cannot." not in text  # the claim without its qualifier (check C4-F1)
+    for phrase in ("have no login", "mounted only in the dev and demo environments", "tokens of their own"):
+        assert phrase in in_demo, phrase
+    assert "no login" not in outside  # where no page is mounted there is nothing to say about one
+
+
+def test_llms_txt_says_the_demo_key_marker_is_signed_in_the_header_and_its_copy_is_not(client: TestClient) -> None:
+    reading = _read(client.get(LLMS_PATH).text)
+
+    assert "A proof whose own fields say otherwise does not verify" not in reading  # true of the header only (C2-7)
+    for phrase in ("inside the signed protected header", "`proof.demo_key`", "not covered by the signature"):
+        assert phrase in reading, phrase
+
+
+def test_llms_txt_in_demo_says_where_ordering_alone_is_shown_with_the_two_measured_orders(
+    demo_client: TestClient,
+) -> None:
+    reading = _read(demo_client.get(LLMS_PATH).text)
+
+    for phrase in ("off for the four demonstration customers", "`/shop`", "Settings", "Harbourside Hotel",
+                   "302 litres", "€748.96", "303 litres", "€751.44", "€750"):
+        assert phrase in reading, phrase
+    assert "Harbourside Hotel" not in _read(llms_text(BASE, with_mcp=True, demo=False))
+
+
+def test_the_openapi_description_says_what_get_audit_answers_and_what_is_stored(client: TestClient) -> None:
+    description = _read(client.get("/openapi.json").json()["info"]["description"])
+
+    assert "stored in a CloudEvents 1.0 envelope" in description
+    assert "`GET /v1/audit` answers each reader's view" in description and "not the stored envelope" in description
+    for phrase in ("have no login", "over REST and MCP", "`/shop`", "302 litres", "€748.96", "303 litres", "€751.44"):
+        assert phrase in description, phrase
+
+
+def test_the_bearer_description_no_longer_says_the_dietitian_decides_allergen_questions_only() -> None:
+    from tta.api.identity import BEARER_DESCRIPTION
+
+    assert "for allergen questions only" not in BEARER_DESCRIPTION and "`GET /v1/authority`" in BEARER_DESCRIPTION

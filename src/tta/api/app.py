@@ -24,7 +24,7 @@ from tta.api.docs_pages import install_docs_pages
 from tta.api.errors import install_error_handlers
 from tta.api.examples import build_examples
 from tta.api.headers import SecurityHeadersMiddleware, is_api_path
-from tta.api.health import public
+from tta.api.health import ChainWatch, public
 from tta.api.insight_routes import insight_router
 from tta.api.keys import keys
 from tta.api.limits import ClientKeyMiddleware
@@ -145,6 +145,7 @@ def _application(parts: Parts) -> FastAPI:
     )
     app.state.parts = parts
     app.state.start_reasons = start_reasons  # what the start skipped, for `/healthz`
+    app.state.chain_watch = ChainWatch(parts.audit.verify_chain)  # `/healthz` walks the chain every 30 s at most
     app.state.surfaces = {name: name in surfaces for name in (MCP_SURFACE, PAGES_SURFACE)}
     app.state.examples = None  # set when the application starts
     # The last one added is the outermost: the headers cover what the two inside it answer themselves.

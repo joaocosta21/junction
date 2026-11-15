@@ -25,6 +25,7 @@ from tta.contracts.offer import Offer
 from tta.contracts.order import Approval, Order
 from tta.contracts.standing import Renewal, StandingOrder
 from tta.store import schema
+from tta.store.audit_rows import read_event
 from tta.store.errors import AuditChainConflict
 
 IN_MEMORY = ":memory:"
@@ -44,7 +45,8 @@ SELECT seq FROM audit_events
 WHERE event_id = :event_id AND (:profile_id IS NULL OR profile_id = :profile_id)
 """
 AUDIT_EVENTS_PAGE = """
-SELECT e.body, (SELECT p.hash FROM audit_events p WHERE p.seq < e.seq ORDER BY p.seq DESC LIMIT 1)
+SELECT e.event_id, e.type, e.time, e.hash, e.body,
+       (SELECT p.hash FROM audit_events p WHERE p.seq < e.seq ORDER BY p.seq DESC LIMIT 1)
 FROM audit_events e
 WHERE (:profile_id IS NULL OR e.profile_id = :profile_id)
   AND (:offer_id IS NULL OR e.offer_id = :offer_id)
@@ -64,6 +66,11 @@ CHAIN_MOVED_DETAIL = (
 def _encode(model: Contract) -> str:
     """The whole object as JSON. Decimals are written as strings, so no digit is lost on the way back."""
     return to_json(model.model_dump()).decode("utf-8")
+
+
+def _event(event_id: str, event_type: str, time: str, stored_hash: str, body: str) -> AuditEvent:
+    """The event of one row; a row whose body is not an audit event is named by its own columns (C4-F5)."""
+    return read_event(body, event_id=event_id, event_type=event_type, time=time, stored_hash=stored_hash)
 
 
 class SqliteStore:
@@ -262,8 +269,9 @@ class SqliteStore:
     ) -> tuple[AuditEvent, ...]:
         """In the order they were appended. Every filter given must hold; with none, every event."""
         parameters = {"order_id": order_id, "offer_id": offer_id, "profile_id": profile_id}
-        bodies = self._bodies(schema.LIST_AUDIT_EVENTS, parameters)
-        return tuple(AuditEvent.model_validate_json(body) for body in bodies)
+        with self._session() as connection:
+            rows = connection.execute(schema.LIST_AUDIT_EVENTS, parameters).fetchall()
+        return tuple(_event(*row) for row in rows)
 
     def last_audit_hash(self) -> str | None:
         with self._session() as connection:
@@ -295,7 +303,7 @@ class SqliteStore:
         }
         with self._session() as connection:
             rows = connection.execute(AUDIT_EVENTS_PAGE, parameters).fetchall()
-        return tuple((AuditEvent.model_validate_json(body), hash_before) for body, hash_before in rows)
+        return tuple((_event(*row[:-1]), row[-1]) for row in rows)
 
     def save_standing_order(self, standing: StandingOrder) -> None:
         with self._session() as connection:

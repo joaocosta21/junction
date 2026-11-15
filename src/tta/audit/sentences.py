@@ -9,7 +9,7 @@ out and the sentence says what is not recorded; it never fills the gap with the 
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from tta.audit.phrases import (
     MAX_NAME_CHARACTERS,
@@ -45,13 +45,15 @@ from tta.audit.scope import (
     rejection,
     rules_with,
 )
+from tta.audit.settings_sentences import settings_changed
 from tta.audit.standing_sentences import standing_order_created, standing_order_renewed
 from tta.audit.suggestion_sentences import suggestion_accepted, suggestions_shown
 from tta.audit.supplier_decisions import left_out
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
-from tta.contracts.common import DataSource, DecisionKind, PlacedBy, Verdict
+from tta.contracts.common import ApproverRole, DataSource, DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import Offer
 from tta.contracts.order import ApprovalDecision
+from tta.policy.human_approval import decided_as, roles_said, several_can_sign
 
 SentenceBuilder = Callable[[Actor, AuditContext, Scope], str]
 
@@ -60,6 +62,30 @@ DECISION_BEHIND_NOT_RECORDED = "The policy decision behind it is not recorded."
 HOW_CONFIRMED_NOT_RECORDED = "How it was confirmed is not recorded."
 APPROVER_NOT_RECORDED = "Who approved is not recorded."
 BY_THE_AGENT = "placed by the agent within its authority"
+# What the decision of an order the agent may place alone starts with (`decision_sentences.AUTO` of rules.yaml):
+# the rest says why, with the figures the engine read.
+MAY_PLACE_ALONE = "The agent may place this order alone: "
+WHY_ALLOWED = "Why it was allowed: "
+NO_RULE_ASKED = "No rule asked for a human."
+
+
+def asked_said(roles: Sequence[ApproverRole], scope: Scope) -> str:
+    """the purchasing manager · the purchasing manager and the dietitian: each role by who really decides it at
+    this buyer (one person confirms: at the hotel a dietitian's question is the purchasing manager's). With no
+    profile known, the roles as they were asked."""
+    return roles_said(roles, scope.profile) if scope.profile is not None else roles_text(roles)
+
+
+def signer_said(name: str, roles: Sequence[ApproverRole], asked: Sequence[ApproverRole], scope: Scope) -> str:
+    """Hanna Laine · Riikka Mäkelä (dietitian): a person who decided, by name. A role follows in brackets only
+    at a buyer where more than one person can sign, and then the roles this approval asked of that person, as
+    they are really decided there (decision B61; the same reading as `tta.orders.wording`). With no profile
+    known, the name with the roles of the token, as before."""
+    if scope.profile is None:
+        return person(name, roles)
+    if not several_can_sign(scope.profile):
+        return person(name, ())
+    return person(name, tuple(dict.fromkeys(decided_as(scope.profile, role) for role in asked if role in roles)))
 
 
 def _note(decided: ApprovalDecision | None) -> str:
@@ -169,8 +195,17 @@ def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> 
     profile = f" under the rules of {buyer}" if buyer else ""
     return (
         f"The agent placed {scope.order_label} alone, within its authority{profile}{_what(scope)}. "
-        f"No rule asked for a human.{recorded_note(context)}"
+        f"{_why_allowed(scope)}{recorded_note(context)}"
     )
+
+
+def _why_allowed(scope: Scope) -> str:
+    """The decision's own sentence, which says why the order was allowed with the figures the engine read. A
+    decision whose sentence is not of that form keeps the short reason."""
+    said = scope.decision.sentence.strip() if scope.decision is not None else ""
+    if not said.startswith(MAY_PLACE_ALONE) or said == MAY_PLACE_ALONE.strip():
+        return NO_RULE_ASKED
+    return f"{WHY_ALLOWED}{ended(said.removeprefix(MAY_PLACE_ALONE))}"
 
 
 def approval_requested(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -185,7 +220,7 @@ def approval_requested(actor: Actor, context: AuditContext, scope: Scope) -> str
     deadline = f", to be decided by {moment(approval.valid_until)}" if approval and approval.valid_until else ""
     return (
         f"The agent could not place {scope.order_label} alone{why} "
-        f"The order{what} was sent to {roles_text(roles) if roles else 'a human'}{deadline}."
+        f"The order{what} was sent to {asked_said(roles, scope) if roles else 'a human'}{deadline}."
     )
 
 
@@ -200,7 +235,8 @@ def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decided = context.approval_decision
     if decided is None:
         return f"{actor_text(actor)} decided on {scope.order_label}."
-    who = person(decided.approver_name, decided.roles)
+    asked = context.approval.required_roles if context.approval else decided.roles
+    who = signer_said(decided.approver_name, decided.roles, asked, scope)
     if decided.decision is DecisionKind.REJECT:
         return f"{who} rejected {scope.order_label}.{_note(decided)}"
     change = option_change(context)
@@ -210,7 +246,7 @@ def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
         instead = f" instead of {change.previous_id}" if change.previous_id else ""
         chose = f" and chose another option of the same offer: {change.chosen_id}{described}{instead}"
     missing = context.approval.roles_missing if context.approval else ()
-    still = f" The order still needs approval by {roles_text(missing)}." if missing else ""
+    still = f" The order still needs approval by {asked_said(missing, scope)}." if missing else ""
     return f"{who} approved {scope.order_label}{chose}.{_accepted(scope)}{still}{_note(decided)}"
 
 
@@ -232,7 +268,7 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
         return confirmed_text(context, scope, BY_THE_AGENT)
     if by is None:
         return confirmed_text(context, scope, None)
-    approvers = joined(person(entry.approver_name, entry.roles) for entry in approvals_given(context))
+    approvers = _approvers(context, scope)
     # Under F-10 alone the agent prepared the order and a person confirmed it: no exception was approved.
     confirmed = only_confirmation_asked(scope.decision)
     if approvers:
@@ -241,10 +277,21 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
     return confirmed_text(context, scope, how, APPROVER_NOT_RECORDED)
 
 
+def _approvers(context: AuditContext, scope: Scope) -> str:
+    """Everybody who approved, each person once: the shop page signs role by role under one name."""
+    asked = context.approval.required_roles if context.approval else ()
+    roles_by_name: dict[str, tuple[ApproverRole, ...]] = {}
+    for entry in approvals_given(context):
+        held = roles_by_name.get(entry.approver_name, ())
+        roles_by_name = {**roles_by_name, entry.approver_name: (*held, *(r for r in entry.roles if r not in held))}
+    return joined(signer_said(name, roles, asked or roles, scope) for name, roles in roles_by_name.items())
+
+
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decided = rejection(context)
     if decided is not None:
-        who = person(decided.approver_name, decided.roles)
+        asked = context.approval.required_roles if context.approval else decided.roles
+        who = signer_said(decided.approver_name, decided.roles, asked, scope)
     else:
         who = actor_text(actor) if actor.kind is ActorKind.HUMAN else "a human"
     return f"{capital(scope.order_label)} was rejected by {who}. {NOTHING_ORDERED}{_note(decided)}"
@@ -252,7 +299,7 @@ def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
 
 def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
     approval = context.approval
-    missing = roles_text(approval.roles_missing) if approval and approval.roles_missing else "a human"
+    missing = asked_said(approval.roles_missing, scope) if approval and approval.roles_missing else "a human"
     deadline = (approval.valid_until if approval else None) or (scope.option.valid_until if scope.option else None)
     when = f" on {moment(deadline)}," if deadline else ""
     return (
@@ -330,6 +377,7 @@ BUYER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {
     AuditEventType.STANDING_ORDER_RENEWED: standing_order_renewed,
     AuditEventType.SUGGESTIONS_SHOWN: suggestions_shown,
     AuditEventType.SUGGESTION_ACCEPTED: suggestion_accepted,
+    AuditEventType.SETTINGS_CHANGED: settings_changed,
 }
 
 

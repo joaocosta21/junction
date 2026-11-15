@@ -7,7 +7,8 @@ the demo may not lock out the rest.
 
 Four layers, each a sliding window of one minute, in memory, for one process:
     one caller       a token from the environment; where the tokens are the public demonstration tokens, one
-                     visitor, with a window per kind of call (`VISITOR_WINDOWS`), each well under its ceiling.
+                     visitor, with a window per kind of call (`VISITOR_WINDOWS`), each at most a quarter of its
+                     ceiling.
                      On the pages a visitor is a browser, known by the own-book cookie the pages give it; a
                      browser without one, and every REST and MCP call, is its address, whichever token it sends
     one address      the demonstration only: every browser and caller behind one address together, at most
@@ -61,7 +62,10 @@ DEFAULT_RATE_LIMIT_WINDOW_SECONDS = SECONDS_PER_MINUTE
 # One visitor of the public demonstration, whichever public token it sends (task FIX-10): a browser of the pages,
 # or an address. 15 readings a minute serve fast typing (A5 #3: the sixth was refused at 5) and stay under the
 # offer window, so an example whose agent run is held back still makes its offer from its typed request.
-MAX_LOOKUPS_PER_VISITOR_PER_MINUTE = 20
+# Lookups: 60 since the review day (decision B55, check C1-5; 20 before). On REST and MCP a visitor is an address,
+# so every caller behind one Wi-Fi shared the 20, whichever token each sent. 60 is the address's whole cap for
+# lookups: one caller may now use all of it, and the browsers behind the same address share what is left.
+MAX_LOOKUPS_PER_VISITOR_PER_MINUTE = 60
 MAX_ORDERS_PER_VISITOR_PER_MINUTE = 20
 MAX_MODEL_CALLS_PER_VISITOR_PER_MINUTE = 15
 # Every browser and caller behind one address together (task FIX-11): a dozen reviewers on one Wi-Fi each run

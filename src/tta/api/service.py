@@ -59,6 +59,7 @@ from tta.contracts.product import Product, SearchResult
 from tta.contracts.request import MAX_PRODUCT_IDS, ProductQuery, PurchaseRequest
 from tta.customers.learned import APPLIED_FACT, LearnedView, Prepared, learned_view, prepare, said_on
 from tta.orders.access import actor_of
+from tta.policy.formula_facts import request_as_sent
 
 MAX_LIST_ITEMS = 100  # the most a list answers: orders, approvals, audit events, products of a search
 # In dev and demo, where the tokens are public, one request may hold this many lines (the contract allows 20):
@@ -193,6 +194,15 @@ class Gateway:
         functions without it: their calls are counted where they begin."""
         self._deps.limiter.check(identity, CallKind.LOOKUP, writes=False)
 
+    def count_settings_change(self, identity: Identity) -> None:
+        """Count one change of a buyer's settings, which writes an audit event, against the day's budget of stored
+        bytes of the caller's address and token (review H2), or raise `RateLimited`. A browser's own book asks
+        before it writes the event (`tta.api.sandbox.Kitchen`): a refused change changes nothing. Where there is
+        no such budget (outside dev and demo) nothing is counted."""
+        storage = self._deps.limiter.storage
+        if storage is not None:
+            storage.check(identity.id)
+
     def search_products(self, identity: Identity, query: ProductQuery) -> SearchResult:
         _require_buyer_side(identity)
         limit = self._deps.max_name_terms
@@ -266,7 +276,11 @@ class Gateway:
     def _offer(self, identity: Identity, request: PurchaseRequest) -> Offer:
         prepared, problems = self._prepared(identity, request)
         # The offer keeps the request as the buyer sent it; what the gateway applied is a note and an audit fact.
-        offer = said_on(self._deps.offers.build_offer(prepared.request, identity), prepared)
+        # Built knowing the request as the buyer sent it, so the offer's own sentences can say who said the
+        # formula matters: the request, or what the gateway learned (`tta.policy.formula_facts`).
+        with request_as_sent(prepared.original):
+            built = self._deps.offers.build_offer(prepared.request, identity)
+        offer = said_on(built, prepared)
         if problems:
             offer = offer.model_copy(update={"notes": (*offer.notes, *problems)})
         suggesting = self._deps.suggestions

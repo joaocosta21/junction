@@ -1,7 +1,8 @@
 """`GET /healthz`: what is running, where the data comes from, which store is in use, the head of the audit chain.
 
 Scores on the 20% "how decisions are logged and auditable" (a head another party can keep shows a trail cut short;
-the answer says where the record is kept) and on the 15% path to production. No token; no secret, no path, no host.
+the answer says where the record is kept; a changed, removed or inserted event degrades the gateway and is named)
+and on the 15% path to production. No token; no secret, no path, no host.
 """
 
 from __future__ import annotations
@@ -9,6 +10,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import threading
+import time
+from collections.abc import Callable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request, Response
@@ -19,6 +23,7 @@ from tta.api.clock_info import HealthClock, describe_clock
 from tta.api.limits import UNKNOWN_CLIENT, current_client_key, forwarded_for_entries
 from tta.api.signing import JWKS_PATH
 from tta.config import Settings
+from tta.contracts.audit import ChainVerification
 from tta.contracts.common import DataSource
 from tta.contracts.offer import PROOF_ALGORITHM
 
@@ -30,6 +35,34 @@ DEMO_KEY = (
 SET_KEY = "The key this gateway's operator set. The gateway signs with it; Valio Aimo does not."
 DEMO_KEY_IN_USE = "offers and orders are signed with a demo key that changes at every start"
 SERVICE_UNAVAILABLE = 503
+# How old the last walk of the whole audit chain may be before `/healthz` walks it again (checks C1-4, C4-F4).
+CHAIN_WALK_SECONDS = 30
+
+
+class ChainWatch:
+    """The last verification of the whole audit chain of the shared order book, for `/healthz`.
+
+    The route is public and not rate limited, and a walk reads every event, so it is made again only when the last
+    one is `CHAIN_WALK_SECONDS` old: until then the last result is answered, and a change of a stored event shows
+    at most that much later. One walk at a time; a caller that arrives during one waits and reads its result."""
+
+    def __init__(
+        self, verify: Callable[[], ChainVerification], *, every_seconds: float = CHAIN_WALK_SECONDS,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._verify = verify
+        self._every_seconds = every_seconds
+        self._monotonic = monotonic
+        self._lock = threading.Lock()  # routes run in a thread pool
+        self._found: ChainVerification | None = None
+        self._walked_at = 0.0
+
+    def state(self) -> ChainVerification:
+        with self._lock:
+            now = self._monotonic()
+            if self._found is None or now - self._walked_at >= self._every_seconds:
+                self._found, self._walked_at = self._verify(), now
+            return self._found
 
 
 class AuditHead(BaseModel):
@@ -190,6 +223,15 @@ def _looks(gateway: Any, mode: DataSource) -> tuple[DataSource | None, tuple[str
     return looks.last_source, tuple(reason for reason, holds in reasons if holds)
 
 
+def _chain_watch(state: Any, verify: Callable[[], ChainVerification]) -> ChainWatch:
+    """The application's watch (`tta.api.app` makes it at start). An application put together another way gets
+    one at its first call."""
+    watch = getattr(state, "chain_watch", None)
+    if watch is None:
+        watch = state.chain_watch = ChainWatch(verify)
+    return watch
+
+
 @public.get("/healthz", operation_id="get_health", tags=[docs.TAG_OPEN], summary="What is running")
 def get_health(request: Request, response: Response) -> Health:
     """The environment, the mode, the source of the last look at price and availability, the clock in force
@@ -201,8 +243,12 @@ def get_health(request: Request, response: Response) -> Health:
     it is told from the settings and no model is called. No token needed; no secret, no path, no host name and no budget
     figure is shown. In dev and demo `rate_limit_caller` says how many proxy hops the rate limiter trusts and which
     address family it counted this call for, with a short label instead of the address: two networks that read
-    the same label share one rate-limit window. Nothing is asked of the supplier and the audit trail is not read
-    through.
+    the same label share one rate-limit window. Nothing is asked of the supplier.
+
+    The whole audit chain of the shared order book is verified for this answer, at most once every 30 seconds
+    (between two walks the last result is answered). A stored event that was changed, removed or inserted makes
+    the gateway `degraded`, and `reasons` names the first event that does not verify. An intact chain cannot show
+    that the newest events were cut off: for that, keep `audit_head` from an earlier answer.
 
     A demo signing key is a `notices` line in dev and demo and a reason anywhere else. A degraded gateway answers
     200 in dev and demo, so a demonstration stays reachable, and 503 anywhere else."""
@@ -211,6 +257,9 @@ def get_health(request: Request, response: Response) -> Health:
     source, reasons = _looks(parts.gateway, parts.settings.tta_mode)
     # What the start had to do without: the database, a customer's standing orders (`tta.api.app`).
     reasons = (*reasons, *parts.start_reasons, *getattr(state, "start_reasons", ()))
+    chain = _chain_watch(state, parts.audit.verify_chain).state()
+    if not chain.ok:
+        reasons = (*reasons, chain.sentence)
     demo = parts.settings.is_demo_environment
     key_notice = (DEMO_KEY_IN_USE,) if parts.signer.demo_key else ()
     if not demo:

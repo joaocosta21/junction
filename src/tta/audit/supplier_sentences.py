@@ -4,7 +4,9 @@ the agent was, and how the order was decided (SPEC section 9; package S4 after V
 Every rule that fired is named with its reason and outcome, and the products considered and left out are
 listed (`tta.audit.supplier_decisions`). No sentence here reads a limit value, an allergen exclusion, an
 approver's name or id, or a note: a rule's own sentence is never quoted, because it can carry a limit or an
-allergen, and a person is named by role only.
+allergen. A person is never named: one person confirms, so whoever orders is "a person of the buyer" whatever
+roles her token holds, and a role is said only of a second person, the dietitian of the ward and of the school
+(`who_is_asked`, `who_signed`).
 
 As for the buyer, a sentence states only what its context holds and says what is not recorded.
 """
@@ -43,11 +45,20 @@ from tta.audit.sentences import (
     order_not_placed,
     recorded_note,
 )
+from tta.audit.settings_sentences import supplier_settings_changed
 from tta.audit.standing_sentences import supplier_standing_order_created, supplier_standing_order_renewed
 from tta.audit.suggestion_sentences import supplier_suggestion_accepted, supplier_suggestions_shown
-from tta.audit.supplier_decisions import buyers_roles, decision_explained, rules_applied
+from tta.audit.supplier_decisions import (
+    BUYERS_DIETITIAN,
+    PERSON_OF_BUYER,
+    decision_explained,
+    rules_applied,
+    who_is_asked,
+    who_signed,
+)
 from tta.contracts.audit import Actor, ActorKind, AuditContext, AuditEventType
-from tta.contracts.common import DecisionKind, PlacedBy, Verdict
+from tta.contracts.common import ApproverRole, DecisionKind, PlacedBy, Verdict
+from tta.contracts.order import ApprovalDecision
 
 VERDICT_OUTCOMES = {
     Verdict.AUTO: "the agent may place this order within its authority.",
@@ -60,13 +71,37 @@ def _what(scope: Scope) -> str:
     return f": {option_text(scope.option)}" if scope.option else ""
 
 
-def _acting_human(actor: Actor) -> str:
+def _acting_human(actor: Actor, scope: Scope) -> str:
     """The human who acted, by the roles the gateway knows: never by name or id. Valio Aimo's own token is
     not a person at the buyer and is named as what it is."""
     if is_supplier_reader(actor):
         return SUPPLIER_READER
     role = supplier_role(actor.role) if actor.kind is ActorKind.HUMAN else None
-    return buyers_roles(role.split(ROLE_SEPARATOR) if role else ())
+    return who_signed(role.split(ROLE_SEPARATOR) if role else (), scope.own_dietitian)
+
+
+def _signer(decided: ApprovalDecision, context: AuditContext, scope: Scope) -> str:
+    """Who signed one decision. A signature for the dietitian's role alone is the dietitian's, unless the same
+    person signed this approval for another role as well: the shop page signs role by role under the name of the
+    customer's person (`tta.ui.shop_api`), and one name is one person. The name itself is never said."""
+    said = who_signed(decided.roles, scope.own_dietitian)
+    if said != BUYERS_DIETITIAN or context.approval is None:
+        return said
+    also_as_buyer = any(
+        entry.approver_name == decided.approver_name and set(entry.roles) != {ApproverRole.DIETITIAN}
+        for entry in context.approval.decisions
+    )
+    return PERSON_OF_BUYER if also_as_buyer else said
+
+
+def _signers(context: AuditContext, scope: Scope) -> str:
+    """Everybody who approved, each person once: "a person of the buyer and the buyer's dietitian"."""
+    roles_by_name: dict[str, tuple[ApproverRole, ...]] = {}
+    for entry in approvals_given(context):
+        held = roles_by_name.get(entry.approver_name, ())
+        roles_by_name = {**roles_by_name, entry.approver_name: (*held, *entry.roles)}
+    said = dict.fromkeys(who_signed(roles, scope.own_dietitian) for roles in roles_by_name.values())
+    return joined(sorted(said, key=lambda who: who == BUYERS_DIETITIAN))
 
 
 def request_received(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -91,8 +126,10 @@ def policy_evaluated(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decision = scope.decision
     if decision is None:
         return f"The buyer's rules were checked{checked_for(scope)}. {DECISION_NOT_RECORDED}"
-    outcome = VERDICT_OUTCOMES[decision.verdict].format(who=buyers_roles(decision.required_roles))
-    return f"The buyer's rules were checked for {scope.option_label}: {outcome}{decision_explained(decision)}"
+    asked = who_is_asked(decision.required_roles, scope.own_dietitian)
+    outcome = VERDICT_OUTCOMES[decision.verdict].format(who=asked)
+    explained = decision_explained(decision, scope.own_dietitian, one_line=scope.has_one_line)
+    return f"The buyer's rules were checked for {scope.option_label}: {outcome}{explained}"
 
 
 def order_placed_by_agent(actor: Actor, context: AuditContext, scope: Scope) -> str:
@@ -114,8 +151,8 @@ def approval_requested(actor: Actor, context: AuditContext, scope: Scope) -> str
     what = f" ({option_text(scope.option)})" if scope.option else ""
     return (
         f"The agent could not place {scope.order_label} alone under the buyer's rules. "
-        f"The order{what} was sent to {buyers_roles(roles)} for approval."
-        f"{rules_applied(rules_with(decision, Verdict.APPROVAL))}"
+        f"The order{what} was sent to {who_is_asked(roles, scope.own_dietitian)} for approval."
+        f"{rules_applied(rules_with(decision, Verdict.APPROVAL), scope.own_dietitian, one_line=scope.has_one_line)}"
     )
 
 
@@ -130,8 +167,8 @@ def _accepted(scope: Scope) -> str:
 def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decided = context.approval_decision
     if decided is None:
-        return f"{capital(_acting_human(actor))} decided on {scope.order_label}."
-    who = capital(buyers_roles(decided.roles))
+        return f"{capital(_acting_human(actor, scope))} decided on {scope.order_label}."
+    who = capital(_signer(decided, context, scope))
     if decided.decision is DecisionKind.REJECT:
         return f"{who} rejected {scope.order_label}."
     change = option_change(context)
@@ -141,7 +178,8 @@ def approval_decided(actor: Actor, context: AuditContext, scope: Scope) -> str:
         instead = f" instead of {label(change.previous_id)}" if change.previous_id else ""
         chose = f" and chose another option of the same offer: {label(change.chosen_id)}{described}{instead}"
     missing = context.approval.roles_missing if context.approval else ()
-    still = f" The order still needs approval by {buyers_roles(missing)}." if missing else ""
+    asked = who_is_asked(missing, scope.own_dietitian)
+    still = f" The order still needs approval by {asked}." if missing else ""
     return f"{who} approved {scope.order_label}{chose}.{_accepted(scope)}{still}"
 
 
@@ -150,22 +188,22 @@ def order_confirmed(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if by is PlacedBy.AGENT:
         return confirmed_text(context, scope, BY_THE_AGENT)
     if by is PlacedBy.HUMAN_APPROVAL:
-        roles = [role for entry in approvals_given(context) for role in entry.roles]
         how = "confirmed" if only_confirmation_asked(scope.decision) else "with approval"
-        return confirmed_text(context, scope, f"{how} by {buyers_roles(roles)}")
+        return confirmed_text(context, scope, f"{how} by {_signers(context, scope) or who_signed(())}")
     return confirmed_text(context, scope, None)
 
 
 def order_rejected(actor: Actor, context: AuditContext, scope: Scope) -> str:
     decided = rejection(context)
-    who = buyers_roles(decided.roles) if decided is not None else _acting_human(actor)
+    who = _signer(decided, context, scope) if decided is not None else _acting_human(actor, scope)
     return f"{capital(scope.order_label)} was rejected by {who}. {NOTHING_ORDERED}"
 
 
 def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
     missing = context.approval.roles_missing if context.approval else ()
     return (
-        f"{capital(scope.order_label)} expired while it waited for approval by {buyers_roles(missing)}. "
+        f"{capital(scope.order_label)} expired while it waited for approval by "
+        f"{who_is_asked(missing, scope.own_dietitian)}. "
         f"{NOTHING_ORDERED}"
     )
 
@@ -173,20 +211,20 @@ def order_expired(actor: Actor, context: AuditContext, scope: Scope) -> str:
 def order_blocked(actor: Actor, context: AuditContext, scope: Scope) -> str:
     return (
         f"The buyer's rules blocked the order of {scope.option_of_offer_label}. {NOTHING_ORDERED}"
-        f"{rules_applied(rules_with(scope.decision, Verdict.BLOCK))}"
+        f"{rules_applied(rules_with(scope.decision, Verdict.BLOCK), scope.own_dietitian, one_line=scope.has_one_line)}"
     )
 
 
 def authorisation_refused(actor: Actor, context: AuditContext, scope: Scope) -> str:
     if actor.kind is ActorKind.AGENT:
         return agent_refused(scope)
-    who = capital(_acting_human(actor)) if actor.kind is ActorKind.HUMAN else actor_text(actor)
+    who = capital(_acting_human(actor, scope)) if actor.kind is ActorKind.HUMAN else actor_text(actor)
     return f"{who} was refused on {scope.approval_label}: this caller may not decide it."
 
 
 def evidence_attached(actor: Actor, context: AuditContext, scope: Scope) -> str:
-    # Evidence is attached for a product rule P-04 sent to a person: Valio Aimo is not shown that product, here as
-    # in the rule's own line (`tta.audit.readers.MASKED_BY_RULE`).
+    # Evidence is attached for a product rule P-04 sent to a person: this step does not name that product to
+    # Valio Aimo, as the rule's own line does not (`tta.audit.readers.MASKED_BY_RULE`).
     return f"Evidence from outside Valio Aimo's data was {EVIDENCE_PRODUCT_NOT_SHOWN} and no verdict."
 
 
@@ -210,6 +248,7 @@ SUPPLIER_SENTENCES: dict[AuditEventType, SentenceBuilder] = {
     AuditEventType.STANDING_ORDER_RENEWED: supplier_standing_order_renewed,
     AuditEventType.SUGGESTIONS_SHOWN: supplier_suggestions_shown,
     AuditEventType.SUGGESTION_ACCEPTED: supplier_suggestion_accepted,
+    AuditEventType.SETTINGS_CHANGED: supplier_settings_changed,
 }
 
 

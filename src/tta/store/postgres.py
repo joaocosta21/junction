@@ -43,6 +43,7 @@ from tta.contracts.offer import Offer
 from tta.contracts.order import Approval, Order
 from tta.contracts.standing import Renewal, StandingOrder
 from tta.store import sql as statements
+from tta.store.audit_rows import read_event
 from tta.store.errors import AuditChainConflict
 from tta.store.sqlite_store import CHAIN_MOVED_DETAIL, STORE_BUSY_DETAIL, STORE_UNAVAILABLE_DETAIL
 
@@ -363,7 +364,7 @@ class PostgresStore:
         """In the order they were appended. Every filter given must hold; with none, every event."""
         parameters = {"order_id": order_id, "offer_id": offer_id, "profile_id": profile_id}
         bodies = self._values(statements.LIST_AUDIT_EVENTS, parameters)
-        return tuple(AuditEvent.model_validate_json(body) for body in bodies)
+        return tuple(read_event(body) for body in bodies)  # a body that is no audit event breaks the chain (C4-F5)
 
     def last_audit_hash(self) -> str | None:
         return self._value(statements.LAST_AUDIT_HASH, ())
@@ -388,7 +389,7 @@ class PostgresStore:
             "order_id": order_id, "offer_id": offer_id, "profile_id": profile_id, "before": before, "limit": limit,
         }
         rows = self._rows(AUDIT_EVENTS_PAGE, parameters)
-        return tuple((AuditEvent.model_validate_json(body), hash_before) for body, hash_before in rows)
+        return tuple((read_event(body), hash_before) for body, hash_before in rows)
 
     def save_standing_order(self, standing: StandingOrder) -> None:
         self._write(

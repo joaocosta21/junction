@@ -15,7 +15,7 @@ from uuid import uuid4
 from tta.audit.chain import seal, verify_events, verify_view
 from tta.audit.facts import buyer_facts, supplier_facts
 from tta.audit.readers import AGENT_ON_APPROVAL_ROUTE
-from tta.audit.scope import Scope, distinct_rule_ids, resolve
+from tta.audit.scope import Scope, distinct_rule_ids, has_own_dietitian, resolve
 from tta.audit.sentences import buyer_sentence
 from tta.audit.standing_sentences import STANDING_ORDER_FAMILY
 from tta.audit.supplier_sentences import supplier_sentence
@@ -97,7 +97,7 @@ class AuditTrail:
         now = self._clock.now()
         if now.utcoffset() is None:
             raise ValueError("The clock gave a time with no UTC offset; an audit event needs one (RFC 3339).")
-        scope = self._with_profile_name(self._with_stored_profile(resolve(context)))
+        scope = self._with_profile_read(self._with_stored_profile(resolve(context)))
         data = AuditData(
             actor=actor,
             sentence=buyer_sentence(event_type, actor, context, scope),
@@ -215,17 +215,23 @@ class AuditTrail:
                 return replace(scope, profile_id=stored.profile_id)
         return scope
 
-    def _with_profile_name(self, scope: Scope) -> Scope:
+    def _with_profile_read(self, scope: Scope) -> Scope:
         """The scope with the buyer's name, so that the buyer's sentences name the customer and not a profile
-        id. The name is no field of the event: it is asked of the policy engine this trail holds, and only for
-        the sentence. With no engine, or a profile the engine does not know, the sentence keeps the id."""
-        if scope.profile_name is not None or scope.profile_id is None or self._policy is None:
+        id, and with whether the buyer has a dietitian of its own, so that Valio Aimo's sentences name that role
+        and no role of the one person who orders. Neither is a field of the event: both are asked of the policy
+        engine this trail holds, and only for the sentences. With no engine, or a profile the engine does not
+        know, the buyer's sentence keeps the id and Valio Aimo's names a role as it was asked."""
+        if scope.profile is not None or scope.profile_id is None or self._policy is None:
             return scope
         try:
             profile = self._policy.get_profile(scope.profile_id)
         except NotAuthorised:
             return scope
-        return replace(scope, profile_name=profile.display_name)
+        return replace(
+            scope, profile_name=scope.profile_name or profile.display_name,
+            own_dietitian=has_own_dietitian(profile) if scope.own_dietitian is None else scope.own_dietitian,
+            profile=profile,
+        )
 
     def _policy_hash(self, context: AuditContext, scope: Scope) -> str | None:
         """The hash of the rules and profile in force: from the decision, else from the offer, else the engine."""

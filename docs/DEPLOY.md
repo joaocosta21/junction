@@ -1,6 +1,6 @@
 # Deployment on Modal
 
-The public demo of the gateway runs as one Modal app. `deploy/modal_app.py` defines it and `deploy/check.py` checks it after a deploy. Tests: `tests/deploy/` (92 tests, none of which calls Modal or the link).
+The public demo of the gateway runs as one Modal app. `deploy/modal_app.py` defines it and `deploy/check.py` checks it after a deploy. Tests: `tests/deploy/` (132 tests, none of which calls Modal or the link).
 
 **State on Saturday 14 Nov 2026, evening.** This page describes `deploy/modal_app.py` as it is at commit `c2106fe`. **That code is not deployed.** The public link, https://joaocostared--trusted-trade-agents.us-east.modal.run, was last deployed at 13:00 on 14 Nov from commit `8163d5d` (`AIMO/build/STATUS.md`), in live mode, before tonight's work. The redeploy is a step a person must still run: see "To run". Nobody called the link tonight, so nothing here says how it answers now.
 
@@ -14,7 +14,7 @@ Statements about how Modal behaves come from its documentation as the team read 
 | Image | `debian_slim`, Python 3.13. Twelve libraries installed with `uv_pip_install`, pinned to the versions the tests ran with: the ones `pyproject.toml` declares, plus Starlette. **`cryptography` (50.0.2) is among them since tonight**: the gateway signs offers and orders with it, and does not start without it. `modal` and `uvicorn` are not installed. |
 | Files in the image | `src/tta` (code, YAML, templates, static files) · the product JSON and the two CSV files from the repository root · `fixtures/valio/`, `fixtures/agent/`, `fixtures/evidence/` · `deploy/witness.py` · `docs/ASSUMPTIONS.md`, if it exists when you deploy. Caches, `.pyc` files and every dot-file are left out. Nothing else from the repository goes in: no `.env`, no `.claude/`, no `var/`. Modal adds these files when the container starts; they are not baked into an image layer. |
 | Volume | `trusted-trade-agents-data` at `/data`, created on the first deploy. It holds the Valio call budget, the recordings of live answers, stored web evidence with its request count (`evidence/`), and a copy of the SQLite database. It is not deleted when the app is stopped or redeployed. |
-| Scaling | One container at most (SQLite, the rate limiter and the pages' books are per process). It scales to zero and stops after 10 idle minutes. Up to 100 requests at once; above that requests queue (Modal docs). 1 core, 1024 MiB; measured locally on 14 Nov, the app peaks at about 630 MiB with the catalog loaded. No GPU. |
+| Scaling | Exactly one container (SQLite, the rate limiter and the pages' books are per process), **kept running for the review day** (`MIN_CONTAINERS = 1`, decision B55): the pages' order books and the demo signing key live in its memory, and a container that stopped after 10 idle minutes took a reviewer's orders with it. Up to 100 requests at once; above that requests queue (Modal docs). 1 core, 4096 MiB: measured on 15 Nov, 553 MiB after start and about 1 MiB for each used book of the pages, of which up to 1,000 are kept. No GPU. **It costs Modal credit for as long as the app is deployed**: stop it after the judging (see "Redeploy, roll back, stop"), or set `MIN_CONTAINERS = 0` and `MEMORY_MIB = 1024` in `deploy/modal_app.py` and redeploy to go back to scale-to-zero. |
 
 ### The public link's settings
 
@@ -22,7 +22,7 @@ Set in the image (`IMAGE_ENV`), the same for every deploy from this commit:
 
 | Setting | Value | What it means |
 |---|---|---|
-| `TTA_ENV` | `demo` | Only the 15 public demo tokens of `src/tta/api/demo_tokens.yaml` are accepted (4 agents, 10 approvers, 1 supplier). The pages are served. |
+| `TTA_ENV` | `demo` | Only the 11 public demo tokens of `src/tta/api/demo_tokens.yaml` are accepted (4 agents, 6 approvers, 1 supplier). The pages are served. |
 | `TTA_MODE` | `replay` | Every price and availability answer comes from the recording `2026-11-14-demo` (769 products, recorded Sat 14 Nov 2026 02:52 Helsinki). No call to Valio Aimo's mock is made. |
 | `TTA_DEMO_CLOCK` | `2026-11-12T14:15:00+02:00` | Order deadlines are judged against Thursday 12 Nov 2026, 14:15 Helsinki. We chose it: Valio Aimo said on 14 Nov that its test data is static. The setting is honoured in replay only and refused outside `dev` and `demo`. `/healthz` says which clock is in force; the audit trail keeps the real time. |
 | `TTA_DATA_DIR` | `/data` | The Volume. |
@@ -39,7 +39,7 @@ Read on the deploying machine through `tta.config` and sent as one Modal Secret 
 | `VALIO_AIMO_API_KEY`, `VALIO_AIMO_BASE_URL` | Unused in replay. |
 | `GEMINI_API_KEY` | **Leave it unset.** With it set the gateway would ask Gemini to read free text. The demo as documented calls no model: the fixed-rules reader is the product. `/healthz` shows `gemini_key_set`; it must read `false`. |
 
-**The signing key is not carried.** The gateway signs every offer and order record with the key in `TTA_SIGNING_KEY`, and with a demo key generated at each start when that setting is absent. `deploy/modal_app.py` does not put `TTA_SIGNING_KEY` into the Secret, so a deploy from this commit signs with a demo key: every proof says so, `/healthz` shows `signing.demo_key: true`, and the key changes each time the container starts (after 10 idle minutes, for one). A fixed key on the link needs one name added to `SECRET_NAMES` in `deploy/modal_app.py`; that is a code change nobody has made.
+**The signing key is carried when it is set.** The gateway signs every offer and order record with the key in `TTA_SIGNING_KEY`, and with a demo key generated at each start when that setting is absent. `deploy/modal_app.py` puts `TTA_SIGNING_KEY` into the Secret when the deploying machine has it set (`secret_values`; the deploy prints "TTA_SIGNING_KEY is sent in the Secret." or "TTA_SIGNING_KEY is not set: the public link signs with a demo key that changes at every cold start."). **For the review day no fixed key is set**: the link signs with a demo key, every proof says so and `/healthz` shows `signing.demo_key: true`. The key changes each time the container starts, which with one container kept running is at a deploy or after a crash, no longer after 10 idle minutes; a record signed before a restart then no longer verifies against `/.well-known/jwks.json`.
 
 ### The database
 
@@ -68,10 +68,11 @@ From the repository root, in this order. `<url>` is the public link above. Each 
    `--strategy recreate` stops the old container as soon as the new version is live; the default keeps old containers serving while new ones start (Modal docs), which would mean two copies of the database written to one file on the Volume. The files are uploaded from disk as they are, uncommitted changes included.
 6. **Check it.**
    - `.venv/bin/python deploy/check.py <url> --mode replay`. **`--mode replay` is needed**: the script expects `live` by default and the link is now in replay. It places one order over REST into the shared book.
-   - `curl -s <url>/healthz`: `status` must be `ok`, `reasons` empty, `mode` `replay`, `clock.demo_clock_set` `true`, `store.kind` `postgresql` when `DATABASE_URL` was set, `settings.gemini_key_set` `false`. Note `audit_head`.
+   - `curl -s <url>/healthz`: `status` must be `ok`, `reasons` empty, `mode` `replay`, `clock.demo_clock_set` `true`, `store.kind` `postgresql` when `DATABASE_URL` was set, `settings.gemini_key_set` `false`. Note `audit_head`. The answer verifies the whole audit chain of the shared book, at most once every 30 seconds: a reason that starts "The audit trail does not verify: event …" names the first stored event that was changed, removed or inserted (or a row that is no audit event), and the status is then `degraded`.
+   - From the venue's Wi-Fi and from mobile data: `rate_limit_caller.bucket` in `/healthz` must differ. If both read the same label, every visitor shares one address's windows (see "Rate limits").
    - Open `<url>/shop` in a browser. No agent has seen the page rendered.
 7. **Aiven, the proof.** As the admin login, once, by hand: `CREATE ROLE valio_aimo LOGIN PASSWORD '<a strong password>' IN ROLE tta_supplier;` (with the new schema's name in place of `tta` if `TTA_DB_SCHEMA` was set). Put that login's URL in the environment as `SUPPLIER_DATABASE_URL`. Then `.venv/bin/python scripts/aiven_proof.py` (add `--schema <name>` for another schema). It sends 8 statements with the supplier's login; the two it expects to be refused are written `WHERE false`. Paste the output into `docs/AIVEN.md`. The script has no flag that creates the login.
-8. **The trail outlives the container.** Wait until `.venv/bin/modal container list` shows none for the app (10 idle minutes), then `curl -s <url>/healthz` again: the same `audit_head` as in step 6.
+8. **The trail outlives the container.** One container is kept running, so it no longer stops when idle: redeploy once more (step 5 starts a new container), then `curl -s <url>/healthz` again: the same `audit_head` as in step 6.
 9. **The witness.** Deploy once more with `SUPPLIER_DATABASE_URL` set, and look for the scheduled function's first run in Modal's dashboard.
 
 ## The checks of `deploy/check.py`
@@ -105,9 +106,9 @@ The pattern is `https://<workspace>--trusted-trade-agents.modal.run` (Modal docs
 | `/.well-known/api-catalog`, `/llms.txt` | Every way in, for a program and for a language model |
 | `/.well-known/jwks.json` | The public key offers and order records are signed with |
 | `/mcp/` | The MCP endpoint (Streamable HTTP), with `Authorization: Bearer <demo agent token>` |
-| `/healthz` | Environment, mode, clock, `ok` or `degraded` with reasons, the head of the audit chain, the store in use, the signing key |
+| `/healthz` | Environment, mode, clock, `ok` or `degraded` with reasons (among them an audit chain that does not verify, checked at most every 30 seconds), the head of the audit chain, the store in use, the signing key |
 
-The first request after an idle spell waits for a container to start.
+One container is kept running, so a request does not wait for a start, except right after a deploy.
 
 ## Redeploy, roll back, stop
 
@@ -128,24 +129,26 @@ Per minute, in one process's memory (`src/tta/api/limits.py`). All values are ou
 
 | Kind of call | Per visitor | Per address | All callers |
 |---|---|---|---|
-| Offers and substitute searches | 20 | 60 | 240 |
+| Offers, substitute searches and reads of the catalog and the audit trail | 60 | 60 | 240 |
 | Orders and approval decisions | 20 | 60 | 240 |
 | Request readings and agent runs | 15 | 60 | 240 |
 
 - **Who a visitor is.** On the pages, a browser, known by its own-book cookie. On REST and MCP, and for a browser without the cookie, its address. The per-address column counts all browsers and callers of one address together.
-- **Other limits.** At most 30 new own order books per address in 10 minutes, 300 books in all, one idle for 2 hours is dropped (`src/tta/api/sandbox.py`). Bodies up to 64 KB. A buyer holds at most 20 standing orders, and nothing deletes one: on the shared book they can fill up and stay full.
+- **Raised for the review day (decision B55).** Lookups per visitor 20 → 60: on REST and MCP a visitor is an address, so everybody behind one Wi-Fi shared the 20, whichever token each sent. 60 is also the address's whole cap for lookups: one REST or MCP caller can now use all of it, and the browsers behind the same address share what is left. Orders (20 per visitor) and readings (15) are unchanged.
+- **Other limits.** At most 400 new own order books per address in 10 minutes (was 30: 8 reviewers behind the venue's one address, clicking through the 4 customers, reached it, and every call of the room was then refused for up to 10 minutes), 1,000 books in all (was 300), one idle for 2 hours is dropped (`src/tta/api/sandbox.py`). Bodies up to 64 KB. A buyer holds at most 20 standing orders, and nothing deletes one: on the shared book they can fill up and stay full. A change of a book's settings writes one audit event and is refused (`429`) once the address has stored its 100 MB of the day.
 - **The address.** The limiter keys on the direct peer; an IPv6 address counts by its /64. `X-Forwarded-For` is read only when `TTA_TRUSTED_PROXY_HOPS` is set (default 0). `deploy/modal_app.py` does not set it. **Which peer address Modal shows the app was never observed**: if it is one proxy address for every visitor, all REST and MCP callers share one address's windows, and the pages still tell browsers apart by their cookie.
 
 ## Cost guard
 
-- One container at most, scaled to zero after 10 idle minutes. No minimum container and no GPU.
+- Exactly one container, **kept running** for the review day (1 core, 4096 MiB): it uses credit until the app is stopped or redeployed with `MIN_CONTAINERS = 0`. No GPU.
 - In replay no call reaches Valio Aimo's mock, and with `GEMINI_API_KEY` unset no model is called.
 - Context.dev: at most 40 requests per gateway, counted on the Volume, and none without the key.
 - Modal's prices and plan limits are not restated here: they were read on 14 Nov and not re-checked.
 
 ## Known limits of a deploy from this commit
 
-- **Demo signing key**, new at every container start (above).
+- **Demo signing key**, new at every container start (above): at a deploy or after a crash.
+- **The pages' books are in the container's memory**: a deploy or a crash empties every browser's order book.
 - **One shared order book for REST and MCP.** Each demo customer's day's spend adds up there across all callers, waiting orders included. Under the demo clock "today" never ends, so repeated runs add up until the limit per day sends every order to finance.
 - **The shop page has not been seen in a real browser** by anyone on the team at this commit.
 - **SQLite copy** (without `DATABASE_URL`): the last second before a crash, and writes around a redeploy, can be lost.
@@ -156,6 +159,6 @@ Per minute, in one process's memory (`src/tta/api/limits.py`). All values are ou
 ## What the Modal write-up can honestly claim
 
 - Modal hosts the whole gateway (REST, MCP and the pages) behind one public HTTPS address, deployed with one command from plain Python, with no Dockerfile or YAML.
-- The image is defined in code with pinned libraries; secret values are read on the deploying machine and are never in the image, the code or the repository; a Volume keeps the data across restarts and scale-to-zero.
+- The image is defined in code with pinned libraries; secret values are read on the deploying machine and are never in the image, the code or the repository; a Volume keeps the data across restarts. For the review day the app does not scale to zero (one container is kept running); the setting to go back is one constant.
 - Built and not yet run on Modal: one batch fan-out (`deploy/evidence_batch.py`) and one scheduled function (the witness).
 - It cannot claim a GPU, an open model, Sandboxes or fine-tuning. By the brief's own bar this is a light use of Modal.

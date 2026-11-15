@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import AfterValidator, Field, StringConstraints, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, StringConstraints, model_validator
 
 from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Preference, Quantity, Unit
 
@@ -44,11 +44,26 @@ ProductId = Annotated[str, StringConstraints(min_length=1, max_length=MAX_ID_LEN
 Role = Annotated[str, StringConstraints(max_length=MAX_ROLE_LENGTH), AfterValidator(_plain_term)]
 
 
+PRODUCT_TYPE_KEYS_SAID = "A key of the gateway's product-type table, such as `milk`, `cream` or `plant_drink`"
+
+
+def _pack_has_a_default(schema: dict[str, Any]) -> None:
+    """`pack` is filled from the unit when a request leaves it out (`_default_pack`), so the published schema
+    does not list it as required. The model itself is unchanged: a line always holds a pack preference."""
+    schema["required"] = [name for name in schema.get("required", ()) if name != "pack"]
+
+
 class RequestLine(Contract):
     """One product the buyer asks for."""
 
+    model_config = ConfigDict(json_schema_extra=_pack_has_a_default)
+
     text: str = Field(max_length=MAX_TEXT_LENGTH, description="The buyer's own words, kept for the audit trail")
-    product_type: Term | None = Field(default=None, description="A key of the product-type table")
+    product_type: Term | None = Field(
+        default=None,
+        description=f"{PRODUCT_TYPE_KEYS_SAID}. An offer for a key the table does not hold is refused with the "
+        "list of the keys it holds",
+    )
     product_ids: tuple[ProductId, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
     name_terms: tuple[Term, ...] = Field(
         default=(), max_length=MAX_TERMS, description="Words that must appear in the product name"
@@ -129,7 +144,7 @@ class PurchaseRequest(Contract):
 class ProductQuery(Contract):
     """A catalog search (POST /v1/products/search). Every filter given must hold."""
 
-    product_type: Term | None = None
+    product_type: Term | None = Field(default=None, description=PRODUCT_TYPE_KEYS_SAID)
     product_ids: tuple[ProductId, ...] = Field(default=(), max_length=MAX_PRODUCT_IDS)
     name_terms: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)
     required_claims: tuple[Term, ...] = Field(default=(), max_length=MAX_TERMS)

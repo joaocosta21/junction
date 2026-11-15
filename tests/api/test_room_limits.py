@@ -3,9 +3,13 @@
 Scores on the 30% "working end-to-end demo": every peer reviewer on the venue Wi-Fi reaches the deployed demo
 from one public address, and with the windows of FIX-10 keyed on that address the whole room shared one
 visitor's five model calls a minute. On the pages a visitor is now a browser (its own-book cookie), with the
-same windows; above them one address may make at most a quarter of each ceiling (A3 F3) and open at most 30
+same windows; above them one address may make at most a quarter of each ceiling (A3 F3) and open at most 400
 new books in 10 minutes, so rotating cookies cannot take the whole app or push the other visitors' books out.
 REST and MCP keep counting by address. The same through the real pages: `test_room_pages.py`.
+
+The review day (decision B55, FIX-A1): a room of reviewers behind the venue's one address opens a book on every
+page load and customer switch, so the new books are 400 in 10 minutes (were 30); and REST and MCP callers behind
+one address share 60 lookups a minute (were 20), which is the address's whole cap for lookups.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from tta.api.limits import (
     current_browser_key,
     current_client_key,
 )
-from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_SECONDS, Sandboxes
+from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, MAX_SANDBOXES, NEW_BOOKS_WINDOW_SECONDS, Sandboxes
 from tta.contracts.common import Identity
 from tta.contracts.errors import RateLimited
 from tta.ui import security
@@ -136,7 +140,12 @@ def test_one_address_may_make_60_of_each_kind_of_call_a_minute_a_quarter_of_each
     assert ADDRESS_CAPS == {CallKind.LOOKUP: 60, CallKind.ORDER: 60, CallKind.MODEL: 60}
     for kind, cap in ADDRESS_CAPS.items():
         assert cap * 4 == GLOBAL_CEILINGS[kind], kind
-        assert VISITOR_WINDOWS[kind] < cap, kind
+        assert VISITOR_WINDOWS[kind] <= cap, kind
+    # Orders and model calls: one visitor stays under its address's cap. Lookups since B55: one visitor (on REST
+    # and MCP, every caller behind one address together) may use the address's whole cap.
+    assert VISITOR_WINDOWS[CallKind.ORDER] < ADDRESS_CAPS[CallKind.ORDER]
+    assert VISITOR_WINDOWS[CallKind.MODEL] < ADDRESS_CAPS[CallKind.MODEL]
+    assert VISITOR_WINDOWS[CallKind.LOOKUP] == ADDRESS_CAPS[CallKind.LOOKUP] == 60
     # A room of a dozen reviewers on one Wi-Fi: each can run five scenarios with the agent in a minute.
     assert ADDRESS_CAPS[CallKind.MODEL] >= ROOM_SIZE * SCENARIOS_PER_REVIEWER_PER_MINUTE
 
@@ -199,7 +208,7 @@ def test_without_a_cookie_a_visitor_is_its_address_and_counts_in_the_address_cap
                     limits.check(agent_ward, CallKind.LOOKUP)
                 accepted += 1
 
-    assert FROM_ONE_ADDRESS in refused.value.detail and "at most 20 in 60 seconds" in refused.value.detail
+    assert FROM_ONE_ADDRESS in refused.value.detail and f"at most {window} in 60 seconds" in refused.value.detail
     assert accepted == cap - window  # the calls without a cookie took their part of the address's cap
     assert FOR_THE_WHOLE_ADDRESS in capped.value.detail
 
@@ -234,7 +243,7 @@ def test_a_token_from_the_environment_is_counted_by_identity_whatever_cookie_it_
 # --- new books per address ------------------------------------------------------------------------------
 
 
-def _books(time: FakeTime, capacity: int = 300) -> tuple[Sandboxes, list[Any]]:
+def _books(time: FakeTime, capacity: int = MAX_SANDBOXES) -> tuple[Sandboxes, list[Any]]:
     built: list[Any] = []
 
     class Book:
@@ -248,8 +257,9 @@ def _books(time: FakeTime, capacity: int = 300) -> tuple[Sandboxes, list[Any]]:
     return Sandboxes(Book, capacity=capacity, monotonic=time), built  # type: ignore[arg-type]
 
 
-def test_one_address_opens_at_most_30_new_books_in_10_minutes() -> None:
-    assert (MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_SECONDS) == (30, 10 * 60)
+def test_one_address_opens_at_most_400_new_books_in_10_minutes() -> None:
+    # 8 reviewers behind the venue's address clicking through the 4 customers reached the 30 of before (C2-1).
+    assert (MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_SECONDS) == (400, 10 * 60)
     time = FakeTime()
     sandboxes, built = _books(time)
     keys = [BOOK() for _ in range(MAX_NEW_BOOKS_PER_ADDRESS)]
@@ -265,8 +275,12 @@ def test_one_address_opens_at_most_30_new_books_in_10_minutes() -> None:
     assert len(built) == len(sandboxes) == MAX_NEW_BOOKS_PER_ADDRESS + 1
     assert not any(book.closed for book in built)
     detail = refused.value.detail
-    assert TOO_MANY_BOOKS in detail and "at most 30 in 10 minutes" in detail and ROOM not in detail
+    assert TOO_MANY_BOOKS in detail and "at most 400 in 10 minutes" in detail and ROOM not in detail
     assert refused.value.extensions["retry_after_seconds"] == NEW_BOOKS_WINDOW_SECONDS
+
+
+def test_the_new_books_of_one_address_in_one_window_leave_room_for_the_books_of_others() -> None:
+    assert 2 * MAX_NEW_BOOKS_PER_ADDRESS <= MAX_SANDBOXES  # two full rooms in one window push nobody out
 
 
 def test_an_address_opens_new_books_again_once_its_10_minutes_have_passed() -> None:

@@ -15,9 +15,11 @@ from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
+from tta.allergens.codes import ALLERGEN_CODES
 from tta.contracts.audit import Actor, ActorKind
 from tta.contracts.common import (
     QUANTITY_PLACES,
+    AllergenStrictness,
     ApproverRole,
     AvailabilityState,
     DataSource,
@@ -83,6 +85,8 @@ FREE_TEXT_PRODUCT = "a product described in free text"
 # `totals.is_ceiling` keeps its name in the contract; what it means is "an estimate" (P9b-booth-answers.md, Q16).
 BY_WEIGHT = "an estimate: sold by weight, Valio Aimo invoices the weight delivered"
 SENTENCE_ENDS = (".", "!", "?")
+# The two allergen rules in the words of the shop page ("Strict", "Declared only"): a person reads no code.
+ALLERGEN_RULE_WORDS = {AllergenStrictness.STRICT: "strict", AllergenStrictness.DECLARED_ONLY: "declared only"}
 
 
 def _rounded(value: Decimal, places: int, rounding: str = ROUND_HALF_UP) -> str:
@@ -167,6 +171,18 @@ def label(code: str) -> str:
     return code if CODE.fullmatch(code) else quoted(code)
 
 
+def allergen_name(code: str) -> str:
+    """milk for AM, cereals containing gluten for AW: the name a person reads, from the table of allergen codes
+    (`tta.allergens.codes`). A code the table does not hold is shown as it is, as data."""
+    entry = ALLERGEN_CODES.get(code)
+    return entry.label if entry is not None else label(code)
+
+
+def allergen_names(codes: Iterable[str]) -> str:
+    """milk and cereals containing gluten."""
+    return joined(allergen_name(code) for code in codes)
+
+
 def capital(text: str) -> str:
     return text[:1].upper() + text[1:]
 
@@ -237,9 +253,16 @@ def option_text(option: OfferOption) -> str:
 
 
 def coverage_text(option: OfferOption) -> str:
-    if option.is_partial:
-        return f"covering {percent(option.fill_ratio)} of the request"
-    return "covering the full quantity"
+    """covering the full quantity · covering 74.9% of the request · covering 4 of the 7 items asked for in full.
+    An option of several request lines (a menu) has no one share to state: its fill ratio is that of its least
+    covered line, so an order with one line missing read "covering 0% of the request"."""
+    if not option.is_partial:
+        return "covering the full quantity"
+    if len(option.coverage) > 1:
+        # The count and the words of rule P-03's own sentence (`tta.policy.coverage.coverage_said`).
+        in_full = sum(1 for part in option.coverage if part.fill_ratio >= WHOLE)
+        return f"covering {in_full} of the {len(option.coverage)} items asked for in full"
+    return f"covering {percent(option.fill_ratio)} of the request"
 
 
 def rule_lines(rules: Sequence[FiredRule]) -> str:
@@ -284,8 +307,9 @@ def _request_line(line: RequestLine, with_exclusions: bool) -> str:
     text += _required(line.required_claims, with_exclusions, "with", "claim", "claims")
     text += _required(line.required_labels, with_exclusions, "carrying", "label", "labels")
     if with_exclusions and line.exclude_allergens:
-        strictness = f" ({line.allergen_strictness.value})" if line.allergen_strictness else ""
-        text += f", excluding allergens {joined(label(code) for code in line.exclude_allergens)}{strictness}"
+        # Names and words, never codes: "excluding allergens milk and cereals containing gluten (strict rule)".
+        rule = f" ({ALLERGEN_RULE_WORDS[line.allergen_strictness]} rule)" if line.allergen_strictness else ""
+        text += f", excluding allergens {allergen_names(line.exclude_allergens)}{rule}"
     return text
 
 

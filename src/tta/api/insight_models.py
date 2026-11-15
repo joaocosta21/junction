@@ -7,6 +7,7 @@ show "How is this counted?". Euros are net, before tax. How the figures are comp
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import Field
 
@@ -80,6 +81,10 @@ class Shortfall(Contract):
     not_confirmed: Quantity
     value_net_eur: Money | None = Field(description="The quantity not confirmed at the offered price; null when "
                                                     "there is no offered price to value it at")
+    ordered_as_substitute: Quantity = Field(
+        default=Decimal(0), description="Of these requests, what was ordered as a substitute instead: sold, though "
+        "not as the product asked for. Counted where the request has one line that fell short",
+    )
     reasons: tuple[ReasonCount, ...]
     sentence: str
 
@@ -108,6 +113,9 @@ class Missed(Contract):
 
     shortfalls: tuple[Shortfall, ...]
     not_confirmed: tuple[UnitTotal, ...] = Field(description="The quantity not confirmed, per unit")
+    ordered_as_substitute: tuple[UnitTotal, ...] = Field(
+        default=(), description="Of the quantity not confirmed, what was ordered as a substitute instead, per unit",
+    )
     value_net_eur: Money
     top_products: tuple[MissedProduct, ...]
     substitutes: Substitutes

@@ -40,6 +40,7 @@ class Order(NamedTuple):
     offer_id: str | None
     substitute: bool
     valid_until: datetime | None
+    substitute_covers: Decimal = ZERO  # what its substitute lines cover, in the unit of the request
 
 
 def as_dict(value: Any) -> JsonDict:
@@ -75,21 +76,47 @@ def steps_of(events: Iterable[AuditEvent]) -> list[Step]:
     return steps
 
 
-def in_period(steps: Sequence[Step], offers: dict[str, JsonDict], now: datetime, period: Period) -> list[Step]:
+def _carried(times: Sequence[datetime | None]) -> list[datetime | None]:
+    """Each gap filled with the time before it, and a gap at the start with the first time after it."""
+    filled: list[datetime | None] = []
+    last = next((time for time in times if time is not None), None)
+    for time in times:
+        last = time or last
+        filled.append(last)
+    return filled
+
+
+def in_period(
+    steps: Sequence[Step], offers: dict[str, JsonDict], now: datetime, period: Period, *, recorded: bool = False
+) -> list[Step]:
     """The steps of the period. A step is dated by the order book's clock: its order's last change, else its
-    offer's creation, else the real time it was stamped with."""
+    offer's creation. A step with neither (a request the reader answered with a question, so no offer was made)
+    carries the real time only, which under a recorded or demo clock is never the clock's day: it is dated as
+    the step before it in the same trail, else as the first dated step after it. Where a trail holds no step of
+    the book's clock at all, such a step counts on the clock's day in a recorded book (`recorded`: its clock
+    stands still, so every step was made on that day), and by its real time where the clock is the supplier's."""
     if period is Period.ALL:
         return list(steps)
 
-    def when(step: Step) -> datetime:
+    def by_the_clock(step: Step) -> datetime | None:
         changed = as_time(as_dict(step.facts.get("order")).get("updated_at"))
-        return changed or as_time(offers.get(step.offer_id or "", {}).get("created_at")) or step.time
+        return changed or as_time(offers.get(step.offer_id or "", {}).get("created_at"))
 
-    return [step for step in steps if when(step).astimezone(now.tzinfo).date() == now.date()]
+    dated = _carried([by_the_clock(step) for step in steps])
+    return [
+        step for step, when in zip(steps, dated, strict=True)
+        if (when or (now if recorded else step.time)).astimezone(now.tzinfo).date() == now.date()
+    ]
 
 
 def has_substitute(option: JsonDict) -> bool:
     return any(line.get("substitute_for") for line in as_list(option.get("lines")))
+
+
+def substitute_covers(option: JsonDict) -> Decimal:
+    """What the substitute lines of an option cover, in the unit of the request."""
+    lines = [line for line in as_list(option.get("lines")) if line.get("substitute_for")]
+    return sum((as_decimal(line.get("covers")) for line in lines), ZERO)
 
 
 def orders_of(steps: Sequence[Step], now: datetime) -> dict[str, Order]:
@@ -107,5 +134,6 @@ def orders_of(steps: Sequence[Step], now: datetime) -> dict[str, Order]:
         if status == OrderStatus.PENDING_APPROVAL and valid_until is not None and valid_until < now:
             status = OrderStatus.EXPIRED.value
         found[order_id] = Order(status, order.get("placed_by"), as_decimal(as_dict(option.get("totals")).get("net")),
-                                 order.get("offer_id"), has_substitute(option), valid_until)
+                                 order.get("offer_id"), has_substitute(option), valid_until,
+                                 substitute_covers(option))
     return found

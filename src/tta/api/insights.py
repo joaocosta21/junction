@@ -214,7 +214,7 @@ def insights(
               if step.kind == AuditEventType.OFFER_CREATED}
     requests = {str(step.offer_id): as_dict(step.facts.get("request")) for step in steps
                 if step.kind == AuditEventType.REQUEST_PARSED}
-    chosen = in_period(steps, offers, now, period)
+    chosen = in_period(steps, offers, now, period, recorded=recorded)
     orders = orders_of(chosen, now)
     demand = _demand(chosen, orders)
     return Insights(

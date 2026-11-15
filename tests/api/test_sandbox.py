@@ -48,9 +48,9 @@ def _order_scenario_2(book: Any, agent: Identity, request: PurchaseRequest, key:
     return book.service.place_order(agent, offer.offer_id, offer.options[0].option_id, key)
 
 
-def test_the_sandboxes_exist_in_dev_and_demo_and_are_capped_at_300_for_two_idle_hours(parts: Parts) -> None:
+def test_the_sandboxes_exist_in_dev_and_demo_and_are_capped_at_1000_for_two_idle_hours(parts: Parts) -> None:
     assert parts.sandboxes is not None
-    assert (MAX_SANDBOXES, SANDBOX_IDLE_SECONDS) == (300, 2 * 60 * 60)
+    assert (MAX_SANDBOXES, SANDBOX_IDLE_SECONDS) == (1000, 2 * 60 * 60)  # 300 before the review day (B55)
 
 
 def test_outside_dev_and_demo_there_is_no_sandbox(tmp_path: Any, catalog: ProductCatalog) -> None:

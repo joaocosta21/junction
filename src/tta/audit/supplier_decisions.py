@@ -18,7 +18,7 @@ from tta.audit.readers import (
     RULES_ABOUT_AN_EXCLUDED_ALLERGEN,
     supplier_rule_ids,
 )
-from tta.contracts.common import ExclusionReason, JsonDict, Verdict
+from tta.contracts.common import ApproverRole, ExclusionReason, JsonDict, Verdict
 from tta.contracts.offer import Exclusion, Offer
 from tta.contracts.policy import FiredRule, PolicyDecision
 
@@ -40,6 +40,10 @@ NONE_LEFT_OUT = "No product was left out for a reason in Valio Aimo's own data."
 MISSING_FACT_RULE = "F-03"
 ALLERGEN_FACT_WORD = "allergen"
 PRODUCT_NOT_SHOWN = "a product is not shown where the missing fact is about a requirement of the buyer's"
+# On an order of one product the product a rule fired on is the order's own line, which other steps name: the
+# sentence then claims to hide only what stays hidden (lane FIX-A1, item 10).
+ALLERGEN_NOT_SHOWN = "which allergen is not shown"
+REQUIREMENT_NOT_SHOWN = "the missing fact is about a requirement of the buyer's, which is not shown"
 # Why a product was left out, after its count: "12 past the closing time for ordering". "Closing time" is the
 # word of Valio's own webshop (AIMO/build/replan/P3-webshop.md, the mapping table).
 REASON_WORDS = {
@@ -63,8 +67,41 @@ REASON_WORDS = {
 }
 
 
+# One person confirms (decisions B54 and B61): whoever orders also decides a spend-limit stop, and at the hotel
+# and the bakery an allergen question too. Valio Aimo read "the buyer's purchasing manager, finance and dietitian
+# approved" of one person. It now reads "a person of the buyer", and a role only where the buyer has a second
+# person and that role is what was asked: the dietitian of the ward and of the school. Never a name.
+PERSON_OF_BUYER = "a person of the buyer"
+BUYERS_DIETITIAN = "the buyer's dietitian"
+DIETITIAN = ApproverRole.DIETITIAN.value
+
+
+def who_is_asked(roles: Iterable[str], own_dietitian: bool | None = None) -> str:
+    """a person of the buyer · the buyer's dietitian · a person of the buyer and the buyer's dietitian · a human at
+    the buyer (no role is known). `roles` are the roles asked for or still missing. `own_dietitian` False: the
+    person who orders holds the dietitian's role too, so no dietitian is named. None: the buyer's profile is not
+    known, and the dietitian is named as she was asked."""
+    asked = list(dict.fromkeys(str(role) for role in roles))
+    if not asked:
+        return HUMAN_AT_BUYER
+    dietitian = DIETITIAN in asked and own_dietitian is not False
+    person = any(role != DIETITIAN for role in asked) or not dietitian
+    return joined([*([PERSON_OF_BUYER] if person else []), *([BUYERS_DIETITIAN] if dietitian else [])])
+
+
+def who_signed(roles: Iterable[str], own_dietitian: bool | None = None) -> str:
+    """One signer by the roles of one token: the buyer's dietitian when it holds that role alone at a buyer with a
+    dietitian of its own, otherwise a person of the buyer, however many roles the token holds."""
+    held = {str(role) for role in roles}
+    if not held:
+        return HUMAN_AT_BUYER
+    return BUYERS_DIETITIAN if held == {DIETITIAN} and own_dietitian is not False else PERSON_OF_BUYER
+
+
 def buyers_roles(roles: Iterable[str]) -> str:
-    """the buyer's purchasing manager · the buyer's purchasing manager and dietitian · a human at the buyer."""
+    """the buyer's purchasing manager · the buyer's purchasing manager and dietitian · a human at the buyer. The
+    roles as they are: kept for a caller that names a role itself; the sentences use `who_is_asked` and
+    `who_signed`."""
     names = [role_name(role) for role in dict.fromkeys(str(role) for role in roles)]
     return f"the buyer's {joined(names)}" if names else HUMAN_AT_BUYER
 
@@ -75,11 +112,11 @@ def _listed(product_ids: Sequence[str], limit: int) -> str:
     return joined([*shown, f"{more} more"] if more else shown)
 
 
-def _outcome(rule: FiredRule) -> str:
+def _outcome(rule: FiredRule, own_dietitian: bool | None) -> str:
     if rule.verdict is Verdict.BLOCK:
         return BLOCKS
     if rule.verdict is Verdict.APPROVAL:
-        return f"approval by {buyers_roles((rule.approver_role,) if rule.approver_role else ())}"
+        return f"approval by {who_is_asked((rule.approver_role,) if rule.approver_role else (), own_dietitian)}"
     return NO_APPROVAL
 
 
@@ -115,32 +152,53 @@ def _grouped(rules: Sequence[FiredRule]) -> list[tuple[FiredRule, list[str], boo
     return [(rule, products, bool(hidden)) for rule, products, hidden in groups.values()]
 
 
-def _rule_line(rule: FiredRule, products: Sequence[str], hides_a_product: bool) -> str:
+def _masked(rule: FiredRule, hides_a_product: bool, one_line: bool) -> str | None:
+    """What the line says Valio Aimo is not shown. A rule about an excluded allergen hides the allergen and the
+    product it fired on; on an order of one product only the allergen, because that product is the order's line."""
+    if one_line and rule.rule_id in RULES_ABOUT_AN_EXCLUDED_ALLERGEN:
+        return ALLERGEN_NOT_SHOWN
+    if rule.rule_id in MASKED_BY_RULE:
+        return MASKED_BY_RULE[rule.rule_id]
+    if hides_a_product:
+        return REQUIREMENT_NOT_SHOWN if one_line else PRODUCT_NOT_SHOWN
+    return None
+
+
+def _rule_line(
+    rule: FiredRule, products: Sequence[str], hides_a_product: bool, own_dietitian: bool | None, one_line: bool
+) -> str:
     """P-01, a rule the buyer set (the order is above the spend limit per order; the amount is not shown):
-    approval by the buyer's purchasing manager."""
+    approval by a person of the buyer."""
     title = plain(rule.title, MAX_TITLE_CHARACTERS).rstrip(".")
-    masked = MASKED_BY_RULE.get(rule.rule_id) or (PRODUCT_NOT_SHOWN if hides_a_product else None)
+    masked = _masked(rule, hides_a_product, one_line)
     reason = f"{title[:1].lower()}{title[1:]}{f'; {masked}' if masked else ''}"
     on = ""
     if products:
         on = f", on {'product' if len(products) == 1 else 'products'} {_listed(products, MAX_PRODUCTS_PER_RULE)}"
-    return f"{label(rule.rule_id)}, {FIXED_RULE if rule.fixed else BUYER_RULE} ({reason}){on}: {_outcome(rule)}."
+    outcome = _outcome(rule, own_dietitian)
+    return f"{label(rule.rule_id)}, {FIXED_RULE if rule.fixed else BUYER_RULE} ({reason}){on}: {outcome}."
 
 
-def rules_applied(rules: Sequence[FiredRule]) -> str:
-    """ " Rules that applied: F-01, a fixed rule (…), on product 464306: approval by …. P-01, …." or nothing."""
+def rules_applied(rules: Sequence[FiredRule], own_dietitian: bool | None = None, *, one_line: bool = False) -> str:
+    """ " Rules that applied: F-01, a fixed rule (…), on product 464306: approval by …. P-01, …." or nothing.
+    `own_dietitian`: whether the buyer has a dietitian of its own (`who_is_asked`). `one_line`: the order holds
+    one product, so a line claims to hide no product (`_masked`)."""
     groups = _grouped(rules)
     if not groups:
         return ""
-    lines = " ".join(_rule_line(rule, products, hidden) for rule, products, hidden in groups)
+    lines = " ".join(
+        _rule_line(rule, products, hidden, own_dietitian, one_line) for rule, products, hidden in groups
+    )
     return f" {'Rule' if len(groups) == 1 else 'Rules'} that applied: {lines}"
 
 
-def decision_explained(decision: PolicyDecision) -> str:
+def decision_explained(
+    decision: PolicyDecision, own_dietitian: bool | None = None, *, one_line: bool = False
+) -> str:
     """Every rule that fired and how the outcome follows from them; "No rule applied." when none fired."""
     if not decision.fired:
         return NO_RULE_APPLIED
-    return f"{rules_applied(decision.fired)}{LOGIC}"
+    return f"{rules_applied(decision.fired, own_dietitian, one_line=one_line)}{LOGIC}"
 
 
 def _once_where_hidden(rules: Sequence[FiredRule]) -> list[FiredRule]:

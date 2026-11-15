@@ -83,7 +83,7 @@ SELECT
         'are not shown or counted): none.',
         'g'),
         'attached to an approval for product .*\. It changes no status',
-        'attached to an approval (which product is not shown). It changes no status',
+        'attached to an approval (the product is not named in this step). It changes no status',
         'g') AS sentence,
     ARRAY(
         SELECT rule.id

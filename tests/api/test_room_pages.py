@@ -2,12 +2,14 @@
 
 Scores on the 30% "working end-to-end demo": twelve peer reviewers on the venue Wi-Fi, one public address, each
 click scenario 2 within a minute, and the buyer agent runs for every one of them. Above the windows of each
-browser the address has its cap, and opens at most 30 new books in 10 minutes. REST stays counted by address.
+browser the address has its cap, and opens at most 400 new books in 10 minutes (30 before the review day, which
+8 reviewers clicking through the 4 customers reached: check C2-1, decision B55). REST stays counted by address.
 The windows themselves are tested in `test_room_limits.py`.
 """
 
 from __future__ import annotations
 
+import functools
 import html
 import re
 import sys
@@ -19,9 +21,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tta.api import create_app
-from tta.api.limits import ADDRESS_CAPS, BOOK_COOKIE_NAMES, VISITOR_WINDOWS, CallKind, as_client
-from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS
+from tta.api import create_app, wiring
+from tta.api.limits import ADDRESS_CAPS, BOOK_COOKIE_NAMES, VISITOR_WINDOWS, CallKind, RateLimit, as_client
+from tta.api.sandbox import MAX_NEW_BOOKS_PER_ADDRESS, NEW_BOOKS_WINDOW_SECONDS, Sandboxes
 from tta.api.wiring import Parts, build_parts
 from tta.catalog import ProductCatalog
 from tta.config import Settings
@@ -36,6 +38,8 @@ Problem = Callable[..., dict[str, Any]]
 # Public addresses: the documentation ranges of RFC 5737 would not do, Python counts them as private.
 ROOM, ELSEWHERE = "93.184.216.40", "93.184.216.41"
 ROOM_SIZE = 12
+REVIEWERS, CUSTOMERS_OF_THE_SHOP = 8, 4  # check C2-1: each reviewer opens a book per customer it clicks through
+BOOKS_IN_THE_SMALL_ROOM = 3
 CSRF_FIELD = re.compile(r'name="csrf" value="([A-Za-z0-9_-]+)"')
 RUN_KEY_FIELD = re.compile(r'name="run_key" value="([A-Za-z0-9_-]+)"')
 # What each refusal says, by the window that was full.
@@ -196,11 +200,34 @@ def test_rest_is_counted_by_address_even_with_the_pages_cookie(
     assert FROM_ONE_ADDRESS in detail and f"at most {window} in 60 seconds" in detail
 
 
-def test_cookie_rotation_through_the_pages_opens_at_most_30_books_from_one_address(room: Room) -> None:
-    pages = [_run_scenario_2(room.browser()) for _ in range(MAX_NEW_BOOKS_PER_ADDRESS + 1)]
+def test_eight_reviewers_behind_one_address_each_open_a_book_per_customer_and_none_is_refused(room: Room) -> None:
+    # Check C2-1: the 31st new book from one address in 10 minutes was refused, and every call after it for up to
+    # 10 minutes. 8 reviewers clicking through the 4 customers open 32.
+    new_books = REVIEWERS * CUSTOMERS_OF_THE_SHOP
+
+    pages = [_run_scenario_2(room.browser()) for _ in range(new_books)]
+
+    assert new_books < MAX_NEW_BOOKS_PER_ADDRESS
+    assert [page.status_code for page in pages] == [200] * new_books
+    assert not any(TOO_MANY_BOOKS in _text(page) for page in pages)
+    assert len(room.parts.sandboxes) == new_books
+
+
+@pytest.fixture
+def three_new_books(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The room's gateway with 3 new books per address in 10 minutes instead of 400: that many scenario runs from
+    one address would meet the address's 60 lookups a minute long before its 401st book."""
+    limit = RateLimit(calls=BOOKS_IN_THE_SMALL_ROOM, window_seconds=NEW_BOOKS_WINDOW_SECONDS)
+    monkeypatch.setattr(wiring, "Sandboxes", functools.partial(Sandboxes, new_books=limit))
+
+
+def test_cookie_rotation_through_the_pages_opens_no_more_books_than_one_address_may(
+    three_new_books: None, room: Room
+) -> None:
+    pages = [_run_scenario_2(room.browser()) for _ in range(BOOKS_IN_THE_SMALL_ROOM + 1)]
     elsewhere = _run_scenario_2(room.browser(ELSEWHERE))
 
-    assert [page.status_code for page in pages] == [200] * MAX_NEW_BOOKS_PER_ADDRESS + [429]
-    assert TOO_MANY_BOOKS in _text(pages[-1]) and "at most 30 in 10 minutes" in _text(pages[-1])
+    assert [page.status_code for page in pages] == [200] * BOOKS_IN_THE_SMALL_ROOM + [429]
+    assert TOO_MANY_BOOKS in _text(pages[-1]) and "at most 3 in 10 minutes" in _text(pages[-1])
     assert elsewhere.status_code == 200
-    assert len(room.parts.sandboxes) == MAX_NEW_BOOKS_PER_ADDRESS + 1
+    assert len(room.parts.sandboxes) == BOOKS_IN_THE_SMALL_ROOM + 1

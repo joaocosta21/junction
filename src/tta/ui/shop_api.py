@@ -281,7 +281,7 @@ def _decide_as_one_person(
     name. A role held by somebody else is never signed here, and a rejection is one decision."""
     person = customer.people.get(body.role)
     signed = {body.role}
-    order = one.service.decide_approval(_signing(body.role, signer), approval_id, body.decision)
+    order = one.service.decide_approval(_signing(one, body.role, signer), approval_id, body.decision)
     while order.status is OrderStatus.PENDING_APPROVAL:
         waiting = one.service.list_approvals(KITCHEN_APPROVERS[0], ApprovalStatus.PENDING)
         approval = next((each for each in waiting if each.approval_id == approval_id), None)
@@ -290,13 +290,15 @@ def _decide_as_one_person(
         if role is None:
             break
         signed.add(role)
-        order = one.service.decide_approval(_signing(role, signer), approval_id, body.decision)
+        order = one.service.decide_approval(_signing(one, role, signer), approval_id, body.decision)
     return order
 
 
-def _signing(role: ApproverRole, signer: str) -> Identity:
-    """The book's approver of this role, under the name of the customer's person who signs."""
-    approver = _approver(role)
+def _signing(one: Sandbox, role: ApproverRole, signer: str) -> Identity:
+    """The approver this book lists for the role, with every role the book lists it under, under the name of the
+    customer's person who signs (`tta.api.sandbox.Kitchen.approver_for`): one identity for the hotel's one person,
+    and at the ward and the school the dietitian's own, which the person who orders never is."""
+    approver = one.kitchen.approver_for(role) or _approver(role)
     assert approver is not None  # every role has an approver in a shop book (KITCHEN_APPROVERS)
     return approver.model_copy(update={"display_name": signer})
 

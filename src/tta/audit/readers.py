@@ -71,7 +71,9 @@ OFFER_FACT, COUNTS_FACT = "offer", "excluded_by_reason"
 # before that holds it in the supplier's sentence and facts and is masked when read, as the counts are. The stored
 # event, and so its hash, stays as it was written.
 EVIDENCE_FACT, EVIDENCE_PRODUCT_FACT = "evidence", "product_id"
-EVIDENCE_PRODUCT_NOT_SHOWN = "attached to an approval (which product is not shown). It changes no status"
+# "Not named in this step" and no more: an order of one product shows that product in its other steps, so the
+# sentence does not claim it is hidden everywhere (the browser walk of 15 Nov).
+EVIDENCE_PRODUCT_NOT_SHOWN = "attached to an approval (the product is not named in this step). It changes no status"
 # What is taken out of the supplier's facts of a stored event when it is read. The SQL view removes the same paths.
 STORED_MASKED_PATHS = (
     *((OFFER_FACT, COUNTS_FACT, reason.value) for reason in REASONS_OF_THE_BUYER),

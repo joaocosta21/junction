@@ -6,11 +6,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from tta.contracts.audit import AuditContext
-from tta.contracts.common import DecisionKind, PlacedBy, Verdict
+from tta.contracts.common import ApproverRole, DecisionKind, PlacedBy, Verdict
 from tta.contracts.offer import OfferOption
 from tta.contracts.order import ApprovalDecision
-from tta.contracts.policy import FiredRule, PolicyDecision
-from tta.policy.human_approval import HUMAN_APPROVAL
+from tta.contracts.policy import BuyerProfile, FiredRule, PolicyDecision
+from tta.policy.human_approval import HUMAN_APPROVAL, has_own
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,19 @@ class Scope:
     # The buyer's name as its profile gives it (`BuyerProfile.display_name`), for the buyer's sentences only. It
     # is not a field of the event: None when neither the context nor the policy engine of the trail has it.
     profile_name: str | None = None
+    # Whether the buyer has a dietitian of its own: somebody holds that role who is not the person who orders (the
+    # ward, the school). False where one person holds every role (the hotel, the bakery). For Valio Aimo's
+    # sentences only, which name a role of a second person and no other; None when the profile is not known.
+    own_dietitian: bool | None = None
+    # The buyer profile itself, for the buyer's sentences: who really decides a role's question at this buyer, and
+    # whether more than one person can sign there (`tta.policy.human_approval`). Not a field of the event either.
+    profile: BuyerProfile | None = None
+
+    @property
+    def has_one_line(self) -> bool:
+        """Whether the option the event is about holds one product. That product is then the order's line, which
+        other steps of the trail name: a sentence for Valio Aimo cannot claim it is hidden."""
+        return self.option is not None and len(self.option.lines) == 1
 
     @property
     def order_label(self) -> str:
@@ -54,6 +67,12 @@ class OptionChange:
 
 def _first(*values: str | None) -> str | None:
     return next((value for value in values if value), None)
+
+
+def has_own_dietitian(profile: BuyerProfile) -> bool:
+    """Whether somebody holds the dietitian's role who does not hold the purchasing manager's: the policy's own
+    answer (`tta.policy.human_approval.has_own`), so the log and the rules read one buyer alike."""
+    return has_own(profile, ApproverRole.DIETITIAN)
 
 
 def resolve(context: AuditContext) -> Scope:
@@ -89,6 +108,8 @@ def resolve(context: AuditContext) -> Scope:
         option=option,
         decision=decision,
         profile_name=context.profile.display_name if context.profile else None,
+        own_dietitian=has_own_dietitian(context.profile) if context.profile else None,
+        profile=context.profile,
     )
 
 

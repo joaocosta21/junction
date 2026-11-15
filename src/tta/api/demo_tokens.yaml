@@ -15,8 +15,8 @@
 #
 # One person confirms. The person who orders holds every role of the hotel and of the bakery, so one confirmation
 # completes an approval whatever rule asked. The ward and the school have a second person, the dietitian, who
-# decides allergen and dietary-claim questions only. No customer has a separate finance signer: a spend-limit
-# stop is decided by the person who orders.
+# decides the questions the rules name her role for (GET /v1/authority lists them). No customer has a separate
+# finance signer: a spend-limit stop is decided by the person who orders.
 
 demo-agent-hotel-kitchen:
   kind: AGENT

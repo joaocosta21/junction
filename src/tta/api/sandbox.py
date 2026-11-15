@@ -23,6 +23,11 @@ and is in force only in the calls made on this book's service (`tta.policy.custo
 tokens, the policy files and every other book never see it. Its approvals are decided by three approvers bound to
 it, one per role, who carry the name of the hotel's one person (one person confirms). "Start again" drops it with
 the book.
+
+Every change of a kitchen's settings is one event in the book's audit trail, under the name of the person who
+orders, with each changed setting before and after (decision B59, `tta.api.kitchen_log`). And where the book stands
+for a customer with a dietitian of its own (the ward, the school), her allergen exclusions and her strict rule
+cannot be removed or relaxed here.
 """
 
 from __future__ import annotations
@@ -36,21 +41,29 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, cast
 
+from tta.api.kitchen_log import changes, dietitians_refusals, record_change
 from tta.api.limits import SECONDS_PER_MINUTE, Counted, RateLimit, RateLimiter, current_client_key
 from tta.api.service import Gateway
 from tta.api.suggesting import customer_on_file
 from tta.contracts.common import ApproverRole, Identity, IdentityKind
 from tta.contracts.customer import Customer
+from tta.contracts.errors import NotAuthorised
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import AuditSink
 from tta.customers import shipped_customer
+from tta.orders.access import actor_of
 from tta.policy import PolicyLoadError, RulePolicyEngine, profile_in_force
+from tta.policy.human_approval import decided_as
 from tta.policy.rulebook import AccessRule
 from tta.store import SqliteStore
 
-MAX_SANDBOXES = 300
+# The review day (decision B55, check C2-1): the shop page opens a book on page load and on every customer switch,
+# and a room of reviewers sits behind the venue's one address. 8 of them clicking through the 4 customers reached
+# the 30 new books of before, and every call of the room was then refused for up to 10 minutes. A used book takes
+# about 1 MiB (measured 15 Nov); `deploy/modal_app.py` gives the container the memory for all of them.
+MAX_SANDBOXES = 1000  # was 300
 SANDBOX_IDLE_SECONDS = 2 * 60 * 60
-MAX_NEW_BOOKS_PER_ADDRESS = 30
+MAX_NEW_BOOKS_PER_ADDRESS = 400  # was 30
 NEW_BOOKS_WINDOW_MINUTES = 10
 NEW_BOOKS_WINDOW_SECONDS = NEW_BOOKS_WINDOW_MINUTES * 60
 NEW_BOOKS_PER_ADDRESS = RateLimit(calls=MAX_NEW_BOOKS_PER_ADDRESS, window_seconds=NEW_BOOKS_WINDOW_SECONDS)
@@ -102,6 +115,8 @@ KITCHEN_APPROVERS = tuple(
     )
 )
 KITCHEN_IDENTITIES = (KITCHEN_AGENT, *KITCHEN_APPROVERS)
+# Who the page acts for when it changes the settings: the person who orders (there is no login on a demo page).
+KITCHEN_BUYER = next(one for one in KITCHEN_APPROVERS if ApproverRole.PURCHASING_MANAGER in one.roles)
 # Set by the gateway, never by the page: a form that sends one of these is refused.
 _FIXED_PARTS: Mapping[str, Any] = {
     "profile_id": KITCHEN_PROFILE_ID,
@@ -126,13 +141,35 @@ def file_profile(profile_id: str) -> BuyerProfile:
     return _file_policy().get_profile(profile_id)
 
 
-def kitchen_profile(policy: RulePolicyEngine, settings: Mapping[str, Any]) -> BuyerProfile:
+def book_approver_roles(of_customer: BuyerProfile | None) -> dict[str, list[str]]:
+    """Who signs each role in a book: under each role, the book approver that stands for the customer's person
+    who holds it (lane FIX-A1, item 17). At the hotel and the bakery one person holds every role, so the
+    purchasing approver is listed under all three; at the ward and the school it is listed under the purchasing
+    manager's and finance's, and the dietitian approver under the dietitian's. So a shop book reads as its
+    customer does over REST: one person where there is one (no dietitian is named, no role in brackets), and
+    the dietitian's questions go to her where she is a second person. A book that stands for no customer
+    ("My kitchen" of the older page) keeps one approver per role."""
+    if of_customer is None:
+        return _FIXED_PARTS["approver_roles"]
+    return {role.value: [_approver_of(decided_as(of_customer, role)).id] for role in ApproverRole}
+
+
+def _approver_of(role: ApproverRole) -> Identity:
+    return next(one for one in KITCHEN_APPROVERS if one.roles == (role,))
+
+
+def kitchen_profile(
+    policy: RulePolicyEngine, settings: Mapping[str, Any], of_customer: BuyerProfile | None = None
+) -> BuyerProfile:
     """The kitchen's settings as a profile, checked exactly as a profile file is and within the page's bounds.
-    Raises `PolicyLoadError` with one problem per field, each starting with the field's name."""
+    `of_customer`: the profile file of the customer the book stands for, which says who holds each role
+    (`book_approver_roles`). Raises `PolicyLoadError` with one problem per field, each starting with the
+    field's name."""
     problems = _page_problems(settings)
     if problems:
         raise PolicyLoadError(KITCHEN_SOURCE, problems)
-    profile = policy.check_custom_profile({**_UNSENT_PARTS, **settings, **_FIXED_PARTS})
+    fixed = {**_FIXED_PARTS, "approver_roles": book_approver_roles(of_customer)}
+    profile = policy.check_custom_profile({**_UNSENT_PARTS, **settings, **fixed})
     over = [
         f"{name}: at most €{MAX_LIMIT_EUR:,} on this page (got €{getattr(profile, name):,})"
         for name in LIMIT_SETTINGS if getattr(profile, name) > MAX_LIMIT_EUR
@@ -157,8 +194,22 @@ def _page_problems(settings: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+@dataclass(frozen=True)
+class KitchenLog:
+    """What a kitchen needs of the book that holds it, to log a change of its settings: the book's audit trail,
+    whose customer the book stands for, and the count a write is checked against before it is made."""
+
+    audit: AuditSink
+    customer: BookCustomer
+    count: Callable[[Identity], None]
+
+
 class Kitchen:
-    """The book's own custom profile. Replaced whole, never changed in place. Thread-safe."""
+    """The book's own custom profile. Replaced whole, never changed in place. Thread-safe.
+
+    Held by a book (`keep_log`), every replacement that changes a setting is first written to that book's audit
+    trail (`settings.changed`), and where the book stands for a customer with a dietitian of its own, a replacement
+    that removes or relaxes one of her allergen exclusions is refused. A change that cannot be logged is not made."""
 
     def __init__(self, policy: RulePolicyEngine | None = None) -> None:
         self._policy = policy or _file_policy()
@@ -166,6 +217,7 @@ class Kitchen:
         self._profile = self._copy_of(STARTING_POINTS[0])
         self._started_from = STARTING_POINTS[0]
         self._is_set_up = False
+        self._log: KitchenLog | None = None  # a kitchen no book holds logs nothing and guards nothing
 
     @property
     def profile(self) -> BuyerProfile:
@@ -194,25 +246,82 @@ class Kitchen:
         """The fixed rules enforced where the caller is known (F-06): shown with the other fixed rules."""
         return self._policy.access_rules
 
+    def keep_log(self, log: KitchenLog) -> None:
+        """Called once, by the book that holds this kitchen."""
+        with self._lock:
+            self._log = log
+
     def start_from(self, profile_id: str) -> BuyerProfile:
         """Replace the kitchen with a copy of one of `STARTING_POINTS`. Raises `PolicyLoadError` for another id."""
-        profile = self._copy_of(profile_id)
-        with self._lock:
-            self._profile, self._started_from, self._is_set_up = profile, profile_id, False
-        return profile
+        return self._replace(self._copy_of(profile_id), is_set_up=False, started_from=profile_id)
 
     def set_up(self, settings: Mapping[str, Any]) -> BuyerProfile:
         """Replace the kitchen with these settings. Raises `PolicyLoadError`; a refused form changes nothing."""
-        profile = kitchen_profile(self._policy, settings)
+        of_customer = self._file_profile_of(self._customer_id())
+        return self._replace(kitchen_profile(self._policy, settings, of_customer), is_set_up=True)
+
+    def approver_for(self, role: ApproverRole) -> Identity | None:
+        """The book approver who signs this role in this kitchen, holding every role the kitchen lists it under:
+        at the hotel one approver with all three, at the ward the purchasing approver with the purchasing
+        manager's and finance's and the dietitian approver with her own. None when nobody is listed. The roles
+        come from the kitchen's own list, so the person who orders never holds the dietitian's role where the
+        customer has a dietitian (`tta.orders.access.roles_that_count` counts every role an identity holds)."""
+        listed = self.profile.approver_roles
+        approver = next((one for one in KITCHEN_APPROVERS if one.id in listed.get(role, ())), None)
+        if approver is None:
+            return None
+        held = tuple(each for each in ApproverRole if approver.id in listed.get(each, ()))
+        return approver.model_copy(update={"roles": held})
+
+    def _customer_id(self) -> str | None:
+        return self._log.customer.customer_id if self._log is not None else None
+
+    def _replace(self, profile: BuyerProfile, *, is_set_up: bool, started_from: str | None = None) -> BuyerProfile:
+        """Put `profile` in force, after the event that says what it changes. Until a book of the shop has
+        settings of its own, what is in force for its customer is the customer's profile file, so that is what
+        the first settings are compared with: the page's first call sends the file's values and changes nothing.
+        Raises `PolicyLoadError` for the dietitian's exclusions, and whatever the log raises (`RateLimited` when
+        the day's stored bytes are spent): in each case nothing is changed."""
+        log, customer_id = self._log, self._customer_id()
+        of_customer = self._file_profile_of(customer_id)
+        if of_customer is not None:
+            refusals = dietitians_refusals(of_customer, profile)
+            if refusals:
+                raise PolicyLoadError(KITCHEN_SOURCE, refusals)
         with self._lock:
-            self._profile, self._is_set_up = profile, True
+            before = self._profile if self._is_set_up or of_customer is None else of_customer
+            changed = changes(before, profile)
+            if log is not None and changed:
+                buyer = _who_sets(customer_id)
+                log.count(buyer)
+                record_change(log.audit, actor_of(buyer), profile, changed, customer_id)
+            self._profile, self._is_set_up = profile, is_set_up
+            if started_from is not None:
+                self._started_from = started_from
         return profile
+
+    def _file_profile_of(self, customer_id: str | None) -> BuyerProfile | None:
+        """The profile file of the customer the book stands for; None for a book that stands for none."""
+        if customer_id is None:
+            return None
+        try:
+            return self._policy.get_profile(customer_id)
+        except NotAuthorised:
+            return None
 
     def _copy_of(self, profile_id: str) -> BuyerProfile:
         if profile_id not in STARTING_POINTS:
             raise PolicyLoadError(KITCHEN_SOURCE, [f"start from one of {', '.join(STARTING_POINTS)}"])
         settings = self._policy.get_profile(profile_id).model_dump(include=set(KITCHEN_SETTINGS))
         return kitchen_profile(self._policy, {**settings, "display_name": KITCHEN_NAME})
+
+
+def _who_sets(customer_id: str | None) -> Identity:
+    """Who a change of settings is logged under: the book's approver for the person who orders, by the name of
+    the customer's own person where the book stands for a customer (Hanna Laine at Harbourside Hotel)."""
+    customer = shipped_customer(customer_id) if customer_id is not None else None
+    name = customer.people.get(ApproverRole.PURCHASING_MANAGER) if customer is not None else None
+    return KITCHEN_BUYER.model_copy(update={"display_name": name}) if name else KITCHEN_BUYER
 
 
 class BookCustomer:
@@ -274,6 +383,9 @@ class Sandbox:
 
     def __post_init__(self) -> None:
         if not isinstance(self.service, ProfileInForce):
+            # The count is the service's own, taken before the kitchen is put in force around it: the kitchen
+            # asks it while it holds its lock, and a call through `ProfileInForce` would wait for that lock.
+            self.kitchen.keep_log(KitchenLog(self.audit, self.customer, self.service.count_settings_change))
             object.__setattr__(self, "service", cast(Gateway, ProfileInForce(self.service, self.kitchen)))
 
     def close(self) -> None:

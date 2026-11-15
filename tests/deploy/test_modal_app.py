@@ -63,13 +63,22 @@ def test_the_module_defines_the_app_without_modal_credentials_and_from_any_folde
     assert done.stdout.split() == ["trusted-trade-agents", "Function"]
 
 
-def test_one_container_at_most_that_scales_to_zero(modal_app: ModuleType) -> None:
+def test_exactly_one_container_kept_running_with_room_for_the_review_days_books(modal_app: ModuleType) -> None:
+    # Decision B55: the pages' books and the demo signing key live in the container's memory, so for the review
+    # day it is not stopped after 10 idle minutes (check C2-2). Still one at most: SQLite and the limiter.
     assert modal_app.app.name == modal_app.APP_NAME == "trusted-trade-agents"
     assert isinstance(modal_app.web, modal.Function)
-    assert modal_app.MAX_CONTAINERS == 1
-    assert modal_app.MIN_CONTAINERS == 0
+    assert modal_app.MAX_CONTAINERS == modal_app.MIN_CONTAINERS == 1
     assert 2 <= modal_app.SCALEDOWN_SECONDS <= 3600  # the range Modal accepts
     assert modal_app.MAX_CONCURRENT_REQUESTS > 1
+    assert modal_app.MEMORY_MIB == 4096
+
+
+def test_the_memory_holds_every_book_the_pages_may_keep(modal_app: ModuleType) -> None:
+    # Measured by check CK2 on 15 Nov: 553 MiB after start, about 1 MiB per used book.
+    from tta.api.sandbox import MAX_SANDBOXES
+
+    assert modal_app.MEASURED_START_MIB + MAX_SANDBOXES * modal_app.MEASURED_MIB_PER_BOOK <= modal_app.MEMORY_MIB
 
 
 # --- the secret -------------------------------------------------------------------------------------------------

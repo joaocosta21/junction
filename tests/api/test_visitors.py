@@ -150,8 +150,9 @@ def test_the_ceilings_are_240_lookups_240_orders_and_240_model_calls_a_minute() 
     assert GLOBAL_CEILINGS == {CallKind.LOOKUP: 240, CallKind.ORDER: 240, CallKind.MODEL: 240}
 
 
-def test_one_visitor_may_make_20_lookups_20_orders_and_15_model_calls_a_minute_well_under_each_ceiling() -> None:
-    assert VISITOR_WINDOWS == {CallKind.LOOKUP: 20, CallKind.ORDER: 20, CallKind.MODEL: 15}
+def test_one_visitor_may_make_60_lookups_20_orders_and_15_model_calls_a_minute_well_under_each_ceiling() -> None:
+    # Lookups: 60 since decision B55 (were 20): four tokens behind one address shared the 20 (check C1-5).
+    assert VISITOR_WINDOWS == {CallKind.LOOKUP: 60, CallKind.ORDER: 20, CallKind.MODEL: 15}
     for kind, calls in VISITOR_WINDOWS.items():
         assert calls * 4 <= GLOBAL_CEILINGS[kind], kind  # one visitor takes at most a quarter of a ceiling
 

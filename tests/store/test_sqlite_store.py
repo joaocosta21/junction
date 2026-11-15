@@ -387,3 +387,74 @@ def test_the_list_of_standing_orders_answers_the_first_hundred(store: SqliteStor
 
     assert len(listed) == 100 and listed[0].standing_order_id == "so_000" and listed[-1].standing_order_id == "so_099"
     assert len(store.list_standing_orders()) == 100
+
+
+# --- check C4-F5: a row that is not an audit event is a break of the chain, never a failed read ----------------
+
+A_ROW_NOBODY_WROTE = (
+    "INSERT INTO audit_events (event_id, type, time, previous_hash, hash, body) "
+    "VALUES ('x', 't', '2026-01-01', 'abc', 'def', '{}')"
+)
+
+
+def _insert_behind_the_stores_back(path: Path) -> None:
+    with closing(sqlite3.connect(path)) as raw, raw:
+        raw.execute(A_ROW_NOBODY_WROTE)
+
+
+def test_a_row_that_is_no_audit_event_is_read_as_a_stand_in_that_names_the_row(tmp_path: Path, samples) -> None:
+    from tta.audit.chain import seal, verify_events
+    from tta.store.audit_rows import UNREADABLE_SENTENCE
+
+    store = SqliteStore(tmp_path / "tta.sqlite3")
+    first = seal(samples.event("evt_1"))  # a real hash, so the chain verifies up to the row nobody wrote
+    store.append_audit_event(first)
+    _insert_behind_the_stores_back(tmp_path / "tta.sqlite3")
+
+    events = store.list_audit_events()
+    page = store.audit_events_page(limit=10)
+    chain = verify_events(events)
+    store.close()
+
+    assert [event.id for event in events] == ["evt_1", "x"] and events[0] == first
+    assert (events[1].type, events[1].data.sentence, events[1].data.hash) == ("t", UNREADABLE_SENTENCE, "def")
+    assert events[1].data.facts == {} and events[1].time.utcoffset() is not None
+    assert [(event.id, before) for event, before in page] == [("x", first.data.hash), ("evt_1", None)]
+    assert (chain.ok, chain.first_bad_event_id, chain.checked) == (False, "x", 2)
+    assert "event x (number 2 of 2) does not follow the event before it" in chain.sentence
+
+
+def test_a_stand_in_never_verifies_even_when_its_row_claims_to_follow_the_last_event(tmp_path: Path, samples) -> None:
+    from tta.audit.chain import seal, verify_events
+
+    store = SqliteStore(tmp_path / "tta.sqlite3")
+    first = seal(samples.event("evt_1"))
+    store.append_audit_event(first)
+    with closing(sqlite3.connect(tmp_path / "tta.sqlite3")) as raw, raw:
+        raw.execute(
+            "INSERT INTO audit_events (event_id, type, time, previous_hash, hash, body) VALUES (?, ?, ?, ?, ?, ?)",
+            ("y", "tta.v1.order.confirmed", "not a time", first.data.hash, "f" * 64, '{"data": {"hash": "0"}}'),
+        )
+
+    events = store.list_audit_events()
+    store.close()
+
+    assert verify_events(events).first_bad_event_id == "y"
+    assert events[1].time.year == 1970  # a time nobody can read is not replaced by a likely one
+
+
+def test_the_postgresql_store_reads_such_a_row_the_same_way_without_a_database() -> None:
+    """No database is connected: the store's two reads are given the rows a database would answer."""
+    from tta.store.audit_rows import UNREADABLE_ID
+    from tta.store.postgres import PostgresStore
+
+    store = object.__new__(PostgresStore)
+    store._values = lambda statement, parameters: ['{"id": "evt_from_the_body"}', "{}"]  # noqa: SLF001
+    store._rows = lambda statement, parameters: [("[]", "a" * 64)]  # noqa: SLF001
+
+    listed = store.list_audit_events()
+    ((paged, before),) = store.audit_events_page(limit=1)
+
+    assert [event.id for event in listed] == ["evt_from_the_body", UNREADABLE_ID]
+    assert (paged.id, before) == (UNREADABLE_ID, "a" * 64)
+    assert all(event.data.previous_hash == "unreadable" for event in (*listed, paged))

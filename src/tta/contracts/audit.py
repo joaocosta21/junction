@@ -44,6 +44,7 @@ class AuditEventType(StrEnum):
     STANDING_ORDER_RENEWED = "standing_order.renewed"  # with the drift found
     SUGGESTIONS_SHOWN = "suggestions.shown"  # P15 R4a: shown, dropped and held back for one offer
     SUGGESTION_ACCEPTED = "suggestion.accepted"  # P15 R4b: its `accept_request` became a new offer
+    SETTINGS_CHANGED = "settings.changed"  # decision B59: a person changed what the buyer's agent may decide alone
 
 
 class ActorKind(StrEnum):

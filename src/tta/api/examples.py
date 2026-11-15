@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from tta.api import product_lookup
 from tta.api.docs import BuiltExamples
 from tta.api.limits import CallKind, CallLimits, RateLimit
 from tta.api.service import Gateway
@@ -55,6 +56,14 @@ MONDAY = 0
 UNLIMITED_CALLS = 1_000_000  # the examples are built by the gateway itself, in a private store
 RECORDED_MODEL = "recorded"
 
+# The two order examples name an offer and an option that existed while the examples were built (C1-9).
+IDS_OF_AN_EARLIER_OFFER = (
+    "offer_id and option_id come from POST /v1/offers a moment earlier; sent as written these answer not-found"
+)
+PRICED_SEARCH_SUMMARY = (
+    "The same search with price_and_availability=true and needed_by: each product with its fixed price and what "
+    "the supplier's data says is available by that date"
+)
 EVERY_EXAMPLE = "every example (the scenarios could not be set up)"
 NOTHING_FITS = "{scenario}: the order and what follows it (the recorded capture holds nothing that fits the request)"
 
@@ -123,10 +132,15 @@ class _Examples:
         self.answers: dict[str, Named] = {}
         self.not_built: list[str] = []
 
-    def _keep(self, operation: str, name: str, summary: str, answer: Any, request: BaseModel | None = None) -> None:
+    def _keep(
+        self, operation: str, name: str, summary: str, answer: Any, request: BaseModel | None = None,
+        request_note: str | None = None,
+    ) -> None:
+        """`request_note`: a description for the request example, where sending it as written does not work."""
         self.answers.setdefault(operation, {})[name] = _example(summary, answer)
         if request is not None:
-            self.requests.setdefault(operation, {})[name] = _example(summary, request)
+            said = {} if request_note is None else {"description": request_note}
+            self.requests.setdefault(operation, {})[name] = {**_example(summary, request), **said}
 
     def run(self) -> None:
         """Each step on its own: one that fails is logged and named, and the next one still runs."""
@@ -161,6 +175,11 @@ class _Examples:
         if found.products:
             self._keep("get_product", "plant_drink", "One product with its allergen statements and claims",
                        service.get_product(agent, found.products[0].id))
+        # Last, so that the two examples above stand when this look cannot be made (another capture).
+        priced = product_lookup.search_products(
+            service, agent, query, price_and_availability=True, needed_by=self._requests()[0].needed_by,
+        )
+        self._keep("search_products", "plant_drinks_with_price_and_availability", PRICED_SEARCH_SUMMARY, priced)
 
     def _substitutes(self) -> None:
         substitutes = SubstituteQuery()
@@ -188,7 +207,7 @@ class _Examples:
             return None
         placed = PlaceOrderRequest(offer_id=offer.offer_id, option_id=offer.options[0].option_id)
         order = self._service.place_order(agent, placed.offer_id, placed.option_id, key)
-        self._keep("place_order", name, f"{summary} orders the first option", order, placed)
+        self._keep("place_order", name, f"{summary} orders the first option", order, placed, IDS_OF_AN_EARLIER_OFFER)
         self.answers.setdefault("get_order", {name: _example(summary, order)})
         listed = _example("The orders of the caller's buyer, newest first", self._service.list_orders(agent))
         self.answers.setdefault("list_orders", {name: listed})
