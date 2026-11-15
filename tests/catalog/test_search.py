@@ -87,7 +87,7 @@ def test_coffee_milk_is_a_product_type_of_its_own_with_a_note_on_milk(catalog: P
     assert {product.id for product in lactose_free.products} == COFFEE_MILKS
     assert catalog.product_type_note("milk") == (
         "Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk. "
-        "Ask for coffee milk by name (product type coffee_milk) to get it."
+        "It is offered only as a named substitute, or when coffee milk is asked for by name (product type coffee_milk)."
     )
     assert catalog.product_type_note("coffee_milk") is None and catalog.product_type_note("no-such-type") is None
 

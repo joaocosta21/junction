@@ -22,7 +22,8 @@ from tta.offers import OfferService
 COFFEE_MILKS = {"462626", "463380", "464237", "473142"}  # the four milks for coffee of category 10400
 NOTE = (
     "Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee "
-    "milk. Ask for coffee milk by name (product type coffee_milk) to get it."
+    "milk. It is offered only as a named substitute, or when coffee milk is asked for by name "
+    "(product type coffee_milk)."
 )
 
 

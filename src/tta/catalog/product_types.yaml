@@ -40,7 +40,7 @@ milk:
   products: 74
   note: >-
     Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk.
-    Ask for coffee milk by name (product type coffee_milk) to get it.
+    It is offered only as a named substitute, or when coffee milk is asked for by name (product type coffee_milk).
   derived_from: >-
     Category 10400 holds 91 products. The exclude terms leave out the 17 that are not plain milk: 11
     sour milks ("sour" in the English name, "piimä" in the Finnish one), a coffee drink (469266,
