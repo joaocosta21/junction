@@ -344,11 +344,11 @@ Rules are data (`src/tta/policy/rules.yaml`), evaluated by one deterministic eng
 
 ---
 
-## Does this make sense? Gaps and weak spots
+## Next steps, ranked
 
-Ranked by what each costs against the judging criteria. "Smallest change" is the least work that closes it. **Rewritten on 15 Nov** from the four checks of that morning (`AIMO/build/replan/REVIEW.md`) and what the fix lanes left open. Closed since the list of 14 Nov: suggestions on the offer and the page, the shop page seen in a real browser, the reader's one wrong reading, the demo set re-measured, the public link's limits for a room of reviewers, a substitute ordered by the agent alone, no price on search, a settings change that left no event. What remains:
+What is open today, ranked by what each costs against the judging criteria. "Smallest next step" is the least work that closes it. **Rewritten on 15 Nov** from the four checks of that morning (`AIMO/build/replan/REVIEW.md`) and what the fix lanes left open. Closed since the list of 14 Nov: suggestions on the offer and the page, the shop page seen in a real browser, the reader's one wrong reading, the demo set re-measured, the public link's limits for a room of reviewers, a substitute ordered by the agent alone, no price on search, a settings change that left no event. What remains:
 
-| # | Gap | Costs on | Smallest change |
+| # | Open today | Criterion | Smallest next step |
 |---|---|---|---|
 | 1 | **The public link was not checked against this build.** The redeploy with the night's fixes and `deploy/check.py` against it belong to the last check, still to do when this was written. Books and the demo signing key live in the one container's memory: a restart empties every `/shop` book and earlier signed records no longer verify. | 30% demo | One redeploy in replay with the demo clock, then `deploy/check.py`; `/healthz` → `rate_limit_caller.bucket` must differ between two networks. |
 | 2 | **The demo pages have no login** (check C4-F1). Whoever opens `/shop` signs as any of the customer's people, the dietitian included. By design for a demo; the pages are mounted only in dev and demo. | 20% controls | Said on the page, in `/llms.txt` and here. In production no page is mounted and people sign with their own tokens. |
@@ -371,13 +371,13 @@ For the refresh of 15 Nov:
 - The public link: no redeploy and no `deploy/check.py` by this refresh.
 - PostgreSQL (`tests/store_pg/`), and any test that needs a live service; the hourly witness of the log's head (`deploy/witness.py`), which has never run.
 - Any call to Valio's live mock, and any model, by this refresh. The reader with a key set was measured by the build on 15 Nov (step 2 of the pipeline).
-- The shop page in a browser by this refresh: it was walked in headless Chrome on 15 Nov at about 01:00 (`REVIEW.md`, section BW), before the last fixes to the page; the figures here were read from the routes the page calls.
+- The shop page in a browser by this refresh: it was walked in headless Chrome on 15 Nov at about 01:00 (`AIMO/build/replan/REVIEW.md`, section BW), before the last fixes to the page; the figures here were read from the routes the page calls.
 
 ---
 
 ## How each step is checked
 
-**How the build was checked** (from `AIMO/build/replan/RUNBOOK.md` and the log in `STATUS.md`). One orchestrating session coordinates; agents build.
+**How the build was checked** (from `AIMO/build/replan/RUNBOOK.md` and the log in `AIMO/build/replan/STATUS.md`, both on branch `replan-build`). One orchestrating session coordinates; agents build.
 
 1. **Lanes.** Each task owns its files. Two agents never own the same file at the same time. Shared models (`src/tta/contracts/`) may only gain fields with a default, and each addition is reported.
 2. **Tests first.** Each defect in the proposals comes with a reproduction; the agent turns it into a test that fails before the change. An agent runs only the test folders it owns.
@@ -385,7 +385,7 @@ For the refresh of 15 Nov:
 4. **The orchestrator does not take an agent's word.** On every hand-back it runs the agent's tests itself and checks that only owned paths changed.
 5. **The whole suite once per wave**, not per lane, because lanes change the same tree at once. A pinned figure that moves is re-measured offline and replaced by the lane that owns the test.
 6. **Hashes of the stored log are pinned** (`tests/audit/test_pinned_hashes.py`), so a change that would invalidate the log already stored fails a test.
-7. **Done since 14 Nov:** the review of the whole diff (`E3`), four independent checks of the running system on 15 Nov (`REVIEW.md`), and the fix lanes that followed. **Still to come when this was refreshed on 15 Nov:** the whole suite and the linter on a clean copy, the redeploy and its check (row DEEP).
+7. **Done since 14 Nov:** the review of the whole diff (`E3`), four independent checks of the running system on 15 Nov (`AIMO/build/replan/REVIEW.md`), and the fix lanes that followed. **Still to come when this was refreshed on 15 Nov:** the whole suite and the linter on a clean copy, the redeploy and its check (row DEEP).
 
 **How the refresh of 15 Nov was checked.** On the working tree at `94b21a5` (with one lane's uncommitted change to substitute ranking), offline, replay, no key, on a local gateway at the demo clock, and at the recording's clock for the scenario figures: the brief's request, the ward's, the school's almond drink, the hotel's and the bakery's suggestions, the standing-order renewal, the cake, a request for tomorrow and ordering alone at 302 and 303 L through `/shop/api/*`, between 02:26 and 02:29; the ward's order with an agent's attempt to decide, the audit view's fields, `/v1/authority` for the hotel and the ward, the reader's five refusals, a removed token (401) and `/v1/insights` over REST, by 02:50. Counted from the running gateway or the files: 27 OpenAPI paths, 98 schemas, 13 MCP tools, 20 event types, 11 demo identities, ten recipes. No test was run.
 

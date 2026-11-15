@@ -2,7 +2,7 @@
 
 Checked on Saturday 14 Nov 2026, 10:00–11:00, against the six "example scenarios to spark ideas" in Valio Aimo's brief (`AIMO/CHALLENGE.md`) and our own acceptance scenarios (SPEC §13).
 
-**Which code.** The code checked is commit `84d9407` (branch `overnight-build`), the latest commit. The isolated worktree was created from `main`, which holds no code, so that commit was exported with `git archive` into a scratch folder and run there. Nothing in the repository was changed except this file. Changes other agents made to the main tree after `84d9407` are not covered.
+**Which code.** The code checked is commit `84d9407` (branch `overnight-build`), the latest commit. The isolated worktree was created from `main`, which held no code then, so that commit was exported with `git archive` into a scratch folder and run there. Nothing in the repository was changed except this file. Changes other agents made to the main tree after `84d9407` are not covered.
 
 **How.** Everything ran in replay mode with capture `2026-11-14-demo` (clock pinned to Sat 14 Nov 02:52, 769 products), no Gemini key and no supplier calls. Each use case had its own server and an empty database. One sub-agent per use case ran the requests. The claims that carry the verdicts were then run again by hand; those are marked **(re-checked)**. Each figure says whether it covers the whole catalog (17,546 products) or the capture only.
 
@@ -12,7 +12,7 @@ The six brief scenarios are optional: the brief calls them ideas, not requiremen
 
 ## What holds now (Sunday 15 Nov 2026, about 03:00)
 
-Everything below this section is the check of Saturday morning against commit `84d9407`, kept as it was written: it is the record of what was missing then and why the day's work was chosen. Much of it has since been built. This section says what is true of the code now (commit `94b21a5`, with one lane's uncommitted change to substitute ranking), from the independent check of the six scenarios on Sunday at 00:52 (`AIMO/build/replan/REVIEW.md`, section CK3, on commit `016cc08`), the fixes that followed, and runs through `/shop/api/*` in replay on Sunday between 02:26 and 02:29. Figures are from the recordings (1,163 products: 769 and 394 baking products), never the whole catalog of 17,546. The item-by-item account with the proof for each is `AIMO/COVERAGE.md`; the figures of the demo at both clocks are `docs/DEMO.md`.
+Everything below this section is the check of Saturday morning against commit `84d9407`, kept as it was written: it is the record of what was missing then and why the day's work was chosen. Its last section, the team's own ranking of changes to make before the deadline, is left out here; it is in the same file on branch `replan-build`. Much of it has since been built. This section says what is true of the code now (commit `94b21a5`, with one lane's uncommitted change to substitute ranking), from the independent check of the six scenarios on Sunday at 00:52 (`AIMO/build/replan/REVIEW.md`, section CK3, on commit `016cc08`), the fixes that followed, and runs through `/shop/api/*` in replay on Sunday between 02:26 and 02:29. Figures are from the recordings (1,163 products: 769 and 394 baking products), never the whole catalog of 17,546. The item-by-item account with the proof for each is `AIMO/COVERAGE.md`; the figures of the demo at both clocks are `docs/DEMO.md`.
 
 | # | Use case | Verdict on Saturday morning | Verdict now | What changed, and the next step (which does not exist today) |
 |---|---|---|---|---|
@@ -261,34 +261,4 @@ The server ran in replay on empty books. "Re-checked" marks what was run a secon
 
 ---
 
-## Changes worth making before Sunday 10:00, by score gained per hour
-
-This ranking is a judgement: the hours are estimates, and score gained cannot be measured. It puts first what a judge is likely to meet in the first minutes of pointing an agent at the gateway.
-
-| Rank | Change | Hours | Criterion | Why |
-|---|---|---|---|---|
-| 1 | **Replay: a product outside the capture reads "not in the recorded copy of Valio's data", never "Valio cannot deliver".** Where: `valio/replay.py`, the reason codes and their wording | 1–2 | 15% openness and the trust protocol; protects the 30% demo | It puts a false statement in Valio's name for most of the catalog, against our own rule that no data means unknown. Any judge who asks for butter, cheese or eggs on the replay or fallback app sees it. Tonight's demo numbers do not change (re-checked) |
-| 2 | **One pass over the doc wording**: WALKTHROUGH Step 1 (the S1 run is hand-built), SPEC §13 row 3, "on an empty book" in DEMO.md for 1,500 L, SPEC.md:105 and the OpenAPI note on "standing order", the `/v1/authority` F-08 sentence, WALKTHROUGH §4 (P-04 for the ward), SPEC §4 (cut-off on undated requests), and one line on the order page about the two clocks | 0.5–1 | 15% openness | Judges who read `/docs` and the walkthrough meet claims the code does not back |
-| 3 | **Coverage per line in multi-line offers** ("3 of 5 lines covered; lines 3 and 5 missing"), in the option summary and the P-03 sentence (`offers/options.py:137`, `rules.yaml:314`) | ~1 | 20% match, 20% controls | A judge's first request with several ingredients shows "covered at 0.0%" for an option that covers a line in full, and the approver reads "only 0%" |
-| 4 | **Judge the substitute list with the buyer's own allergen rule**, so the ward never reads "✓ passes · can be ordered" for a product its own offer sends to a dietitian (`offers/substitutes.py`) | 0.5–1 | 20% controls | It contradicts the allergen story exactly where a Valio judge would look: scenario 3 asked as the ward |
-| 5 | **A note with the earliest date** when every product of a line arrives after the needed-by date (`offers/planning.py`) | ~1 | 15% delivery constraints | It turns "nothing in time" into "earliest Mon 16 Nov", the answer the last-minute-event scenario needs |
-| 6 | **The trade-off and the allergen basis on the approval card** (`ui/approvals_page.py` and its template) | 1–2 | 20% controls | The human who signs a substitute sees what is given up; today only the request page shows it |
-| 7 | **A booth question on 465793**, the almond drink declared free from tree nuts. Optionally, a check that sends a conflict between the ingredients or name and the declaration to the dietitian | 0.25 (question) or 1.5–2 (check) | 20% controls, the trust protocol | A strong, concrete example for the trust-protocol pitch. It affects 2 catalog products |
-| 8 | **A page example with several ingredients**, built from captured ingredients, plus keeping vegetable-fat blends out of `cream`. Do it after rank 3 | ~2 | 30% demo, 20% match | It answers the ordering half of scenarios 1 and 2, and backs the pitch line "recipes belong to the buyer's agent; the gateway takes its multi-line request" |
-| 9 | **Ward substitutes to the dietitian** (P-05's role set by the profile) | ~1 | 20% controls | It fits "allergen-safe substitution" better, but ASSUMPTIONS chose the purchasing manager, so decide first |
-| 10 | **A fresh offer when an approval's re-check fails** (`api/service.py` `decide_approval`) | 2–3 | 15% robustness | It fixes a real dead end, but the case cannot appear in a replay demo, where stock never moves |
-
-**Not before the deadline:**
-- a recipe planner (6–8 h);
-- a drift rule (3–5 h), or standing orders (10–14 h);
-- proactive re-checks or notifications (at least 5–6 h);
-- a nutrition rule (4–6 h);
-- a seller-side agent (8–12 h).
-
-For each of these, one line under the next steps on `/assumptions` scores on 15% openness instead.
-
-Ranks 1 to 6 together take about 5–8 h. Ranks 1, 3 and 4 touch code that the e2e tests cover, so run the suite after each.
-
----
-
-The evidence files (requests, answers, page text, scripts) are under `/private/tmp/claude-501/-Users-joaocosta-Pessoal-junction/438d0f7d-7f46-4faf-8c0f-07ba7c612213/scratchpad/usecases/<n>/`: `0/` holds the re-checks, and `1/` to `7/` hold the use cases. The scratchpad is not kept after this session.
+The evidence files of this check (requests, answers, page text, scripts) were kept in the session's scratch folder, which is not part of the repository and was not kept after the session.

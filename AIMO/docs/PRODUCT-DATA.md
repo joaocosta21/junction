@@ -736,7 +736,7 @@ WHERE c.claim = 'FREE_FROM_LACTOSE' AND p.category = '10400';
 
 ### 7.3 Allergen safety with the four-state model
 
-The plan's buyer exclusion rule ([PLAN.md](../PLAN.md) §7): an explicit `FREE_FROM` passes automatically, a declared `CONTAINS` is rejected, and `MAY_CONTAIN`, `UNDECLARED` or no statement goes to a human. The sample below only returns the set that passes automatically.
+The plan's buyer exclusion rule (`AIMO/PLAN.md` §7, on branch `replan-build`; as built: [SPEC.md](../SPEC.md) §6): an explicit `FREE_FROM` passes automatically, a declared `CONTAINS` is rejected, and `MAY_CONTAIN`, `UNDECLARED` or no statement goes to a human. The sample below only returns the set that passes automatically.
 
 ```python
 SAFE_STATES = {"FREE_FROM"}                      # certifiable
@@ -816,7 +816,7 @@ def candidates(con, pid, *, limit=25):
     return sorted(derived, reverse=True)[:limit], explicit
 ```
 
-Then call `/availability` **once**, batched, on the shortlist (≤1,000 ids per request), and classify every candidate with the six states of [PLAN.md](../PLAN.md) §2. The plan widens candidates beyond this sample: same category, then the same first 4 digits, then the same first 3 (§7), and variable-weight candidates go to a human rather than being dropped.
+Then call `/availability` **once**, batched, on the shortlist (≤1,000 ids per request), and classify every candidate with the six states of [SPEC.md](../SPEC.md) §4. The team's plan (`AIMO/PLAN.md` §7, on branch `replan-build`) widens candidates beyond this sample: same category, then the same first 4 digits, then the same first 3, and variable-weight candidates go to a human rather than being dropped.
 
 ---
 

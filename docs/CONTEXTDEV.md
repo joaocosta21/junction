@@ -136,7 +136,7 @@ Two of the dropped pages may well be the same product (`462775` under its retail
 
 ## The 79 answers of 15 Nov
 
-Sent on Sunday 15 Nov 2026 between 03:49 and 03:54 Helsinki, mode `ultra`, 100 credits each by each answer's own `key_metadata` (7,900 credits). João approved going past the first total of 60 on 14 Nov at 20:51. All figures are of these runs: a sample, not a catalog fact.
+Sent on Sunday 15 Nov 2026 between 03:49 and 03:54 Helsinki, mode `ultra`, 100 credits each by each answer's own `key_metadata` (7,900 credits). The team approved going past the first total of 60 on 14 Nov at 20:51. All figures are of these runs: a sample, not a catalog fact.
 
 **The two demo products that had no page** (`scripts/record_evidence.py --ids 469363 469386 --limit 2`, 17 seconds, one request after the other; the same two the dry run of `--demo-set` lists at the demo clock):
 

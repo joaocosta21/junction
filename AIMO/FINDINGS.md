@@ -7,7 +7,7 @@ Rewritten on Saturday 14 Nov. Every figure here was recomputed from the product 
 - **Sample** = a random sample of 1,000 products sent to `/api/availability` and `/api/price` on Friday 2026-11-13 at 23:00 server time. Sample figures are estimates and move with the clock.
 - **Fixed set** = 24 products sent with 4 dates and 6 customer strings.
 
-**How to read the behaviour:** the mock's behaviour is the scenario, not a fault ([PLAN.md](PLAN.md) §1). Unknown stock, passed cut-offs and undeliverable products are what the agent has to handle and explain.
+**How to read the behaviour:** the mock's behaviour is the scenario, not a fault. Unknown stock, passed cut-offs and undeliverable products are what the agent has to handle and explain.
 
 ---
 
@@ -31,7 +31,7 @@ Rewritten on Saturday 14 Nov. Every figure here was recomputed from the product 
 | Not deliverable | empty `scheduleLines`, no `logisticModel`, no `closingTime` | 20.3% |
 | Blocked | `salesBlock` true | 0.1% (one product, `470094`) |
 
-What the agent does in each state is in [PLAN.md](PLAN.md) §2.
+What the agent does in each state is in [SPEC.md](SPEC.md) §4, "The six states".
 
 - **`closingTime`:** all 357 Terminal products in the sample were already past their cut-off (12 distinct values between 2026-11-11 13:00 and 2026-11-13 12:30; 229 at 2026-11-12 15:00). Stock: 372 of 440 close on Sunday 2026-11-15 17:00; 68 closed on Friday at 13:00.
 - **`availableDate`:** 2026-11-16 on 767 of the 768 lines that carry one; the blocked product shows 2026-12-30.
@@ -115,4 +115,4 @@ What the agent does in each state is in [PLAN.md](PLAN.md) §2.
 ---
 
 ## 7. Earlier claims that did not survive
-The list is at the end of [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md), "Claims we no longer make".
+The list is at the end of the team's booth questions, under "Claims we no longer make" (`AIMO/BOOTH-QUESTIONS.md`, on branch `replan-build`).

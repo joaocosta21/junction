@@ -1,6 +1,6 @@
 # Walkthrough: what the gateway does, why, and how to check it
 
-For the team, and for anyone who was not there when it was built. Rewritten on Saturday 14 Nov 2026, about 20:30, against commit `c2106fe`. The earlier walkthrough (1,300 lines, written that morning against `3ef0657`) described a flow that no longer exists: an agent that ordered alone by default, a first option of €2,580.64 filled with coffee milk, eight MCP tools, a model as the only reader of requests. Its text is in git history.
+For anyone who was not there when it was built. Rewritten on Saturday 14 Nov 2026, about 20:30, against commit `c2106fe`. The earlier walkthrough (1,300 lines, written that morning against `3ef0657`) described a flow that no longer exists: an agent that ordered alone by default, a first option of €2,580.64 filled with coffee milk, eight MCP tools, a model as the only reader of requests. Its text is in git history.
 
 **Corrected on Sunday 15 Nov 2026, about 03:00**, after the night's checks and fixes (commit `94b21a5`): the people and roles, the third option of the brief's request, rule F-12 and who decides it, the limits and counts, and what is claimed about approvals, the audit trail and the pages. What was measured again is marked "15 Nov": it was asked of a local gateway in replay at the demo clock, over REST with the demo tokens or through the routes the shop page calls. Everything else is as measured on 14 Nov.
 
@@ -23,7 +23,7 @@ Where each subject is kept now:
 | The public link, its settings and checks | `docs/DEPLOY.md` |
 | The tech awards: what ran and what did not | `docs/AWARDS.md` |
 | The brief and the judging criteria, verbatim | `AIMO/CHALLENGE.md` |
-| The questions for Valio's mentors in full | `AIMO/BOOTH-QUESTIONS.md` |
+| The questions for Valio's mentors in full | `AIMO/BOOTH-QUESTIONS.md` (on branch `replan-build`) |
 
 ## Contents
 1. [What the judges score](#1-what-the-judges-score)
@@ -280,7 +280,7 @@ First what in the demo is ours and stated as such, then what a pilot would add. 
 
 ## 10. Questions for Valio Aimo: answered and open
 
-The full write-up of each question, with its example, is in `AIMO/BOOTH-QUESTIONS.md` under the id given. The catalog counts that the earlier walkthrough printed beside each question were not recounted tonight and are left out. Answers are quoted from a team member's notes of what was said at the booth on 14 Nov.
+The full write-up of each question, with its example, is in `AIMO/BOOTH-QUESTIONS.md` (on branch `replan-build`) under the id given. The catalog counts that the earlier walkthrough printed beside each question were not recounted tonight and are left out. Answers are quoted from a team member's notes of what was said at the booth on 14 Nov.
 
 ### Answered in person on 14 Nov
 
@@ -293,7 +293,7 @@ The full write-up of each question, with its example, is in `AIMO/BOOTH-QUESTION
 | `T07-5` | A listed substitute in another sales unit: convert by volume? | "yes the goal is to satisfy the prompt" | 100 cartons become 10 cases |
 | `Q9` | Variable weight: invoiced for the weight ordered or delivered? | "what is actually delivered. like in a normal store" | The total is an estimate and says so; P-06 |
 | V6 | A substitute can never add an allergen | "yes" | F-05 |
-| V7 | A substitute that loses a dietary claim always goes to a person | "yes and only in the last case"; clarified by João: only when no product that keeps the claim can be supplied | Held back as a last resort; F-08 and F-12 |
+| V7 | A substitute that loses a dietary claim always goes to a person | "yes and only in the last case"; clarified by a team member: only when no product that keeps the claim can be supplied | Held back as a last resort; F-08 and F-12 |
 | V11 | "By Monday" means the first Monday after today | "yes" | `src/tta/agent/days.py` |
 | V13 | What Valio sees in the log | "all the steps and decisions"; later: "the log should show and explain why it made that decision and the logic behind it and product considered" | Valio's view shows every rule that fired and the products left out, the buyer's values masked. Whether masking is what was meant is still to confirm |
 | V1 | May the agent order alone? | "for now deactivate automatic order … the final submition should always have the input from the user"; as a setting: "tbh after and if you are 100% sure yes" | F-10; the setting is off in every profile |
@@ -331,7 +331,7 @@ The full write-up of each question, with its example, is in `AIMO/BOOTH-QUESTION
 
 ## 11. Decisions we took on our own
 
-The run's full list, with reasons, is `AIMO/build/replan/DECISIONS.md` (B1 to B67). The ones a reader of this walkthrough meets:
+The run's full list, with reasons, is `AIMO/build/replan/DECISIONS.md` (B1 to B67), on branch `replan-build`. The ones a reader of this walkthrough meets:
 
 | Decision | Where to change it |
 |---|---|

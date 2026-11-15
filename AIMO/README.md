@@ -1,44 +1,50 @@
-# Valio Aimo — "Trusted Trade Agents"
+# Valio Aimo: "Trusted Trade Agents"
 
-Our challenge. €4,000 / €2,000 / €1,000. **The judging criteria are the score to maximise:** they are quoted verbatim at the top of [../CLAUDE.md](../CLAUDE.md) and in [CHALLENGE.md](CHALLENGE.md).
+The documents of the challenge entry that are not code: the brief, the contract the code follows, the account of what was built, and the references for Valio Aimo's API and data. The project's front page is [../README.md](../README.md).
 
-| File | Purpose |
+| File | What it holds |
 |---|---|
-| **[PLAN.md](PLAN.md)** | **The working plan** — rubric mapping, response logic, schedule, tech awards, cut order |
-| [SPEC.md](SPEC.md) | **The build contract** — interface, data shapes, states, rules. Code follows it |
-| [WALKTHROUGH.md](WALKTHROUGH.md) | How the built gateway works, why each piece is there, the decisions taken overnight, and how to check it |
-| [COVERAGE.md](COVERAGE.md) | The brief's 16 items one by one: what works, the proof, the **assumptions** and the **next steps** |
-| [USE-CASES.md](USE-CASES.md) | The brief's six example scenarios: the check of Saturday morning, with what holds now at the top |
-| [build/replan/](build/replan/) | The build of Saturday and Sunday: `STATUS.md` (board and log), `DECISIONS.md` (B1 to B67), `REVIEW.md` (the checks and their findings) |
-| [build/](build/) | Overnight build: [RUNBOOK.md](build/RUNBOOK.md) (how to run), [STATUS.md](build/STATUS.md) (task board), [tasks/](build/tasks/) (one file per agent) |
-| [CHALLENGE.md](CHALLENGE.md) | The problem statement and judging criteria, verbatim |
-| [FINDINGS.md](FINDINGS.md) | **Read first.** Verified facts about the API and the data |
-| [BOOTH-QUESTIONS.md](BOOTH-QUESTIONS.md) | Questions for the Valio mentors, each with an example to show |
+| [CHALLENGE.md](CHALLENGE.md) | The problem statement and the judging criteria, verbatim, with our reading of them |
+| [SPEC.md](SPEC.md) | The contract: interface, data shapes, states, rules. The code follows it |
+| [COVERAGE.md](COVERAGE.md) | The brief's 16 items one by one: what works, the proof, the assumptions and the next steps |
+| [WALKTHROUGH.md](WALKTHROUGH.md) | What the gateway does, step by step, why each piece is there, the questions asked of Valio Aimo and the decisions we took on our own |
+| [USE-CASES.md](USE-CASES.md) | The brief's six example scenarios: a check of Saturday 14 Nov, with what holds now at the top |
+| [FINDINGS.md](FINDINGS.md) | Facts about Valio Aimo's mock API and data, each counted from the product file or from saved answers |
 | [docs/FIELD-DICTIONARY.md](docs/FIELD-DICTIONARY.md) | Every field of every payload, in one layout |
-| [docs/API.md](docs/API.md) · [docs/PRODUCT-DATA.md](docs/PRODUCT-DATA.md) · [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md) · [docs/CSV-DATASETS.md](docs/CSV-DATASETS.md) | Per-file references |
-| [PLAN-30H-SUPERSEDED.md](PLAN-30H-SUPERSEDED.md) | Earlier, over-scoped plan. Reference only; its framing is superseded |
+| [docs/API.md](docs/API.md) · [docs/PRODUCT-DATA.md](docs/PRODUCT-DATA.md) · [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md) · [docs/CSV-DATASETS.md](docs/CSV-DATASETS.md) | One reference per source: the API, the product file, its JSON Schema and code lists, the two CSV files |
+| `policy/` and `catalog_search.py` | The first drafts of Friday 13 Nov: a guardrail policy as data with its log format, and a catalog search. They were the starting point for `src/tta/policy/` and `src/tta/catalog/` and are kept unchanged; the rules in force are in `src/tta/policy/` |
 
-## Data files (gitignored inside `AIMO/` — fetch with the API key)
+Some of these documents cite the team's working notes of the weekend (the plan, the build log, the questions asked at Valio Aimo's booth) as the source of a figure or a decision. Those notes are on the branch `replan-build`, at the paths cited.
+
+## Data files
+
+Valio Aimo's, not ours. They are at the repository root:
+
 ```
 valio_aimo_junction26_product_data.json          17,546 products, 87 MB
 valio_aimo_junction26_product_data_schema.json   JSON Schema (from the portal)
 valio_aimo_junction26_delivery_reliability.csv   25.2% of products
 valio_aimo_junction26_carbon_footprint.csv       62.9% of products (81.2% of food)
-openapi.json                                     Valio's API spec (from the portal)
 ```
-Fetch the three downloadable files (follow redirects; the key is on the Junction platform and in `../.env`):
+
+Valio Aimo's own `openapi.json` comes from the portal and is not in the repository.
+
+To fetch the three downloadable files again, from the repository root (follow redirects; the key is on the Junction challenge page):
+
 ```bash
-cd AIMO
 curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_product_data.json       https://junction26.valioaimo.fi/api/products/download
 curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_delivery_reliability.csv https://junction26.valioaimo.fi/api/delivery-reliability/download
 curl -L -H "X-API-Key: $VALIO_AIMO_API_KEY" -o valio_aimo_junction26_carbon_footprint.csv     https://junction26.valioaimo.fi/api/carbon-footprint/download
 ```
 
-## API quick reference
-Base `https://junction26.valioaimo.fi/api` · header `X-API-Key` · credentials in `../.env` (gitignored)
+## Valio Aimo's mock API, in short
+
+Base `https://junction26.valioaimo.fi/api` · header `X-API-Key`. The whole reference is [docs/API.md](docs/API.md).
+
 ```
 GET  /ping
 POST /price         { customer: str, requestedDate: date, products: [str] }  1-1000 items
 POST /availability  { same shape }
 ```
-**There is no order endpoint, by design: the order step, its approval and its record are ours to define.** Portal docs (`/docs`, `/redoc`, `/openapi.json`) need the portal password, not the API key.
+
+**There is no order endpoint, by design: the order step, its approval and its record are ours to define.** The portal's own documents (`/docs`, `/redoc`, `/openapi.json`) need the portal password, not the API key.

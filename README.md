@@ -32,7 +32,7 @@ python3.13 -m venv .venv && .venv/bin/pip install -e ".[dev]" && GEMINI_API_KEY=
 
 - **As a person:** open http://127.0.0.1:8000/shop, type `1,000 litres of lactose-free milk by Monday`, press "Check price and stock", then "Confirm order". Open the order under "Orders" to read the log, in the buyer's view and in "What Valio Aimo sees". The first start takes about ten seconds while the product file loads.
 - **As an agent:** start at http://127.0.0.1:8000/.well-known/api-catalog or `/llms.txt`; the interface is at `/docs`. Demonstration tokens are public by design, for example `curl -s -H "Authorization: Bearer demo-agent-hotel-kitchen" http://127.0.0.1:8000/v1/authority`.
-- **Without installing:** https://joaocostared--trusted-trade-agents.us-east.modal.run. The build log says which commit it runs and how it was checked ([AIMO/build/replan/STATUS.md](AIMO/build/replan/STATUS.md)); the link was not called for this page.
+- **Without installing:** https://joaocostared--trusted-trade-agents.us-east.modal.run. The team's build log says which commit it runs and how it was checked (`AIMO/build/replan/STATUS.md`, on branch `replan-build`); the link was not called for this page.
 
 ## Open, documented standards
 
@@ -178,7 +178,7 @@ What is served, besides the open documents listed under "Open, documented standa
 .venv/bin/ruff check src tests
 ```
 
-The tests call no outside service. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. When the whole suite was last run in one piece, and on which commit, is in the build log (`AIMO/build/replan/STATUS.md`).
+The tests call no outside service. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. When the whole suite was last run in one piece, and on which commit, is in the team's build log (`AIMO/build/replan/STATUS.md`, on branch `replan-build`).
 
 ## Datasets, and how to refresh them
 
@@ -198,8 +198,11 @@ To use a new recording, give it a new name and start with `TTA_REPLAY_CAPTURE=<n
 | [AIMO/SPEC.md](AIMO/SPEC.md) | The contract: interface, data shapes, states, rules |
 | [AIMO/WALKTHROUGH.md](AIMO/WALKTHROUGH.md) | What the gateway does, step by step |
 | [docs/AWARDS.md](docs/AWARDS.md), [docs/CONTEXTDEV.md](docs/CONTEXTDEV.md), [docs/AIVEN.md](docs/AIVEN.md), [docs/DEPLOY.md](docs/DEPLOY.md) | The technology awards: what ran and what did not; deploying |
-| [docs/DEMO.md](docs/DEMO.md), [docs/PITCH.md](docs/PITCH.md) | The demo script on `/shop`, with every scenario's figures at both clocks; the pitch |
+| [docs/DEMO.md](docs/DEMO.md) | The demo script on `/shop`, with every scenario's figures at both clocks |
 | [AIMO/FINDINGS.md](AIMO/FINDINGS.md) | Facts about the mock API and the data, from the first days |
+| [AIMO/README.md](AIMO/README.md) | The index of `AIMO/`: the brief, the contract, and the references for Valio Aimo's API and data |
+
+**This branch holds the delivery:** the code, the tests, the data and the documents above. The team's working notes of the weekend (the plan, the build log, the review findings, the questions asked at Valio Aimo's booth) are not on it. Some documents cite one of those notes as the source of a figure, a check or a decision, by a path such as `AIMO/build/replan/STATUS.md` or `AIMO/PLAN.md`. Those files are on the branch `replan-build`, at the same paths.
 
 ## Licence
 

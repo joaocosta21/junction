@@ -522,7 +522,7 @@ At `timeNow` 2026-11-13T23:00:16–23:00:35+0200, random sample of 1,000 (797 wi
 | `2026-11-13T12:30:00+0200` | 1 | **past**, same day (Terminal, `470094`) |
 | key absent | 203 | undeliverable |
 
-Split: **425 past / 372 future / 203 absent.** Terminal: 357 of 357 already past. Stock: 372 at 2026-11-15T17:00 (future), 68 at 2026-11-13T13:00 (past). **53.3% of products with a schedule line (425 of 797) report a cut-off already in the past**, and 424 of those 425 carry an `availableDate` (the other is a zero-amount line). The team reads `closingTime` literally ([PLAN.md](../PLAN.md) §2): a product whose cut-off has passed cannot be promised for `availableDate`, so it is not offered for a dated request and the explanation names it. That rule excludes 42.5% of this sample. These counts move with the clock: the sample was taken on a Friday at 23:00.
+Split: **425 past / 372 future / 203 absent.** Terminal: 357 of 357 already past. Stock: 372 at 2026-11-15T17:00 (future), 68 at 2026-11-13T13:00 (past). **53.3% of products with a schedule line (425 of 797) report a cut-off already in the past**, and 424 of those 425 carry an `availableDate` (the other is a zero-amount line). The team reads `closingTime` literally (the plan: `AIMO/PLAN.md` §2, on branch `replan-build`; as built: [SPEC.md](../SPEC.md) §4): a product whose cut-off has passed cannot be promised for `availableDate`, so it is not offered for a dated request and the explanation names it. That rule excludes 42.5% of this sample. These counts move with the clock: the sample was taken on a Friday at 23:00.
 
 ### 8.8 `tax.taxRate` is authoritative over the file's `vatCode`
 
@@ -578,7 +578,7 @@ curl -s -o /dev/null -w '%{redirect_url}\n' \
   https://junction26.valioaimo.fi/api/products/download -H "X-API-Key: $VALIO_AIMO_API_KEY"
 ```
 
-⚠️ **Do not download the product JSON repeatedly.** It is ~83 MB and already present in this repo at `AIMO/valio_aimo_junction26_product_data.json`. `json.load` on it takes about half a second and ~0.6–0.7 GB peak RSS (measured 2026-11-14, Python 3.13; FINDINGS.md §2).
+⚠️ **Do not download the product JSON repeatedly.** It is ~83 MB and already present in this repo at `valio_aimo_junction26_product_data.json`, at the repository root. `json.load` on it takes about half a second and ~0.6–0.7 GB peak RSS (measured 2026-11-14, Python 3.13; FINDINGS.md §2).
 
 ---
 
@@ -613,7 +613,7 @@ A Python client against this API must do all of the following.
 16. Not orderable if `scheduleLines` is empty, `availableAmount == 0` or `salesBlock` is true on the product or the line. Passing that is necessary, not sufficient: apply items 18 and 19.
 17. Treat `salesBlock: true` (product or line level) as not orderable; it was `true` on 1 of 1,000 sampled products (`470094`, §8.3).
 18. Treat `availableAmount >= 999_999` as "quantity unknown" (a `>= 1_000_000` rule misses the Terminal value `999999`); never do arithmetic on it or propose an order sized from it.
-19. Compare `closingTime` with `timeNow`. A product whose cut-off has passed cannot be promised for `availableDate`: do not offer it for a dated request, and name it in the explanation ([PLAN.md](../PLAN.md) §2).
+19. Compare `closingTime` with `timeNow`. A product whose cut-off has passed cannot be promised for `availableDate`: do not offer it for a dated request, and name it in the explanation (as built: [SPEC.md](../SPEC.md) §4).
 20. Ignore `requestedDate` as a constraint the API enforces — it does not. Enforce lead time yourself.
 21. Use `tax.taxRate` for VAT, never the file's `vatCode`.
 22. Use `catalogPrice.value` for ex-VAT line totals; use `listPrice.value` only to show the discount, and check `netPriceFound` to say whether the price is customer-specific.

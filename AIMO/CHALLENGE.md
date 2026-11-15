@@ -59,7 +59,7 @@ This is not about replacing today's e-commerce UI with a chatbot. It is about de
 
 > **Credentials (portal password + API key) are in the Junction app challenge page and were provided with the brief. They are deliberately NOT recorded in this public repo** — keep them in a local `.env` that is gitignored. Webshop test accounts to be shared separately.
 
-## Judging criteria (verbatim) — the score to maximise
+## Judging criteria (verbatim)
 
 | Weight | Criterion | Their wording |
 |---|---|---|
@@ -68,8 +68,6 @@ This is not about replacing today's e-commerce UI with a chatbot. It is about de
 | **20%** | Autonomy and controls | Quality of the guardrails design. What the agent can decide alone, what needs human sign-off, and how decisions are logged and auditable. |
 | **15%** | Robustness to exception situations | Handling of partial availability, substitutions and delivery constraints beyond the happy path. |
 | **15%** | Openness and credible path toward production | Open, documented standards rather than a proprietary format, clear visibility of assumptions, well-justified technical choices, and a credible view of next development steps |
-
-**Prizes:** €4,000 / €2,000 / €1,000.
 
 ## Mentors
 - **Marketplace/Commercial:** Hanna Forsström, Pirjo Kaartinen

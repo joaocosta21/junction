@@ -59,7 +59,7 @@ How to read this page:
 - **`scripts/aiven_proof.py`**, the one-command form of the proof: it needs the supplier's own login, which was never created. A login is a password someone must hold, so it is a person's step.
 - **The witness on Modal** (see Modal).
 
-**A person must still.** Create the supplier's login and set `SUPPLIER_DATABASE_URL` (the commands are in `AIMO/AWARDS-RUN.md`), then run `scripts/aiven_proof.py`.
+**A person must still.** Create the supplier's login and set `SUPPLIER_DATABASE_URL` (the command is in `docs/DEPLOY.md`, "To run", step 7), then run `scripts/aiven_proof.py`.
 
 **Assumptions and next steps.** The pages (the shop included) write to an order book in memory per browser, not to Aiven; only REST and MCP callers use the shared book. The gateway's own login owns the tables and could drop a trigger; the hash chain would still show a changed event. Next: a gateway login that does not own the tables, and each stored order tied to its audit event (today an order row changed in the database is answered with a valid signature).
 

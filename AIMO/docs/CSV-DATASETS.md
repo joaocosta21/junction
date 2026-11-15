@@ -418,7 +418,7 @@ China at 18.4% carbon coverage is not a sourcing story, it is the same food/non-
 
 ## 5. Ranking design recommendation
 
-> Not the plan's ranking. [PLAN.md](../PLAN.md) §2 ranks by constraint fit, then verification status, then price; reliability and carbon are shown per option, not scored. This section is kept as an analysis of the three axes.
+> Not the plan's ranking. The team's plan (`AIMO/PLAN.md` §2, on branch `replan-build`) ranks by constraint fit, then verification status, then price; reliability and carbon are shown per option, not scored. This section is kept as an analysis of the three axes.
 
 Three axes: price, delivery reliability, carbon. Only **17.8% of the catalog** carries all three, and **23.0% within food**. The design has to be honest about that rather than hide it.
 
