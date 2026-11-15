@@ -10,7 +10,7 @@ Rewritten Sun 15 Nov after three independent checks of the text against the fina
 |---|---|---|---|
 | Project name | 30 | The one you typed, or `Trusted Trade Agents` (20) | — |
 | Punchline | 200 | Section 2 | Paste |
-| Description | 5,000 | Section 3 (4,948 characters; 4,996 if the form counts a line break as two) | Paste, then read the preview: the form may not render markdown |
+| Description | 5,000 | Section 3 (4,947 characters; 4,995 if the form counts a line break as two) | Paste, then read the preview: the form may not render markdown |
 | Challenge | — | Valio Aimo — "Trusted Trade Agents" | Select |
 | Project demo | link | `https://joaocostared--trusted-trade-agents.us-east.modal.run/shop` | Live with the final code; 10 of 10 deployment checks passed |
 | Source code | link | `https://github.com/joaocosta21/junction` | Pushed: `main` is the clean branch. **Still to do: make it public** (after Valio Aimo's answer on their data files) and open it in a private window. Context.dev's brief requires a GitHub repository |
@@ -31,7 +31,7 @@ Alternative (147 characters):
 
 > An open gateway that lets any purchasing agent read Valio Aimo's prices and stock, prepare an order, and stop for a person exactly where it should.
 
-## 3. Description (4,948 of 5,000 characters; markdown)
+## 3. Description (4,947 of 5,000 characters; markdown)
 
 Each heading answers one of the organiser's lists in their own words: the flow and the three core items; the four "problems we'd love to see tackled"; the optional direction on delivery and sustainability; the six example scenarios; the openness criterion; then one paragraph for each technology partner.
 
@@ -52,18 +52,18 @@ A kitchen types **"1,000 litres of lactose-free milk by Monday"**, or an agent s
 
 - **Trust protocol.** Every line states price, stock, delivery date, allergens and origin as confirmed, unknown or ruled out; offers and orders carry the gateway's signature, which anyone can check (demo key today). For an allergen the buyer excludes, no statement means unknown, not safe: at a milk-allergy ward all 26 lactose-free milks are refused.
 - **Guardrails model.** Human sign-off above the buyer's spend threshold and for substitutions outside stated preferences (not like for like, or over 25% dearer). The agent orders alone only if the buyer switches it on (shop page; off for demo tokens): then 302 L (€748.96) is ordered alone and says why; 303 L (€751.44) waits, above the €750 limit. Over REST and MCP an agent can never approve.
-- **Response logic.** Partial availability is offered as partial. Substitutes from Valio Aimo's own assortment are ranked good-better-best: same product in another pack, same brand, other brand. Where nothing fits, it says so.
+- **Response logic.** Partial availability is offered as partial. Substitutes from Valio Aimo's own assortment are ranked good-better-best: same product in another pack, same brand, other brand. If nothing fits, it says so.
 - **Audit trail.** A human-readable log, one sentence per step with the rule that fired, hash-chained, for both buyer and Valio Aimo, who sees no limit, allergen or person's name.
 
-**Not just price:** each option carries delivery reliability, carbon footprint and certificate labels where known; "most reliable delivery" re-ranks the offer.
+**Not just price:** each option carries delivery reliability, carbon footprint and certificate labels where known; "most reliable delivery" can re-rank the offer.
 
 ## The six example scenarios
 
-- **Recipe → order:** "a chocolate cake for 20" becomes one offer for its 7 ingredients from our 10 recipes; kitchen stock is taken off.
+- **Recipe → order:** "a chocolate cake for 20" becomes one offer for its 7 ingredients, 4 confirmed, from our 10 recipes; kitchen stock is taken off.
 - **Last-minute event:** "beef stew for 80 for tomorrow" names each ingredient that cannot arrive and offers the earliest date.
 - **Stock-out:** product 469316, 0 in stock, gets a ranked substitute, the trade-off in figures (2.9 L packs, not 3 L).
-- **Selling agent:** with an offer, Valio Aimo suggests a related product (the same oat drink in a larger pack, €42.00 less), added only if accepted.
-- **Allergen-safe substitution:** at the ward an oat drink with no milk statement is replaced by a rice drink that states free from; the dietitian must approve.
+- **Selling agent:** with an offer, Valio Aimo suggests a related product (the same oat drink in a larger pack, €42 less), added only if accepted.
+- **Allergen-safe substitution:** an oat drink with no milk statement is replaced by a rice drink that states free from; the dietitian must approve.
 - **Standing order drift:** a weekly 100 L renewed at 290 L is outside the 25% tolerance and waits for a person.
 
 ## Open standards, technical choices
