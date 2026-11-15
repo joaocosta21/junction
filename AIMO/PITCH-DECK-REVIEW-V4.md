@@ -6,6 +6,51 @@
 - "Log hh:mm" = an entry of `AIMO/build/replan/STATUS.md`. `file:line` = the working tree.
 - João's rule for slides is applied to every replacement: no "limits" or "limitations" for what the demo does not do; the words are **Assumptions** and **Next steps**. The word "limit" stays only where it is a buyer's spend limit (the €750).
 
+## 0. Read this first: what changed after the review (Sun 15 Nov, 02:55)
+
+Four things were decided or built after the review below was written. Where this section and a row below disagree, this section wins.
+
+### 0.1 The reader: a model and the rules, both
+
+The deck must say both. Measured at 02:45 on the local server with the team's key: the brief's own sentence was read by `gemini-3.6-flash` into 1,000 L of lactose-free milk for Monday 16 Nov; a loosely worded sentence whose day the model got wrong was refused by the gateway's check of the reading against the text; and when the model answered "rate limited" twice, the fixed rules read the sentence instead and the answer said so.
+
+- **Line for the solution page (page 3 or 4, wherever "fixed rules" stands):** "A model reads the sentence. The gateway checks the reading against the text, and fixed rules decide. If the model does not answer, the rules read it too."
+- **Why both, if asked:** reading and deciding are two jobs. The model understands messy language; what may be ordered is decided by rules a person can read and audit. A model never decides.
+- **Do not write** "no model is called" or "no model runs" anywhere. This replaces row 12 of section 2: page 14's strip becomes "Assumption: today Modal hosts the gateway; the model that reads sentences is Gemini, asked over its API. Next step: the reader as an open model on a Modal GPU; its deploy file is written."
+- **Caution for the live demo:** the key is rate-limited (the third call inside a minute was refused). The demo keeps working, because the rules take over, but the page then says the model did not answer. Leave a few seconds between requests on stage.
+- **Not decided yet:** whether the public link runs with the model. Do not put "the public demo uses Gemini" on a slide.
+
+### 0.2 The 1,000 L answer: say "barista milk", not "coffee milk"
+
+"Coffee milk" reads as coffee-flavoured milk. The product is Arla Café: lactose-free cow's milk, 3% fat, made to foam in coffee machines. This replaces the replacement of row 1 (page 5):
+
+> "Two more options, for a person to choose: 1,000 L for €1,010.00 with a quantity Valio Aimo does not confirm; or 1,000 L from confirmed stock for €2,580.64, where 565 L is a lactose-free barista milk, named as a substitute."
+
+The main answer stays 435 L of exactly what was asked, for €1,083.39. The barista milk is never swapped in quietly: it is labelled a substitute, with what differs, and that option always needs a person.
+
+### 0.3 Built since the review: two guardrails you may now claim
+
+Both are committed (`fd4098b`) and tested.
+
+- **A dearer substitute goes to a person.** A replacement that costs more than the product asked for by more than the buyer's allowance (25% at the hotel and the school, 10% at the bakery and the ward) is not ordered by the agent alone. Measured: the hotel's barista oat drink substitute costs €37.00 more (27%), so a person decides. Line for page 7: "A substitute that is not like for like, or that costs clearly more than what was asked, goes to a person."
+- **Same brand first where the recipe matters.** Where the formula matters (always at the bakery), a substitute of the same brand that keeps the formula ranks first. Example: Oatly Oat Drink Whole → Oatly iKaffe, same brand and same formula, ahead of Oatly No Sugars, whose formula differs. This is what Valio Aimo's people asked for in person. Line for page 9 or the exceptions row: "Where the recipe matters, the same brand with the same formula comes first."
+
+### 0.4 Page 10, final wording: "Assumptions and next steps"
+
+- **Assumptions, stated on the pages:** answers come from a recording of Valio Aimo's test data at a fixed clock; the four customers and their order histories are synthetic; spend limit values are ours and illustrative; the order step is ours by design; offers are signed by the gateway with a demo key; the demo page has no login.
+- **Technical choices:** a model reads, fixed rules check and decide; rules are data, and a buyer's setting cannot switch a fixed rule off; open standards only.
+- **Next steps**, each standing on something that exists:
+  1. Valio Aimo signs its own statements of price, stock and origin (the gateway already signs every offer).
+  2. People sign in with their own accounts, and a second signer above a limit (a token is already tied to one customer and its roles).
+  3. An order message Valio Aimo's systems can take (the order record already holds what a message needs).
+  4. Orders tied to their log entries (the log is already chained and checked).
+  5. A nutrition standard for schools and hospitals (today the dietitian decides every formula difference).
+- **One line under them:** "Then: Finnish and Swedish in the fixed rules (today through the model reader) · new and seasonal products marked in the data · recipes around a seasonal ingredient · a scheduler for standing orders."
+- **Being built right now, not on the slide until confirmed:** a price limit read from the sentence ("…, under €1,000"). If the final message from the build says it landed, add to page 6: "A price named in the sentence is applied as a spend limit for that request." If not, add "a price limit read from the sentence" to the line above.
+- **Dropped from the list:** the origin filter.
+
+---
+
 ## 1. Verdict
 
 1. **Not as it is, but it is close: about twenty minutes of text edits.** v4 took nearly everything of the first review; the pitch pages no longer describe Saturday's product.
