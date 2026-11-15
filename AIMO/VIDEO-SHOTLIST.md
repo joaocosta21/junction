@@ -4,7 +4,7 @@ Every block below was walked twice as written in Chrome (headless, page area 144
 
 ## Before you record
 - Open `http://127.0.0.1:8011/shop` in Chrome, Chrome in full screen with the toolbar hidden (View → Always Show Toolbar in Full Screen off), zoom 100%, so the page area is about 900 px high. In a shorter window every scroll below is longer. Recorded Valio Aimo data, demo clock Thu 12 Nov 2026 14:15.
-- **Record in this order, in one browser, without reloading: blocks 2, 3, 4, then 5, then 6.** Block 4 needs the orders of blocks 2 and 3 still in the book, and must come before the ward (block 5).
+- **Record in this order, in one browser, without reloading: blocks 2, 3, 4, then 5, then 6.** Block 4 needs the orders of blocks 2 and 3 still in the book: send the milk sentence once only (sent twice, the back office shows 1,130 L and €2,814.32), and reset the hotel only in block 6, after block 4. The ward's block no longer changes the back office.
 - Start clean: Settings (hotel) → bottom of the page → "Reset this customer's demo". Do the same for the ward. Reset the hotel again only where a block says so.
 - A toast stays about 3 seconds at the bottom of the window ("Now shopping as…", "Sent as a new request…"): wait for it to go before the moment you cut on.
 - Folds you open stay open. After each request the page scrolls by itself so the answer is at the top.
