@@ -1,6 +1,6 @@
-# Pitch script (spoken) — Sun 15 Nov, 04:10
+# Pitch script (spoken), three minutes — Sun 15 Nov, 04:25
 
-Runs 3:41 at a calm pace; the pitch slot is five minutes. Every figure was measured on the recorded Valio Aimo test data at the demo clock.
+Your slide timings, kept as they were. The four corrections are in; three of the four additions fit by replacing weaker lines word for word (the 302 / 303 litres line does not fit and is left out). About the same number of spoken words as your version.
 
 ### Slide 1 — Introduction | 0:00–0:10
 
@@ -14,25 +14,25 @@ That's why we built **Trusted Trade Agents**.
 
 Meet Hanna, purchasing manager at a hotel.
 
-Her AI agent must find the right products, confirm availability and delivery, and respect her purchasing limits.
+Her agent must find the right products, confirm stock and delivery, and respect her limits.
 
 **Finding products is easy. Trusting an agent to buy them isn't.**
 
-### Slide 3 — Our Solution | 0:25–0:47
+### Slide 3 — Our Solution | 0:25–0:45
 
 Trusted Trade Agents is an **open gateway between purchasing agents and Valio Aimo**.
 
-It checks what Valio Aimo's data confirms about prices, quantities, delivery dates, allergens, and origin. Then it ranks options, applies each buyer's rules, and logs every decision.
+It checks prices, quantities, delivery dates, allergens, and origin against Valio Aimo's data. Then it ranks options, applies each buyer's rules, and logs every decision.
 
-**A model can interpret the request. Rules check it and make every decision.**
+**A model can interpret the request. Rules make every decision.**
 
-### Slide 4 — Demo Customers | 0:47–0:52
+### Slide 4 — Demo Customers | 0:45–0:50
 
-We created four illustrative buyer profiles, each with different purchasing rules.
+Four illustrative buyers, each with different rules.
 
 **Let's follow Hanna's hotel.**
 
-### Slide 5 — Working End-to-End Demo | 0:52–2:00
+### Slide 5 — Working End-to-End Demo | 0:50–1:53
 
 *Start the live demonstration.*
 
@@ -40,65 +40,59 @@ Hanna requests **1,000 litres of lactose-free milk by Monday**.
 
 The gateway checks 26 matching products, but only **435 litres are confirmed**.
 
-It does not invent availability. 435 litres are confirmed; for the rest it offers two ways, clearly labelled: **cheaper with unconfirmed stock, or fully confirmed with a barista milk as a named substitute**.
+It invents nothing. The rest is offered two ways, clearly labelled: **cheaper but unconfirmed, or fully confirmed with a barista milk as a named substitute**.
 
-The confirmed offer costs **€1,083.39**, exceeding the hotel's €750 purchasing limit and falling below its 90% minimum coverage.
+The confirmed offer costs **€1,083.39**, above the hotel's €750 limit.
 
 **So the agent requests human approval.**
 
 *Show Hanna confirming the order.*
 
-Hanna approves it, and the order is recorded in our demo system.
+Hanna approves, and the order is recorded.
 
 *Open the audit trail and supplier view.*
 
 Every decision is documented, with separate views for the buyer and Valio Aimo.
 
-**From request to lookup, offer, approval and order — the entire workflow works end-to-end.**
+**Request, lookup, offer, approval, order: end to end.**
 
-### Slide 6 — Precision | 2:00–2:17
+### Slide 6 — Precision | 1:53–2:03
 
-Our system **matches what the buyer actually asked for**.
+**It orders what was asked, or it asks.**
 
-Ambiguous quantities trigger clarification, requested brands are preserved, and missing information is never silently guessed.
+Ambiguous quantities trigger a question, and a price in the sentence is applied: "under €400" sends a €496 order to a person.
 
-**Even a price in the sentence is applied: "under €400" sends a €496 order to a person.**
+### Slide 7 — Guardrails and Exceptions | 2:03–2:20
 
-### Slide 7 — Guardrails and Exceptions | 2:17–2:49
+Every decision is **AUTO, APPROVAL, or BLOCK**.
 
-Every decision has three possible outcomes: **AUTO, APPROVAL, or BLOCK**.
+It handles partial stock, unconfirmed availability, substitutes and delivery dates.
 
-The system handles partial stock, uncertain availability, unsafe substitutions, and delivery constraints.
+A milk-allergy ward asking for lactose-free milk gets twenty-six refusals: **lactose-free is still milk.**
 
-A milk-allergy ward asks for lactose-free milk: twenty-six checked, twenty-six refused. **Lactose-free is still milk.**
+**And through the agent interface, an agent can never approve its own order.**
 
-With ordering alone switched on, the agent orders 302 litres; at 303 it waits for Hanna.
-
-**A substitute introducing an excluded allergen is blocked, and through the agent interface, an agent can never approve its own order.**
-
-### Slide 8 — Open Integration | 2:49–3:01
+### Slide 8 — Open Integration | 2:20–2:32
 
 Every offer identifies what is **confirmed and what remains unknown**.
 
-Through open REST and MCP interfaces, any agent that speaks REST or MCP can connect.
+Any agent that speaks REST or MCP can connect.
 
 **No proprietary integration is required.**
 
-### Slide 9 — Impact | 3:01–3:21
+### Slide 9 — Impact | 2:32–2:42
 
-For buyers, this means **less manual work and more reliable purchasing decisions**.
+For buyers: **less manual work and more reliable purchasing**.
 
-For Valio Aimo, it provides visibility into purchasing activity, recommendations, and demand that could not be fulfilled.
+For Valio Aimo: visibility into what agents buy, and what it could not sell: **565 litres, about fourteen hundred euros, because its own data did not confirm the stock.**
 
-**Valio Aimo sees the 565 litres too: about fourteen hundred euros it could not sell, because its own data did not confirm the stock.**
-
-### Slide 10 — Implementation and Next Steps | 3:21–3:33
+### Slide 10 — Implementation and Next Steps | 2:42–2:52
 
 Our prototype already works with Valio Aimo's recorded test data.
 
-Next, we need **real customer authentication, purchasing policies, supplier order integration, and Valio Aimo signing its own offers** to move toward production.
+Next, we need **real customer authentication, purchasing policies, and supplier order integration** to move toward production.
 
-### Slide 11 — Closing | 3:33–3:41
+### Slide 11 — Closing | 2:52–3:00
 
 **The future of AI purchasing isn't an agent that buys everything.**
 
