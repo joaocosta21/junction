@@ -117,16 +117,16 @@ The same story and structure as the first script (Hanna, who buys for Harboursid
 | # | Said over | Say | Words | Speech |
 |---|---|---|---|---|
 | 1 | Title card | "Meet Hanna. She buys for a hotel kitchen, and her purchasing agent talks to Valio Aimo through our gateway." | 19 | 8 s |
-| 2 | The ward's Settings: the allergens, then the limit per order and the switch | "Every buyer has a profile that the agent must respect. This hospital ward excludes milk and gluten, allows 500 euros per order, and its agent may not order alone. Hanna's hotel has its own profile, with its own limit." | 39 | 16 s |
+| 2 | The ward's Settings: the allergens, then the limit per order and the switch | "Every buyer has a profile that the agent must respect. This hospital ward excludes milk and gluten, allows 500 euros per order, and its agent may not order alone. Hanna's hotel has its own." | 34 | 14 s |
 | 3 | The hotel: the sentence typed, the answer with 435 L | "Hanna needs a thousand litres of lactose-free milk by Monday. The gateway checks Valio Aimo's prices and stock, and can confirm only 435 litres." | 24 | 10 s |
 | 4 | The two alternatives and the suggestion | "Instead of guessing, it shows two ways to cover the rest: a cheaper milk whose stock is not confirmed, or confirmed stock completed with a café milk, named as a substitute. Each comes with its reasons." | 36 | 14 s |
-| 5 | The click on ADD, the new answer (€1,116.49), CONFIRM ORDER, the green box | "It also notices this kitchen usually orders cooking cream, and Hanna adds it in one click. She keeps what is confirmed: 435 litres and the cream. That is above her limit and only part of what she asked for, so it is not the agent's call: Hanna confirms it herself." | 50 | 20 s |
+| 5 | The click on ADD, the new answer (€1,116.49), CONFIRM ORDER, the green box | "It also notices this kitchen usually orders cooking cream, and Hanna adds it in one click. She keeps what is confirmed, 435 litres and the cream. That is above her limit and only part of what she asked for, so Hanna confirms it herself." | 44 | 18 s |
 | 6 | The order page, "Trail intact", "What Valio Aimo sees" | "Every step, from her request to her approval, is now written in a log that cannot be changed unnoticed. Valio Aimo reads the same order in its own view, without the hotel's limits or allergens." | 35 | 14 s |
 | 7 | The switch on, 300 litres, "Ordered by your agent" | "Later Hanna lets the agent order alone. 300 litres stay under her limit, so the agent places the order and says why it was allowed. Anything over the limit would still wait for her." | 34 | 14 s |
-| 8 | Kallio Bakery: "You usually order this:" | "And it is the same for every kitchen. At a bakery, the gateway already knows the usual order and offers it again in one click. Nothing is ordered until a person confirms." | 32 | 13 s |
+| 8 | Kallio Bakery: "You usually order this:" | "And it is the same for every kitchen: at a bakery, the gateway already knows the usual order and offers it again in one click." | 25 | 10 s |
 | 9 | The last picture | "A person asks, an agent does the work, and a person stays in charge." | 14 | 6 s |
 
-**Count:** 283 words, about 113 seconds of speech at 2.5 words a second. To leave more silence, drop the last sentence of paragraphs 2, 4 and 7.
+**Count:** 265 words, about 106 seconds of speech at 2.5 words a second. To leave more silence, drop the last sentence of paragraphs 4 and 7.
 
 **Who is on screen at the bakery:** the page says you are acting as Marko Heikkinen, the bakery's owner. Hanna is the hotel's buyer, so she is not the one clicking there. The line names nobody, so the story stays hers. If "Order the same again" was clicked in the take, add: "One click, and the order is prepared, waiting for the owner's confirmation."
 
