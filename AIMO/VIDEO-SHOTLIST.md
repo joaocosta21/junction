@@ -1,11 +1,19 @@
-# Video: shot list (2:00, strictly) — FINAL, Sun 15 Nov, your order, two parts
+# Video: shot list (2:00, strictly) — FINAL, Sun 15 Nov: the script follows what was recorded
 
-Order: profiles → the milk sentence → what the gateway suggests → "Add" on the cream → the full order, confirmed by a person → its audit trail and Valio Aimo's view → the agent ordering alone → the ward's refusal → open standards.
+**As recorded**
+1. City Hospital, Ward 4, its Settings only: milk and cereals with gluten excluded, limit per order 500, ordering alone off.
+2. Harbourside Hotel: the milk sentence, the answer (435 L confirmed).
+3. The two alternatives and the suggestion; ADD on the cooking cream.
+4. CONFIRM ORDER on the default option, €1,116.49 (435 L of milk and 10 L of cream). No CHOOSE: the €2,613.74 option was not taken.
+5. The audit trail of that order, in both views: the buyer's and "What Valio Aimo sees".
+6. The agent ordering alone at the hotel: 300 L (not 302 and 303).
+7. Kallio Bakery: "You usually order this:".
+8. No `/llms.txt`, no `/docs`.
 
-- **Part A, "Step by step":** the moves only, in recording order.
-- **Part B, "The script":** the spoken lines only, with their times in the finished video. One connected story, about 104 seconds of speech in the 120.
+- **Part A, "Step by step":** the moves as planned before the recording. The recording departed from it; see the line at its top.
+- **Part B, "The script":** the spoken paragraphs for the video as recorded, each in a full and a short length.
 
-Part A was walked twice as written, each time from a clean start, in Chrome (headless, page area 1440 × 900) on the final code (`b567e5f`), at the demo clock, without a model, which is how your server runs. Both walks gave the same result and no page error. A third walk used a page area 780 px high. Every word and figure below was on screen in those walks. Pictures of each step: `/private/tmp/claude-501/-Users-joaocosta-Pessoal-junction/6585c036-9723-4ff4-97e0-3fba8894a301/scratchpad/vidwalk/shots/` (`s1-…` and `s2-…` are the two walks, `t780-…` the shorter window). Steps 37 and 38 were not rendered: `/llms.txt` was read as text, `/docs` loads a script from the internet.
+Part A was walked twice as written from a clean start (headless Chrome, page area 1440 × 900, final code `b567e5f`, demo clock, no model). The recorded path of Part B was walked once more the same way. Pictures: `/private/tmp/claude-501/-Users-joaocosta-Pessoal-junction/6585c036-9723-4ff4-97e0-3fba8894a301/scratchpad/vidwalk/shots/` (`s1-…`, `s2-…` for Part A; `u1-…` for the recorded path).
 
 ## Before you record
 - **Hard-reload the page once before the first take (Cmd+Shift+R):** the server was restarted on the final code, and a browser holding older scripts would not start.
@@ -26,6 +34,8 @@ Part A was walked twice as written, each time from a clean start, in Chrome (hea
 The server runs without a model, like the public link. Sentences are read by the fixed rules, at once, and the grey line under "Asked" says so ("read by fixed rules, no model"). Do not say that a model reads the sentence in this recording.
 
 ## Part A — Step by step
+
+**The recording departed from this plan:** only the ward's Settings were filmed for the profiles (not the customer menu, not the hotel's Settings); after ADD the default option was confirmed at €1,116.49, without CHOOSE (steps 17 to 19 were not done, and the order has 3 products, not 4); the agent ordering alone was filmed with one request of 300 litres, not 302 and 303 (steps 31 to 33); Kallio Bakery's "You usually order this:" was filmed at the end; steps 37 and 38 (`/llms.txt`, `/docs`) were not filmed. The steps below are kept as planned.
 
 One move per line, then what must be on screen before the next move. **CUT** marks where the editing cuts. *(off camera)* moves are not in the video. "Hold" is how long the picture stays in the finished video.
 
@@ -85,7 +95,7 @@ One move per line, then what must be on screen before the next move. **CUT** mar
    **CUT**
 
 ### The ward's refusal (video 1:42–1:52)
-**As recorded by João, this part shows Kilo School instead:** customer button → "Kilo School" → the block under the request box, "You usually order this: …" with the buttons "Order the same again" and "Not now" (the school's regular order, worked out from its past orders; "Order the same again" asks for an offer at today's prices and stock, and nothing is ordered until a person confirms). The ward's refusal below stays as the alternative.
+**As recorded, this part shows Kallio Bakery instead:** customer button → "Kallio Bakery" → the block under the request box, "You usually order this: Oatly iKaffe 0,5L × 30 L, Arla Whipping cream 1 L ESL lactose free × 10 L" with the buttons ORDER THE SAME AGAIN and NOT NOW (the bakery's regular order, worked out from its past orders; "Order the same again" asks for an offer at today's prices and stock, €160.10 before tax in the walk, and nothing is ordered until a person confirms). Kilo School's Request page has no such block (checked); the hotel's has one, for its cooking cream. The ward's refusal below stays as the alternative.
 
 34. *(off camera)* Click the customer button.
 35. *(off camera)* Click "City Hospital, Ward 4". → The ward's Request page; wait for the toast to go.
@@ -100,25 +110,41 @@ One move per line, then what must be on screen before the next move. **CUT** mar
 
 **If step 16 to 20 goes wrong twice,** leave "Add" out: reset, send the milk sentence, scroll 780 px, click CHOOSE on "Alternative: confirmed stock, completed with a substitute · €2,580.64", scroll up 780 px, CONFIRM ORDER. Walked twice in the earlier round: "Confirmed by Hanna Laine · delivery Mon 16 Nov", "3 products · €2,580.64", 11 events, "Trail intact" (the heading "Audit trail" is then 1,050 px down).
 
-## Part B — The script
+## Part B — The script (as recorded)
 
-One story, told over the pictures of Part A: Hanna, who buys for Harbourside Hotel, and what her agent may and may not do for her. Each paragraph is said over one part of the video and describes what is happening on screen; it ends a little before the picture does, so there is a breath before the next one.
+One story, eight paragraphs, in the order of the video. Each is said over one part of the video and describes what is on screen at that moment. Each comes in two lengths: take the full one where your take is long enough, the short one where it is not; they can be mixed. Leave the rest silent: the answer appearing, the totals and the green boxes need no words. Paragraphs 6 and 7 can change places if your cut has the bakery before the 300 litres.
 
-| From | To | Picture | Say | Words | Speech / slot |
-|---|---|---|---|---|---|
-| 0:00 | 0:08 | Title card | "Meet Hanna. She buys for a hotel kitchen, and her purchasing agent talks to Valio Aimo through our gateway." | 19 | 8 s / 8 s |
-| 0:08 | 0:23 | The customer menu, the ward's Settings, the hotel's Settings | "Every buyer has a profile that the agent must respect. A hospital ward excludes milk and gluten. Hanna's hotel allows 750 euros per order, and for now the agent may not order alone." | 33 | 13 s / 15 s |
-| 0:23 | 0:35 | The sentence typed, the answer with 435 L and €1,083.39 | "Hanna needs a thousand litres of lactose-free milk by Monday. The gateway checks Valio Aimo's prices and stock, and can confirm only 435 litres." | 24 | 10 s / 12 s |
-| 0:35 | 0:51 | The two alternatives, then the fold "Why this answer" | "Instead of guessing, it shows two ways to cover the rest: a cheaper milk whose stock is not confirmed, or confirmed stock completed with a café milk, named as a substitute. Each comes with its reasons." | 36 | 14 s / 16 s |
-| 0:51 | 1:08 | The click on ADD, CHOOSE, "YOUR CHOICE", CONFIRM ORDER, the green box | "It also notices this kitchen usually orders cooking cream, and Hanna adds it in one click. She then picks the full thousand litres. A substitute above her limit is not the agent's call, so Hanna confirms it herself." | 38 | 15 s / 17 s |
-| 1:08 | 1:24 | The order page, "Trail intact", "What Valio Aimo sees" | "Every step, from her request to her approval, is now written in a log that cannot be changed unnoticed. Valio Aimo reads the same order in its own view, without the hotel's limits or allergens." | 35 | 14 s / 16 s |
-| 1:24 | 1:42 | The switch and SAVE, 302 litres ordered, 303 litres waiting | "Later Hanna lets the agent order alone. 302 litres stay under her limit, so the agent places the order and says why it was allowed. One litre more is over the limit, so it stops and waits for her." | 39 | 16 s / 18 s |
-| 1:42 | 1:52 | Kilo School: the block "You usually order this:" with "Order the same again" | "At the school, the gateway already knows the weekly order from past orders, and offers it again in one click. A person still confirms." | 24 | 10 s / 10 s |
-| 1:52 | 2:00 | `/llms.txt`, then `/docs` | "And all of it is open: OpenAPI, MCP, signed offers, MIT licence. Any agent can connect." | 16 | 6 s / 8 s |
+| # | Said over | Full | Short |
+|---|---|---|---|
+| 1 | The ward's Settings: the allergens, then the limit per order and the switch | "Every buyer has a profile. This is a hospital allergy ward: its dietitian has excluded milk and cereals with gluten, and nobody can loosen that here. Its limit per order is five hundred euros, and its agent never orders alone." (40 words, 16 s) | "Every buyer has a profile. This allergy ward excludes milk and cereals with gluten, and its agent never orders alone." (20 words, 8 s) |
+| 2 | The hotel: the sentence typed, the answer appearing | "At Harbourside Hotel, Hanna asks for a thousand litres of lactose-free milk by Monday. The gateway checks Valio Aimo's price and stock: only four hundred and thirty-five litres are confirmed." (30 words, 12 s) | "At Harbourside Hotel, Hanna asks for a thousand litres of lactose-free milk by Monday. Only four hundred and thirty-five are confirmed." (21 words, 8 s) |
+| 3 | The two alternatives, the suggestion, the click on ADD | "For the rest it shows two other ways: a cheaper milk whose quantity is not confirmed, or café milk as a substitute. Hanna takes neither, but adds the cooking cream it suggests." (32 words, 13 s) | "The gateway shows two other ways to cover the rest. Hanna takes neither, but adds the cooking cream it suggests." (20 words, 8 s) |
+| 4 | The new answer (€1,116.49), the click on CONFIRM ORDER, the green box | "So the order is what is confirmed: four hundred and thirty-five litres of milk, and the cream. It is above the hotel's limit per order and only part of the milk, so Hanna confirms it herself." (36 words, 14 s) | "The order is above the hotel's limit per order and only part of what she asked for, so Hanna confirms it herself." (22 words, 9 s) |
+| 5 | The order page, "Trail intact", then "What Valio Aimo sees" | "Every step is in the order's audit trail, and the trail verifies. Valio Aimo has its own view of the same order, without the buyer's limit amounts or allergens." (29 words, 12 s) | "Every step is in an audit trail that verifies, and Valio Aimo has its own view." (16 words, 6 s) |
+| 6 | The switch on, 300 litres, "Ordered by your agent" | "The buyer can also let the agent order alone. Then three hundred litres are ordered by the agent, because the total is within the hotel's limit per order. Above that, it waits for a person." (35 words, 14 s) | "Switched on, the agent orders three hundred litres alone, within the hotel's limit per order." (15 words, 6 s) |
+| 7 | Kallio Bakery: "You usually order this:" | "At Kallio Bakery the gateway already shows what Marko usually orders. One click asks for it again, and nothing is ordered until he confirms." (24 words, 10 s) | "At Kallio Bakery the gateway already shows what Marko usually orders, one click away." (14 words, 6 s) |
+| 8 | The last picture | "A person asks, an agent does the work, and a person stays in charge." (14 words, 6 s) | "A person asks, an agent does the work, and a person stays in charge." (14 words, 6 s) |
 
-**Count:** 264 words, about 106 seconds of speech at 2.5 words a second, in the 120. Every paragraph fits its slot at that pace. To leave more silence, drop the last sentence of the paragraphs at 0:35 and 1:08: the story still holds.
+**If you clicked ORDER THE SAME AGAIN at the bakery,** add to paragraph 7: "He clicks, and the order is prepared: a hundred and sixty euros, waiting for his confirmation." (16 words, 6 s). On screen then: "2 confirmed products cover all 2 items asked for in full, for €160.10 before tax", "Prepared: confirm to order. Your agent prepared this order. Nothing is ordered until you confirm it."
+
+**How long the whole script is** (2.5 words a second, in a 120-second video)
+
+| Combination | Words | Speech | Silent |
+|---|---|---|---|
+| All full | 240 | 96 s | 24 s |
+| Full for 1 to 4 and 8, short for 5 to 7 | 197 | 79 s | 41 s |
+| All short | 142 | 57 s | 63 s |
+
+**What the screens show, so the words match** (walked on the final code, 1440 × 900)
+- **The ward's Settings:** "Milk" and "Cereals with gluten" ticked; "Set by Sari Lehto, the dietitian: milk and cereals with gluten stay excluded, under the strict rule. This cannot be removed or made less strict here."; "Limit per order" 500; "Limit per day" 1500; the switch "Let the agent place orders alone" off, with "Off: nothing is ordered until Jussi Nieminen confirms it."; "Partial deliveries: Only the full quantity"; "Confirmed data only" on.
+- **The hotel's first answer:** "2 confirmed products cover 435 L of the 1,000 L asked for (565 L missing), for €1,083.39 before tax". The two alternatives: "quantity not confirmed · €1,010.00" and "confirmed stock, completed with a substitute · €2,580.64". The suggestion: cooking cream, "in 7 of your last 8 orders … Adding 10 L costs €33.10".
+- **After ADD:** "3 confirmed products cover 1 of the 2 items asked for in full, for €1,116.49 before tax. Covered in part: 435 of 1,000 L of milk."; the amber box "The total of €1,116.49 before tax is above the €750 limit per order of Harbourside Hotel and 1 of the 2 items asked for are covered in full; milk is covered in part (435 of 1,000 L); Harbourside Hotel asks for at least 90% of every item."; three rows: 384 pcs, 51 pcs, cream 10 pcs.
+- **After CONFIRM ORDER:** the green box "Confirmed by Hanna Laine · delivery Mon 16 Nov", "Ordered for €1,116.49. Why it needed your confirmation: …". The order page: "3 products · €1,116.49 · delivery Mon 16 Nov", "Confirmed"; "Trail intact … each of the 11 events …" (the heading "Audit trail" is 854 px down). Valio Aimo's view, first window: the banner "This is Valio Aimo's view of the order, not Harbourside Hotel's" ("Limit amounts and allergens are not shown to Valio Aimo"), three rows, "Total before tax €1,116.49", "Trail intact".
+- **300 litres with ordering alone on:** "1 confirmed product covers the 300 L asked for, for €744.00 before tax"; the green box "Ordered by your agent · delivery Mon 16 Nov"; "The agent placed this order alone for €744.00 net. That was allowed: ordering alone is switched on for Harbourside Hotel; the total of €744.00 is within the €750 limit per order; today's spend with this order is … of the €3,000 limit per day; every statement of the offer is confirmed; and no rule asked for a person."; one row, "300 pcs × €2.48". The day's figure reads €744.00 if the hotel was reset before, €1,860.49 if it was not. Its own trail has 8 events and "Trail intact".
+- **Kallio Bakery:** "you are acting as Marko Heikkinen, owner"; "You usually order this: Oatly iKaffe 0,5L × 30 L, Arla Whipping cream 1 L ESL lactose free × 10 L"; the buttons ORDER THE SAME AGAIN and NOT NOW.
 
 ## Not for the camera
+- **As recorded, the window in which CONFIRM ORDER was clicked:** its headline reads "…For milk: Milk made for coffee is not offered as milk…", a doubled word in large text, before and after the click. The order page repeats it under "What was ordered". The script talks about the total and the green box, not the headline. If you can, crop or cut so the headline is on screen as briefly as possible.
 - **The window right after ADD (step 16):** its headline reads "…For milk: Milk made for coffee is not offered as milk…", a doubled word in large text. Cut at the click and come back after the scroll of step 17.
 - **The window right after CHOOSE (step 18):** the same sentence, in small text, under "Best confirmed option (partial fill) · €1,116.49". Cut at the click and come back at step 19.
 - **Valio Aimo's view scrolled down:** its tenth step reads "Approval decided · The buyer's purchasing manager, dietitian, finance", three roles for one approval, while the buyer's log says "It needs the purchasing manager" and "Approval decided · Hanna Laine, Harbourside Hotel". The first window of that view does not show it: do not scroll there.
@@ -126,7 +152,7 @@ One story, told over the pictures of Part A: Hanna, who buys for Harbourside Hot
 - The buyer's log read slowly: it names "My kitchen agent" and ids ("off_…", "ord_…"). Seven silent seconds of it are fine.
 - The fold "Why this answer" read slowly: "Request line 1:" twice and "goods from finland blue swan" in the small text.
 - The order page's top: "Orders · ord_…" above the title, "Policy fingerprint".
-- The green box of step 31 read slowly: it says "today's spend with this order is €748.96 of the €3,000 limit per day", true after the reset, while the video showed a €2,613.74 order a little earlier.
+- The green box of the 300 litres read slowly: if the hotel was reset before that take it says "today's spend with this order is €744.00 of the €3,000 limit per day", a little after the video showed a €1,116.49 order; without a reset it says €1,860.49, which agrees with the video.
 - The older answer under the new one after ADD: "Replaced by the newer request above. Nothing is ordered from this one." Its "Asked" line shows at the bottom edge in step 17; that is fine.
 - Valio Aimo's back office: it is not in this video and was not walked after ADD.
 - "384 pcs available in storage" on the 303 answer, after 302 of them were ordered.
