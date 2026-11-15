@@ -1,10 +1,10 @@
 # Video: shot list (2:00, strictly) — FINAL, Sun 15 Nov
 
-Every block below was walked twice as written in Chrome (headless, page area 1440 × 900) at the demo clock, without a model, which is how your server runs: once by the lane that finished the page, once by an independent check that looked at the window at every cut (`AIMO/DEMO-CHECK.md`, with a runbook for the live minute). All seven blocks work and every word and figure promised here is on screen. One lane is still adding a price limit read from the sentence: it changes none of these blocks.
+Every block below was walked twice as written in Chrome (headless, page area 1440 × 900) at the demo clock, without a model, which is how your server runs: once by the lane that finished the page, once by an independent check that looked at the window at every cut (`AIMO/DEMO-CHECK.md`, with a runbook for the live minute). All seven blocks work and every word and figure promised here is on screen; blocks 2 to 6 were walked again on the final code (`b567e5f`).
 
 ## Before you record
 - **Hard-reload the page once before the first take (Cmd+Shift+R):** the server was restarted on the final code, and a browser holding older scripts would not start.
-- Open `http://127.0.0.1:8011/shop` in Chrome, Chrome in full screen with the toolbar hidden (View → Always Show Toolbar in Full Screen off), zoom 100%, so the page area is about 900 px high. In a shorter window every scroll below is longer. Recorded Valio Aimo data, demo clock Thu 12 Nov 2026 14:15.
+- Open `http://127.0.0.1:8011/shop` in Chrome, Chrome in full screen with the toolbar hidden (View → Always Show Toolbar in Full Screen off), zoom 100%, so the page area is about 900 px high. In a shorter window every scroll below is longer: at a page area of about 780 px, block 2 needs 415 px, not 300, for the second alternative to be whole (CONFIRM ORDER stays in the window). Recorded Valio Aimo data, demo clock Thu 12 Nov 2026 14:15.
 - **Record in this order, in one browser, without reloading: blocks 2, 3, 4, then 5, then 6.** Block 4 needs the orders of blocks 2 and 3 still in the book: send the milk sentence once only (sent twice, the back office shows 1,130 L and €2,814.32), and reset the hotel only in block 6, after block 4. The ward's block no longer changes the back office.
 - Start clean: Settings (hotel) → bottom of the page → "Reset this customer's demo". Do the same for the ward. Reset the hotel again only where a block says so.
 - A toast stays about 3 seconds at the bottom of the window ("Now shopping as…", "Sent as a new request…"): wait for it to go before the moment you cut on.
@@ -37,6 +37,6 @@ Total: 120 s. Blocks 2 to 7 are about 35 seconds of pointer actions, plus about 
 - The buyer's log read slowly: it names "My kitchen agent" and ids.
 - "…by tomorrow" requests: the decision box shows a date as 2026-11-13.
 - Substitutes for products outside milk, cream and plant drinks.
-- The back office after block 6: it then also shows the order the agent placed alone.
+- The back office after block 6: the reset has removed the 565 L ("No quantity is counted here as a sale Valio Aimo could not make") and the tile reads "1 order confirmed · €748.96" for an order no person confirmed.
 - "384 pcs available in storage" on a request made after 384 were ordered.
 - The old pages (the footer link "the gateway's first pages").
