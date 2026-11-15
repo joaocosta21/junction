@@ -123,11 +123,18 @@ def make_substitute() -> Callable[..., SubstituteInfo]:
     def build(
         *, listed: bool = True, category_distance: int = 0, added: Sequence[tuple[str, AllergenRelation]] = (),
         claims_lost: Sequence[str] = (), replaceable: ReplaceCheck | None = LIKE_FOR_LIKE,
+        original_net: str | None = _UNSET,
     ) -> SubstituteInfo:
         """A stand-in for 473609. `claims_lost`: nutritional claims of the original that it does not carry.
         `replaceable`: the offer's like-for-like verdict, which every substitute line of an offer carries; rule
-        F-12 sends any other verdict to a person, and `None` (a line stored before the verdict existed) too."""
+        F-12 sends any other verdict to a person, and `None` (a line stored before the verdict existed) too.
+        `original_net`: what the product asked for would have cost for the same content (rule P-05). Left out:
+        `make_line` reads it as the line's own net, a substitute at the same price. `None`: not known."""
+        priced = {} if original_net is _UNSET else {
+            "original_net": None if original_net is None else Decimal(original_net)
+        }
         return SubstituteInfo(
+            **priced,
             original_id="473609",
             original_name="Oddlygood Barista oat drink",
             listed_by_supplier=listed,
@@ -181,6 +188,9 @@ def make_line() -> Callable[..., OfferLine]:
             for claim, status in statuses.items()
             if status is not None
         )
+        if substitute is not None and "original_net" not in substitute.model_fields_set:
+            # A substitute at the price of the product asked for, unless the test says what that would have cost.
+            substitute = substitute.model_copy(update={"original_net": net})
         return OfferLine(
             product_id=product_id,
             name=name,

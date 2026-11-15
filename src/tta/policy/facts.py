@@ -50,7 +50,7 @@ from tta.policy.day_facts import DAY_FACTS
 from tta.policy.formula_facts import FORMULA_FACTS
 from tta.policy.human_approval import ROLE_NAMES, decided_as, dietitian_is_second_person
 from tta.policy.last_resort_facts import LAST_RESORT_FACTS
-from tta.policy.premium_facts import PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS
+from tta.policy.premium_facts import PREMIUM_LINE_FACTS, PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS, price_said
 from tta.policy.reading import Missing, Reading
 from tta.policy.standing_facts import STANDING_FACTS
 from tta.policy.text import format_datetime, join_words, plain_name, unique
@@ -71,6 +71,8 @@ SUBSTITUTE_LISTED = SubstitutionScope.LISTED_BY_SUPPLIER.value
 SUBSTITUTE_SAME_CATEGORY = SubstitutionScope.SAME_CATEGORY.value
 SUBSTITUTE_OUTSIDE = "OUTSIDE"
 SAME_CATEGORY_DISTANCE = 0  # SubstituteInfo.category_distance: 0 is the same 5-digit category
+# Rule P-05's clause for a substitute outside the scope the profile accepts, read after "<it> replaces <product>, ".
+SCOPE_NOT_ACCEPTED = "a substitute that {buyer} does not accept without a human"
 
 RELATION_WORDS: Mapping[AllergenRelation, str] = {
     AllergenRelation.CONTAINS: "contains",
@@ -139,7 +141,7 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.deposits": lambda profile, _: profile.deposits.value,
     "profile.standing_order_drift_ratio": _drift_ratio,
     "profile.formula_matters": lambda profile, _: profile.formula_matters,
-    **PREMIUM_PROFILE_FACTS,  # rule P-09: what a preference may cost
+    **PREMIUM_PROFILE_FACTS,  # rules P-09 and P-05: what a preference and a substitute may cost
     **ALLERGEN_PROFILE_FACTS,  # the excluded allergens in words, and whether somebody holds the dietitian's role
     # Who really decides at this buyer (`tta.policy.human_approval`, decision B54: one person confirms).
     "profile.dietitian_is_second_person": lambda profile, _: dietitian_is_second_person(profile),
@@ -411,6 +413,18 @@ def _substitute_scope(_: OrderScope, line: OfferLine) -> Reading:
     return SUBSTITUTE_SAME_CATEGORY if substitute.category_distance == SAME_CATEGORY_DISTANCE else SUBSTITUTE_OUTSIDE
 
 
+def _substitute_not_accepted_said(scope: OrderScope, line: OfferLine) -> Reading:
+    """Why rule P-05 sends the substitute to a person, as the end of its sentence. A scope the profile does not
+    accept is said as it always was, and alone: the price is then in the rule's facts. Otherwise the price: what
+    it costs more than the product asked for, or that this is not known (`tta.policy.premium_facts`)."""
+    closeness = _substitute_scope(scope, line)
+    if isinstance(closeness, Missing):
+        return closeness
+    if closeness not in _scopes_allowed(scope.profile, scope.substitution_scopes):
+        return SCOPE_NOT_ACCEPTED.format(buyer=plain_name(scope.profile.display_name))
+    return price_said(scope, line) or Missing("the profile accepts the substitute and its price")
+
+
 def _substitute_adds_allergen(_: OrderScope, line: OfferLine) -> Reading:
     """The verdict of the substitution rule (SPEC section 6), as the allergen package gave it."""
     return line.substitute is not None and not line.substitute.allergen_check.passes
@@ -528,6 +542,8 @@ LINE_FACTS: Mapping[str, Callable[[OrderScope, OfferLine], Reading]] = {
     "line.is_substitute": lambda _, line: line.substitute is not None,
     "line.substitute_original": _substitute_original,
     "line.substitute_scope": _substitute_scope,
+    "line.substitute_not_accepted_said": _substitute_not_accepted_said,
+    **PREMIUM_LINE_FACTS,  # rule P-05: what a substitute costs above the product it replaces
     "line.substitute_adds_allergen": _substitute_adds_allergen,
     "line.substitute_added_allergens": _substitute_added_allergens,
     "line.substitute_claims_lost": _substitute_claims_lost,

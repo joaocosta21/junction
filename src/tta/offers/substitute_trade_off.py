@@ -3,7 +3,8 @@
 Before, the sentence said the formula twice (in full as a reason of the verdict, then as the formula sentence)
 and the dietary claims twice (as a reason, then among all the claims). Now: the verdict with its reasons, the
 formula named there in three words; then what a cook decides on, price first, then pack, the other claims, brand
-and what Valio says of it; then the formula sentence, once, with the contents and the figures.
+and what Valio says of it; then the formula sentence, once, with the contents and the figures. Where the formula
+matters for the line, a candidate of the same brand that keeps it says so right after the verdict.
 The formula sentence is `tta.offers.formula`'s own and stands whole, because the shop page looks for it in this
 text before it adds it (`ui/static/shop/js/views/parts.js`).
 """
@@ -33,6 +34,12 @@ NOT_LIKE_FOR_LIKE = "Not a like-for-like replacement"
 # The formula outcomes under which "nothing the data shows is given up" may still be said.
 _NO_DIFFERENCE_SHOWN = frozenset({FormulaOutcome.SAME_PRODUCT_OTHER_PACK, FormulaOutcome.SAME_BRAND})
 _LEAST_SAID = Decimal("0.005")  # a price difference under half a cent reads "€0.00 more": it is not said
+# Said of a candidate of the original's brand that is shown to keep the formula, where the formula matters for
+# the line: it is why the ranking puts it before the same formula of another brand (Valio Aimo's people, in
+# person, 15 Nov 2026: where the formula is required, the same brand with the same formula has priority).
+SAME_BRAND_SAME_FORMULA = (
+    "It is the same brand and the same formula as the product asked for, and the formula matters here."
+)
 
 
 def gives_up(judged: Judged, ranking: Ranking) -> str:
@@ -40,11 +47,20 @@ def gives_up(judged: Judged, ranking: Ranking) -> str:
     original = plain_name(ranking.original.display_name)
     formula = judged.formula.sentence
     parts = _parts(judged, ranking)
+    verdict = f"{_verdict(judged)}{_same_brand_and_formula(judged, ranking)}"
     if parts:
-        return f"{_verdict(judged)} Compared with {original}: {'; '.join(parts)}. {formula}"
+        return f"{verdict} Compared with {original}: {'; '.join(parts)}. {formula}"
     if judged.formula.outcome in _NO_DIFFERENCE_SHOWN:
-        return f"{_verdict(judged)} {NOTHING_GIVEN_UP} {formula}"
-    return f"{_verdict(judged)} Compared with {original}: {formula}"
+        return f"{verdict} {NOTHING_GIVEN_UP} {formula}"
+    return f"{verdict} Compared with {original}: {formula}"
+
+
+def _same_brand_and_formula(judged: Judged, ranking: Ranking) -> str:
+    """ " It is the same brand and the same formula ..." where the formula matters for the line and the data
+    shows both; nothing anywhere else. A formula that cannot be compared is never said to be the same."""
+    if ranking.need.formula_matters and judged.formula.outcome in _NO_DIFFERENCE_SHOWN:
+        return f" {SAME_BRAND_SAME_FORMULA}"
+    return ""
 
 
 def _verdict(judged: Judged) -> str:

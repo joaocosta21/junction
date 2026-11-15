@@ -281,12 +281,16 @@ def _fat_source_differs(original: Product, other: Product) -> bool | None:
     return names_vegetable_fat(original.key_ingredients) is not names_vegetable_fat(other.key_ingredients)
 
 
+def same_brand(original: Product, other: Product) -> bool:
+    """Both products state the same brand. A brand that is not stated is never read as the same brand."""
+    return bool(original.brand) and original.brand == other.brand
+
+
 def _kept_outcome(
     original: Product, other: Product, differences: tuple[NutrientDifference, ...], mixed: bool = False
 ) -> FormulaOutcome:
-    same_brand = bool(original.brand) and original.brand == other.brand
-    if not same_brand:
-        return FormulaOutcome.OTHER_BRAND  # a brand that is not stated is never read as the same brand
+    if not same_brand(original, other):
+        return FormulaOutcome.OTHER_BRAND
     # Equal figures on two bases are about 3% apart, so they are never read as the same product.
     return FormulaOutcome.SAME_BRAND if differences or mixed else FormulaOutcome.SAME_PRODUCT_OTHER_PACK
 
@@ -301,7 +305,7 @@ def _kept_sentence(
         return f"Same formula within {_TOLERANCE_WORDS}: {figures}{_per_words(per, mixed)}."
     if mixed:
         return f"Same formula within {_TOLERANCE_WORDS}: the six nutrition figures are equal as stated, {per}."
-    brand = "same brand, and " if original.brand and original.brand == other.brand else ""
+    brand = "same brand, and " if same_brand(original, other) else ""
     return f"The data shows no difference in formula: {brand}the six nutrition figures {per} are equal."
 
 

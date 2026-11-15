@@ -180,7 +180,7 @@ def _break(data: dict[str, Any], case: str) -> None:
     elif case == "contains_any on a text":
         _rule(data, "P-04")["when"]["all"][0]["fact"] = "line.name"
     elif case == "in without a list":
-        _rule(data, "P-05")["when"]["all"][1]["value"] = "SAME_CATEGORY"
+        _rule(data, "P-05")["when"]["all"][1]["any"][0]["value"] = "SAME_CATEGORY"
     elif case == "authority text reads the option":
         _rule(data, "P-01")["authority"][0]["text"] = "Above €{option.net_eur} a human decides."
     elif case == "summary reads the option":

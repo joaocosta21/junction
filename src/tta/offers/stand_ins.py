@@ -32,9 +32,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from decimal import ROUND_FLOOR, Decimal
 
-from tta.contracts.common import QUANTITY_PLACES, AvailabilityState
+from tta.contracts.common import QUANTITY_PLACES, AvailabilityState, round_money
 from tta.contracts.offer import OfferLine, SubstituteInfo
-from tta.contracts.product import Product, ReplaceVerdict
+from tta.contracts.product import PackSize, Product, ReplaceVerdict
 from tta.contracts.request import RequestLine
 from tta.offers.candidates import units_needed
 from tta.offers.combining import Fill, floor_to_step, with_picks
@@ -42,6 +42,7 @@ from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
 from tta.offers.outcome import LineOutcome
 from tta.offers.safety import ruled_out
+from tta.offers.substitute_wording import per_measure_difference
 from tta.offers.substitutes import Judged, Ranking, gives_up, rank_substitutes
 from tta.offers.wording import counted, line_label, measured, plain_name
 
@@ -50,6 +51,7 @@ ZERO = Decimal(0)
 # 31 packs of 0.7 kg for packs of 1.1 kg cover 19.727 of them, never 19.72727272727272727272727273 (review
 # C3-F7), and never more than their content gives.
 COVERS_STEP = Decimal(1).scaleb(-QUANTITY_PLACES)
+WHOLE = Decimal(1)
 NO_FORMULA_KEEPER = "no substitute that keeps the formula can be ordered"
 
 
@@ -265,13 +267,41 @@ def line_from(judged: Judged, ranking: Ranking, used_elsewhere: Mapping[str, Dec
         formula=judged.formula,
         last_resort=judged.last_resort,
         replaceable=judged.replaceable,
+        original_net=original_net_of(_original_unit_price(ranking), ranking.original_pack, candidate.pack, units),
     )
     # `covers` is in the request's unit: content turned back into pieces where the request was in pieces.
     covers = min(units * candidate.per_unit, need.quantity) / (ranking.per_piece or Decimal(1))
     return line_for(candidate, ranking.asked, units, _stated(covers), now, info)
 
 
+def _original_unit_price(ranking: Ranking) -> Decimal | None:
+    """The price of one sales unit of the product asked for; None when it has no price that can be used now
+    (`Ranking.original_price` is then None)."""
+    price = ranking.original_price
+    return price.catalog_price.value if price is not None and price.catalog_price is not None else None
+
+
+def original_net_of(
+    unit_price: Decimal | None, original: PackSize, other: PackSize, units: Decimal
+) -> Decimal | None:
+    """What the product asked for would have cost, before tax, for the content `units` sales units of the
+    substitute hold: its price per litre or kilogram times that content (decision B60; rule P-05 reads it).
+
+    Compared per litre or kilogram, as the trade-off sentence compares the two prices
+    (`per_measure_difference`), so that a case is never compared with a carton. None when the product asked
+    for has no usable price, or either pack size is not known, or the two are not in the same measure: not
+    known, which the rule never reads as "not dearer".
+    """
+    if unit_price is None or per_measure_difference(unit_price, original, unit_price, other) is None:
+        return None
+    assert original.value and other.value  # noqa: S101 - `per_measure_difference` answered, so both are set
+    return round_money(unit_price / original.value * other.value * units)
+
+
 def _stated(covers: Decimal) -> Decimal:
-    """`covers` as it is written: unchanged when `COVERS_STEP` holds it, else cut to it."""
+    """`covers` as it is written: unchanged when `COVERS_STEP` holds it, else cut to it; and never with an
+    exponent above zero. Content turned back into pieces is a division, and 25 / 0.5 answers `5E+1`: equal to
+    50, and written `5E+1` by every reader that writes the Decimal as text."""
     cut = covers.quantize(COVERS_STEP, rounding=ROUND_FLOOR)
-    return covers if cut == covers else cut
+    stated = covers if cut == covers else cut
+    return stated.quantize(WHOLE) if stated.as_tuple().exponent > 0 else stated

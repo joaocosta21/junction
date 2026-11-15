@@ -90,9 +90,11 @@ def test_p03_names_the_least_covered_line_and_what_each_line_gets_while_the_rati
     option = of_kind(milk_and_cheese, OptionKind.BEST_CONFIRMED)
     rule = p03(option)
 
+    # Re-pinned to the sentence rule P-03 gives since lane FIX-P (before: "Only 0% of the quantity of request
+    # line 2 is covered, below the 90% minimum (covered: 0 of 10 kg of cheese, request line 2; ...)").
     assert rule.sentence == (
-        "Only 0% of the quantity of request line 2 is covered, below the 90% minimum "
-        "(covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1)."
+        "1 of the 2 items asked for are covered in full; nothing is offered for cheese; Harbourside Hotel asks "
+        "for at least 90% of every item."
     )
     assert "of the requested quantity" not in rule.sentence
     assert option.fill_ratio == 0

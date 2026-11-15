@@ -108,6 +108,7 @@ facts:
   profile.deposits:                      {type: enum,   source: profile, label: "the deposit setting", values: [APPROVAL, NOTE]}
   profile.formula_matters:               {type: bool,   source: profile, label: "whether the formula matters on every line", note: "true for a buyer whose products are ingredients (a bakery); read by line.formula_matters and by the texts of F-11"}
   profile.max_preference_premium_ratio:  {type: ratio,  source: profile, label: "the premium a preference may add", note: "share of the cheapest confirmed option's net total (P-09); at most 25%, the share above which the offer ranks the cheapest option first; missing when the profile sets none"}
+  profile.max_substitute_premium_ratio:  {type: ratio,  source: engine,  label: "what a substitute may cost above the product it replaces", note: "share of what the product asked for would have cost (P-05): profile.max_preference_premium_ratio where the profile sets it, else 25%, which is our value and no Valio Aimo limit"}
   profile.limits_preference_premium:     {type: bool,   source: engine,  label: "whether the profile limits what a preference may cost", note: "false when max_preference_premium_ratio is not set: P-09 then never fires and no fact is missing"}
   profile.standing_order_drift_ratio:    {type: ratio,  source: profile, label: "the drift tolerance for standing orders", note: "how far a renewal's quantity or unit price on a line may differ from the median of its history (P-08); missing when the profile sets none"}
   # --- the option ---
@@ -159,6 +160,10 @@ facts:
   line.is_substitute:             {type: bool,   source: option, label: "whether the line replaces a product the buyer named"}
   line.substitute_original:       {type: string, source: option, label: "the product it replaces", note: "its name, read as data like line.name, and its id"}
   line.substitute_scope:          {type: enum,   source: engine, label: "how close the substitute is", values: [LISTED_BY_SUPPLIER, SAME_CATEGORY, OUTSIDE]}
+  line.substitute_original_net_known: {type: bool, source: option, label: "whether the offer says what the product asked for would have cost", note: "SubstituteInfo.original_net is set and above 0: the price of the product asked for, per litre or kilogram, times the content the substitute line buys. False when the offer could not work it out (no usable price, pack sizes that cannot be compared) and on a line stored before the field existed: not known is never read as not dearer"}
+  line.substitute_net_above_original: {type: money, source: engine, label: "what the substitute costs more than the product asked for", note: "line net minus SubstituteInfo.original_net, before tax; 0 when the substitute costs the same or less; missing when that cost is not known"}
+  line.substitute_premium_ratio:  {type: ratio,  source: engine, label: "the substitute's premium", note: "line.substitute_net_above_original as a share of what the product asked for would have cost; missing when that cost is not known"}
+  line.substitute_not_accepted_said: {type: string, source: engine, label: "why the substitute goes to a person, in words", note: "rule P-05's clause: 'a substitute that Harbourside Hotel does not accept without a human' for a scope the profile does not accept; else 'and the substitute costs €77.20 more than the product you asked for (45.1% more): a person decides', or that what the product asked for would have cost is not known"}
   line.substitute_adds_allergen:  {type: bool,   source: option, label: "whether the substitute adds an allergen", note: "true when the substitution rule of SPEC section 6 fails: an allergen the original does not declare, or one raised from may contain to contains"}
   line.substitute_added_allergens: {type: list,  source: option, label: "the allergens the substitute adds", note: "added and raised allergens alike, each with the level the substitute declares; the offer does not tell the two apart"}
   line.substitute_added_allergens_said: {type: string, source: engine, label: "what the substitute states about allergens and the product asked for does not, in words", note: "'declares oats and cereals containing gluten', 'may contain tree nuts'"}
@@ -542,21 +547,27 @@ rules:
     fixed: false
     title: A substitute is outside what the profile accepts
     scope: line
+    # Two ways out of what the profile accepts (decision B60): the scope, as before; and the price. A substitute
+    # that costs more than the product asked for by more than profile.max_substitute_premium_ratio goes to a
+    # person whatever its scope, and so does one whose price cannot be compared: not known is not cheap.
     when:
       all:
         - {fact: line.is_substitute, op: is_true}
-        - {fact: line.substitute_scope, op: not_in, value: {fact: profile.substitution_scopes_allowed}}
+        - any:
+            - {fact: line.substitute_scope, op: not_in, value: {fact: profile.substitution_scopes_allowed}}
+            - {fact: line.substitute_original_net_known, op: is_false}
+            - {fact: line.substitute_premium_ratio, op: gt, value: {fact: profile.max_substitute_premium_ratio}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{line.name} ({line.product_id}) replaces {line.substitute_original}, a substitute that {profile.display_name} does not accept without a human"
-    records: [profile.substitution_without_approval]
+    message: "{line.name} ({line.product_id}) replaces {line.substitute_original}, {line.substitute_not_accepted_said}"
+    records: [profile.substitution_without_approval, profile.display_name, line.substitute_net_above_original]
     authority:
       - when: {all: [{fact: profile.substitution_without_approval, op: eq, value: NONE}]}
         text: "Every substitute goes to the purchasing manager."
       - when: {all: [{fact: profile.substitution_without_approval, op: eq, value: LISTED_BY_SUPPLIER}]}
-        text: "A substitute that Valio Aimo does not list for the product goes to the purchasing manager."
-      - text: "A substitute that Valio Aimo does not list for the product and that is not in the same product category goes to the purchasing manager."
-    justification: "The brief asks that substitutions outside stated preferences get a sign-off."
+        text: "A substitute that Valio Aimo does not list for the product goes to the purchasing manager. A substitute that costs more than {profile.max_substitute_premium_ratio} above what the product it replaces would have cost, or whose price cannot be compared with it, goes to the purchasing manager."
+      - text: "A substitute that Valio Aimo does not list for the product and that is not in the same product category goes to the purchasing manager. A substitute that costs more than {profile.max_substitute_premium_ratio} above what the product it replaces would have cost, or whose price cannot be compared with it, goes to the purchasing manager."
+    justification: "The brief asks that substitutions outside stated preferences get a sign-off. A price well above the product asked for is outside them too: a substitute judged replaceable must not be bought alone at any price under the spend limits (measured on the recording: 469330 replaced by 469363, 45% more a litre). The share is the buyer's to set; 25% where it sets none is our value, not a Valio Aimo limit."
 
   - id: P-06
     fixed: false

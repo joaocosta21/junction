@@ -20,7 +20,12 @@ The order of the gates (AIMO/build/replan/P10-formula.md section 4.4), first dec
    kind words ("yolk", "brisket", "cocoa powder") is another product. It leaves the ranking altogether, so no
    caller can offer it, and a note counts it (decision B65). A pair Valio lists stays, and says so.
 3. The formula (`tta.offers.formula`): same product in another pack, same brand, other brand, different,
-   not known. It only orders the candidates; nothing is hidden by it.
+   not known. It only orders the candidates; nothing is hidden by it. Where the formula matters for the line
+   (`Need.formula_matters`: the request, the buyer's setting, or what the gateway learned of the buyer's
+   orders says so), a candidate shown to keep the formula comes before the use and the flavour its name says,
+   the original's brand first (`_keeper_place`); and a candidate of the original's brand whose formula cannot
+   be compared comes before another brand's whose formula cannot be compared, never before one that is shown
+   to keep it (`_formula_place`).
 4. Listed by Valio, pack size closest, verification, price.
 
 Each candidate carries a `ReplaceCheck`: one sentence that says whether it can replace the original like for
@@ -46,6 +51,7 @@ from tta.contracts.ports import Catalog
 from tta.contracts.product import FormulaCheck, FormulaOutcome, PackSize, Product, ReplaceCheck, ReplaceVerdict
 from tta.contracts.request import MAX_PRODUCT_IDS
 from tta.offers.candidates import (
+    PROFILE_SAYS_FORMULA,
     Candidate,
     Need,
     allergen_rules,
@@ -58,7 +64,7 @@ from tta.offers.candidates import (
     units_needed,
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
-from tta.offers.formula import compare_formula
+from tta.offers.formula import compare_formula, same_brand
 from tta.offers.substitute_kind import kind_reason, other_kind_note
 from tta.offers.substitute_trade_off import gives_up
 from tta.offers.substitute_wording import (
@@ -217,6 +223,10 @@ def find_substitutes(
         # the same reason and sentence and cannot be ordered (task FIX-12b). A substitute query has no
         # request, so the profile's setting is the only source of confirmed-only here.
         require_confirmed=profile.require_confirmed,
+        # Nor has it a request line to say that the formula matters: the buyer's setting for every line does.
+        formula_said=(
+            PROFILE_SAYS_FORMULA.format(buyer=plain_name(profile.display_name)) if profile.formula_matters else ""
+        ),
     )
     ranking = rank_substitutes(original, need, deps)
     return SubstituteResult(
@@ -606,7 +616,9 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
     A claim that is not dietary does not order them at all. The formula comes after the dietary claims and
     can never lift a candidate over them: 469050 has the six figures of 469126 and is not lactose-free. The
     formula took the place of the category distance, which no longer orders anything: a pair Valio lists
-    from another category is judged by what it is made of.
+    from another category is judged by what it is made of. Where the formula matters for the line, a candidate
+    shown to keep it comes before the use and the flavour (`_keeper_place`), and the brand orders the
+    candidates whose formula cannot be compared (`_formula_place`).
     """
 
     def key(each: Judged) -> tuple[object, ...]:
@@ -622,9 +634,10 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
             bool(each.claims_lost),  # then one that keeps every dietary claim
             each.replaceable.other_type,
             each.replaceable.plain_against_flavoured,  # among the last resorts, after one of the same flavour
+            _keeper_place(each, need.formula_matters),  # where the formula matters: the same brand and formula
             each.replaceable.other_use,
             each.replaceable.other_flavour,
-            FORMULA_ORDER[each.formula.outcome],
+            _formula_place(each, original.product, need.formula_matters),
             each.unexplained_variant,  # after the candidates of the same formula class whose names say no variant
             not each.listed,
             _pack_gap(original.pack, candidate.pack),
@@ -634,6 +647,43 @@ def _rank_key(original: Candidate, need: Need) -> RankKey:
         )
 
     return key
+
+
+_NOT_SHOWN_TO_KEEP = len(FORMULA_ORDER)
+
+
+def _keeper_place(each: Judged, matters: bool) -> int:
+    """Where the formula matters for the line: a candidate that is shown to keep the formula comes first among
+    those of the same kind, one of the original's brand before one of another brand.
+
+    Valio Aimo's people, in person (reported by the team lead, 15 Nov 2026): where the formula and the chemistry
+    are required, a product of the same brand that is known to have the same formula has priority. So there
+    the formula is read before the use and the flavour a name says: the same brand's cream with the same
+    contents and figures comes before a cream named for the same use whose formula differs. The kind itself
+    (another product type, flavoured against plain, a name that does not say the kind) is still read first.
+    Every other candidate gets one place, and is ordered as it always was. Where the formula does not matter
+    every candidate gets that place: nothing moves.
+    """
+    if matters and each.formula.keeps_formula:
+        return FORMULA_ORDER[each.formula.outcome]
+    return _NOT_SHOWN_TO_KEEP
+
+
+def _formula_place(each: Judged, original: Product, matters: bool) -> tuple[int, bool]:
+    """Where the formula puts a candidate among those of the same kind, use and flavour, best first.
+
+    `FORMULA_ORDER` holds the order of the candidates whose formula is shown: same brand and same formula, then
+    the same formula of another brand, then a formula shown to differ. What is added where the formula matters
+    (`Need.formula_matters`): among the candidates whose formula cannot be compared, one of the original's brand
+    comes before one of another brand. It stays behind every candidate that is shown to keep the formula, and
+    a formula shown to differ stays where it was. Where the formula does not matter the brand orders nothing
+    more than before.
+    """
+    outcome = each.formula.outcome
+    other_brand = (
+        matters and outcome is FormulaOutcome.NOT_KNOWN and not same_brand(original, each.candidate.product)
+    )
+    return FORMULA_ORDER[outcome], other_brand
 
 
 def _differs_in_kind(each: Judged) -> bool:

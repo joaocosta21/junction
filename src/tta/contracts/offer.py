@@ -53,6 +53,11 @@ class SubstituteInfo(Contract):
     # Can it take the original's place like for like: type, flavour, use, formula, claims (`tta.offers.substitutes`).
     # None on a line stored before the field existed.
     replaceable: ReplaceCheck | None = None
+    # What the product asked for would have cost, before tax, for the content this line buys: its price per
+    # litre or kilogram times what the line's sales units hold (`tta.offers.stand_ins`). Rule P-05 compares the
+    # line's net with it. None: not known (no usable price of the product asked for, or two pack sizes that
+    # cannot be compared), and on a line stored before the field existed; never read as "not dearer".
+    original_net: Money | None = None
 
 
 class OfferLine(Contract):
