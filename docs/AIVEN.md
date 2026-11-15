@@ -2,7 +2,7 @@
 
 The gateway keeps its shared order book and its audit trail in an Aiven for PostgreSQL service when `DATABASE_URL` is set. Without it, they stay in SQLite, as before. The store behind both is the same `Store` port (`src/tta/contracts/ports.py`), so no other package changed.
 
-This is a database swap with three consequences the SQLite file could not give. Each one has SQL below that shows it.
+Three things the SQLite file could not give, each with SQL below that shows it: history that survives a redeploy, an audit trail the database itself refuses to change, and a role for Valio Aimo that reads one view and nothing else. The proof on the deployed trail is in section 4.
 
 ## What ran, and what did not
 

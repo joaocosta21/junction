@@ -169,4 +169,4 @@ Per minute, in one process's memory (`src/tta/api/limits.py`). All values are ou
 - Modal hosts the whole gateway (REST, MCP and the pages) behind one public HTTPS address, deployed with one command from plain Python, with no Dockerfile or YAML.
 - The image is defined in code with pinned libraries; secret values are read on the deploying machine and are never in the image, the code or the repository; a Volume keeps the data across restarts. For the review day the app does not scale to zero (one container is kept running); the setting to go back is one constant.
 - One batch fan-out ran on Modal (`deploy/evidence_batch.py`, 15 Nov at 03:53: 76 web lookups, 40 containers at the peak, 58 seconds). One scheduled function, the witness, is built and was not run there.
-- No GPU, no model served, no Sandboxes and no fine-tuning: by the bar of Modal's brief this is a light use of Modal.
+- No GPU, no model served, no Sandboxes and no fine-tuning.

@@ -14,10 +14,11 @@ Checked against the code at commit `c2106fe`, offline; who decides, the rule ids
 - **Stored** once per product, because a cached answer costs the same as a fresh one.
 - **Measured (a sample of 92 products, not a catalog figure):** 92 products asked once each; a page came back for 69; 30 are shown as evidence (13 on a host we list as the brand owner's, 17 on a host whose owner was not checked), 39 were rejected with the reason in a sentence, 23 had no page.
 - **It never changes a verdict.** A page can add a doubt and never removes one.
+- **See it:** on the demo link, `/shop` as Kilo School, "20 litres of almond drink by Monday", order the first alternative: the dietitian's card under "Waiting for someone else" shows the alpro.com page (`docs/DEMO.md`, 4b). The link replays the 92 recorded answers and makes no live call.
 
 ## Why it sits in the approval step
 
-In Valio Aimo's catalog, 46.2% of products have no allergen statement at all (30.6% of food products; `AIMO/FINDINGS.md` §3, whole catalog of 17,546 products). The gateway reads "no statement" as unknown, never as safe. When a buyer excludes an allergen, rule P-04 sends a product that does not rule it out to the dietitian (at the hotel and the bakery the person who orders holds that role). Without Context.dev that person has only "Valio Aimo's data states nothing". With it, the approval carries what the manufacturer's page says, with the link, the retrieval time and a hash, under a heading that says it is not Valio Aimo data.
+In Valio Aimo's catalog, 46.2% of products have no allergen statement at all (30.6% of food products; `AIMO/FINDINGS.md` §3, whole catalog of 17,546 products). The gateway reads "no statement" as unknown, never as safe. When a buyer excludes an allergen, rule P-04 sends a product that does not rule it out to the dietitian (at the hotel and the bakery the person who orders holds that role). Without Context.dev that person has only "Valio Aimo's data states nothing". With it, the approval carries what the product's web page says, with the link, the retrieval time and a hash, under a heading that says it is not Valio Aimo data.
 
 The evidence only informs the person who signs. The allergen claim stays `UNKNOWN`, the order stays with the person, and nothing found on the web can make an order go through.
 
