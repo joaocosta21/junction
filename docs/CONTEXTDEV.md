@@ -1,14 +1,14 @@
 # Context.dev in the gateway
 
-Which Context.dev endpoint the gateway uses, why, and where its data shows. This is the note the "Best Use of Context.dev" award asks for. Code: `src/tta/evidence/`. Tests: `tests/evidence/` (191 tests; none calls Context.dev). Recorded answers: `fixtures/evidence/` (13 files).
+Which Context.dev endpoint the gateway uses, why, and where its data shows. This is the note the "Best Use of Context.dev" award asks for. Code: `src/tta/evidence/`. Tests: `tests/evidence/` (241 tests; none calls Context.dev). Recorded answers: `fixtures/evidence/` (13 files).
 
-Checked against the code at commit `c2106fe`, offline. Every figure below was produced by running that code over the recorded answers in replay, unless it says "from the log".
+Checked against the code at commit `c2106fe`, offline; who decides, the rule ids of "The demo moments" and Valio Aimo's view were checked again on Sun 15 Nov 2026 at commit `94b21a5`. Every figure below was produced by running the code over the recorded answers in replay, unless it says "from the log".
 
 ## The note, in short
 
 - **Endpoint:** Answers (`POST https://api.context.dev/v1/web/answers`), one request per product.
 - **Why:** one call finds the manufacturer's product page and returns our seven fields together with the pages it read.
-- **When:** only when Valio Aimo's data does not rule out an allergen the buyer excludes, and a person must therefore sign.
+- **When:** only when Valio Aimo's data does not rule out an allergen the buyer excludes, and a person must therefore decide: the dietitian at the ward and the school, the person who orders at the hotel and the bakery, which have no dietitian.
 - **Sent:** the product's English name, its Finnish name and its brand. Nothing about the buyer.
 - **Checked:** the page must be shown to be this product, variant and pack included. A failed or partial answer is not evidence.
 - **Stored** once per product, because a cached answer costs the same as a fresh one.
@@ -16,7 +16,7 @@ Checked against the code at commit `c2106fe`, offline. Every figure below was pr
 
 ## Why it sits in the approval step
 
-In Valio Aimo's catalog, 46.2% of products have no allergen statement at all (30.6% of food products; `AIMO/FINDINGS.md` §3, whole catalog of 17,546 products). The gateway reads "no statement" as unknown, never as safe. When a buyer excludes an allergen, rule P-04 sends a product that does not rule it out to the dietitian. Without Context.dev that person has only "Valio Aimo's data states nothing". With it, the approval carries what the manufacturer's page says, with the link, the retrieval time and a hash, under a heading that says it is not Valio Aimo data.
+In Valio Aimo's catalog, 46.2% of products have no allergen statement at all (30.6% of food products; `AIMO/FINDINGS.md` §3, whole catalog of 17,546 products). The gateway reads "no statement" as unknown, never as safe. When a buyer excludes an allergen, rule P-04 sends a product that does not rule it out to the dietitian (at the hotel and the bakery the person who orders holds that role). Without Context.dev that person has only "Valio Aimo's data states nothing". With it, the approval carries what the manufacturer's page says, with the link, the retrieval time and a hash, under a heading that says it is not Valio Aimo data.
 
 The evidence only informs the person who signs. The allergen claim stays `UNKNOWN`, the order stays with the person, and nothing found on the web can make an order go through.
 
@@ -67,7 +67,7 @@ For each allergen the order excludes, the sentence puts Valio Aimo's data beside
 
 A page on any other host reads, in the sentence: "A web page whose owner was not checked, “…” on <host> says: …". All 9 kept recordings are on a listed host, so this wording does not appear in replay.
 
-**A gap, said plainly:** the code also holds a heading for an unlisted host ("A web page that names this product, not Valio Aimo data (its owner was not checked)", `wording.HEADING_UNCHECKED`), but no page uses it yet. The shop's card always prints "Manufacturer's page, not Valio Aimo data" and the older `/approvals` page "Found on the manufacturer's page — not Valio data". Only the sentence under the heading tells the two cases apart.
+**The headings.** The shop's card is headed "Found on the web, not Valio Aimo data", whoever owns the page; the sentence under it says whose page it is. The older `/approvals` page still prints "Found on the manufacturer's page — not Valio data" for every page: there only the sentence tells the two cases apart.
 
 ## Stored once per product
 
@@ -82,37 +82,38 @@ One file per product, `<TTA_DATA_DIR>/evidence/<product id>.json`: what was sent
 | Surface | What appears |
 |---|---|
 | Approval reasons | After P-04's own sentence: "Web evidence for product 469512 is attached for the dietitian, and it is not Valio Aimo's data: … It changes no verdict: a human decides." |
-| The shop's approval card (`/shop`) | Above the reasons, under "Manufacturer's page, not Valio Aimo data": the entries, then "Read from the web through Context.dev. Valio Aimo's data still states nothing about this allergen, so it stays unknown: this changes no status and no decision, and the person approving decides." |
+| The shop page, on the result (`/shop`, `GET /shop/api/evidence`) | Where the person who orders decides the allergen question on the result itself (the hotel, the bakery), the recorded page shows beside the question, before any approval exists. Recordings only: nobody is asked and nothing is stored. |
+| The shop's approval card (`/shop`) | Above the reasons, under "Found on the web, not Valio Aimo data": the entries, then "Read from the web through Context.dev. Valio Aimo's data still states nothing about this allergen, so it stays unknown: this changes no status and no decision, and the person approving decides." |
 | The older `/approvals` page | First on the card, under "Found on the manufacturer's page — not Valio data". |
 | `GET /v1/approvals` | `evidence[]` on each approval (`tta.contracts.order.Evidence`): `product_id`, `found`, `source_url`, `page_title`, `product_name_on_page`, `contains`, `may_contain`, `free_from`, `retrieved_at`, `content_hash`, `sentence`. |
-| Audit trail | An `evidence.attached` event, right after the approval is requested. The buyer's view carries the link and the hash. Valio Aimo's view carries only the product id and whether a page was found. |
+| Audit trail | An `evidence.attached` event, right after the approval is requested. The buyer's view carries the link and the hash. Valio Aimo's view says only that evidence from outside its data was attached to an approval; the product is not named there, because it is the product rule P-04 fired on. |
 
 ## The demo moments (replay, recorded answers)
 
-Run by us at commit `c2106fe` through the REST routes as the hotel's agent, at both clocks (the recording's, Sat 14 Nov 2026 02:52 Helsinki, and the demo clock, Thu 12 Nov 2026 14:15), with the same result at each.
+First run at commit `c2106fe` through the REST routes as the hotel's agent, at both clocks. Run again on Sun 15 Nov 2026 at 02:35, at the demo clock (Thu 12 Nov 2026 14:15), as the hotel through the shop's routes; the first options below are from that run. At the hotel the person who orders, Hanna Laine, holds the dietitian's role, so "to the dietitian" means her there. Where a dietitian is a second person, the same card is hers: at Kilo School "20 litres of almond drink by Monday" sends `465793` to Riikka Mäkelä with the alpro.com page of moment 1 (`docs/DEMO.md`, scenario 4b).
 
 **1. A page that adds a doubt.** 10 L of Alpro Barista almond drink (`465793`), tree nuts excluded, strict.
-- First option: a substitute that rules tree nuts out, 10 × `473424`, €23.60. It goes to the purchasing manager under two fixed rules: F-08 (a substitute that lacks a nutritional claim of the product it replaces) and F-12 (a substitute that is a last resort).
-- Second option, "Alternative: allergen not ruled out": 10 × `465793`, €23.80, to the dietitian (P-04).
+- First option, "Alternative: a substitute a person must judge": a substitute that rules tree nuts out, 10 × `473424`, €23.60. It goes to a person under fixed rule F-12 (a substitute that is not a like-for-like replacement: a rice drink for an almond barista drink).
+- Second option, "Alternative: allergen not ruled out": 10 × `465793`, €23.80, to the dietitian's role (P-04).
 - Ordering the second option attaches: "The manufacturer's page “Barista Mantelijuoma” on alpro.com says: contains manteli; may contain pähkinöistä (ei maapähkinästä); free from laktoositon, Maidoton, Gluteeniton. Asked about tree nuts (AN): Valio Aimo's data does not rule it out; the page says it contains it, in its words “manteli”. The page names tree nuts (AN), which this order excludes: check the product before approving. What a page says can add a doubt and never removes one."
 
 **2. A page that says free from, and still decides nothing.** 100 L of Elovena barista oat drink (`469512`), milk excluded, strict.
-- First option: a substitute that rules milk out, 100 × `473424`, €236.00.
-- Second option, "Alternative: allergen not ruled out": 100 × `469512`, €208.00, to the dietitian (P-04).
-- Ordering the second option attaches: "… Asked about milk (AM): Valio Aimo's data states nothing; the page says free from, in its words “Maidoton”." The order still waits for the dietitian.
+- First option: a substitute that rules milk out, 100 × `473424`, €236.00, to a person under F-12.
+- Second option, "Alternative: allergen not ruled out": 100 × `469512`, €208.00, to the dietitian's role (P-04).
+- Ordering the second option attaches: "… Asked about milk (AM): Valio Aimo's data states nothing; the page says free from, in its words “Maidoton”." The order still waits for a person.
 
 ```sh
 curl -s -X POST $BASE/v1/offers -H "Authorization: Bearer demo-agent-hotel-kitchen" -H "Content-Type: application/json" \
   -d '{"needed_by":"2026-11-16","lines":[{"text":"10 L of product 465793","product_ids":["465793"],"quantity":10,"unit":"L","exclude_allergens":["AN"],"allergen_strictness":"STRICT"}]}'
 curl -s -X POST $BASE/v1/orders -H "Authorization: Bearer demo-agent-hotel-kitchen" -H "Idempotency-Key: evidence-demo-1" \
-  -H "Content-Type: application/json" -d '{"offer_id":"<offer_id>","option_id":"opt_2"}'      # → PENDING_APPROVAL, dietitian
-curl -s "$BASE/v1/approvals?status=pending" -H "Authorization: Bearer demo-approver-hotel-dietitian"   # → evidence[]
+  -H "Content-Type: application/json" -d '{"offer_id":"<offer_id>","option_id":"opt_2"}'      # → PENDING_APPROVAL, the dietitian's role
+curl -s "$BASE/v1/approvals?status=pending" -H "Authorization: Bearer demo-approver-hotel-purchasing"  # → evidence[] (Hanna holds every role at the hotel)
 curl -s "$BASE/v1/audit?order_id=<order_id>" -H "Authorization: Bearer demo-agent-hotel-kitchen"      # → evidence.attached
 ```
 
 ## The 13 recorded answers
 
-All recorded on Saturday 14 Nov 2026 in mode `ultra`: five at about 10:06 Helsinki, eight between 19:56 and 19:58. Kept or dropped is what the matcher at commit `c2106fe` decides, run offline over the files: **9 kept, 4 dropped.** This is a sample of 13 products, not a catalog figure.
+All recorded on Saturday 14 Nov 2026 in mode `ultra`: five at about 10:06 Helsinki, eight between 19:56 and 19:58. Kept or dropped is what the matcher at commit `c2106fe` decided, run offline over the files: **9 kept, 4 dropped** (not run again on 15 Nov). This is a sample of 13 products, not a catalog figure.
 
 | Product (name in Valio Aimo's file) | Page found | Result | What the approver reads |
 |---|---|---|---|
@@ -135,21 +136,20 @@ Two of the dropped pages may well be the same product (`462775` under its retail
 ## Requests spent
 
 From the team's log, not re-read on Context.dev's dashboard: **25 requests in all, of the 60 the team approved.**
-- 17 before tonight: 10 trials by hand, 5 that produced the first recordings, 2 sent by an early test with a fake key and refused with 401 before that test was cut off from the network.
-- 8 tonight, sent by the orchestrator with `scripts/record_evidence.py --demo-set`: the demo's products with an allergen doubt and no recorded page. All 8 answered with a page.
+- 17 before the evening of 14 Nov: 10 trials by hand, 5 that produced the first recordings, 2 sent by an early test with a fake key and refused with 401 before that test was cut off from the network.
+- 8 that evening, sent by the orchestrator with `scripts/record_evidence.py --demo-set`: the demo's products with an allergen doubt and no recorded page. All 8 answered with a page.
 
 No test calls Context.dev: the client tests use `httpx.MockTransport`.
 
-## Not run
+## Still to run
 
 - **The batch on Modal** (`deploy/evidence_batch.py`): the same request for many products at once, at most 40 at a time. Only its offline dry run and its tests with a stand-in sender exist.
-- **The public link does not have tonight's recordings or the stricter matcher** until someone redeploys (`docs/DEPLOY.md`, "To run").
+- **The public link does not have the 8 recordings of 14 Nov evening or the stricter matcher** until someone redeploys (`docs/DEPLOY.md`, "To run"); at 00:30 on 15 Nov it still ran Saturday morning's code.
 
-## Limits and next steps
+## Assumptions and next steps
 
 - **It informs a person; it decides nothing.** That is the design. Whether the award's "core flow" requirement counts it is a question for Context.dev's judge.
 - **Waiting time.** A lookup runs when an approval is created. A product that is neither stored nor recorded can hold that order for up to 40 seconds, once, when a key is set. *Next:* attach the evidence after the approval is written, as its own audited event.
-- **Language.** Matching is by words, untranslated. Only the variant marks are read in both English and Finnish, and they only ever drop a page.
+- **Language.** Matching is by words, untranslated. Only the variant marks are read in both English and Finnish, and they only ever drop a page. *Next:* a product identifier (GTIN) on the page, which needs no words.
 - **Whose page.** The host list is ours and unverified (above). *Next:* the team or the brand owners confirm it; an access policy at Context.dev that lists those domains.
-- **The heading for an unlisted host** is not on any card yet (above).
 - **Freshness.** An answer is kept until its file is deleted. *Next:* a maximum age.
