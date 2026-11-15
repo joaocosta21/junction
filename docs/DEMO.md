@@ -268,7 +268,7 @@ What is ours in what you just saw, stated as such.
 - **Synthetic customers and illustrative limits.** Names, people, limits and order histories are ours (8 past orders per customer, 16 for the ward), and every suggestion says "From a synthetic order history". A renewal made on `/shop` does not join that history.
 - **No login on the page.** Whoever opens `/shop` acts as the customer's person, the dietitian included. That an agent cannot approve is enforced over REST and MCP, where the token says who calls. The pages are served only in the `dev` and `demo` environments.
 - **The order step is ours.** The Valio Aimo mock has no order endpoint, by design: "ordered" is a signed record in this gateway's order book and its log, and commits nobody. The signature is the gateway's, with a demo key generated at start; it is not Valio Aimo's.
-- **Evidence pages are recordings** (`fixtures/evidence/`, 13 pages). A product with no recorded page shows no page; nothing is fetched during the demo.
+- **Evidence pages are recordings** (`fixtures/evidence/`: 92 recorded answers, of which 30 are shown as evidence). A product with no recorded page shows no page; nothing is fetched during the demo.
 - **The recipes are ours:** ten illustrative ones; the buyer names the dish.
 
 ## Next steps, and how the demo answers today

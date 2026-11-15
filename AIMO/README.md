@@ -8,7 +8,7 @@ The documents of the challenge entry that are not code: the brief, the contract 
 | [SPEC.md](SPEC.md) | The contract: interface, data shapes, states, rules. The code follows it |
 | [COVERAGE.md](COVERAGE.md) | The brief's 16 items one by one: what works, the proof, the assumptions and the next steps |
 | [WALKTHROUGH.md](WALKTHROUGH.md) | What the gateway does, step by step, why each piece is there, the questions asked of Valio Aimo and the decisions we took on our own |
-| [USE-CASES.md](USE-CASES.md) | The brief's six example scenarios: a check of Saturday 14 Nov, with what holds now at the top |
+| [USE-CASES.md](USE-CASES.md) | The brief's six example scenarios: what holds now for each, in one table |
 | [FINDINGS.md](FINDINGS.md) | Facts about Valio Aimo's mock API and data, each counted from the product file or from saved answers |
 | [docs/FIELD-DICTIONARY.md](docs/FIELD-DICTIONARY.md) | Every field of every payload, in one layout |
 | [docs/API.md](docs/API.md) · [docs/PRODUCT-DATA.md](docs/PRODUCT-DATA.md) · [docs/SCHEMA-AND-CODES.md](docs/SCHEMA-AND-CODES.md) · [docs/CSV-DATASETS.md](docs/CSV-DATASETS.md) | One reference per source: the API, the product file, its JSON Schema and code lists, the two CSV files |

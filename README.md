@@ -178,7 +178,7 @@ What is served, besides the open documents listed under "Open, documented standa
 .venv/bin/ruff check src tests
 ```
 
-The tests call no outside service. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. When the whole suite was last run in one piece, and on which commit, is in the team's build log (`AIMO/build/replan/STATUS.md`, on branch `replan-build`).
+The tests call no outside service. One package at a time: `.venv/bin/python -m pytest tests/offers -q`. The whole suite was last run in one piece on commit `b567e5f`: 6,213 passed, 69 skipped, 1 deselected.
 
 ## Datasets, and how to refresh them
 
@@ -187,7 +187,9 @@ The tests call no outside service. One package at a time: `.venv/bin/python -m p
 | Valio Aimo product file (17,546 products) and its JSON Schema | `valio_aimo_junction26_product_data.json`, `valio_aimo_junction26_product_data_schema.json` | Download from Valio Aimo's challenge API with the key from the Junction challenge page |
 | Delivery reliability and carbon footprint | `valio_aimo_junction26_delivery_reliability.csv`, `valio_aimo_junction26_carbon_footprint.csv` | The same |
 | Recorded price and availability answers of the mock | `fixtures/valio/<capture>/` (`manifest.json` holds the server's `timeNow`) | `scripts/capture_valio.py` (calls the mock) |
-| Recorded manufacturer pages for allergen doubts | `fixtures/evidence/` (13 pages) | `scripts/record_evidence.py` ([docs/CONTEXTDEV.md](docs/CONTEXTDEV.md)) |
+| Recorded web-page answers for allergen doubts (Context.dev) | `fixtures/evidence/` (92 recorded answers, one per product; 30 are shown as evidence, 39 are rejected with a reason, 23 found no page) | `scripts/record_evidence.py` ([docs/CONTEXTDEV.md](docs/CONTEXTDEV.md)) |
+| The four demo customers: their people, usual products, eight weeks of order history and standing orders | `src/tta/customers/data/*.yaml` | Ours, synthetic, written for the demonstration; edit the file |
+| The buyer profiles (spend limits, allergen rule, substitution scope, who approves) and the ten recipes of the menu planner | `src/tta/policy/profiles/*.yaml`, `src/tta/menus/recipes.yaml` | Ours, illustrative, written for the demonstration; edit the file |
 
 To use a new recording, give it a new name and start with `TTA_REPLAY_CAPTURE=<name>`: the tests read the committed recordings by name.
 

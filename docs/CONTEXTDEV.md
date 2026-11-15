@@ -2,17 +2,17 @@
 
 Which Context.dev endpoint the gateway uses, why, and where its data shows. This is the note the "Best Use of Context.dev" award asks for. Code: `src/tta/evidence/`. Tests: `tests/evidence/` (241 tests; none calls Context.dev). Recorded answers: `fixtures/evidence/` (92 files: 13 of Sat 14 Nov, 79 of Sun 15 Nov).
 
-Checked against the code at commit `c2106fe`, offline; who decides, the rule ids of "The demo moments" and Valio Aimo's view were checked again on Sun 15 Nov 2026 at commit `94b21a5`. **On Sun 15 Nov 2026, 03:49 to 03:54 Helsinki, 79 more requests were sent to Context.dev** (2 by the recording script, 77 as a fan-out on Modal): see "The 79 answers of 15 Nov". Every figure below was produced by running the code over the recorded answers in replay, unless it says "from the log".
+Checked against the code at commit `c2106fe`, offline; who decides, the rule ids of "The demo moments" and Valio Aimo's view were checked again on Sun 15 Nov 2026 at commit `94b21a5`. The counts of answers shown and rejected are as the matcher reads the 92 files at the final code, commit `b567e5f`. **On Sun 15 Nov 2026, 03:49 to 03:54 Helsinki, 79 more requests were sent to Context.dev** (2 by the recording script, 77 as a fan-out on Modal): see "The 79 answers of 15 Nov". Every figure below was produced by running the code over the recorded answers in replay, unless it says "from the log".
 
 ## The note, in short
 
 - **Endpoint:** Answers (`POST https://api.context.dev/v1/web/answers`), one request per product.
-- **Why:** one call finds the manufacturer's product page and returns our seven fields together with the pages it read.
+- **Why:** one call looks for the product's web page, the manufacturer's own when there is one, and returns our seven fields together with the pages it read. What comes back is called "the manufacturer's page" only on a host we list for the brand; on any other host it is "a web page whose owner was not checked".
 - **When:** only when Valio Aimo's data does not rule out an allergen the buyer excludes, and a person must therefore decide: the dietitian at the ward and the school, the person who orders at the hotel and the bakery, which have no dietitian.
 - **Sent:** the product's English name, its Finnish name and its brand. Nothing about the buyer.
 - **Checked:** the page must be shown to be this product, variant and pack included. A failed or partial answer is not evidence.
 - **Stored** once per product, because a cached answer costs the same as a fresh one.
-- **Measured (a sample of 92 products, not a catalog figure):** 92 products asked once each; a page came back for 69; 29 are shown as evidence, 40 were dropped with the reason in a sentence, 23 had no page.
+- **Measured (a sample of 92 products, not a catalog figure):** 92 products asked once each; a page came back for 69; 30 are shown as evidence (13 on a host we list as the brand owner's, 17 on a host whose owner was not checked), 39 were rejected with the reason in a sentence, 23 had no page.
 - **It never changes a verdict.** A page can add a doubt and never removes one.
 
 ## Why it sits in the approval step
@@ -66,7 +66,7 @@ For each allergen the order excludes, the sentence puts Valio Aimo's data beside
 | arla | `arla.fi`, `arla.com`, `arlapro.com` |
 | alpro | `alpro.com` |
 
-A page on any other host reads, in the sentence: "A web page whose owner was not checked, “…” on <host> says: …". Of the 29 kept recordings, 12 are on a listed host and 17 are not (wholesalers and importers such as finefoods.fi, hkfoodservice.fi, metrotukku.fi, topfoods.fi), so 17 read with this wording in replay.
+A page on any other host reads, in the sentence: "A web page whose owner was not checked, “…” on <host> says: …". Of the 30 kept recordings, 13 are on a listed host and 17 are not (wholesalers and importers such as finefoods.fi, hkfoodservice.fi, metrotukku.fi, topfoods.fi), so 17 read with this wording in replay.
 
 **The headings.** The shop's card is headed "Found on the web, not Valio Aimo data", whoever owns the page; the sentence under it says whose page it is. The older `/approvals` page still prints "Found on the manufacturer's page — not Valio data" for every page: there only the sentence tells the two cases apart.
 
@@ -143,9 +143,9 @@ Sent on Sunday 15 Nov 2026 between 03:49 and 03:54 Helsinki, mode `ultra`, 100 c
 | Product | Page found | Result | What the person reads |
 |---|---|---|---|
 | `469386` 5 x Arla Lactose- and fatfree milkdrink 1 L Suomi ESL | arla.fi, "Arla Maitoa Suomesta Laktoositon rasvaton maitojuoma Suomi 1 l" | kept | contains Maito; free from Laktoositon. The page does not say "ESL" and the matcher does not ask for it. |
-| `469363` Arla Semi skimmed milkdrink 1 L UHT lactose free Suomesta | arla.fi, "Arla Maitoa Suomesta Laktoositon kevytmaitojuoma (UHT) 1 l" | **dropped, wrongly** | "the product asked for is fat-free; the page does not say fat-free" |
+| `469363` Arla Semi skimmed milkdrink 1 L UHT lactose free Suomesta | arla.fi, "Arla Maitoa Suomesta Laktoositon kevytmaitojuoma (UHT) 1 l" | kept (since commit `b567e5f`; rejected before it, see below) | contains Maito; free from laktoositon |
 
-**`469363` is a fault of the matcher, not of the page.** The mark "fat-free" (`src/tta/evidence/matching.py`, `MARKS`) matches the word "skimmed", and so also "Semi skimmed". The page is this product (kevytmaitojuoma is semi-skimmed milk drink; UHT, lactose-free, 1 l, Arla). Checked in memory, without changing the file: with "skimmed" not read after "semi ", this page is kept ("contains Maito; free from laktoositon") and no other of the 92 recordings reads differently. Until the code is changed, a card about `469363` gives the wrong reason. The fault only drops a page; it cannot show a wrong one.
+**`469363` was first rejected by a fault of the matcher, corrected in `b567e5f`.** The mark "fat-free" (`src/tta/evidence/matching.py`, `MARKS`) matched the word "skimmed", and so also "Semi skimmed", and the page was rejected with "the product asked for is fat-free; the page does not say fat-free". The page is this product (kevytmaitojuoma is semi-skimmed milk drink; UHT, lactose-free, 1 l, Arla). Since the correction "skimmed" is not read after "semi ", this page is kept, and no other of the 92 recordings reads differently. The fault only rejected a page; it could not show a wrong one. It is why the counts moved from 29 shown and 40 rejected to 30 and 39.
 
 **The fan-out on Modal** (`deploy/evidence_batch.py`): every product of the recording `2026-11-14-demo` whose data holds no allergen statement at all and that had no recorded page: 77 products (79 hold no statement; 2 were recorded on 14 Nov). One call per product, spread over at most 40 containers, each call sending one request.
 
@@ -158,7 +158,7 @@ Sent on Sunday 15 Nov 2026 between 03:49 and 03:54 Helsinki, mode `ultra`, 100 c
 | Without a brand | 41 | 20 | 0 | 20 | 21 |
 | All | 77 | 54 | 19 | 35 | 23 |
 
-- **The 41 products without a brand could not be kept and were asked anyway**, 4,100 credits: the matcher's first check needs a brand, or Valio Aimo's own site for its own label. 23 of them are the "AIMO" own label, for which a page on valioaimo.fi could have counted; one such page came back (`465513`) and was dropped on another check: its name carries the maker's name, Savo-Karjalan Liha Oy, which the product's name does not. They were asked so that the figure covers every product of the recording with no allergen statement, and so that the fan-out reached its 40 containers. A next run should leave out a product with no brand that is not of the own label.
+- **The 41 products without a brand could not be kept and were asked anyway**, 4,100 credits: the matcher's first check needs a brand, or Valio Aimo's own site for its own label. 23 of them are the "AIMO" own label, for which a page on valioaimo.fi could have counted; one such page came back (`465513`) and was dropped on another check: its name carries the maker's name, Savo-Karjalan Liha Oy, which the product's name does not. They were asked so that the figure covers every product of the capture `2026-11-14-demo` (769 products) with no allergen statement, and so that the fan-out reached its 40 containers. A next run should leave out a product with no brand that is not of the own label.
 - Of the 19 kept, 2 are on a host we list as the brand owner's (`463773` on valio.fi, `469288` on oddlygood.com). The other 17 read "A web page whose owner was not checked".
 - 2 of the 19 name something under "contains" (`462322`: Kookospähkinä; `469288`: maissia), 5 carry a free-from list (`469288` both), 13 name no allergen in their text. 68 of the 77 products are meat (54, mostly raw beef) or coconut products (14): a page that names no allergen is the expected answer there, and it still leaves Valio Aimo's data silent, so the status stays unknown.
 - Several drops of a branded product look like the same product written another way, not another product: "ulkofile" on the page against "ulkofilee" in the catalog (`464814`), "flank steak" against "Flanksteak" (`464115`), "sous vide" added (`466210`), "n." before a weight read as a word (`464370`, `464814`). Words are compared as written, and a false match is treated as worse than a missing page. Nobody checked these pages by hand.
@@ -209,7 +209,7 @@ Dropped though the product has a brand, 15:
 
 Dropped because the product has no brand in Valio Aimo's data, 20 (one of them because the answer named no page it read, one on a page name with other words): `462199`, `462314`, `462870`, `462880`, `462892`, `463125`, `463135`, `463147`, `463778`, `465122`, `465331`, `465476`, `465513`, `465538`, `466510`, `467983`, `468359`, `468417`, `468810`, `469118`. No page found, 23: `462416` and `467496` (with a brand), and `462286`, `462309`, `462323`, `463020`, `463071`, `463076`, `463098`, `463105`, `463116`, `463121`, `463771`, `464023`, `464025`, `464037`, `464753`, `464759`, `464788`, `467245`, `468887`, `469867`, `475044`.
 
-**Not on the public link yet.** The link was deployed at 03:35 on 15 Nov with the 13 recordings of 14 Nov. The 79 new files are in `fixtures/evidence/` on the team's machine and reach the link at the next deploy. Four tests of `tests/evidence` pin the old set of files and fail until they are brought to the new one: three in `test_record_script.py` (the default total of 60 now reads as spent, exit status 7) and `test_recordings.py::test_every_recording_sent_names_only` (it lists the 13 files; its own checks hold for all 92: checked by hand).
+**On the public link.** The link was deployed again on 15 Nov from the final code `b567e5f` and carries the 92 recorded answers. The four tests of `tests/evidence` that pinned the 13 files of 14 Nov follow the 92 files since that commit.
 
 ## Requests spent
 
@@ -220,13 +220,9 @@ Dropped because the product has no brand in Valio Aimo's data, 20 (one of them b
 
 No test calls Context.dev: the client tests use `httpx.MockTransport`.
 
-## Still to run
-
-- **A deploy that carries the 79 new recordings**, after the matcher's reading of "semi skimmed" is corrected and the four tests are brought to the new files.
-- **A lookup from the public link itself.** The link carries no Context.dev key by choice (`TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS` is not set: any visitor could then spend credits), so it shows recorded pages only and looks nothing up.
-
 ## Assumptions and next steps
 
+- **No lookup is made from the public link itself.** The link carries no Context.dev key by choice (`TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS` is not set: any visitor could then spend credits), so it shows recorded pages only and looks nothing up.
 - **It informs a person; it decides nothing.** That is the design. Whether the award's "core flow" requirement counts it is a question for Context.dev's judge.
 - **Waiting time.** A lookup runs when an approval is created. A product that is neither stored nor recorded can hold that order for up to 40 seconds, once, when a key is set. *Next:* attach the evidence after the approval is written, as its own audited event.
 - **Language.** Matching is by words, untranslated. Only the variant marks are read in both English and Finnish, and they only ever drop a page. In the fan-out of 15 Nov, spellings that differ by a letter or a space dropped several branded meat products (above). *Next:* a product identifier (GTIN) on the page, which needs no words.
