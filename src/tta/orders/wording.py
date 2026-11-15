@@ -2,6 +2,13 @@
 
 Plain English, short, with the number and the reason. Built from templates, never by a model. The phrases
 (money, dates, roles) are the audit trail's, so an order and its trail read alike.
+
+Who a sentence names (decision B61, after one-person confirmation B54). A person who decided is named by name. A
+role follows in brackets only at a buyer where more than one person can sign (the ward and the school, with their
+dietitian), and then only the role that decision was asked of that person. A sentence that waits names who really
+decides at that buyer: where the person who orders holds the dietitian's or finance's role, it says the purchasing
+manager (`tta.policy.human_approval`). A caller that passes no profile gets names and the roles as they are.
+A sentence is written when an order changes state and is stored with it: nothing stored is rewritten.
 """
 
 from __future__ import annotations
@@ -10,11 +17,12 @@ from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from tta.audit.phrases import ended, joined, moment, money, person, roles_text
+from tta.audit.phrases import MAX_NAME_CHARACTERS, ended, joined, moment, money, person, plain, roles_text
 from tta.contracts.common import ApproverRole, DecisionKind, OrderStatus, Verdict
 from tta.contracts.order import Approval, ApprovalDecision, Order
-from tta.contracts.policy import PolicyDecision
-from tta.policy.human_approval import HUMAN_APPROVAL, PREPARED
+from tta.contracts.policy import BuyerProfile, PolicyDecision
+from tta.policy.human_approval import HUMAN_APPROVAL, PREPARED, decided_as, roles_said, several_can_sign
+from tta.policy.text import format_limit
 
 ONLY_AN_AGENT_ORDERS = "Only a buyer's agent may place an order."
 KEY_REQUIRED = "An order needs an Idempotency-Key, so that a retry cannot place a second order."
@@ -59,6 +67,15 @@ ORDER_BY_PASSED = (
     "Order {order_id} expired: it had to be decided by {deadline} and the approval was not complete. "
     "Nothing was ordered. Ask for a fresh offer."
 )
+# An order the agent placed alone says why it was allowed, from the values the order-time check read: the buyer's
+# setting, the two spend limits, and that nothing asked for a person. No rule id: a person reads it on the order.
+PLACED_ALONE = "The agent placed this order alone for {net} net"
+ALLOWED = " That was allowed: {reasons}."
+ALONE_SWITCHED_ON = "ordering alone is switched on for {buyer}"
+ALONE_WITHIN_ORDER_LIMIT = "the total of {net} is within the {limit} limit per order"
+ALONE_WITHIN_DAY_LIMIT = "today's spend with this order is {day} of the {limit} limit per day"
+ALONE_ALL_CONFIRMED = "every statement of the offer is confirmed"
+ALONE_NO_RULE = "no rule asked for a person"
 
 
 def _asking(decision: PolicyDecision) -> tuple[str, ...]:
@@ -66,9 +83,26 @@ def _asking(decision: PolicyDecision) -> tuple[str, ...]:
     return tuple(dict.fromkeys(rule.rule_id for rule in decision.fired if rule.verdict is Verdict.APPROVAL))
 
 
-def _approvers(approval: Approval) -> str:
-    given = (entry for entry in approval.decisions if entry.decision is DecisionKind.APPROVE)
-    return joined(person(entry.approver_name, entry.roles) for entry in given)
+def _signer(
+    name: str, roles: Sequence[ApproverRole], asked: Sequence[ApproverRole], profile: BuyerProfile | None
+) -> str:
+    """One person who decided, by name. In brackets, at a buyer where more than one person can sign: the roles
+    this approval asked of that person, each as it is really decided there (finance's as the purchasing manager's
+    where one person holds both)."""
+    if profile is None or not several_can_sign(profile):
+        return person(name, ())
+    theirs = dict.fromkeys(decided_as(profile, role) for role in asked if role in roles)
+    return person(name, tuple(theirs))
+
+
+def _approvers(approval: Approval, profile: BuyerProfile | None = None) -> str:
+    """Everybody who approved, each person once. One person can sign under several identities (the shop page
+    signs role by role, each under the name of the customer's person): the name is what a reader sees."""
+    by_name: dict[str, tuple[ApproverRole, ...]] = {}
+    for entry in approval.decisions:
+        if entry.decision is DecisionKind.APPROVE:
+            by_name = {**by_name, entry.approver_name: (*by_name.get(entry.approver_name, ()), *entry.roles)}
+    return joined(_signer(name, roles, approval.required_roles, profile) for name, roles in by_name.items())
 
 
 def _only_confirmation_is_asked(decision: PolicyDecision) -> bool:
@@ -76,45 +110,64 @@ def _only_confirmation_is_asked(decision: PolicyDecision) -> bool:
     return _asking(decision) == (HUMAN_APPROVAL.rule_id,)
 
 
-def placed_alone(net: Decimal, profile_id: str) -> str:
-    """`profile_id` is no longer printed: a sentence never names a buyer by its profile id."""
-    return (
-        f"The agent placed this order alone for {money(net)} net: no rule asked for a human and every statement of "
-        "the offer is confirmed."
-    )
+def _limit(value: Decimal) -> str:
+    """A limit as the buyer set it: €750, never €750.00."""
+    return f"€{format_limit(value)}"
 
 
-def _prepared(approval: Approval) -> str:
-    approvers = _approvers(approval)
+def placed_alone(net: Decimal, profile: BuyerProfile | None = None, day_net: Decimal | None = None) -> str:
+    """Why the agent could place this order alone. `profile` is the buyer's in force at the order-time check and
+    `day_net` the day's spend that check judged on, this order included; a value the caller does not have leaves
+    its clause out, it is never guessed. A buyer is named by its name, never by its profile id."""
+    reasons: list[str] = []
+    if profile is not None:
+        reasons.append(ALONE_SWITCHED_ON.format(buyer=plain(profile.display_name, MAX_NAME_CHARACTERS)))
+        reasons.append(ALONE_WITHIN_ORDER_LIMIT.format(net=money(net), limit=_limit(profile.max_order_net_eur)))
+        if day_net is not None:
+            reasons.append(
+                ALONE_WITHIN_DAY_LIMIT.format(day=money(day_net), limit=_limit(profile.max_daily_net_eur))
+            )
+    reasons.extend((ALONE_ALL_CONFIRMED, f"and {ALONE_NO_RULE}"))
+    return PLACED_ALONE.format(net=money(net)) + "." + ALLOWED.format(reasons="; ".join(reasons))
+
+
+def _prepared(approval: Approval, profile: BuyerProfile | None) -> str:
+    approvers = _approvers(approval, profile)
     start = f"Confirmed by {approvers}; still waiting" if approvers else f"{PREPARED} Waiting"
     deadline = f", by {moment(approval.valid_until)}" if approval.valid_until else ""
-    return f"{start} for {roles_text(approval.roles_missing)} to confirm{deadline} ({CONFIRMATION_RULE})."
+    return f"{start} for {roles_said(approval.roles_missing, profile)} to confirm{deadline} ({CONFIRMATION_RULE})."
 
 
-def waiting(approval: Approval, decision: PolicyDecision) -> str:
+def waiting(approval: Approval, decision: PolicyDecision, profile: BuyerProfile | None = None) -> str:
     if _only_confirmation_is_asked(decision):
-        return _prepared(approval)
-    approvers = _approvers(approval)
+        return _prepared(approval, profile)
+    approvers = _approvers(approval, profile)
     start = f"Approved by {approvers}; still waiting" if approvers else "Waiting"
     deadline = f", to be decided by {moment(approval.valid_until)}" if approval.valid_until else ""
     rules = _asking(decision)
     why = f"{'rule' if len(rules) == 1 else 'rules'} {joined(rules)} {'asks' if len(rules) == 1 else 'ask'}"
-    return f"{start} for approval by {roles_text(approval.roles_missing)}{deadline}: {why} for a human."
+    return f"{start} for approval by {roles_said(approval.roles_missing, profile)}{deadline}: {why} for a human."
 
 
-def ordered_with_approval(approval: Approval, net: Decimal, decision: PolicyDecision) -> str:
+def ordered_with_approval(
+    approval: Approval, net: Decimal, decision: PolicyDecision, profile: BuyerProfile | None = None
+) -> str:
     if _only_confirmation_is_asked(decision):
-        return f"Confirmed by {_approvers(approval)}: ordered for {money(net)} net."
+        return f"Confirmed by {_approvers(approval, profile)}: ordered for {money(net)} net."
     rules = _asking(decision)
     why = ""
     if rules:
         named, verb = ("rule", "was") if len(rules) == 1 else ("rules", "were")
         why = f": {named} {joined(rules)} asked for a human and {verb} accepted"
-    return f"Ordered for {money(net)} net with approval by {_approvers(approval)}{why}."
+    return f"Ordered for {money(net)} net with approval by {_approvers(approval, profile)}{why}."
 
 
-def rejected(entry: ApprovalDecision) -> str:
-    return f"Rejected by {person(entry.approver_name, entry.roles)}: nothing was ordered."
+def rejected(
+    entry: ApprovalDecision, asked: Sequence[ApproverRole] = (), profile: BuyerProfile | None = None
+) -> str:
+    """`asked` are the roles the approval named: the one this person was asked for is said where it tells them
+    apart from a second signer."""
+    return f"Rejected by {_signer(entry.approver_name, entry.roles, asked, profile)}: nothing was ordered."
 
 
 def deadline_of(order: Order, approval: Approval | None) -> datetime | None:
@@ -122,8 +175,9 @@ def deadline_of(order: Order, approval: Approval | None) -> datetime | None:
     return (approval.valid_until if approval is not None else None) or order.option.valid_until
 
 
-def expired(order: Order, approval: Approval | None) -> str:
-    missing = roles_text(approval.roles_missing) if approval is not None and approval.roles_missing else "a human"
+def expired(order: Order, approval: Approval | None, profile: BuyerProfile | None = None) -> str:
+    asked = approval.roles_missing if approval is not None else ()
+    missing = roles_said(asked, profile) if asked else "a human"
     deadline = deadline_of(order, approval)
     when = f" on {moment(deadline)}" if deadline is not None else ""
     return f"Expired{when} without approval by {missing}: nothing was ordered."

@@ -333,3 +333,92 @@ def test_authority_says_whether_the_formula_matters_for_this_buyer(
         "Where a request line says the formula matters, a substitute whose formula differs from the original's, or "
         "cannot be compared, always goes to the purchasing manager."
     )
+
+
+# --- who says the formula matters: the request, or what the gateway learned (browser walk of 15 Nov 2026) -------
+
+LEARNED = "what the agent learned about the orders of Harbourside Hotel says so for this line"
+REQUEST = "the request says so for this line"
+
+
+def _as_sent(keep_formula: bool | None) -> Any:
+    from tta.contracts.common import Unit
+    from tta.contracts.request import PurchaseRequest, RequestLine
+
+    line = RequestLine(text="100 L of whipping cream 469346", product_ids=("469346",), quantity=Decimal(100),
+                       unit=Unit.L, keep_formula=keep_formula)
+    return PurchaseRequest(lines=(line,))
+
+
+@pytest.mark.parametrize(
+    ("sent", "said_by"),
+    [(None, LEARNED), (False, LEARNED), (True, REQUEST)],
+    ids=["the request did not say it", "the request said no", "the request said it"],
+)
+def test_f11_says_who_said_the_formula_matters_the_request_or_what_was_learned(
+    sent: bool | None, said_by: str, engine: RulePolicyEngine, hotel: BuyerProfile,
+    blend_for_cream: Callable[..., OfferLine], make_option: Callable[..., OfferOption],
+    make_context: Callable[..., PolicyContext],
+) -> None:
+    """The hotel's mode is LEARN: the gateway adds the mark to a line whose product it learned the recipe matters
+    for, and the offer line carries it. The rule must not say the request said it when the request did not."""
+    from tta.policy.formula_facts import request_as_sent
+
+    line = blend_for_cream(DIFFERENT).model_copy(update={"keep_formula": True})
+    assert hotel.formula_mode_in_force.value == "LEARN" and not hotel.formula_matters
+
+    with request_as_sent(_as_sent(sent)):
+        decision = engine.evaluate(make_option((line,), net="40.00"), hotel, make_context())
+
+    f11 = next(rule for rule in decision.fired if rule.rule_id == "F-11")
+    assert f11.facts["line.formula_matters_reason"] == said_by
+    assert f"where the formula matters ({said_by})" in f11.sentence
+    assert f"where the formula matters ({said_by})" in decision.sentence
+    assert ("the request says" in decision.sentence) is (said_by == REQUEST)
+
+
+def test_without_the_request_as_sent_the_mark_reads_as_the_requests_own_word_and_the_block_leaves_no_trace(
+    engine: RulePolicyEngine, hotel: BuyerProfile, blend_for_cream: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
+) -> None:
+    from tta.policy.formula_facts import request_as_sent
+
+    option = make_option((blend_for_cream(DIFFERENT).model_copy(update={"keep_formula": True}),), net="40.00")
+    with request_as_sent(_as_sent(None)):
+        inside = engine.evaluate(option, hotel, make_context())
+
+    outside = engine.evaluate(option, hotel, make_context())
+
+    assert LEARNED in inside.sentence and REQUEST in outside.sentence
+    assert inside.verdict is outside.verdict and inside.rule_ids == outside.rule_ids  # the words only
+
+
+def test_where_the_profile_says_the_formula_matters_on_every_line_nothing_is_said_to_be_learned(
+    engine: RulePolicyEngine, bakery: BuyerProfile, blend_for_cream: Callable[..., OfferLine],
+    make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
+) -> None:
+    """The bakery's mode is ALWAYS. A mark its request did not carry is the profile's word, not the request's."""
+    from tta.policy.formula_facts import request_as_sent
+
+    line = blend_for_cream(DIFFERENT).model_copy(update={"keep_formula": True})
+
+    with request_as_sent(_as_sent(None)):
+        not_said = engine.evaluate(make_option((line,), net="40.00"), bakery, make_context())
+    with request_as_sent(_as_sent(True)):
+        said = engine.evaluate(make_option((line,), net="40.00"), bakery, make_context())
+
+    assert "(Kallio Bakery uses its products as ingredients)" in not_said.sentence
+    assert f"({REQUEST})" in said.sentence
+    assert "learned" not in not_said.sentence + said.sentence
+
+
+def test_the_justification_of_f11_gives_the_figures_measured_over_the_whole_catalog() -> None:
+    """Of the 249 pairs Valio Aimo lists, 51 keep the formula, 145 differ and 53 cannot be compared: measured on
+    15 Nov 2026 by `tests/offers/test_formula.py::test_listed_by_valio_does_not_mean_the_same_formula`."""
+    f11 = next(rule for rule in load_rulebook(RULES_PATH).rules if rule.id == "F-11")
+
+    assert "249 listed substitute pairs" in f11.justification
+    assert "51 that keep the formula, 145 that differ and 53 that cannot be compared" in f11.justification
+    assert 51 + 145 + 53 == 249
+    for stale in ("100 that keep", "67 that differ", "82 that cannot"):
+        assert stale not in f11.justification

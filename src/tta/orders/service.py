@@ -156,12 +156,15 @@ class OrderBookService:
         """Write the order the check allows: placed by the agent alone, or waiting for a person with its approval."""
         offer, check, agent = checked.offer, checked.check, checked.attempt.actor
         order_id, now = records.new_order_id(), self._clock.now()
+        profile = checked.attempt.profile
         if check.decision.verdict is Verdict.AUTO:
-            order = records.placed_by_agent(order_id, offer, check, asked.identity, asked.idempotency_key, now)
+            order = records.placed_by_agent(
+                order_id, offer, check, asked.identity, asked.idempotency_key, now, profile
+            )
             self._write.placed_alone(order, check, agent)
             return order
         order, approval = records.awaiting_approval(
-            order_id, offer, check, asked.identity, asked.idempotency_key, now, evidence=evidence
+            order_id, offer, check, asked.identity, asked.idempotency_key, now, evidence=evidence, profile=profile
         )
         self._write.sent_to_a_human(order, approval, check, agent)
         return order
@@ -220,7 +223,7 @@ class OrderBookService:
                 raise self._refused(identity, approval, NotAuthorised(not_listed))
             order = self._still_waiting(approval)
             if decision.decision is DecisionKind.REJECT:
-                return self._reject(order, approval, identity, roles, decision)
+                return self._reject(order, approval, profile, identity, roles, decision)
             return self._approve(order, approval, profile, identity, roles, decision)
 
     def _refused(self, identity: Identity, approval: Approval | None, error: TtaError) -> TtaError:
@@ -252,8 +255,8 @@ class OrderBookService:
         return order
 
     def _reject(
-        self, order: Order, approval: Approval, approver: Identity, roles: tuple[ApproverRole, ...],
-        request: DecisionRequest,
+        self, order: Order, approval: Approval, profile: BuyerProfile, approver: Identity,
+        roles: tuple[ApproverRole, ...], request: DecisionRequest,
     ) -> Order:
         """A rejection asks the supplier nothing, so it is checked against the roles the approval still waits for."""
         if not set(roles) & set(approval.roles_missing):
@@ -263,7 +266,7 @@ class OrderBookService:
             raise InvalidRequest(wording.REJECTION_CHOOSES_NO_OPTION)
         now = self._clock.now()
         entry = records.decision_entry(approver, roles, request, None, now)
-        rejected, closed = records.rejected(order, approval, entry, now)
+        rejected, closed = records.rejected(order, approval, entry, now, profile)
         self._write.rejected(order, rejected, closed, entry, access.actor_of(approver))
         return rejected
 
@@ -285,7 +288,7 @@ class OrderBookService:
         other_option = check.option.option_id != approval.option_id
         chosen_id = check.option.option_id if other_option else None
         entry = records.decision_entry(approver, roles, request, chosen_id, now)
-        changed, signed = records.approved(order, approval, check, entry, now, offer.time_now)
+        changed, signed = records.approved(order, approval, check, entry, now, offer.time_now, profile)
         self._write.approved(order, changed, signed, entry, check, attempt.actor)
         return changed
 
@@ -362,6 +365,14 @@ class OrderBookService:
         approval = self._store.get_approval(order.approval_id) if order.approval_id is not None else None
         if not records.is_overdue(order, approval, now):
             return order
-        expired, closed = records.expired(order, approval, now)
+        expired, closed = records.expired(order, approval, now, self._profile_of(order))
         self._write.expired(expired, closed)
         return expired
+
+    def _profile_of(self, order: Order) -> BuyerProfile | None:
+        """The buyer's profile, for the words of a sentence: who really decides there. None when no profile of
+        this id is in force (a book's own profile outside its call): the sentence then names the roles as asked."""
+        try:
+            return self._policy.get_profile(order.profile_id)
+        except NotAuthorised:
+            return None

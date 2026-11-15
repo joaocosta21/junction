@@ -187,8 +187,8 @@ def test_scenario_1_at_both_clocks_request_offer_order_a_person_confirms_and_the
     decided = both.confirm("hotel", order, APPROVER_NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Ordered for €1,083.39 net with approval by Demo approver Hanna (purchasing manager, finance and "
-        "dietitian): rules P-01 and P-03 asked for a human and were accepted."
+        "Ordered for €1,083.39 net with approval by Demo approver Hanna: rules P-01 and P-03 asked for a human "
+        "and were accepted."  # the person, and no role: one person signs at the hotel (decision B61)
     )
 
     own, valio = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=APPROVER_NOTE)

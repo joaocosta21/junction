@@ -31,7 +31,7 @@ from tta.contracts.order import (
     Order,
     RelianceStatement,
 )
-from tta.contracts.policy import PolicyDecision
+from tta.contracts.policy import BuyerProfile, PolicyDecision
 from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.policy.human_approval import let_a_named_role_sign
@@ -175,14 +175,18 @@ def evidence_reasons(evidence: tuple[Evidence, ...], option: OfferOption) -> tup
 
 def placed_by_agent(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
+    profile: BuyerProfile | None = None,
 ) -> Order:
-    """The order the agent placed alone: no rule asked for a human."""
+    """The order the agent placed alone: no rule asked for a human. Its status sentence says why it was allowed,
+    from the buyer's profile and the day's spend the order-time check judged on."""
+    net = check.option.totals.net
+    day_net = check.day.committed + net if check.day is not None else None
     return Order(
         order_id=order_id, offer_id=offer.offer_id, option_id=check.option.option_id, profile_id=offer.profile_id,
         agent_id=agent.id, status=OrderStatus.ORDERED, placed_by=PlacedBy.AGENT, option=check.option,
         decision=check.decision, reliance=reliance_statements(check, offer.time_now), idempotency_key=idempotency_key,
         created_at=now, updated_at=now,
-        status_sentence=wording.placed_alone(check.option.totals.net, offer.profile_id),
+        status_sentence=wording.placed_alone(net, profile, day_net),
         source=check.revalidation.source, extra={REQUESTED_OPTION_KEY: check.option.option_id},
         record_note=RECORD_NOTE,
     )
@@ -190,10 +194,11 @@ def placed_by_agent(
 
 def awaiting_approval(
     order_id: str, offer: Offer, check: OrderTimeCheck, agent: Identity, idempotency_key: str, now: datetime,
-    evidence: tuple[Evidence, ...] = (),
+    evidence: tuple[Evidence, ...] = (), profile: BuyerProfile | None = None,
 ) -> tuple[Order, Approval]:
     """The order that waits for a human, and the approval that names the roles it needs. `evidence` was found
-    outside Valio Aimo's data for the human to read; it changes no role and no verdict."""
+    outside Valio Aimo's data for the human to read; it changes no role and no verdict. `profile` is the buyer's:
+    the status sentence names who really decides there."""
     reasons = (*approval_reasons(check.decision), *day_reasons(check), *evidence_reasons(evidence, check.option))
     approval = Approval(
         approval_id=new_approval_id(), order_id=order_id, offer_id=offer.offer_id,
@@ -204,7 +209,7 @@ def awaiting_approval(
     # The same record as an order placed alone, in the state of one that waits.
     order = placed_by_agent(order_id, offer, check, agent, idempotency_key, now).model_copy(update={
         "status": OrderStatus.PENDING_APPROVAL, "placed_by": None, "approval_id": approval.approval_id,
-        "status_sentence": wording.waiting(approval, check.decision),
+        "status_sentence": wording.waiting(approval, check.decision, profile),
     })
     return order, approval
 
@@ -223,7 +228,7 @@ def decision_entry(
 
 def approved(
     order: Order, approval: Approval, check: OrderTimeCheck, entry: ApprovalDecision, now: datetime,
-    stated_at: datetime,
+    stated_at: datetime, profile: BuyerProfile | None = None,
 ) -> tuple[Order, Approval]:
     """The order and approval after one human approved `check.option`: ORDERED once no role is missing.
 
@@ -246,8 +251,8 @@ def approved(
     if complete:
         signed = signed.model_copy(update={"status": ApprovalStatus.APPROVED})
     sentence = (
-        wording.ordered_with_approval(signed, check.option.totals.net, check.decision)
-        if complete else wording.waiting(signed, check.decision)
+        wording.ordered_with_approval(signed, check.option.totals.net, check.decision, profile)
+        if complete else wording.waiting(signed, check.decision, profile)
     )
     changed = order.model_copy(update={
         "option_id": check.option.option_id, "option": check.option, "decision": check.decision,
@@ -258,19 +263,25 @@ def approved(
     return changed, signed
 
 
-def rejected(order: Order, approval: Approval, entry: ApprovalDecision, now: datetime) -> tuple[Order, Approval]:
+def rejected(
+    order: Order, approval: Approval, entry: ApprovalDecision, now: datetime, profile: BuyerProfile | None = None,
+) -> tuple[Order, Approval]:
     """The order and approval after one human rejected it. Nothing was ordered."""
     closed = approval.model_copy(update={"status": ApprovalStatus.REJECTED, "decisions": (*approval.decisions, entry)})
     changed = order.model_copy(update={
-        "status": OrderStatus.REJECTED, "updated_at": now, "status_sentence": wording.rejected(entry),
+        "status": OrderStatus.REJECTED, "updated_at": now,
+        "status_sentence": wording.rejected(entry, approval.required_roles, profile),
     })
     return changed, closed
 
 
-def expired(order: Order, approval: Approval | None, now: datetime) -> tuple[Order, Approval | None]:
+def expired(
+    order: Order, approval: Approval | None, now: datetime, profile: BuyerProfile | None = None,
+) -> tuple[Order, Approval | None]:
     """The order after its "order by" time passed without a complete approval. Nothing was ordered."""
     closed = approval.model_copy(update={"status": ApprovalStatus.EXPIRED}) if approval is not None else None
     changed = order.model_copy(update={
-        "status": OrderStatus.EXPIRED, "updated_at": now, "status_sentence": wording.expired(order, approval),
+        "status": OrderStatus.EXPIRED, "updated_at": now,
+        "status_sentence": wording.expired(order, approval, profile),
     })
     return changed, closed

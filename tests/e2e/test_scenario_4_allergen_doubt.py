@@ -68,7 +68,11 @@ def test_scenario_4a_the_safe_product_comes_first_and_the_doubtful_one_is_a_labe
         assert (line["allergen_check"]["outcome"], line["allergen_check"]["all_explicit"]) == ("PASS", True)
         assert line["substitute"]["original_id"] == ELOVENA
     assert lines_of(safe) == {"473424": Decimal(100)} and money(safe["totals"]["net"]) == Decimal("236.00")
-    assert fired(safe) == {"F-10"}
+    # The safe product is a rice drink standing in for a barista oat drink: safe for the allergen, and not a
+    # like-for-like replacement, which its own rule says with the reason (decision B64). One person decides both.
+    assert fired(safe) == {"F-12"} and safe["decision"]["required_roles"] == ["purchasing_manager"]
+    (not_like,) = safe["decision"]["fired"]
+    assert "is not a like-for-like replacement: not made for coffee" in not_like["sentence"]
 
     doubtful = option_of(offer, ELOVENA)
     assert doubtful is not safe and doubtful["title"] == "Alternative: allergen not ruled out"
@@ -118,7 +122,7 @@ def test_scenario_4a_each_of_the_three_choices_is_one_decision_by_the_person_who
         decided = answer.json()
         assert (decided["status"], decided["placed_by"]) == (OrderStatus.REJECTED, None)
         assert decided["status_sentence"] == (
-            "Rejected by Demo approver Hanna (purchasing manager, finance and dietitian): nothing was ordered."
+            "Rejected by Demo approver Hanna: nothing was ordered."
         )
     else:
         safe = offer["options"][0]["option_id"] if choice == "take the safe product" else None

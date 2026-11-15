@@ -41,7 +41,7 @@ def regular_for_lactose_free(
     return build
 
 
-def test_regular_milk_in_place_of_lactose_free_milk_goes_to_the_dietitian_the_hotel_names(
+def test_regular_milk_in_place_of_lactose_free_milk_asks_the_dietitians_role_which_the_hotels_one_person_holds(
     engine: RulePolicyEngine, hotel: BuyerProfile, regular_for_lactose_free: Callable[..., OfferLine],
     make_option: Callable[..., OfferOption], make_context: Callable[..., PolicyContext],
 ) -> None:
@@ -71,9 +71,11 @@ def test_regular_milk_in_place_of_lactose_free_milk_goes_to_the_dietitian_the_ho
         "line.substitute_claims_lost_said": "lactose-free",
         "profile.names_dietitian": True,  # what decided who signs
     }
+    # The role asked is the dietitian's; the hotel's person who orders holds it, and the sentence names her
+    # (decision B54). At the ward, where the dietitian is a second person, the same sentence names the dietitian.
     assert decision.sentence == (
         f"The agent cannot place this order alone: {REGULAR_MILK} would replace {LACTOSE_FREE_MILK} but is not "
-        "marked lactose-free, as the product asked for is (F-08). It needs the dietitian."
+        "marked lactose-free, as the product asked for is (F-08). It needs the purchasing manager."
     )
 
 
@@ -252,15 +254,16 @@ def test_a_profile_that_names_f08_is_rejected_at_start_up(
 def test_the_authority_says_that_a_substitute_that_lacks_a_claim_goes_to_a_human(
     engine: RulePolicyEngine, hotel: BuyerProfile, ward: BuyerProfile
 ) -> None:
-    for profile in (hotel, ward):
+    # Both name somebody under the dietitian's role; at the hotel that is the person who orders (decision B54).
+    for profile, who in ((hotel, "the purchasing manager"), (ward, "the dietitian")):
         authority = engine.describe_authority(profile)
         f08 = next(rule for rule in authority.rules if rule.rule_id == "F-08")
 
         assert f08.fixed and f08.verdict is Verdict.APPROVAL
-        assert f08.approver_role is ApproverRole.DIETITIAN  # both name one
+        assert f08.approver_role is ApproverRole.DIETITIAN  # the role asked, at both
         assert f08.sentence == (
             "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, "
-            "always goes to the dietitian."
+            f"always goes to {who}."
         )
         always = next(line for line in authority.summary if line.startswith("Always to a human"))
         assert "a substitute that lacks a dietary claim of the product it replaces" in always

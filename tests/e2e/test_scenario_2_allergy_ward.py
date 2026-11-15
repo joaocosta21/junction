@@ -137,7 +137,7 @@ def test_scenario_2_at_both_clocks_the_sentence_is_read_prepared_confirmed_by_a_
     decided = both.confirm("ward", order, NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Confirmed by Demo approver Jussi (purchasing manager and finance): ordered for €402.00 net."
+        "Confirmed by Demo approver Jussi (purchasing manager): ordered for €402.00 net."  # the one role asked
     )
 
     own, valio = two_views(both, "ward", decided, decided_by="ward:purchasing_manager", note=NOTE)
@@ -165,9 +165,11 @@ def test_scenario_2_with_the_buyers_setting_on_and_everything_confirmed_the_agen
     )
 
     assert (order["status"], order["placed_by"], order["approval_id"]) == (OrderStatus.ORDERED, PlacedBy.AGENT, None)
-    assert order["status_sentence"] == (
-        "The agent placed this order alone for €402.00 net: no rule asked for a human and every statement of the "
-        "offer is confirmed."
+    assert order["status_sentence"] == (  # why it was allowed, with the figures, and no rule id
+        "The agent placed this order alone for €402.00 net. That was allowed: ordering alone is switched on for City "
+        "Hospital, Ward 4; the total of €402.00 is within the €500 limit per order; today's spend with this order "
+        "is €402.00 of the €1,500 limit per day; every statement of the offer is confirmed; and no rule asked for a "
+        "person."
     )
     trail = both.shop("ward", "GET", f"/audit?order_id={order['order_id']}")
     assert trail["events"][-1]["type"] == "tta.v1.order.placed_by_agent" and trail["chain"]["ok"] is True

@@ -84,8 +84,8 @@ def test_290_litres_against_a_median_of_100_goes_to_the_purchasing_manager(
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     rule = _p08(decision)[0]
     assert rule.sentence == (
-        "For standing order so_milk, 290 L this week against a median of 100 L over the last 6 renewals, more "
-        "than the 25% tolerance of Harbourside Hotel."
+        "For the standing order “Weekly lactose-free milk, hotel kitchen”, 290 L this week against a median of 100 L "
+        "over the last 6 renewals, more than the 25% tolerance of Harbourside Hotel."
     )
     assert rule.fixed is False and rule.product_id is None
     assert rule.facts["standing.largest_drift"] == 1.9
@@ -135,8 +135,8 @@ def test_a_history_too_short_to_judge_does_not_fire_and_the_report_says_so(
     assert decision.verdict is Verdict.APPROVAL
     assert report.judged is False and report.checks == ()
     assert report.sentence == (
-        "Standing order so_milk has too short a history to judge drift: 2 past renewals on record, at least 3 are "
-        "needed for a line. Rule P-08 does not apply to this renewal."
+        "The standing order “Weekly lactose-free milk, hotel kitchen” has too short a history to judge drift: 2 past "
+        "renewals on record, at least 3 are needed for a line. Rule P-08 does not apply to this renewal."
     )
 
 
@@ -161,7 +161,9 @@ def test_the_median_is_taken_over_the_last_window_of_renewals(renewal_option: Ca
     quantity = next(check for check in report.checks if check.kind is DriftKind.QUANTITY)
     assert (quantity.median, quantity.renewals, quantity.over_tolerance) == (Decimal(100), DRIFT_WINDOW, False)
     assert report.synthetic_renewals == DRIFT_WINDOW
-    assert report.sentence.startswith("Standing order so_milk is within the 25% tolerance: 100 L this week")
+    assert report.sentence.startswith(
+        "The standing order “Weekly lactose-free milk, hotel kitchen” is within the 25% tolerance: 100 L this week"
+    )
     assert report.sentence.endswith(
         "6 renewals of the history are synthetic, made up for the demonstration: the Valio Aimo mock has no order "
         "history."
@@ -189,7 +191,9 @@ def test_the_engine_has_a_reader_for_every_standing_fact(
     assert read_fact("standing.is_renewal", scope) is True
     assert read_fact("standing.history_judged", scope) is True
     assert read_fact("standing.largest_drift", scope) == Decimal("1.9")
-    assert read_fact("standing.drift_found", scope).startswith("for standing order so_milk, 290 L")
+    assert read_fact("standing.drift_found", scope).startswith(
+        "for the standing order “Weekly lactose-free milk, hotel kitchen”, 290 L"
+    )
 
 
 def test_the_authority_texts_state_the_window_and_minimum_of_the_code(

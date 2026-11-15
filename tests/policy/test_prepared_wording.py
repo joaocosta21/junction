@@ -125,7 +125,7 @@ def test_a_spend_limit_is_said_to_be_the_customers_by_name(
     assert decision.sentence == (
         "The agent cannot place this order alone: the total of €900.00 before tax is above the €750 limit per "
         "order of Harbourside Hotel (P-01) and with this order today's spend would reach €3,400.00 before tax, "
-        "above the €3,000 limit per day of Harbourside Hotel (P-02). It needs the purchasing manager and finance."
+        "above the €3,000 limit per day of Harbourside Hotel (P-02). It needs the purchasing manager."
     )
     assert decision.fired[0].facts["profile.display_name"] == "Harbourside Hotel"
 
@@ -141,7 +141,9 @@ def test_ordering_alone_names_the_customer(
     decision = engine.evaluate(option, alone, make_context())
 
     assert decision.verdict is Verdict.AUTO
-    assert "of the €1,500 limit per day of City Hospital, Ward 4, 100% of" in decision.sentence
+    assert decision.sentence.startswith(
+        "The agent may place this order alone: ordering alone is switched on for City Hospital, Ward 4; the total"
+    )
     assert engine.describe_authority(alone).summary[0].startswith(
         "City Hospital, Ward 4 lets the agent place an order alone, and only when"
     )

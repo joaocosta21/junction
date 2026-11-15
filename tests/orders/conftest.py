@@ -51,7 +51,7 @@ from tta.contracts.offer import (
 )
 from tta.contracts.order import DecisionRequest, Order
 from tta.contracts.policy import BuyerProfile, PolicyContext, PolicyDecision
-from tta.contracts.product import PackSize
+from tta.contracts.product import PackSize, ReplaceCheck, ReplaceVerdict
 from tta.contracts.request import PurchaseRequest, RequestLine
 from tta.orders import OrderBookService
 from tta.policy import RulePolicyEngine
@@ -193,6 +193,8 @@ class Samples:
                 sentence="Adds milk (AM)." if adds_allergen else "Adds no allergen.",
             ),
             gives_up="A different brand.",
+            # The offer's like-for-like verdict, as every substitute line carries it (rule F-12 reads it).
+            replaceable=ReplaceCheck(verdict=ReplaceVerdict.REPLACEABLE, sentence="Replaceable: same type."),
         )
 
     def line(

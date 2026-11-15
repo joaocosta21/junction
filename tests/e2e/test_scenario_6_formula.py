@@ -77,9 +77,8 @@ def test_scenario_6a_from_the_sentence_the_owner_confirms_the_product_itself_and
     decided = both.confirm("bakery", order, NOTE)
 
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
-    assert decided["status_sentence"] == (  # the owner holds every role of the bakery (decision B27)
-        "Ordered for €214.40 net with approval by Demo approver Marko (purchasing manager, finance and dietitian): "
-        "rule F-01 asked for a human and was accepted."
+    assert decided["status_sentence"] == (  # the owner holds every role of the bakery (decision B27): named once
+        "Ordered for €214.40 net with approval by Demo approver Marko: rule F-01 asked for a human and was accepted."
     )
     _, valio = two_views(both, "bakery", decided, decided_by="bakery:purchasing_manager", note=NOTE)
     judged = " ".join(event["sentence"] for event in valio["events"] if event["type"].endswith("policy.evaluated"))

@@ -6,6 +6,7 @@ profiles are loaded with the setting switched on, as a buyer would switch it on 
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -45,12 +46,44 @@ def test_with_the_setting_on_a_confirmed_ward_order_within_every_limit_is_placed
     assert order.approval_id is None and book.store.list_approvals() == ()
     assert order.decision.verdict is Verdict.AUTO and order.decision.fired == ()
     assert order.option.decision == order.decision
+    # Why it was allowed, from the values the order-time check read, and no rule id (check C1-9 of 15 Nov 2026).
     assert order.status_sentence == (
-        "The agent placed this order alone for €428.00 net: no rule asked for a human and every statement of the "
-        "offer is confirmed."
+        "The agent placed this order alone for €428.00 net. That was allowed: ordering alone is switched on for City "
+        "Hospital, Ward 4; the total of €428.00 is within the €500 limit per order; today's spend with this order "
+        "is €428.00 of the €1,500 limit per day; every statement of the offer is confirmed; and no rule asked for a "
+        "person."
     )
     assert book.store.get_order(order.order_id) == order
     assert book.event_types() == ["order.placed_by_agent"]
+
+
+def test_the_log_entry_of_an_order_placed_alone_carries_why_it_was_allowed_with_the_days_total(
+    book: Any, samples: Any, agent_ward: Identity
+) -> None:
+    """The second order of the day: the day's total is the first order's €428.00 and this one's."""
+    first = book.offer(samples.ward_safe(), profile_id=WARD)
+    book.service.place_order(first.offer_id, "opt_1", agent_ward, "alone-first")
+    offer = book.offer(samples.ward_safe(), profile_id=WARD)
+
+    order = book.service.place_order(offer.offer_id, "opt_1", agent_ward, KEY)
+
+    assert order.placed_by is PlacedBy.AGENT
+    assert "today's spend with this order is €856.00 of the €1,500 limit per day" in order.status_sentence
+    (event,) = book.events(order.order_id)
+    facts = event.data.facts
+    assert facts["order"]["status_sentence"] == order.status_sentence
+    assert facts["decision"]["verdict"] == "AUTO" and facts["decision"]["fired"] == []
+    assert facts["decision"]["sentence"] == (
+        "The agent may place this order alone: ordering alone is switched on for City Hospital, Ward 4; the total "
+        "of €428.00 before tax is within the €500 limit per order; today's spend with this order would be €856.00 "
+        "of the €1,500 limit per day; 100% of the requested quantity is covered; every statement of the offer is "
+        "confirmed; and no rule asks for a person."
+    )
+    for sentence in (order.status_sentence, facts["decision"]["sentence"]):
+        assert not re.search(r"\b[FP]-\d\d\b", sentence), sentence  # a person reads these: no rule id
+    # Valio Aimo's view of the same entry holds no limit amount and no name of the buyer.
+    shown = f"{event.data.supplier_sentence} {event.data.supplier_facts}"
+    assert "€500" not in shown and "€1,500" not in shown and "City Hospital" not in shown
 
 
 def test_with_the_setting_on_a_quantity_that_is_not_confirmed_still_waits_for_a_person(

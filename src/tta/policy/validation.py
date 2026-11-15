@@ -62,9 +62,15 @@ FIXED_RULES: Mapping[str, FixedRule] = MappingProxyType({
         Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,), other_roles=(ApproverRole.DIETITIAN,)
     ),
     "F-09": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # task MENU-1
-    # F-10 is the buyer's setting, in code (tta.policy.human_approval). F-11: the formula of a substitute.
-    "F-11": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),
-    "F-12": FixedRule(Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,)),  # a last-resort substitute
+    # F-10 is the buyer's setting, in code (tta.policy.human_approval). F-11: the formula of a substitute. F-12: a
+    # substitute that is not a like-for-like replacement. A formula or nutrients that differ are a nutrition
+    # question: the dietitian's where the buyer has a dietitian of its own (decision B66).
+    "F-11": FixedRule(
+        Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,), other_roles=(ApproverRole.DIETITIAN,)
+    ),
+    "F-12": FixedRule(
+        Verdict.APPROVAL, ApproverRole.PURCHASING_MANAGER, (Scope.LINE,), other_roles=(ApproverRole.DIETITIAN,)
+    ),
 })
 # The fixed rules as five plain statements (the page shows a customer these in place of the list of rules). The
 # keys are pinned here and the statements are in the rules file; every fixed rule and every access rule belongs

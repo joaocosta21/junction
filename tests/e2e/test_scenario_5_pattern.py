@@ -88,7 +88,7 @@ def test_scenario_5_accepting_the_forgotten_item_is_a_new_offer_that_a_person_co
     decided = both.confirm("hotel", order, NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Confirmed by Demo approver Hanna (purchasing manager, finance and dietitian): ordered for €281.10 net."
+        "Confirmed by Demo approver Hanna: ordered for €281.10 net."
     )
 
     own, valio = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=NOTE)

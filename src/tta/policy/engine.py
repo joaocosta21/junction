@@ -22,7 +22,7 @@ from tta.policy.custom import custom_profile
 from tta.policy.errors import PolicyLoadError
 from tta.policy.facts import Missing, OrderScope, Reading, read_fact, read_profile_fact
 from tta.policy.hashing import policy_hash
-from tta.policy.human_approval import authority_summary, require_human_approval
+from tta.policy.human_approval import authority_summary, decided_as, require_human_approval
 from tta.policy.human_approval import canonical as human_approval_canonical
 from tta.policy.loading import PROFILES_DIR, RULES_PATH, load_rulebook
 from tta.policy.profiles import check_profile, load_profiles
@@ -192,10 +192,10 @@ class RulePolicyEngine:
         deciding = [
             f"{finding.clause} ({finding.rule.rule_id})" for finding in findings if finding.rule.verdict is verdict
         ]
-        words = {
-            "reasons": join_words(deciding),
-            "roles": join_words([self._rulebook.roles[role].name for role in roles]),
-        }
+        # Who must sign is named by who really decides at this buyer: where the person who orders holds a role,
+        # the sentence says the purchasing manager, once. `required_roles` keeps the roles the rules asked for.
+        asked = unique([self._rulebook.roles[decided_as(scope.profile, role)].name for role in roles])
+        words = {"reasons": join_words(deciding), "roles": join_words(asked)}
         read = partial(read_fact, scope=scope)
         sentence = render(
             self._rulebook.decision_sentences[verdict],

@@ -38,7 +38,10 @@ F11_START = f"{STAND_IN} would replace {ORIGINAL} where the formula matters"
 
 
 def f12(reasons: str) -> str:
-    return f"{STAND_IN} would replace {ORIGINAL} as a last resort: {reasons}. A person decides whether it will do."
+    return (
+        f"{STAND_IN} would replace {ORIGINAL} and is not a like-for-like replacement: {reasons}. A person decides "
+        "whether it will do."
+    )
 
 
 @pytest.fixture

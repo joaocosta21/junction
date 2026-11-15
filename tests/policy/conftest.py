@@ -34,7 +34,7 @@ from tta.contracts.common import (
 )
 from tta.contracts.offer import ConstraintCheck, Coverage, OfferLine, OfferOption, SubstituteInfo, Totals
 from tta.contracts.policy import BuyerProfile, PolicyContext
-from tta.contracts.product import PackSize
+from tta.contracts.product import PackSize, ReplaceCheck, ReplaceVerdict
 from tta.policy import PROFILES_DIR, RULES_PATH, RulePolicyEngine
 
 # Server time of the demo capture: Saturday 14 Nov 2026, 02:52 (AIMO/build/AGENT-RULES.md).
@@ -44,6 +44,11 @@ NEEDED_BY = "2026-11-16"
 TAX_RATE = Decimal("14")
 REQUESTED_LITRES = Decimal(1000)  # the one request line of a test option, which covers `fill_ratio` of it
 _UNSET: Any = object()
+# The offer's verdict on a substitute that can take the original's place like for like (`tta.offers.substitutes`).
+LIKE_FOR_LIKE = ReplaceCheck(
+    verdict=ReplaceVerdict.REPLACEABLE,
+    sentence="Replaceable: same type, same use, no flavour named, same formula within tolerance.",
+)
 
 
 @pytest.fixture(scope="session")
@@ -117,9 +122,11 @@ def make_allergen_check() -> Callable[..., AllergenCheck]:
 def make_substitute() -> Callable[..., SubstituteInfo]:
     def build(
         *, listed: bool = True, category_distance: int = 0, added: Sequence[tuple[str, AllergenRelation]] = (),
-        claims_lost: Sequence[str] = (),
+        claims_lost: Sequence[str] = (), replaceable: ReplaceCheck | None = LIKE_FOR_LIKE,
     ) -> SubstituteInfo:
-        """A stand-in for 473609. `claims_lost`: nutritional claims of the original that it does not carry."""
+        """A stand-in for 473609. `claims_lost`: nutritional claims of the original that it does not carry.
+        `replaceable`: the offer's like-for-like verdict, which every substitute line of an offer carries; rule
+        F-12 sends any other verdict to a person, and `None` (a line stored before the verdict existed) too."""
         return SubstituteInfo(
             original_id="473609",
             original_name="Oddlygood Barista oat drink",
@@ -132,6 +139,7 @@ def make_substitute() -> Callable[..., SubstituteInfo]:
             ),
             claims_lost=tuple(claims_lost),
             gives_up="A different brand.",
+            replaceable=replaceable,
         )
 
     return build

@@ -38,16 +38,21 @@ defaults:
   on_missing_fact: APPROVAL                     # missing is not good: never order alone on data we do not have
   missing_fact_approver_role: purchasing_manager  # when the missing fact names no role of its own
 
+# One person confirms (the owner, 14 Nov 2026: several signers of one company are "not very intuitive and a bit
+# bureaucratic"). The hotel's and the bakery's person who orders holds every role; the ward and the school have a
+# dietitian as their one second person; no shipped profile has a finance signer of its own. A rule still asks for
+# the role named here, and an approval records it. A sentence names who really decides at that buyer: the
+# purchasing manager wherever everybody who holds the role is the person who orders (tta.policy.human_approval).
 roles:
   purchasing_manager:
     name: "the purchasing manager"
-    decides: "Spend per order, partial fills, substitutes, variable weight and quantities that are not confirmed"
+    decides: "Spend per order, partial fills, substitutes, variable weight and quantities that are not confirmed; and every question of a role the person who orders also holds"
   dietitian:
     name: "the dietitian"
-    decides: "Products that do not rule out an allergen the buyer excludes, and substitutes that lack a dietary claim of the product they replace"
+    decides: "Products that do not rule out an allergen the buyer excludes, substitutes that lack a dietary claim of the product they replace and, where the buyer has a dietitian of its own, substitutes whose formula or nutrients differ"
   finance:
     name: "finance"
-    decides: "Spend per day and totals that leave deposits out"
+    decides: "Spend per day and totals that leave deposits out, where the buyer has a finance signer of its own; otherwise the purchasing manager decides them"
 
 # The fixed rules as five plain statements: what a customer reads in place of the list of rule ids. Every fixed
 # rule and every access rule names exactly one of these keys as its `group`; a profile rule names none. The keys
@@ -94,6 +99,9 @@ facts:
   profile.strict_allergens_said:         {type: string, source: engine,  label: "the allergens that must be confirmed absent, in words"}
   profile.declared_only_allergens_said:  {type: string, source: engine,  label: "the allergens kept out as an ingredient, in words"}
   profile.names_dietitian:               {type: bool,   source: engine,  label: "whether somebody holds the dietitian's role", note: "true when the profile's approver_roles names at least one dietitian; read by approver_role_when, never by a `when`"}
+  profile.dietitian_is_second_person:    {type: bool,   source: engine,  label: "whether the buyer's second signer is its dietitian", note: "true when the people the profile lists are the person who orders and a dietitian, and nobody else (the ward, the school); false where the person who orders holds every role (the hotel, the bakery), where nobody holds the dietitian's, and for a profile that lists a different approver under every role (a demo book of the shop page: one approver per role, standing for one person). Read by approver_role_when and by authority texts, never by a rule's `when`"}
+  profile.dietitian_said:                {type: string, source: engine,  label: "who decides the dietitian's questions", note: "'the dietitian'; 'the purchasing manager' where everybody who holds the dietitian's role is the person who orders. Words for authority texts: the role asked is unchanged"}
+  profile.finance_said:                  {type: string, source: engine,  label: "who decides finance's questions", note: "'finance'; 'the purchasing manager' where everybody who holds finance's role is the person who orders, which is every shipped profile"}
   profile.substitution_without_approval: {type: enum,   source: profile, label: "the substitution setting", values: [NONE, LISTED_BY_SUPPLIER, SAME_CATEGORY]}
   profile.substitution_scopes_allowed:   {type: list,   source: engine,  label: "the substitutes accepted without a human", note: "from substitution_scopes above"}
   profile.variable_weight:               {type: enum,   source: profile, label: "the variable-weight setting", values: [APPROVAL, AUTO_WITH_CEILING]}
@@ -106,12 +114,13 @@ facts:
   option.net_eur:                 {type: money,    source: option, label: "the total before tax", note: "totals.net"}
   option.fill_ratio:              {type: ratio,    source: option, label: "the share of the quantity covered", note: "the lowest fill ratio over the request's lines"}
   option.least_covered:           {type: string,   source: engine, label: "the least covered request line", note: "'the requested quantity' for a request of one line; else the quantity of the request line with the lowest fill ratio, the first one on a tie (task FIX-12b)"}
+  option.coverage_said:           {type: string,   source: engine, label: "what the option covers, in words", note: "rule P-03's clause. One request line: 'only 43.5% of the requested quantity is covered, below the 90% minimum (covered: 435 of 1,000 L)'. Several: '4 of the 7 items asked for are covered in full; nothing is offered for sugar, eggs and butter; Kallio Bakery asks for every item in full', each line by its product type, name terms or the recipe table's name for its products, read as data like line.name"}
   option.coverage_by_line:        {type: string,   source: engine, label: "what each request line gets", note: "covered of requested for each request line, the least covered first; with several lines each is named by its product type, name terms or products, read as data like line.name, and by its number; missing when the option carries no coverage"}
   option.valid_until:             {type: datetime, source: option, label: "the time the option is valid until"}
   option.expired:                 {type: bool,     source: engine, label: "the option's expiry", note: "valid_until at or before the clock, as a cut-off equal to the clock has passed; missing when the option carries no valid_until"}
   option.needed_by_check:         {type: enum,     source: option, label: "the needed-by check", values: [NOT_ASKED, MET, UNVERIFIED, NOT_MET], note: "the least favourable result of the option's constraint checks of kind NEEDED_BY; NOT_ASKED when it carries none, because the request gave no date"}
   option.needed_by:               {type: string,   source: option, label: "the needed-by date", note: "the subject of the needed-by check with the least favourable result"}
-  option.needed_by_finding:       {type: string,   source: engine, label: "what the needed-by check found", note: "in words; missing when the date is met or the request gave none"}
+  option.needed_by_finding:       {type: string,   source: engine, label: "what the needed-by check found", note: "rule F-07's clause for the option: 'the needed-by date 2026-11-16 is not met for this option', with the products that miss it named once ('...: Milk drink (462775) arrives on Monday 16 Nov'); 'the needed-by date 2026-11-16 cannot be verified for this option'; and, where the check is not met only because the option offers nothing for a request line, 'nothing is offered for sugar, eggs and butter; what is offered arrives by Monday 16 Nov' (a missing line is not a late date). Missing when the date is met or the request gave none"}
   option.total_is_ceiling:        {type: bool,     source: option, label: "whether the total is marked as an estimate by weight", note: "totals.is_ceiling, which keeps its name in the contract; the total of a product sold by weight is an estimate, because Valio Aimo invoices the weight delivered"}
   option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
   option.net_above_cheapest:      {type: money,    source: option, label: "what the option costs above the cheapest confirmed option", note: "OfferOption.net_above_cheapest, set on the option ranked by the buyer's preference when a cheaper confirmed option is offered next to it; 0 when the offer sets none"}
@@ -165,10 +174,13 @@ facts:
   line.substitute_formula_outcome: {type: enum,  source: option, label: "the outcome of the formula comparison", values: [SAME_PRODUCT_OTHER_PACK, SAME_BRAND, OTHER_BRAND, DIFFERENT, NOT_KNOWN]}
   line.substitute_formula:        {type: string, source: option, label: "what the formula comparison found", note: "the offer's own sentence with its numbers, read as data like line.name, at most 400 characters"}
   line.substitute_formula_differences: {type: list, source: option, label: "what differs in the formula", note: "the contents first: each component only one of the two ingredient lists names, as 'lacks lactase enzyme' or 'contains carrageenan' (of the substitute, against the product asked for; a word of origin or farming such as organic is not a difference); then each figure outside the tolerance as 'fat 15 g, not 36 g' per 100 g or ml; then 'another fat source' only where the two lists share no language and their words show that one names a vegetable oil or fat and the other does not"}
-  # --- a substitute that is a last resort (rule F-12; tta.policy.last_resort_facts) ---
-  line.substitute_last_resort:    {type: bool,   source: option, label: "whether the substitute is a last resort", note: "SubstituteInfo.last_resort: it loses a dietary claim, is flavoured where the product asked for is not, is another product type or cannot be shown to be like for like, and stands in only because nothing like for like can be ordered; false on a line that replaces nothing"}
-  line.substitute_last_resort_own_reason: {type: bool, source: engine, label: "whether the last resort has a reason no other rule says", note: "false only when every reason the offer gives is a lost dietary claim, which F-08 says on the same line, or a formula that differs where the formula matters, which F-11 says: one fact, one sentence. True when the offer gives no reason at all, or reasons that cannot be told apart"}
-  line.substitute_last_resort_reason: {type: string, source: engine, label: "why the substitute is a last resort", note: "the offer's own reasons (SubstituteInfo.replaceable.reasons), read as data like line.name, at most 400 characters, without the reason F-08 or F-11 says on the same line; else what a last resort is"}
+  # --- a substitute that is not a like-for-like replacement (rule F-12; tta.policy.last_resort_facts) ---
+  # The three names say "last resort", as the rule did while it read the offer's mark alone; stored decisions carry them.
+  line.substitute_last_resort:    {type: bool,   source: option, label: "the like-for-like check", note: "true when the offer does not judge the substitute REPLACEABLE (SubstituteInfo.replaceable.verdict is NOT_LIKE_FOR_LIKE or NOT_SHOWN) or marks it a last resort (SubstituteInfo.last_resort); false for a REPLACEABLE one and on a line that replaces nothing; missing when a substitute carries neither a verdict nor the mark"}
+  line.substitute_last_resort_own_reason: {type: bool, source: engine, label: "whether a reason against the substitute is said by no other rule", note: "false only when every reason the offer gives is a lost dietary claim, which F-08 says on the same line, or a formula that differs or cannot be compared where the formula matters, which F-11 says: one fact, one sentence. True when the offer gives no reason at all, or reasons that cannot be told apart"}
+  line.substitute_last_resort_reason: {type: string, source: engine, label: "why the substitute is not a like-for-like replacement", note: "the offer's own reasons (SubstituteInfo.replaceable.reasons), read as data like line.name, at most 400 characters, without the reason F-08 or F-11 says on the same line; for a substitute that is replaceable as far as the data shows, what could not be compared (its kind of product, its formula); else what a last resort is"}
+  line.substitute_replace_verdict: {type: enum,  source: option, label: "the offer's like-for-like verdict", values: [REPLACEABLE, NOT_SHOWN, NOT_LIKE_FOR_LIKE], note: "SubstituteInfo.replaceable.verdict as the offer gives it; missing when the substitute carries none"}
+  line.substitute_like_for_like_said: {type: string, source: engine, label: "what the sentence says of the substitute", note: "'is not a like-for-like replacement' where the offer names a reason against it or marks it a last resort; 'is not shown to be a like-for-like replacement' where nothing speaks against it and the data cannot show it (verdict NOT_SHOWN)"}
 
 # ---------------------------------------------------------------------------------------------------------
 # Rules. `when` is one group, `all` or `any`, of conditions {fact, op, value} and nested groups. Ops:
@@ -182,6 +194,10 @@ facts:
 # `approver_role_when` names another role for the rule's question, by the first entry whose `when` holds; else
 #   `approver_role` signs. It may read a profile fact also on a fixed rule, because it changes who is asked
 #   and never whether a person is asked. For a fixed rule the roles it may name are pinned in code.
+# Who a text says decides: a rule names a role, and a sentence names who really decides at that buyer. Where the
+#   person who orders holds the dietitian's or finance's role (one person confirms), the decision's sentence and
+#   the authority texts say "the purchasing manager" ({profile.dietitian_said}, {profile.finance_said}); the
+#   role asked and recorded is unchanged.
 # `group` is the plain statement a fixed rule belongs to (`groups` above).
 # Words a person reads: a sentence names an allergen in words (line.*_said, profile.*_said), never by its code,
 #   and names the buyer by {profile.display_name}, never as "this buyer" or "this profile". The codes are in the
@@ -288,7 +304,10 @@ rules:
     when:
       any:
         - {fact: line.price_claim, op: ne, value: CONFIRMED}
-        - {fact: line.delivery_date_claim, op: eq, value: RULED_OUT}
+        # A product that misses a date the option's check calls not met is named once, by the entry below.
+        - all:
+            - {fact: line.delivery_date_claim, op: eq, value: RULED_OUT}
+            - {fact: option.needed_by_check, op: ne, value: NOT_MET}
         - all:
             - {fact: option.needed_by_check, op: ne, value: NOT_ASKED}
             - {fact: line.delivery_date_claim, op: eq, value: UNKNOWN}
@@ -309,7 +328,8 @@ rules:
         - {fact: option.needed_by_check, op: not_in, value: [MET, NOT_ASKED]}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "the needed-by date {option.needed_by} {option.needed_by_finding} for this option"
+    message: "{option.needed_by_finding}"
+    records: [option.needed_by]
     authority:
       - text: "When the request gives a needed-by date, an option that does not verifiably meet it always goes to the purchasing manager."
     justification: "A buyer who names a date asked for delivery by that date. The offer checks it for the option as a whole; unless that check says MET, the agent does not decide alone that a later or unconfirmed delivery will do."
@@ -336,7 +356,7 @@ rules:
     message: "{line.name} ({line.product_id}) would replace {line.substitute_original} but is not marked {line.substitute_claims_lost_said}, as the product asked for is"
     authority:
       - when: {all: [{fact: profile.names_dietitian, op: is_true}]}
-        text: "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always goes to the dietitian."
+        text: "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always goes to {profile.dietitian_said}."
       - text: "A substitute that lacks a dietary claim of the product it replaces, for example lactose-free, always goes to the purchasing manager: {profile.display_name} names no dietitian."
     justification: "A buyer who names a lactose-free milk asked for lactose-free. Regular milk declares the same allergen, milk, so the allergen rule for substitutes passes it and a profile that accepts substitutes of the same category would let the agent order it alone. What the buyer gives up is the claim; a person decides whether that is acceptable."
 
@@ -379,28 +399,44 @@ rules:
         - {fact: line.substitute_keeps_formula, op: is_false}
     verdict: APPROVAL
     approver_role: purchasing_manager
+    # A formula or nutrients that differ are a nutrition question (the brief's school and hospital scenario asks
+    # for "strict allergen and nutrition rules", and we have no nutrition standard): the dietitian decides where
+    # the buyer's second signer is its dietitian, the ward and the school. Where the person who orders holds every
+    # role, the hotel and the bakery, nothing changes. Who is asked changes; that a person is asked does not.
+    approver_role_when:
+      - when: {all: [{fact: profile.dietitian_is_second_person, op: is_true}]}
+        role: dietitian
     message: "{line.name} ({line.product_id}) would replace {line.substitute_original} where the formula matters ({line.formula_matters_reason}), and the data does not show the same formula: {line.substitute_formula}"
     records: [line.substitute_formula_outcome, line.substitute_formula_differences]
     authority:
+      - when: {all: [{fact: profile.formula_matters, op: is_true}, {fact: profile.dietitian_is_second_person, op: is_true}]}
+        text: "{profile.display_name} uses its products as ingredients, so the formula matters on every line: a substitute whose formula differs from the original's, or cannot be compared, always goes to the dietitian."
       - when: {all: [{fact: profile.formula_matters, op: is_true}]}
         text: "{profile.display_name} uses its products as ingredients, so the formula matters on every line: a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager."
+      - when: {all: [{fact: profile.dietitian_is_second_person, op: is_true}]}
+        text: "Where a request line says the formula matters, a substitute whose formula differs from the original's, or cannot be compared, always goes to the dietitian."
       - text: "Where a request line says the formula matters, a substitute whose formula differs from the original's, or cannot be compared, always goes to the purchasing manager."
-    justification: "A cream with 15% fat does not whip and a vegetable-fat blend does not behave as butter in a dough: the swap changes what the kitchen can make. Of Valio Aimo's 249 listed substitute pairs our measure finds 100 that keep the formula, 67 that differ and 82 that cannot be compared (whole catalog, AIMO/build/replan/P10-formula.md). The tolerances are ours and illustrative; 'cannot be compared' is never read as 'the same'."
+    justification: "A cream with 15% fat does not whip and a vegetable-fat blend does not behave as butter in a dough: the swap changes what the kitchen can make. Of Valio Aimo's 249 listed substitute pairs our measure finds 51 that keep the formula, 145 that differ and 53 that cannot be compared (whole catalog, measured on 15 Nov 2026 by tests/offers/test_formula.py; the measure compares the ingredient lists first, then six nutrition figures). The tolerances are ours and illustrative; 'cannot be compared' is never read as 'the same'."
 
-  # A last resort (found by L2a-R, 14 Nov 2026). The offer marks a substitute `last_resort` when it loses a
-  # dietary claim, is flavoured where the product asked for is not, or is another product type: it is shown
-  # only because no like-for-like product can be ordered. F-08 already sends the claim-loser to a person. A
-  # flavoured or other-type one fired no rule of its own, so a buyer who lets the agent order alone and accepts
-  # same-category substitutes would have had a nutty-vanilla drink ordered alone for a plain oat drink. It is
-  # FIXED: no profile setting lets a last resort through.
-  # One fact, one sentence: a lost dietary claim is F-08's to say and a formula that differs where the formula
-  # matters is F-11's. On a line where one of them fires, this rule leaves that reason out, and when no reason
-  # of its own is left it does not fire (line.substitute_last_resort_own_reason). The line goes to a person
-  # either way. Reasons the offer does not give one by one are all kept.
+  # Not like for like. The customer reads, whatever it sets: "the agent never chooses on its own a substitute that
+  # is not a like-for-like replacement" (the page's settings, and the third statement of `groups` above). The
+  # offer judges every substitute against the product it replaces (tta.offers.substitutes): REPLACEABLE (same
+  # type, use, flavour and formula, no claim lost), NOT_SHOWN (nothing speaks against it, and the formula or the
+  # kind of product cannot be compared) or NOT_LIKE_FOR_LIKE (at least one reason against it). This rule fires on
+  # every substitute that is not REPLACEABLE, and on one the offer marks `last_resort`. It is FIXED: no profile
+  # setting lets such a substitute through.
+  # History: found by L2a-R on 14 Nov 2026 as "a last resort" and read from the offer's mark alone, which the
+  # offer sets for a lost claim or another kind of product. A substitute of another formula or use carried no
+  # mark: on 15 Nov 2026 check CK3 had 100 x 475224 ordered by the agent alone for 473609 at the hotel, and a rice
+  # drink for a barista oat drink at the ward, each with "Not a like-for-like replacement" on its line.
+  # One fact, one sentence: a lost dietary claim is F-08's to say and a formula that differs or cannot be compared
+  # where the formula matters is F-11's. On a line where one of them fires, this rule leaves that reason out, and
+  # when no reason of its own is left it does not fire (line.substitute_last_resort_own_reason). The line goes to
+  # a person either way. Reasons the offer does not give one by one are all kept.
   - id: F-12
     fixed: true
     group: substitute_not_like_for_like
-    title: A substitute is a last resort
+    title: A substitute is not a like-for-like replacement
     scope: line
     when:
       all:
@@ -409,10 +445,17 @@ rules:
         - {fact: line.substitute_last_resort_own_reason, op: is_true}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} as a last resort: {line.substitute_last_resort_reason}. A person decides whether it will do"
+    # As F-11: the dietitian decides where the buyer's second signer is its dietitian (decision B66).
+    approver_role_when:
+      - when: {all: [{fact: profile.dietitian_is_second_person, op: is_true}]}
+        role: dietitian
+    message: "{line.name} ({line.product_id}) would replace {line.substitute_original} and {line.substitute_like_for_like_said}: {line.substitute_last_resort_reason}. A person decides whether it will do"
+    records: [line.substitute_replace_verdict]
     authority:
-      - text: "A substitute that is a last resort (it is flavoured where the product asked for is not, is another product type, or cannot be shown to be like for like) always goes to the purchasing manager."
-    justification: "A kitchen that asked for a plain oat drink for coffee cannot use a nutty-vanilla one without knowing; the offer shows a last resort only because nothing like for like can be ordered, and a person decides whether it will do. The reading of flavour and product type from product names is ours and illustrative (3,465 of 17,546 catalog products read as flavoured)."
+      - when: {all: [{fact: profile.dietitian_is_second_person, op: is_true}]}
+        text: "A substitute that is not a like-for-like replacement of the product asked for (another formula, use, flavour or product type, or one the data cannot show to be like for like) always goes to the dietitian, whatever {profile.display_name} sets."
+      - text: "A substitute that is not a like-for-like replacement of the product asked for (another formula, use, flavour or product type, or one the data cannot show to be like for like) always goes to the purchasing manager, whatever {profile.display_name} sets."
+    justification: "A kitchen that asked for a barista oat drink cannot be handed a rice drink, a nutty-vanilla one or a drink of another formula without knowing: only a person can say whether it will do. The agent may take alone only a substitute the offer judges replaceable, and only where the buyer accepts substitutes of that scope. The reading of type, use and flavour from product names and the formula tolerances are ours and illustrative (3,465 of 17,546 catalog products read as flavoured). A product that has none of our product types can at best be replaced 'as far as the data shows', so its substitutes go to a person: that is most of the catalog, and it errs towards asking."
 
   # --- Profile rules: the settings of one buyer ---
   # F-10, "Every order needs human approval", is the rule the profile setting `auto_order_enabled` drives.
@@ -456,7 +499,7 @@ rules:
     message: "with this order today's spend would reach {order.day_net_said}, above the €{profile.max_daily_net_eur} limit per day of {profile.display_name}"
     records: [context.day_committed_net_eur, context.day_waiting_net_eur, option.net_eur]
     authority:
-      - text: "When the day's orders, this one included, pass €{profile.max_daily_net_eur} before tax, the order goes to finance."
+      - text: "When the day's orders, this one included, pass €{profile.max_daily_net_eur} before tax, the order goes to {profile.finance_said}."
     justification: "Stops one large order from being split into many small ones under the limit per order."
 
   - id: P-03
@@ -468,7 +511,8 @@ rules:
         - {fact: option.fill_ratio, op: lt, value: {fact: profile.min_fill_ratio}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "only {option.fill_ratio} of {option.least_covered} is covered, below the {profile.min_fill_ratio} minimum (covered: {option.coverage_by_line})"
+    message: "{option.coverage_said}"
+    records: [option.least_covered, option.coverage_by_line]
     authority:
       - text: "An option that covers less than {profile.min_fill_ratio} of the requested quantity goes to the purchasing manager."
     justification: "A partial fill changes what the kitchen can serve; below the buyer's threshold a person decides."
@@ -486,12 +530,12 @@ rules:
     records: [line.allergens_to_human]
     authority:
       - when: {all: [{fact: profile.excluded_allergens, op: is_empty}]}
-        text: "{profile.display_name} excludes no allergen. When a request excludes one, a product that does not rule it out goes to the dietitian."
+        text: "{profile.display_name} excludes no allergen. When a request excludes one, a product that does not rule it out goes to {profile.dietitian_said}."
       - when: {all: [{fact: profile.declared_only_allergens, op: is_empty}]}
-        text: "{profile.display_name} excludes {profile.excluded_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian."
+        text: "{profile.display_name} excludes {profile.excluded_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to {profile.dietitian_said}."
       - when: {all: [{fact: profile.strict_allergens, op: is_empty}]}
-        text: "{profile.display_name} keeps {profile.excluded_allergens_said} out as an ingredient: a product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
-      - text: "{profile.display_name} excludes {profile.strict_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to the dietitian. It keeps {profile.declared_only_allergens_said} out as an ingredient: a product that may contain one goes to the dietitian; one that says nothing about it passes and is shown as unverified."
+        text: "{profile.display_name} keeps {profile.excluded_allergens_said} out as an ingredient: a product that may contain one goes to {profile.dietitian_said}; one that says nothing about it passes and is shown as unverified."
+      - text: "{profile.display_name} excludes {profile.strict_allergens_said}, and each must be confirmed absent: a product that may contain one, leaves it undeclared or says nothing about it goes to {profile.dietitian_said}. It keeps {profile.declared_only_allergens_said} out as an ingredient: a product that may contain one goes to {profile.dietitian_said}; one that says nothing about it passes and is shown as unverified."
     justification: "MAY_CONTAIN appears on 2,685 products and 46.2% of the catalog has no allergen statement (AIMO/FINDINGS.md section 3). A named person owns the decision to accept that."
 
   - id: P-05
@@ -548,7 +592,7 @@ rules:
     message: "{line.name} ({line.product_id}) carries a deposit that has no published price, so the total of €{option.net_eur} leaves it out"
     authority:
       - when: {all: [{fact: profile.deposits, op: eq, value: APPROVAL}]}
-        text: "A product that carries a deposit goes to finance: deposits have no published price, so the total leaves them out."
+        text: "A product that carries a deposit goes to {profile.finance_said}: deposits have no published price, so the total leaves them out."
       - text: "A product that carries a deposit may be ordered alone; the total leaves deposits out and says so."
     justification: "506 products carry deposits and none of the 7 deposit codes can be priced (AIMO/FINDINGS.md section 4)."
 
@@ -614,7 +658,10 @@ access_rules:
 # by its rule id; {roles} is who must sign. A sentence names the buyer by {profile.display_name}, never by the
 # profile id. The sentence of an order that only F-10 holds back is in tta.policy.human_approval.
 decision_sentences:
-  AUTO: "The agent may place this order alone: the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order, today's spend would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day of {profile.display_name}, {option.fill_ratio} of the requested quantity is covered, and no rule asks for a human."
+  # AUTO is read only of an order the agent really may place: with the buyer's setting off, or with a statement
+  # that is not confirmed, F-10 replaces this sentence (tta.policy.human_approval). So it can say why the order is
+  # allowed, with the figures the engine read, and it names no rule id: a person reads it on the order.
+  AUTO: "The agent may place this order alone: ordering alone is switched on for {profile.display_name}; the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order; today's spend with this order would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day; {option.fill_ratio} of the requested quantity is covered; every statement of the offer is confirmed; and no rule asks for a person."
   APPROVAL: "The agent cannot place this order alone: {reasons}. It needs {roles}."
   BLOCK: "This order cannot be placed, even with approval: {reasons}."
 
@@ -631,5 +678,5 @@ authority:
       text: "Additional review depends on the order and daily spend limits (€{profile.max_order_net_eur} and €{profile.max_daily_net_eur} before tax) and the minimum quantity coverage of {profile.min_fill_ratio}."
     - when: {all: [{fact: profile.auto_order_enabled, op: is_true}]}
       text: "Alone, at most: €{profile.max_order_net_eur} before tax per order and €{profile.max_daily_net_eur} before tax per day, this order included, with at least {profile.min_fill_ratio} of the requested quantity covered."
-    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a dietary claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is a last resort; and any fact a rule needs that is missing."
+    - text: "Always to a human: a product whose quantity is not confirmed, whose price is not confirmed or whose delivery date is ruled out; an option that does not verifiably meet the needed-by date of the request; a substitute that lacks a dietary claim of the product it replaces; a substitute that does not keep the formula where the formula matters; a substitute that is not a like-for-like replacement; and any fact a rule needs that is missing."
     - text: "Never, even with approval: a product that contains an excluded allergen, a substitute that declares an allergen the product asked for does not, and an option that expired or changed before the order."

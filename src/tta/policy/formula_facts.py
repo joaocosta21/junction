@@ -7,15 +7,26 @@ never "the same formula".
 
 The formula matters on a line when the buyer profile says so for every line (`BuyerProfile.formula_matters`) or
 when the request line says so. Either can add the check; neither can remove what the other added.
+
+Who says so. In the buyer's mode LEARN the gateway adds the request's word itself, on a line whose product it
+learned the recipe matters for (`tta.customers.learned`); the offer line then carries `keep_formula` although the
+buyer's request did not say it. The rule's sentence must not put those words in the buyer's mouth. The engine sees
+the option and not the request, so whoever holds the request as the buyer sent it says so for the length of one
+evaluation (`request_as_sent`, as `tta.policy.custom.profile_in_force` does for a profile); the order book does at
+order time. It changes the words of who says the formula matters, never whether the rule fires.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 from tta.contracts.offer import OfferLine
+from tta.contracts.policy import FormulaMode
 from tta.contracts.product import FormulaCheck
+from tta.contracts.request import PurchaseRequest
 from tta.policy.reading import Missing, Reading
 from tta.policy.text import format_number, join_words, plain_name
 
@@ -26,6 +37,8 @@ if TYPE_CHECKING:  # facts.py imports this module; OrderScope is only named in a
 # AIMO/build/replan/P10-formula.md, item F5): None or False reads as "not said", never as "does not matter".
 LINE_SAYS_FIELD = "keep_formula"
 REQUEST_SAYS = "the request says so for this line"
+# The gateway added the check from what it learned of the buyer's orders; the request did not say it.
+LEARNED_SAYS = "what the agent learned about the orders of {buyer} says so for this line"
 PROFILE_SAYS = "{buyer} uses its products as ingredients"
 NOBODY_SAYS = "neither the request nor the buyer profile says the formula matters"
 NO_SUBSTITUTE = "the line replaces no product"
@@ -40,8 +53,40 @@ CONTAINS = "contains"
 _ASKED_FOR = {LACKS: "which the product asked for contains", CONTAINS: "which the product asked for does not"}
 
 
+# The request as the buyer sent it, while an option built from it is judged. None: nobody said, and a line that
+# carries the mark reads as the request's own word, as before.
+_AS_SENT: ContextVar[PurchaseRequest | None] = ContextVar("tta_request_as_sent", default=None)
+
+
+@contextmanager
+def request_as_sent(request: PurchaseRequest | None) -> Iterator[None]:
+    """Inside the block, rule F-11 knows the request as the buyer sent it, in this thread of control only: a line
+    whose mark the gateway added from what it learned is said to be learned, not asked for."""
+    token = _AS_SENT.set(request)
+    try:
+        yield
+    finally:
+        _AS_SENT.reset(token)
+
+
 def _line_says(line: OfferLine) -> bool:
     return getattr(line, LINE_SAYS_FIELD, None) is True
+
+
+def _request_did_not_say(line: OfferLine) -> bool:
+    """The request as the buyer sent it is known, and its line does not say the formula matters. False whenever
+    the request as sent is not known: the mark on the offer line then reads as the request's own word."""
+    request = _AS_SENT.get()
+    if request is None or line.request_line_index >= len(request.lines):
+        return False
+    return request.lines[line.request_line_index].keep_formula is not True
+
+
+def _added_by_learning(scope: OrderScope, line: OfferLine) -> bool:
+    """The offer line carries the mark, the buyer's own request line does not, and the buyer's mode is not ALWAYS
+    (where the profile says it for every line): the gateway added the check from what it learned."""
+    mode = scope.profile.formula_mode_in_force
+    return _line_says(line) and _request_did_not_say(line) and mode is not FormulaMode.ALWAYS
 
 
 def _formula_matters(scope: OrderScope, line: OfferLine) -> Reading:
@@ -49,7 +94,11 @@ def _formula_matters(scope: OrderScope, line: OfferLine) -> Reading:
 
 
 def _formula_matters_reason(scope: OrderScope, line: OfferLine) -> Reading:
-    if _line_says(line):
+    """Who says the formula matters: the request's own line, else what the gateway learned of the buyer's orders,
+    else the buyer profile. Never "the request" for a mark the buyer's request did not carry."""
+    if _added_by_learning(scope, line):
+        return LEARNED_SAYS.format(buyer=plain_name(scope.profile.display_name))
+    if _line_says(line) and not _request_did_not_say(line):
         return REQUEST_SAYS
     if scope.profile.formula_matters:
         return PROFILE_SAYS.format(buyer=plain_name(scope.profile.display_name))

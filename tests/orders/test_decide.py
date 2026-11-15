@@ -59,8 +59,8 @@ def test_an_approval_by_the_role_asked_for_orders_after_a_fresh_check(
     assert order.reliance[0].time_now == samples.now  # when Valio stated the figures: the offer's data time
     assert order.reliance[0].rechecked_at == book.clock.now()
     assert order.status_sentence == (
-        "Ordered for €2,650.00 net with approval by Purchasing manager (demo) (purchasing manager): "
-        "rule P-01 asked for a human and was accepted."
+        "Ordered for €2,650.00 net with approval by Purchasing manager (demo): rule P-01 asked for a human and "
+        "was accepted."  # the person, and no role: one person signs at the hotel (decision B61)
     )
     approval = _approval(book, order)
     assert approval.status is ApprovalStatus.APPROVED and approval.roles_missing == ()
@@ -82,7 +82,7 @@ def test_a_rejection_closes_the_order_and_nothing_is_ordered(
 
     assert order.status is OrderStatus.REJECTED and order.placed_by is None
     assert order.status_sentence == (
-        "Rejected by Purchasing manager (demo) (purchasing manager): nothing was ordered."
+        "Rejected by Purchasing manager (demo): nothing was ordered."
     )
     approval = _approval(book, order)
     assert approval.status is ApprovalStatus.REJECTED
@@ -106,9 +106,8 @@ def test_with_two_roles_required_the_first_approver_leaves_it_pending_and_the_se
     assert waiting.status is ApprovalStatus.PENDING
     assert (waiting.roles_obtained, waiting.roles_missing) == ((PURCHASING,), (DIETITIAN,))
     assert after_first.status_sentence == (
-        "Approved by Ward purchasing (demo) (purchasing manager and finance); still waiting for approval by the "
-        "dietitian, to be decided by Sunday 15 November 2026 at 17:00 (UTC+02:00): rules P-01 and P-04 ask for a "
-        "human."
+        "Approved by Ward purchasing (demo) (purchasing manager); still waiting for approval by the dietitian, to "
+        "be decided by Sunday 15 November 2026 at 17:00 (UTC+02:00): rules P-01 and P-04 ask for a human."
     )
 
     after_second = book.service.decide(pending.approval_id, approver_dietitian, samples.approve())
@@ -140,8 +139,8 @@ def test_where_one_person_holds_every_role_one_confirmation_completes_an_approva
     (decided,) = approval.decisions
     assert decided.approver_id == approver_hotel_buyer.id and decided.roles == (PURCHASING, FINANCE, DIETITIAN)
     assert order.status_sentence == (
-        "Ordered for €3,180.00 net with approval by Hotel buyer (demo) (purchasing manager, finance and "
-        "dietitian): rules P-01 and P-02 asked for a human and were accepted."
+        "Ordered for €3,180.00 net with approval by Hotel buyer (demo): rules P-01 and P-02 asked for a human and "
+        "were accepted."
     )
     assert book.event_types(pending.order_id) == ["approval.requested", "approval.decided", "order.confirmed"]
 
@@ -298,7 +297,7 @@ def test_a_rule_that_no_longer_holds_at_approval_time_is_not_asked_of_the_human(
         "manager confirms."
     )
     assert order.status_sentence == (
-        "Confirmed by Hotel buyer (demo) (purchasing manager, finance and dietitian): ordered for €700.00 net."
+        "Confirmed by Hotel buyer (demo): ordered for €700.00 net."
     )
 
 

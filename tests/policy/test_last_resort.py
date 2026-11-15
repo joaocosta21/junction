@@ -4,6 +4,10 @@ A last resort (`SubstituteInfo.last_resort`) loses a dietary claim, is flavoured
 not, or is another product type, and stands in only because nothing like for like can be ordered. F-08 already
 sends the claim-loser to a person. A flavoured or other-type one fired no rule of its own, so a buyer who lets
 the agent order alone, with everything confirmed, would have had it ordered alone.
+
+Since 15 Nov 2026 the rule reads the offer's like-for-like verdict on every substitute, not the mark alone
+(`test_not_like_for_like.py`): the same flavoured drink without the mark goes to a person too, and the sentence
+says "is not a like-for-like replacement", the words the customer reads on the page.
 """
 
 from __future__ import annotations
@@ -65,19 +69,21 @@ def test_the_hole_ordering_alone_on_everything_confirmed_a_flavoured_last_resort
 
     assert alone.substitution_without_approval is SubstitutionScope.SAME_CATEGORY
     assert line.substitute.allergen_check.passes and line.substitute.claims_lost == ()
-    assert same_but_no_last_resort.verdict is Verdict.AUTO  # what the agent would have ordered alone
+    # Without the mark the agent ordered it alone until 15 Nov 2026 (check CK3): the offer's verdict is read now.
+    assert same_but_no_last_resort.verdict is Verdict.APPROVAL and same_but_no_last_resort.rule_ids == ("F-12",)
     assert decision.verdict is Verdict.APPROVAL and decision.rule_ids == ("F-12",)
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     f12 = decision.fired[0]
     assert f12.fixed and f12.product_id == "474724" and f12.approver_role is ApproverRole.PURCHASING_MANAGER
-    assert f12.title == "A substitute is a last resort"
+    assert f12.title == "A substitute is not a like-for-like replacement"
     assert f12.sentence == (
-        f"{NUTTY} (474724) would replace {ORIGINAL} as a last resort: {FLAVOURED}. "
+        f"{NUTTY} (474724) would replace {ORIGINAL} and is not a like-for-like replacement: {FLAVOURED}. "
         "A person decides whether it will do."
     )
     assert decision.sentence == (
-        f"The agent cannot place this order alone: {NUTTY} (474724) would replace {ORIGINAL} as a last resort: "
-        f"{FLAVOURED}. A person decides whether it will do (F-12). It needs the purchasing manager."
+        f"The agent cannot place this order alone: {NUTTY} (474724) would replace {ORIGINAL} and is not a "
+        f"like-for-like replacement: {FLAVOURED}. A person decides whether it will do (F-12). It needs the "
+        "purchasing manager."
     )
     assert f12.facts["line.substitute_last_resort"] is True
     assert f12.facts["line.substitute_last_resort_reason"] == FLAVOURED
@@ -128,8 +134,9 @@ def test_a_last_resort_with_no_reason_on_the_offer_still_goes_to_a_person_and_sa
 
     assert decision.rule_ids == ("F-12",)
     assert decision.fired[0].sentence == (
-        f"{NUTTY} (474724) would replace {ORIGINAL} as a last resort: it is not the same kind of product as the "
-        "one asked for, and nothing like for like can be ordered. A person decides whether it will do."
+        f"{NUTTY} (474724) would replace {ORIGINAL} and is not a like-for-like replacement: it is not the same "
+        "kind of product as the one asked for, and nothing like for like can be ordered. A person decides whether "
+        "it will do."
     )
 
 
@@ -145,12 +152,14 @@ def test_the_reason_is_read_as_data(
     assert sentence.endswith("A person decides whether it will do.")
 
 
-def test_a_line_that_is_no_substitute_or_no_last_resort_never_fires_f12_and_is_no_missing_fact(
+def test_a_line_that_is_no_substitute_or_a_like_for_like_one_never_fires_f12_and_is_no_missing_fact(
     engine: RulePolicyEngine, alone: BuyerProfile, make_line: Callable[..., OfferLine],
-    nutty_for_oat: Callable[..., OfferLine], make_option: Callable[..., OfferOption],
+    make_substitute: Callable[..., SubstituteInfo], make_option: Callable[..., OfferOption],
     make_context: Callable[..., PolicyContext],
 ) -> None:
-    for line in (make_line(), nutty_for_oat(last_resort=False)):
+    like_for_like = make_line("475224", "Barista oat drink", substitute=make_substitute(listed=False))
+    assert like_for_like.substitute.replaceable.verdict is ReplaceVerdict.REPLACEABLE
+    for line in (make_line(), like_for_like):
         option = make_option((line,))
         decision = engine.evaluate(option, alone, make_context())
 
@@ -194,8 +203,10 @@ def test_a_rules_file_that_weakens_or_drops_f12_does_not_load(
         parse_rulebook(data)
 
 
-def test_the_authority_says_a_last_resort_always_goes_to_a_person(engine: RulePolicyEngine) -> None:
+def test_the_authority_says_a_substitute_that_is_not_like_for_like_always_goes_to_a_person(
+    engine: RulePolicyEngine,
+) -> None:
     for profile_id in engine.profile_ids():
         authority = engine.describe_authority(engine.get_profile(profile_id))
         texts = " ".join(str(part) for part in authority.model_dump(mode="json").values())
-        assert "last resort" in texts, profile_id
+        assert "not a like-for-like replacement" in texts, profile_id

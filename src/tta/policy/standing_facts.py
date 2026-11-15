@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from tta.contracts.standing import DriftReport
-from tta.policy.drift import assess_drift, largest_drift, over_tolerance
+from tta.policy.drift import assess_drift, largest_drift, over_tolerance, standing_order_said
 from tta.policy.reading import Missing, Reading
 from tta.policy.text import join_words
 
@@ -46,12 +46,13 @@ def _largest_drift(scope: OrderScope) -> Reading:
 
 
 def _drift_found(scope: OrderScope) -> Reading:
-    """`for standing order so_1, 290 L this week against a median of 100 L over the last 6 renewals`."""
-    report = drift_report(scope)
+    """`for the standing order “Weekly milk”, 290 L this week against a median of 100 L over the last 6 renewals`:
+    the order by its name. Its id is in the facts written next to the sentence (`standing.standing_order_id`)."""
+    report, history = drift_report(scope), scope.context.standing_history
     over = over_tolerance(report) if report is not None else ()
-    if report is None or not over:
+    if report is None or history is None or not over:
         return Missing(NO_DRIFT if report is not None else NOT_A_RENEWAL)
-    return f"for standing order {report.standing_order_id}, {join_words([check.sentence for check in over])}"
+    return f"for the {standing_order_said(history)}, {join_words([check.sentence for check in over])}"
 
 
 def _standing_order_id(scope: OrderScope) -> Reading:

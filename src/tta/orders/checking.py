@@ -21,6 +21,7 @@ from tta.contracts.standing import StandingHistory
 from tta.orders import wording
 from tta.orders.records import OrderTimeCheck
 from tta.orders.spend import DaySpend, day_spend
+from tta.policy.formula_facts import request_as_sent
 from tta.policy.human_approval import require_human_approval
 from tta.standing.history import standing_history
 
@@ -81,11 +82,14 @@ class OrderTimeChecker:
             now=self._clock.now(), day_committed_net_eur=day.committed, day_waiting_net_eur=day.waiting,
             at_order_time=True, revalidation=revalidation, standing_history=standing,
         )
+        # The offer keeps the request as the buyer sent it: the formula rule then says who said the formula
+        # matters, the request or what the gateway learned of the buyer's orders (`tta.policy.formula_facts`).
+        offer = self._store.get_offer(attempt.offer_id)
+        with request_as_sent(offer.request if offer is not None else None):
+            judged = self._policy.evaluate(attempt.option, attempt.profile, context)
         # F-10 is applied by the engine already; applying it again here means no policy engine, a test's own
         # included, can let an order through alone while the buyer's setting is off.
-        decision = require_human_approval(
-            self._policy.evaluate(attempt.option, attempt.profile, context), attempt.profile, attempt.option
-        )
+        decision = require_human_approval(judged, attempt.profile, attempt.option)
         return OrderTimeCheck(
             option=attempt.option.model_copy(update={"decision": decision}), decision=decision,
             revalidation=revalidation, day=day, standing=standing,

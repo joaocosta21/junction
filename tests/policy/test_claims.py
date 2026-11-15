@@ -278,7 +278,7 @@ def test_f07_sends_an_option_that_does_not_verifiably_meet_the_needed_by_date_to
     assert f07.facts == {
         "option.needed_by_check": result.value,
         "option.needed_by": "2026-11-16",
-        "option.needed_by_finding": finding,
+        "option.needed_by_finding": f"the needed-by date 2026-11-16 {finding} for this option",
     }
 
 
@@ -291,12 +291,14 @@ def test_f07_fires_on_the_option_and_on_the_line_that_misses_the_date(
 
     decision = engine.evaluate(option, hotel, make_context())
 
-    assert [(rule.rule_id, rule.product_id) for rule in decision.fired] == [("F-07", "462775"), ("F-07", None)]
-    assert all(rule.title == decision.fired[0].title for rule in decision.fired)
+    # Said once (browser walk of 15 Nov 2026): the option's entry names the product that misses the date, and
+    # the rule no longer fires a second time on that line with "the delivery date is ruled out".
+    assert [(rule.rule_id, rule.product_id) for rule in decision.fired] == [("F-07", None)]
     assert decision.sentence == (
-        "The agent cannot place this order alone: for Milk drink (462775) the delivery date is ruled out (F-07) "
-        "and the needed-by date 2026-11-16 is not met for this option (F-07). It needs the purchasing manager."
+        "The agent cannot place this order alone: the needed-by date 2026-11-16 is not met for this option: Milk "
+        "drink (462775) cannot be delivered by then (F-07). It needs the purchasing manager."
     )
+    assert "ruled out" not in decision.sentence
 
 
 def test_the_least_favourable_needed_by_check_counts_when_an_option_carries_several(

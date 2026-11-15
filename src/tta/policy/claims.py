@@ -42,18 +42,19 @@ def claim_status(line: OfferLine, claim: ClaimName) -> ClaimStatus | None:
     return max(statuses, key=_CLAIM_STATUSES.index, default=None)
 
 
-def unconfirmed_reasons(line: OfferLine, *, dated: bool) -> tuple[str, ...]:
+def unconfirmed_reasons(line: OfferLine, *, dated: bool, late_said: bool = False) -> tuple[str, ...]:
     """Why rule F-07 holds for a line, one clause per reason; empty when it does not.
 
     `dated`: the option carries a needed-by check. Only then does a delivery date that is UNKNOWN count: with
-    no date asked for there is none to confirm (SPEC section 4).
+    no date asked for there is none to confirm (SPEC section 4). `late_said`: the option's needed-by check is
+    not met, and the rule's entry for the option names the products that miss the date: not said again here.
     """
     reasons: list[str] = []
     price = claim_status(line, ClaimName.PRICE)
     if price is not None and price is not ClaimStatus.CONFIRMED:
         reasons.append(PRICE_NOT_CONFIRMED)
     delivery_date = claim_status(line, ClaimName.DELIVERY_DATE)
-    if delivery_date is ClaimStatus.RULED_OUT:
+    if delivery_date is ClaimStatus.RULED_OUT and not late_said:
         reasons.append(DELIVERY_DATE_RULED_OUT)
     elif dated and delivery_date is ClaimStatus.UNKNOWN:
         reasons.append(DELIVERY_DATE_NOT_CONFIRMED)

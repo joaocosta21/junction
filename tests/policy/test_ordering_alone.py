@@ -7,6 +7,7 @@ alone only what no rule catches, and whatever is not confirmed still goes to a p
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 import pytest
@@ -70,11 +71,14 @@ def test_with_the_setting_on_and_everything_confirmed_the_ward_orders_its_200_li
     decision = engine.evaluate(ward_200_litres(), alone, make_context())
 
     assert decision.verdict is Verdict.AUTO and decision.fired == () and decision.required_roles == ()
+    # Why it is allowed, with the figures the engine read and no rule id: a person reads this on the order.
     assert decision.sentence == (
-        "The agent may place this order alone: the total of €402.00 before tax is within the €500 limit per "
-        "order, today's spend would be €402.00 of the €1,500 limit per day of City Hospital, Ward 4, 100% of the "
-        "requested quantity is covered, and no rule asks for a human."
+        "The agent may place this order alone: ordering alone is switched on for City Hospital, Ward 4; the total "
+        "of €402.00 before tax is within the €500 limit per order; today's spend with this order would be €402.00 "
+        "of the €1,500 limit per day; 100% of the requested quantity is covered; every statement of the offer is "
+        "confirmed; and no rule asks for a person."
     )
+    assert not re.search(r"\b[FP]-\d\d\b", decision.sentence)
 
 
 @pytest.mark.parametrize(

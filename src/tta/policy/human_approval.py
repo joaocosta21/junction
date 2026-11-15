@@ -13,14 +13,20 @@ F-10 is the one rule that lives here and not in `rules.yaml`: it fires only when
 which a `when` of the rules file cannot say. `rules.yaml` says so where the profile rules start. It is applied in
 two places, so no path can forget it: when an option is judged (`tta.policy.engine`) and again when an order is
 placed (`tta.orders.checking`). Its texts are part of the policy hash.
+
+Who that person is at one buyer is read here too (`decided_as`, `roles_said`, `several_can_sign`). One person
+confirms (decision B54): the hotel's and the bakery's person who orders holds every role, and no customer has a
+separate finance signer. A rule still asks for the role it names, and the approval still records it; a sentence
+names who really decides at that buyer, so it never sends a question to a dietitian or to finance where the
+person who orders is the one who answers it.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from tta.contracts.common import ApproverRole, ClaimName, ClaimStatus, JsonDict, Verdict
 from tta.contracts.offer import OfferLine, OfferOption
 from tta.contracts.policy import BuyerProfile, FiredRule, PolicyDecision, RuleSummary
-from tta.policy.text import plain_name
+from tta.policy.text import join_words, plain_name, unique
 
 SETTING = "auto_order_enabled"  # the profile setting that drives the rule
 HUMAN_APPROVAL = FiredRule(
@@ -116,6 +122,62 @@ def let_a_named_role_sign(
     if not signing:
         return decision
     return decision.model_copy(update={"required_roles": signing, "sentence": NAMED_ROLES_SENTENCE})
+
+
+# --- who really decides at one buyer ---------------------------------------------------------------------------
+
+# A role as a sentence names it. The same words as `roles` in rules.yaml (a test holds the two together); kept
+# here so that the order book and the profile facts can say a role without a rulebook at hand.
+ROLE_NAMES: Mapping[ApproverRole, str] = {
+    ApproverRole.PURCHASING_MANAGER: "the purchasing manager",
+    ApproverRole.DIETITIAN: "the dietitian",
+    ApproverRole.FINANCE: "finance",
+}
+
+
+def holders(profile: BuyerProfile, role: ApproverRole) -> frozenset[str]:
+    """The people the profile lists under one role, by their ids."""
+    return frozenset(profile.approver_roles.get(role, ()))
+
+
+def has_own(profile: BuyerProfile, role: ApproverRole) -> bool:
+    """Whether somebody holds this role who does not hold the purchasing manager's: a dietitian of the buyer's own
+    (the ward, the school), a finance signer of its own (no shipped profile)."""
+    return bool(holders(profile, role) - holders(profile, ApproverRole.PURCHASING_MANAGER))
+
+
+def decided_as(profile: BuyerProfile, role: ApproverRole) -> ApproverRole:
+    """The role under which a question of `role` is really decided at this buyer: the purchasing manager's when
+    everybody who holds `role` is also the person who orders, otherwise the role itself. A role nobody holds keeps
+    its own name: the gap is said, never papered over."""
+    held = holders(profile, role)
+    return ApproverRole.PURCHASING_MANAGER if held and not has_own(profile, role) else role
+
+
+def several_can_sign(profile: BuyerProfile) -> bool:
+    """Whether more than one person can sign at this buyer: the ward and the school, with their dietitian."""
+    return len({person for people in profile.approver_roles.values() for person in people}) > 1
+
+
+def dietitian_is_second_person(profile: BuyerProfile) -> bool:
+    """Whether the buyer's signers are the person who orders and a dietitian, and nobody else: the shape the owner
+    decided for the ward and the school (decision B54). Rules F-11 and F-12 send their question to the dietitian
+    there (decision B66), and nowhere else.
+
+    Narrower than `has_own` on purpose. A profile that lists a different approver under every role is not read as
+    "three people": the shop page's demo books are of that shape, with one approver per role standing for the one
+    person of the customer (`tta.api.sandbox`), so at the hotel's and the bakery's book the question would go to
+    a dietitian nobody has. Such a profile keeps the rule's own role, the purchasing manager's."""
+    buyers = holders(profile, ApproverRole.PURCHASING_MANAGER)
+    others = {person for people in profile.approver_roles.values() for person in people} - buyers
+    return bool(others) and others == holders(profile, ApproverRole.DIETITIAN) - buyers
+
+
+def roles_said(roles: Sequence[ApproverRole], profile: BuyerProfile | None = None) -> str:
+    """ "the purchasing manager and the dietitian": each role by who really decides it at this buyer, each once.
+    With no profile the roles are named as they are."""
+    said = [role if profile is None else decided_as(profile, role) for role in roles]
+    return join_words(unique([ROLE_NAMES[role] for role in said]))
 
 
 def authority_summary(profile: BuyerProfile) -> RuleSummary:

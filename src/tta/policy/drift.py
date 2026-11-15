@@ -22,7 +22,7 @@ from tta.contracts.common import RATIO_PLACES, Unit
 from tta.contracts.offer import Coverage, OfferLine, OfferOption
 from tta.contracts.standing import DriftCheck, DriftKind, DriftReport, Renewal, StandingHistory
 from tta.policy.coverage import UNIT_WORDS
-from tta.policy.text import format_number, format_ratio, join_words
+from tta.policy.text import format_number, format_ratio, join_words, plain_name
 
 DRIFT_WINDOW = 6  # the last N renewals of a line that its median is taken over
 MIN_RENEWALS_TO_JUDGE = 3  # fewer past renewals of a line: too short a history to judge it
@@ -180,11 +180,19 @@ def _price(value: Decimal) -> str:
     return format(value.quantize(CENT), ",.2f") if value == value.quantize(CENT) else format_number(value)
 
 
+def standing_order_said(history: StandingHistory) -> str:
+    """ "standing order “Weekly lactose-free milk, hotel kitchen”": by the name the buyer gave it, never by its
+    id, which is no word a person says. The name is the buyer's text: read as data, so it cannot close the
+    quotation marks around it. An order with no name is said by its id."""
+    name = plain_name(history.name)
+    return f"standing order “{name}”" if name else f"standing order {history.standing_order_id}"
+
+
 def _sentence(
     history: StandingHistory, checks: tuple[DriftCheck, ...], not_compared: tuple[str, ...],
     tolerance: Decimal | None, synthetic: int,
 ) -> str:
-    name = f"Standing order {history.standing_order_id}"
+    name = f"The {standing_order_said(history)}"
     if not checks:
         on_record = _count(len(history.renewals), "past renewal")
         return (

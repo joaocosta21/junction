@@ -92,9 +92,9 @@ def test_every_rule_reads_declared_facts_and_every_declared_fact_can_be_read() -
 
 def test_no_fixed_rule_reads_a_profile_setting() -> None:
     """Whether a fixed rule fires never rests on the profile. Its sentence may name the buyer, and who signs
-    may follow whether the buyer names a dietitian: neither can switch the rule off."""
+    may follow whether the buyer names a dietitian, or has one of its own: neither can switch the rule off."""
     rulebook = load_rulebook(RULES_PATH)
-    said_or_signed = {"profile.display_name", "profile.names_dietitian"}
+    said_or_signed = {"profile.display_name", "profile.names_dietitian", "profile.dietitian_is_second_person"}
 
     for rule in rulebook.rules:
         if rule.fixed and rule.when is not None:

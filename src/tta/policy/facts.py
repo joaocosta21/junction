@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 
 from tta.contracts.allergen import AllergenFinding
@@ -17,7 +18,9 @@ from tta.contracts.common import (
     AllergenOutcome,
     AllergenRelation,
     AllergenStrictness,
+    ApproverRole,
     AvailabilityState,
+    CheckResult,
     ClaimName,
     ClaimStatus,
     ConstraintKind,
@@ -35,9 +38,17 @@ from tta.policy.claims import (
     needed_by_result,
     unconfirmed_reasons,
 )
-from tta.policy.coverage import coverage_by_line, least_covered
+from tta.policy.coverage import (
+    NOTHING_OFFERED,
+    coverage_by_line,
+    coverage_said,
+    least_covered,
+    line_names,
+    lines_left_out,
+)
 from tta.policy.day_facts import DAY_FACTS
 from tta.policy.formula_facts import FORMULA_FACTS
+from tta.policy.human_approval import ROLE_NAMES, decided_as, dietitian_is_second_person
 from tta.policy.last_resort_facts import LAST_RESORT_FACTS
 from tta.policy.premium_facts import PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS
 from tta.policy.reading import Missing, Reading
@@ -45,6 +56,15 @@ from tta.policy.standing_facts import STANDING_FACTS
 from tta.policy.text import format_datetime, join_words, plain_name, unique
 
 ScopeTable = Mapping[SubstitutionScope, tuple[str, ...]]
+
+# Rule F-07 for the option as a whole, as one clause.
+DATE_FINDING = "the needed-by date {date} {found} for this option"
+ARRIVES_ON = "{product} arrives on {day}"
+TOO_LATE = "{product} cannot be delivered by then"
+ARRIVES_BY = "what is offered arrives by {day}"
+DATE_NOT_CONFIRMED = "the delivery date of what is offered is not confirmed"
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 # How close a substitute is to the product it replaces (rules.yaml, substitution_scopes).
 SUBSTITUTE_LISTED = SubstitutionScope.LISTED_BY_SUPPLIER.value
@@ -121,6 +141,10 @@ PROFILE_FACTS: Mapping[str, Callable[[BuyerProfile, ScopeTable], Reading]] = {
     "profile.formula_matters": lambda profile, _: profile.formula_matters,
     **PREMIUM_PROFILE_FACTS,  # rule P-09: what a preference may cost
     **ALLERGEN_PROFILE_FACTS,  # the excluded allergens in words, and whether somebody holds the dietitian's role
+    # Who really decides at this buyer (`tta.policy.human_approval`, decision B54: one person confirms).
+    "profile.dietitian_is_second_person": lambda profile, _: dietitian_is_second_person(profile),
+    "profile.dietitian_said": lambda profile, _: ROLE_NAMES[decided_as(profile, ApproverRole.DIETITIAN)],
+    "profile.finance_said": lambda profile, _: ROLE_NAMES[decided_as(profile, ApproverRole.FINANCE)],
 }
 
 
@@ -153,11 +177,60 @@ def _needed_by(scope: OrderScope) -> Reading:
     return join_words(dates) if dates else Missing("the request gave no needed-by date")
 
 
+def _day(iso: str) -> str:
+    """`2026-11-16` -> "Monday 16 Nov", as the offer says a day; text that is no date is said as it is."""
+    try:
+        value = date.fromisoformat(iso)
+    except ValueError:
+        return iso
+    return f"{WEEKDAYS[value.weekday()]} {value.day} {MONTHS[value.month - 1]}"
+
+
+def _late_lines(option: OfferOption) -> tuple[OfferLine, ...]:
+    return tuple(
+        line for line in option.lines if claim_status(line, ClaimName.DELIVERY_DATE) is ClaimStatus.RULED_OUT
+    )
+
+
+def _late_said(line: OfferLine) -> str:
+    """One product that misses the date: when it arrives, where the offer says so."""
+    named = f"{plain_name(line.name)} ({line.product_id})"
+    arrives = line.availability.available_date
+    if arrives is None:
+        return TOO_LATE.format(product=named)
+    return ARRIVES_ON.format(product=named, day=_day(arrives.isoformat()))
+
+
 def _needed_by_finding(scope: OrderScope) -> Reading:
-    """In words, what the needed-by check found when it is not met."""
-    result = needed_by_result(scope.option)
+    """Rule F-07 for the option, as one clause. The offer's check is "not met" for two different things, and the
+    clause says which: a product that arrives too late (named once here, so the rule does not also fire per
+    line), or a request line the option offers nothing for (a missing line is not a late date)."""
+    option = scope.option
+    result = needed_by_result(option)
     words = NEEDED_BY_WORDS.get(result) if result is not None else None
-    return words if words is not None else Missing("the needed-by date is met, or the request gave none")
+    if words is None:
+        return Missing("the needed-by date is met, or the request gave none")
+    dates = needed_by_dates(option)
+    plain = DATE_FINDING.format(date=join_words(dates), found=words)
+    if result is not CheckResult.NOT_MET:
+        return plain
+    late = join_words([_late_said(line) for line in _late_lines(option)])
+    not_met = f"{plain}: {late}" if late else plain
+    names = line_names(option)
+    left_out = join_words([names[index] for index in lines_left_out(option)])
+    if not left_out:
+        return not_met
+    nothing = NOTHING_OFFERED.format(names=left_out)
+    if late:
+        return f"{nothing}, and {not_met}"
+    statuses = {claim_status(line, ClaimName.DELIVERY_DATE) for line in option.lines}
+    in_time = statuses <= {ClaimStatus.CONFIRMED}
+    rest = ARRIVES_BY.format(day=_day(dates[0])) if in_time and dates else DATE_NOT_CONFIRMED
+    return f"{nothing}; {rest}"
+
+
+def _coverage_said(scope: OrderScope) -> Reading:
+    return coverage_said(scope.option, scope.profile.min_fill_ratio, plain_name(scope.profile.display_name))
 
 
 def _coverage_by_line(scope: OrderScope) -> Reading:
@@ -214,6 +287,7 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "option.fill_ratio": lambda scope: scope.option.fill_ratio,
     "option.least_covered": lambda scope: least_covered(scope.option),
     "option.coverage_by_line": _coverage_by_line,
+    "option.coverage_said": _coverage_said,
     "option.valid_until": _valid_until,
     "option.expired": _expired,
     "option.needed_by_check": _needed_by_check,
@@ -259,7 +333,9 @@ def _claim(claim: ClaimName) -> Callable[[OrderScope, OfferLine], Reading]:
 
 def _unconfirmed_reason(scope: OrderScope, line: OfferLine) -> Reading:
     """Why the line cannot be ordered without a human under rule F-07, as one clause."""
-    reasons = unconfirmed_reasons(line, dated=needed_by_result(scope.option) is not None)
+    result = needed_by_result(scope.option)
+    # A product that misses a date the option's check already calls not met is named once, by the option's entry.
+    reasons = unconfirmed_reasons(line, dated=result is not None, late_said=result is CheckResult.NOT_MET)
     return join_words(reasons) if reasons else Missing("nothing says why")
 
 

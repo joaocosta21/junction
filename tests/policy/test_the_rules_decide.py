@@ -48,6 +48,11 @@ DIFFERENT = FormulaCheck(
     sentence="Different formula: fat 15 g, not 36 g per 100 g.",
 )
 FLAVOURED = "flavoured with nut and vanilla; the product asked for is not flavoured"
+OTHER_FORMULA = "a different formula (fat 15 g, not 36 g)"  # as the offer words the reason for `DIFFERENT`
+LIKE_FOR_LIKE = ReplaceCheck(
+    verdict=ReplaceVerdict.REPLACEABLE,
+    sentence="Replaceable: same type, same use, no flavour named, same formula within tolerance.",
+)
 
 
 class _Line(OfferLine):
@@ -85,11 +90,19 @@ class Kit:
     def stand_in(
         self, *, last_resort: str | None = None, formula: FormulaCheck = KEPT, **substitute: Any
     ) -> SubstituteInfo:
-        """A substitute for the oat drink 473609: listed by Valio Aimo and like for like unless the case says not."""
-        replaceable = None if last_resort is None else ReplaceCheck(
-            verdict=ReplaceVerdict.NOT_LIKE_FOR_LIKE, reasons=(last_resort,),
-            sentence=f"Not a like-for-like replacement: {last_resort}.",
+        """A substitute for the oat drink 473609: listed by Valio Aimo and like for like unless the case says not.
+        It carries the offer's like-for-like verdict as the offer builds it (`tta.offers.substitutes`): not like
+        for like as soon as there is a reason against it (a flavour, a lost dietary claim, another formula)."""
+        lost = tuple(substitute.get("claims_lost", ()))
+        reasons = (
+            *((last_resort,) if last_resort is not None else ()),
+            *(f"it does not carry the claim {claim}" for claim in lost),
+            *((OTHER_FORMULA,) if formula is DIFFERENT else ()),
         )
+        replaceable = ReplaceCheck(
+            verdict=ReplaceVerdict.NOT_LIKE_FOR_LIKE, reasons=reasons,
+            sentence=f"Not a like-for-like replacement: {'; '.join(reasons)}.",
+        ) if reasons else LIKE_FOR_LIKE
         return self.make_substitute(**substitute).model_copy(
             update={"formula": formula, "last_resort": last_resort is not None, "replaceable": replaceable}
         )
@@ -280,13 +293,19 @@ CASES: list[tuple[Callable[[Kit], Built], dict[str, str]]] = [
     (unlisted_same_category_substitute, all_of(f"PERSON P-05 -> {PM}", hotel=ALONE)),
     (substitute_not_lactose_free, all_of(f"PERSON F-08 -> {DIET}", ward=f"PERSON F-08, P-05 -> {PM}, {DIET}",
                                          bakery=f"PERSON F-08, P-05 -> {PM}, {DIET}")),
-    (flavoured_last_resort, all_of(f"PERSON F-12 -> {PM}", ward=f"PERSON F-12, P-05 -> {PM}",
-                                   bakery=f"PERSON F-12, P-05 -> {PM}")),
-    (other_formula_where_the_request_says_it_matters, all_of(f"PERSON F-11 -> {PM}", ward=f"PERSON F-11, P-05 -> {PM}",
-                                                             bakery=f"PERSON F-11, P-05 -> {PM}")),
-    # The bakery says the formula matters on every line; the ward asks for its substitution setting only.
-    (other_formula_where_nobody_says_it_matters, all_of(ALONE, ward=f"PERSON P-05 -> {PM}",
-                                                        bakery=f"PERSON F-11, P-05 -> {PM}")),
+    # A formula, a flavour or a use that differs is the dietitian's question where the customer has a dietitian of
+    # its own (the school, the ward); at the hotel and the bakery the person who orders decides it (decision B66).
+    (flavoured_last_resort, all_of(f"PERSON F-12 -> {PM}", school=f"PERSON F-12 -> {DIET}",
+                                   ward=f"PERSON F-12, P-05 -> {PM}, {DIET}", bakery=f"PERSON F-12, P-05 -> {PM}")),
+    (other_formula_where_the_request_says_it_matters, all_of(
+        f"PERSON F-11 -> {PM}", school=f"PERSON F-11 -> {DIET}", ward=f"PERSON F-11, P-05 -> {PM}, {DIET}",
+        bakery=f"PERSON F-11, P-05 -> {PM}")),
+    # Nobody says the formula matters: the substitute is still not like for like, and no customer's agent takes
+    # it alone (until 15 Nov 2026 the hotel's did: check CK3). The bakery says the formula matters on every line,
+    # so there the formula rule says the difference, once.
+    (other_formula_where_nobody_says_it_matters, all_of(
+        f"PERSON F-12 -> {PM}", school=f"PERSON F-12 -> {DIET}", ward=f"PERSON F-12, P-05 -> {PM}, {DIET}",
+        bakery=f"PERSON F-11, P-05 -> {PM}")),
     (recipe_stand_in, all_of(f"PERSON F-09 -> {PM}")),
     # --- an offer that is out of date cannot be ordered
     (expired_when_the_order_is_placed, all_of("NEVER F-04")),
@@ -341,8 +360,12 @@ SENTENCES: list[tuple[str, Callable[[Kit], Built], str, str]] = [
      "(Kallio Bakery uses its products as ingredients), and the data does not show the same formula: Different "
      "formula: fat 15 g, not 36 g per 100 g."),
     ("F-12", flavoured_last_resort, HOTEL,
-     "Nutty vanilla oat drink (474724) would replace Oddlygood Barista oat drink (473609) as a last resort: flavoured "
-     "with nut and vanilla; the product asked for is not flavoured. A person decides whether it will do."),
+     "Nutty vanilla oat drink (474724) would replace Oddlygood Barista oat drink (473609) and is not a "
+     "like-for-like replacement: flavoured with nut and vanilla; the product asked for is not flavoured. A person "
+     "decides whether it will do."),
+    ("F-12", other_formula_where_nobody_says_it_matters, HOTEL,
+     "Cooking cream 15% (471690) would replace Oddlygood Barista oat drink (473609) and is not a like-for-like "
+     "replacement: a different formula (fat 15 g, not 36 g). A person decides whether it will do."),
     ("P-01", one_euro_above_the_limit_per_order, SCHOOL,
      "The total of €251.00 before tax is above the €250 limit per order of Kilo School."),
     ("P-02", the_day_already_at_its_limit, SCHOOL,
@@ -365,8 +388,8 @@ SENTENCES: list[tuple[str, Callable[[Kit], Built], str, str]] = [
      "Mineral water 0.5 l (400004) carries a deposit that has no published price, so the total of €100.00 leaves it "
      "out."),
     ("P-08", renewal_at_twice_the_usual_quantity, HOTEL,
-     "For standing order so_milk, 200 L this week against a median of 100 L over the last 6 renewals, more than the "
-     "25% tolerance of Harbourside Hotel."),
+     "For the standing order “Weekly milk”, 200 L this week against a median of 100 L over the last 6 renewals, more "
+     "than the 25% tolerance of Harbourside Hotel."),
     ("P-09", preferred_option_a_fifth_dearer, WARD,
      "This option is ranked by the preference of City Hospital, Ward 4 and costs €20.00 more before tax than the "
      "cheapest confirmed option, a premium of 20%, above the 10% a preference may add without a human."),

@@ -79,6 +79,9 @@ def test_canonical_option_is_explained_in_one_sentence_with_the_numbers_and_the_
     assert decision.fired[1].facts == {
         "option.fill_ratio": 0.749, "profile.min_fill_ratio": 0.9, "option.least_covered": "the requested quantity",
         "option.coverage_by_line": "749 of 1,000 L",
+        "option.coverage_said": (
+            "only 74.9% of the requested quantity is covered, below the 90% minimum (covered: 749 of 1,000 L)"
+        ),
     }
 
 
@@ -226,7 +229,8 @@ def test_roles_of_every_rule_that_asks_for_a_human_are_required(
 
     assert decision.rule_ids == ("P-01", "P-02", "P-07")
     assert decision.required_roles == (ApproverRole.PURCHASING_MANAGER, ApproverRole.FINANCE)
-    assert decision.sentence.endswith("It needs the purchasing manager and finance.")
+    # The roles asked are both recorded; the sentence names who really decides at the hotel, once (decision B54).
+    assert decision.sentence.endswith("It needs the purchasing manager.")
 
 
 def test_the_same_inputs_give_the_same_decision(

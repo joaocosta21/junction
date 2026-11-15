@@ -23,8 +23,9 @@ def test_authority_lists_every_rule_with_this_profiles_values(engine: RulePolicy
     # F-10 is driven by the buyer's setting, so it stands with the profile rules and is not fixed.
     assert [rule.fixed for rule in authority.rules] == [True] * 10 + [False] * 10
     assert _sentence(authority, "P-01") == "An order above €750 before tax goes to the purchasing manager."
+    # No customer has a finance signer of its own: the sentence names who really decides (decision B54).
     assert _sentence(authority, "P-02") == (
-        "When the day's orders, this one included, pass €3,000 before tax, the order goes to finance."
+        "When the day's orders, this one included, pass €3,000 before tax, the order goes to the purchasing manager."
     )
     assert _sentence(authority, "P-03") == (
         "An option that covers less than 90% of the requested quantity goes to the purchasing manager."
