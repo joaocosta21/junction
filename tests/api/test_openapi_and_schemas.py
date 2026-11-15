@@ -94,13 +94,19 @@ RESPONSE_MODELS: dict[str, Any] = {
 
 
 @pytest.fixture(scope="module")
-def document(catalog: ProductCatalog, tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, Any]]:
+def published(catalog: ProductCatalog, tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
+    """The gateway whose document is read below: an example taken from the document is sent to this same one."""
     settings = Settings.for_tests(tta_data_dir=tmp_path_factory.mktemp("openapi") / "var")
     app = create_app(settings, parts=build_parts(settings, catalog=catalog))
     with TestClient(app) as client:
-        response = client.get("/openapi.json")
-        assert response.status_code == 200
-        yield response.json()
+        yield client
+
+
+@pytest.fixture(scope="module")
+def document(published: TestClient) -> dict[str, Any]:
+    response = published.get("/openapi.json")
+    assert response.status_code == 200
+    return response.json()
 
 
 def _operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -229,6 +235,116 @@ def test_the_order_route_documents_its_idempotency_key(document: dict[str, Any])
     assert header["schema"]["maxLength"] == 102  # 100 characters, or the same in double quotation marks
 
 
+def _parameters(operation: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {parameter["name"]: parameter for parameter in operation["parameters"]}
+
+
+def _said(parameter: dict[str, Any]) -> str:
+    """What a parameter says of itself: FastAPI writes a query parameter's description into its schema."""
+    return " ".join((parameter.get("description") or parameter["schema"].get("description", "")).split())
+
+
+def _example_values(operation: dict[str, Any]) -> dict[str, Any]:
+    """The first example of every parameter that has one, as a client fills them in."""
+    return {
+        name: next(iter(parameter["examples"].values()))["value"]
+        for name, parameter in _parameters(operation).items() if parameter.get("examples")
+    }
+
+
+@pytest.mark.parametrize("name", ["search_products", "get_product"])
+def test_the_two_lookup_routes_document_the_flag_for_price_and_availability_and_its_date(
+    document: dict[str, Any], name: str
+) -> None:
+    # Decision B58: the brief's first core item, "search for and retrieve what's available and at what price".
+    operation = _operations(document)[name]
+    flag, needed_by = (_parameters(operation)[each] for each in ("price_and_availability", "needed_by"))
+
+    assert (flag["in"], flag["required"]) == ("query", False)
+    assert (flag["schema"]["type"], flag["schema"]["default"]) == ("boolean", False)  # off unless asked for
+    assert "at most 20 products" in _said(flag).lower()
+    assert (needed_by["in"], needed_by["required"]) == ("query", False)
+    assert {"type": "string", "format": "date"} in needed_by["schema"]["anyOf"]
+    assert "refused, never dropped" in _said(needed_by)
+    text = " ".join(operation["description"].split())
+    assert "price_and_availability=true" in text and "Example that works as written" in text
+    assert "503" in operation["responses"]  # with the flag the supplier is asked, and may not answer
+    product = document["components"]["schemas"]["Product"]["properties"]["price_and_availability"]
+    assert {"$ref": "#/components/schemas/PriceAndAvailability"} in product["anyOf"]
+    stated = document["components"]["schemas"]["PriceAndAvailability"]["properties"]
+    assert all("description" in body for body in stated.values())  # every field of the new shape says what it is
+
+
+def test_the_search_example_with_price_and_availability_works_when_sent_as_written(
+    published: TestClient, document: dict[str, Any], auth: Any
+) -> None:
+    operation = _operations(document)["search_products"]
+    query = _example_values(operation)
+    body = _examples(operation["requestBody"]["content"]["application/json"])[0]  # the plant drinks
+
+    answer = published.post("/v1/products/search", params=query, json=body, headers=auth("agent_hotel"))
+
+    assert query == {"price_and_availability": True, "needed_by": "2026-11-16"}
+    assert (body["product_type"], body["limit"]) == ("plant_drink", 3)
+    # The line the description gives is this very request.
+    assert "`POST /v1/products/search?price_and_availability=true&needed_by=2026-11-16`" in operation["description"]
+    assert '`{"product_type": "plant_drink", "limit": 3}`' in operation["description"]
+    assert answer.status_code == 200, answer.text
+    products = answer.json()["products"]
+    assert len(products) == 3
+    for product in products:
+        stated = product["price_and_availability"]
+        assert stated["unit_net_price"] and stated["availability"]["state"] and stated["time_now"]
+        assert (stated["source"], stated["needed_by"]) == ("replay", "2026-11-16")
+
+
+def test_the_product_example_with_price_and_availability_works_when_sent_as_written(
+    published: TestClient, document: dict[str, Any], auth: Any
+) -> None:
+    operation = _operations(document)["get_product"]
+    values = _example_values(operation)
+    product_id = values.pop("product_id")
+    as_written = f"`GET /v1/products/{product_id}?price_and_availability=true&needed_by={values['needed_by']}`"
+
+    answer = published.get(f"/v1/products/{product_id}", params=values, headers=auth("agent_ward"))
+
+    assert as_written in operation["description"]
+    assert answer.status_code == 200, answer.text
+    stated = answer.json()["price_and_availability"]
+    assert (answer.json()["id"], stated["unit_net_price"], stated["orderable"]) == ("464013", 2.01, True)
+
+
+def test_the_order_examples_say_where_an_offer_id_comes_from(
+    published: TestClient, document: dict[str, Any], auth: Any
+) -> None:
+    # Review C1-9: the two examples of `POST /v1/orders` carry the ids of the gateway's own example offers and
+    # answer 404 when sent as written. The request body and the route's description now say so.
+    operation = _operations(document)["place_order"]
+    said = " ".join(operation["requestBody"]["description"].split())
+
+    assert "`POST /v1/offers` a moment earlier" in said and "`not-found` (404)" in said
+    assert "`POST /v1/offers`" in operation["description"] and "`not-found` (404)" in operation["description"]
+    examples = _examples(operation["requestBody"]["content"]["application/json"])
+    assert len(examples) == 2
+    for number, example in enumerate(examples):
+        as_written = published.post("/v1/orders", json=example, headers=auth("agent_ward", f"as-written-{number}"))
+        assert as_written.status_code == 404  # what the description says of them
+        assert as_written.json()["type"].endswith("/not-found")
+
+
+@pytest.mark.parametrize("name", ["search_products", "create_offer"])
+def test_the_routes_that_take_a_product_type_list_the_keys_of_the_table(
+    document: dict[str, Any], catalog: ProductCatalog, name: str
+) -> None:
+    # Review C2-7: `product_type` was "a key of the product-type table", and the table was published nowhere.
+    text = " ".join(_operations(document)[name]["description"].split())
+
+    keys = catalog.product_type_keys()
+    assert len(keys) == 32
+    assert all(f"`{key}`" in text for key in keys)
+    assert "never in `name_terms`" in text
+
+
 def test_the_examples_are_built_once_at_start_up_and_off_the_event_loop(
     settings: Settings, catalog: ProductCatalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -322,5 +438,9 @@ def test_the_parse_route_says_what_the_fixed_rules_reader_answers(document: dict
 
     for phrase in ("`question`", "`not_read`", "`read_by`", "read as STRICT", "`invalid-request` (422)"):
         assert phrase in text, phrase
+    # Item 6 of lane FIX-A2: the reader's own sentence reaches a REST caller in a third header.
+    headers = _operations(document)["parse_request"]["responses"]["200"]["headers"]
+    assert set(headers) == {"TTA-Read-By", "TTA-Reading-Source", "TTA-Reading-Sentence"}
+    assert "percent-encoded" in headers["TTA-Reading-Sentence"]["description"] and "`TTA-Reading-Sentence`" in text
     assert "an allergen exclusion with no strictness, is reported as `invalid-request`" not in text
     assert "while no parser is running" not in text

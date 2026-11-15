@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from enum import StrEnum
 
+from pydantic import Field
+
 from tta.contracts.allergen import AllergenStatement
-from tta.contracts.common import Contract, Number, PackSizeSource, Quantity, Unit
+from tta.contracts.availability import AvailabilityAssessment, ClaimCheck
+from tta.contracts.common import (
+    ClockBasis,
+    Contract,
+    DataSource,
+    ExclusionReason,
+    Number,
+    PackSizeSource,
+    Quantity,
+    Unit,
+    UnitPrice,
+)
 
 
 class UnitSize(Contract):
@@ -157,6 +171,86 @@ class ReplaceCheck(Contract):
         return self.other_type or self.plain_against_flavoured
 
 
+class PackSize(Contract):
+    """Litres or kilograms per sales unit, and where the figure came from."""
+
+    value: Quantity | None = None
+    unit: Unit | None = None  # L or KG
+    source: PackSizeSource = PackSizeSource.UNKNOWN
+    inner_units: int | None = None  # single items inside one sales unit, when known
+    inner_unit_size: Quantity | None = None  # litres or kg of one inner item, when known
+
+    @property
+    def is_known(self) -> bool:
+        return self.value is not None and self.source is not PackSizeSource.UNKNOWN
+
+
+class PriceAndAvailability(Contract):
+    """What the supplier states about one product now: its fixed price and its availability, in the shapes an
+    offer line carries them (`tta.contracts.offer.OfferLine`), with where and when the data was read.
+
+    Set on a product only when a search or a read asked for it (decision B58). It is a look at the supplier's
+    data for the caller's buyer, computed by the offer package's own functions with no quantity asked. It is not
+    an offer: nothing is reserved, nothing here can be ordered, and the policy decides on an offer alone.
+    """
+
+    unit_net_price: UnitPrice | None = Field(
+        default=None,
+        description="The fixed price of one sales unit before tax. Null: the supplier states no price an order "
+        "can rest on, and the price claim says why",
+    )
+    currency: str | None = Field(default=None, description="ISO 4217 code of `unit_net_price`")
+    tax_rate: Number | None = Field(default=None, description="Percent, as the supplier's price answer states it")
+    sales_unit: str = Field(
+        description="The unit the price and the stock are counted in: the one of the supplier's answer, else the "
+        "product file's",
+    )
+    pack_size: PackSize = Field(description="Litres or kilograms in one sales unit, and where the figure came from")
+    price_valid_to: datetime | None = Field(
+        default=None, description="Until when the price holds. The year 9999 means the supplier gave no end date"
+    )
+    availability: AvailabilityAssessment | None = Field(
+        default=None,
+        description="One of the six states, with the usable amount, the delivery date and the order cut-off, as on "
+        "an offer line. Null (replay only): the recorded copy holds no availability answer for this product, and "
+        "no state is made up for it",
+    )
+    claims: tuple[ClaimCheck, ...] = Field(
+        default=(),
+        description="Price, quantity, delivery date, allergens and origin: whether the supplier's data confirms "
+        "each, as on an offer line. With `needed_by` the delivery date is judged against it; without one the "
+        "dates are stated and nothing is judged. Allergens are read against the exclusions of the caller's buyer "
+        "profile; a product that states nothing about an excluded allergen is unknown, never safe",
+    )
+    orderable: bool = Field(
+        description="True: none of an offer's checks would leave this product out now for the caller's buyer. "
+        "Whether an order goes through is decided on an offer, by the policy",
+    )
+    reason: ExclusionReason | None = Field(
+        default=None,
+        description="Why an offer would leave it out now, by the offer's own checks in their order; null when "
+        "`orderable`. NOT_IN_RECORDING (replay only): the recorded copy holds no answer for this product, which "
+        "says nothing about the supplier",
+    )
+    sentence: str = Field(
+        description="For a person: the reason when there is one, else what the supplier states about stock and "
+        "delivery",
+    )
+    needed_by: date | None = Field(
+        default=None, description="The date the delivery date was judged against; null when none was given"
+    )
+    source: DataSource = Field(
+        description="Where the data was read: `live` from the supplier, or a `replay` of a recording"
+    )
+    time_now: datetime = Field(
+        description="The instant of the look: the clock every order cut-off and price validity was compared with"
+    )
+    time_basis: ClockBasis = Field(
+        description="What that clock rests on: the supplier's server time, the recording's own instant, or a "
+        "demo clock that was set",
+    )
+
+
 class Product(Contract):
     """One product of the catalog file. Optional facts stay `None`; nothing is imputed."""
 
@@ -194,6 +288,12 @@ class Product(Contract):
     labels: tuple[str, ...] = ()
     # Nutrients per 100 g or ml; None when the file states none of the six on that basis.
     nutrition: Nutrition | None = None
+    # Never in the catalog: set on the copy a search or a read answers when the caller asked for it (B58).
+    price_and_availability: PriceAndAvailability | None = Field(
+        default=None,
+        description="The supplier's price and availability of this product now, only when the search or the read "
+        "asked for it (`price_and_availability`); null otherwise",
+    )
 
     @property
     def display_name(self) -> str:
@@ -206,20 +306,6 @@ class Product(Contract):
     @property
     def has_allergen_statement(self) -> bool:
         return bool(self.allergen_statements)
-
-
-class PackSize(Contract):
-    """Litres or kilograms per sales unit, and where the figure came from."""
-
-    value: Quantity | None = None
-    unit: Unit | None = None  # L or KG
-    source: PackSizeSource = PackSizeSource.UNKNOWN
-    inner_units: int | None = None  # single items inside one sales unit, when known
-    inner_unit_size: Quantity | None = None  # litres or kg of one inner item, when known
-
-    @property
-    def is_known(self) -> bool:
-        return self.value is not None and self.source is not PackSizeSource.UNKNOWN
 
 
 class SearchResult(Contract):

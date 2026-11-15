@@ -136,11 +136,13 @@ async def test_arguments_that_do_not_match_the_schema_are_refused_before_the_too
         answer = await client.call_tool("get_offer", {"request": no_quantity})
         unknown_field = await client.call_tool("get_product", {"product_id": "464013", "profile_id": "hotel-kitchen"})
 
-    assert answer.is_error and "quantity" in answer.content[0].text
-    assert "Traceback" not in answer.content[0].text
+    assert "quantity" in _problem(answer, "invalid-request", 422)["detail"]
     assert parts.audit.head()[0] == 0  # nothing was built or recorded
-    # An argument the tool does not have is not a way to choose a buyer: it is ignored or refused, never used.
-    assert unknown_field.is_error or unknown_field.structured_content["id"] == "464013"
+    # An argument the tool does not have is not a way to choose a buyer: it is refused, as REST refuses a field
+    # a request does not have (review C1-7; `test_strict_arguments.py` holds the reproductions).
+    refused = _problem(unknown_field, "invalid-request", 422)
+    assert refused["errors"] == [{"field": "arguments", "problem": "a field this request does not have"}]
+    assert "hotel-kitchen" not in unknown_field.content[0].text
 
 
 async def test_an_unexpected_fault_says_nothing_about_itself(
