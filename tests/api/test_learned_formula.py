@@ -120,7 +120,8 @@ def test_in_learn_mode_the_hotels_whipping_cream_keeps_its_recipe_and_the_offer_
 
     assert offer.request == sent and offer.request.lines[0].keep_formula is None  # as the buyer sent it
     assert all(line.keep_formula is True for option in offer.options for line in option.lines)
-    assert _rules(offer) == {"BEST_CONFIRMED": ("P-03",), "SUBSTITUTE": ("F-11", "P-03")}
+    # P-05 since decision B60: the ESL cream costs €59.20 more than the cream asked for would have (27.7% more).
+    assert _rules(offer) == {"BEST_CONFIRMED": ("P-03",), "SUBSTITUTE": ("F-11", "P-03", "P-05")}
     best, substitute = offer.options
     assert (best.lines[0].product_id, best.totals.net) == (WHIPPING, Decimal("276.96"))  # 48 of the 100 L
     assert [line.product_id for line in substitute.lines] == [WHIPPING, ESL]
@@ -133,7 +134,11 @@ def test_when_asked_mode_applies_nothing_for_the_same_request(parts: Parts) -> N
     offer = book.service.create_offer(KITCHEN_AGENT, _cream())
 
     assert all(line.keep_formula is None for option in offer.options for line in option.lines)
-    assert _rules(offer) == {"BEST_CONFIRMED": ("P-03",), "SUBSTITUTE": ("P-03",), "ALTERNATIVE_UNCONFIRMED": ("F-01",)}
+    # No F-11: nothing says the formula matters. F-12 since decision B64: neither substitute is like for like.
+    assert _rules(offer) == {
+        "BEST_CONFIRMED": ("P-03",), "SUBSTITUTE": ("F-12", "P-03", "P-05"),
+        "ALTERNATIVE_UNCONFIRMED": ("F-01", "F-12"),
+    }
     assert not any("The gateway applied this" in note for note in offer.notes)
 
 
@@ -142,13 +147,13 @@ def test_a_book_in_learn_mode_applies_it_like_the_profile_file_does(parts: Parts
 
     offer = book.service.create_offer(KITCHEN_AGENT, _cream())
 
-    assert _rules(offer)["SUBSTITUTE"] == ("F-11", "P-03") and offer.notes[-1] == LEARNED_NOTE
+    assert _rules(offer)["SUBSTITUTE"] == ("F-11", "P-03", "P-05") and offer.notes[-1] == LEARNED_NOTE
 
 
 def test_a_request_that_says_so_itself_gets_no_note_from_the_gateway(parts: Parts) -> None:
     offer = parts.service.create_offer(HOTEL_AGENT, _cream(keep_formula=True))
 
-    assert _rules(offer)["SUBSTITUTE"] == ("F-11", "P-03")
+    assert _rules(offer)["SUBSTITUTE"] == ("F-11", "P-03", "P-05")
     assert not any("The gateway applied this" in note for note in offer.notes)
 
 
@@ -171,9 +176,10 @@ def test_the_trail_keeps_the_request_as_sent_and_says_what_the_gateway_applied(p
 def test_scenario_1_is_unchanged_the_hotel_serves_its_milk(parts: Parts, scenario_1: dict[str, Any]) -> None:
     offer = parts.service.create_offer(HOTEL_AGENT, PurchaseRequest.model_validate(scenario_1))
 
-    best, alternative = offer.options
+    best, alternative, completed = offer.options  # the third since decision B56: completed with the coffee milk
     assert (best.coverage[0].covered, best.totals.net) == (Decimal(435), Decimal("1083.39"))
     assert alternative.totals.net == Decimal("1010.00")
+    assert (completed.coverage[0].covered, completed.totals.net) == (Decimal(1000), Decimal("2580.64"))
     assert all(line.keep_formula is None for option in offer.options for line in option.lines)
     assert not any("The gateway applied this" in note for note in offer.notes)
 
@@ -192,7 +198,7 @@ def test_a_rejected_formula_changing_substitute_is_learned_from_the_order_book(p
     assert _decide(book, order, DecisionKind.REJECT).status is OrderStatus.REJECTED
     second = book.service.create_offer(KITCHEN_AGENT, _cream())
 
-    assert _rules(second)["SUBSTITUTE"] == ("F-11", "P-03")
+    assert _rules(second)["SUBSTITUTE"] == ("F-11", "P-03", "P-05")
     note = second.notes[-1]
     assert note.startswith(
         "Request line 1: You rejected a substitute with different ingredients for Arla Pro Whipping cream 1 L UHT "
@@ -217,7 +223,8 @@ def test_choosing_the_other_option_is_learned_and_two_acceptances_unlearn_it(par
     order_substitute("accept-1", choose_best=False)
     after_two = order_substitute("accept-2", choose_best=False)
     assert not any("The gateway applied this" in note for note in after_two.notes)
-    assert _rules(after_two)["SUBSTITUTE"] == ("P-03",)
+    # F-11 is gone with what was learned; F-12 (decision B64) and P-05 (B60) hold whatever was learned.
+    assert _rules(after_two)["SUBSTITUTE"] == ("F-12", "P-03", "P-05")
 
 
 def test_requests_that_said_so_teach_the_next_ones_and_what_the_gateway_applied_never_counts(parts: Parts) -> None:

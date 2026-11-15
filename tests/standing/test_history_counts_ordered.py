@@ -39,8 +39,8 @@ def test_three_renewals_that_still_wait_do_not_move_the_baseline(book, agent_hot
     assert all(outcome.order.decision.rule_ids == ("P-08",) for outcome in [*waiting, fourth])
     assert fourth.order.status is OrderStatus.PENDING_APPROVAL
     assert fourth.drift.sentence.startswith(
-        "Standing order so_demo_hotel_milk drifts beyond the 25% tolerance: 150 L this week against a median of "
-        "100 L over the last 6 renewals"
+        "The standing order “Weekly lactose-free milk, hotel kitchen” drifts beyond the 25% tolerance: 150 L this week "
+        "against a median of 100 L over the last 6 renewals"
     )
     assert _history_litres(book) == list(SYNTHETIC_WEEKS)  # the six weeks it started with; nothing that waits
 

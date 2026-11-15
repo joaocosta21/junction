@@ -30,8 +30,8 @@ from tta.contracts.standing import NewStandingOrder, RenewStandingOrder
 from tta.standing.demo import DEMO_NAME, DEMO_STANDING_ORDER_ID, SYNTHETIC_WEEKS, load_demo
 
 P08_290 = (
-    "For standing order so_demo_hotel_milk, 290 L this week against a median of 100 L over the last 6 renewals, "
-    "more than the 25% tolerance of Harbourside Hotel."
+    "For the standing order “Weekly lactose-free milk, hotel kitchen”, 290 L this week against a median of 100 L "
+    "over the last 6 renewals, more than the 25% tolerance of Harbourside Hotel."
 )
 RENEWED = f"tta.v1.{AuditEventType.STANDING_ORDER_RENEWED.value}"
 CREATED = f"tta.v1.{AuditEventType.STANDING_ORDER_CREATED.value}"
@@ -72,9 +72,9 @@ def test_renewed_at_the_usual_100_litres_the_order_waits_for_approval(book, agen
     drift = outcome.drift
     assert drift is not None and drift.judged and not any(check.over_tolerance for check in drift.checks)
     assert outcome.drift.sentence.startswith(
-        "Standing order so_demo_hotel_milk is within the 25% tolerance: 100 L this week against a median of 100 L "
-        "over the last 6 renewals and €2.48 per ST of 469363 this week against a median of €2.48 over the last 6 "
-        "renewals."
+        "The standing order “Weekly lactose-free milk, hotel kitchen” is within the 25% tolerance: 100 L this week "
+        "against a median of 100 L over the last 6 renewals and €2.48 per ST of 469363 this week against a median of "
+        "€2.48 over the last 6 renewals."
     )
     renewals = book.standing.get(agent_hotel, DEMO_STANDING_ORDER_ID).renewals
     assert renewals[-1] == outcome.renewal and not renewals[-1].synthetic and renewals[-1].order_id == order.order_id
@@ -90,7 +90,9 @@ def test_renewed_at_290_litres_p08_sends_it_to_the_purchasing_manager(book, agen
     assert order.decision.rule_ids == ("P-08",) and order.decision.required_roles == (ApproverRole.PURCHASING_MANAGER,)
     assert order.decision.fired[0].sentence == P08_290
     assert outcome.offer.options[0].decision.rule_ids == ("P-08",)  # the offer already said so
-    assert outcome.sentence.startswith("Standing order so_demo_hotel_milk drifts beyond the 25% tolerance: 290 L")
+    assert outcome.sentence.startswith(
+        "The standing order “Weekly lactose-free milk, hotel kitchen” drifts beyond the 25% tolerance: 290 L"
+    )
     view = book.service.get_audit(agent_hotel, AuditReader.BUYER, order_id=order.order_id)
     renewed = [event for event in view.events if event.type == RENEWED]
     assert len(renewed) == 1 and renewed[0].sentence.endswith(

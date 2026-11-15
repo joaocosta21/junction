@@ -90,8 +90,10 @@ def test_the_supplier_view_shows_no_limit_value_no_approver_and_no_note(
     assert "human:hotel-purchasing" not in supplier and "Hanna" not in supplier
     # Valio reads every rule that fired and its reason (P9b B13), the buyer's amounts masked and a role for a name
     assert "P-01" in supplier and "the amount is not shown" in supplier
-    # One person confirms at the hotel (SIMP): Hanna holds the three roles, and the roles stand for her name.
-    assert "The buyer's purchasing manager, finance and dietitian approved order" in supplier
+    # One person confirms at the hotel (SIMP): Hanna holds the three roles. Since FIX-A1 Valio reads "a person of
+    # the buyer" for her, never three roles for one person and never her name.
+    assert "A person of the buyer approved order" in supplier
+    assert "purchasing manager, finance and dietitian" not in supplier
     assert "What Valio Aimo sees" in supplier
     assert "469363" in supplier and "€1,083.39" in supplier  # what was ordered, and the statements relied on
     assert "384" in supplier[supplier.index('id="reliance"'):supplier.index('id="trail"')]

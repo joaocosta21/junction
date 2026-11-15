@@ -56,7 +56,8 @@ def test_substitutes_the_gateway_refuses_to_list_do_not_hide_the_offer(
     page = run_example(client, "scenario-3").text
 
     assert "Too many searches right now." in page[page.index('id="substitutes"'):page.index('id="excluded"')]
-    assert "With a substitute" in page and "Prepared: confirm to order" in page
+    # Since FIX-P and FP-S the substitute of scenario 3 is not like for like and dearer (F-12, P-05): a person decides.
+    assert "With a substitute" in page and "Sent for approval" in page
 
 
 def test_a_refusal_of_the_gateway_while_a_page_is_built_is_an_error_page(

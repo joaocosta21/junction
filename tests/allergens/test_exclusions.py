@@ -99,7 +99,7 @@ def test_gluten_free_product_that_declares_oats_goes_to_a_human(
     assert check.outcome is TO_HUMAN
     assert finding.matched_code == "GO"
     assert "oats (GO)" in finding.sentence
-    assert "dietitian" in finding.sentence
+    assert finding.sentence.endswith(": a person must decide.")
 
 
 def test_oats_alone_go_to_a_human_when_gluten_is_excluded(statements: Build) -> None:
@@ -151,7 +151,7 @@ def test_member_excluded_and_marked_undeclared_under_a_declared_family_goes_to_a
     assert finding.matched_code == family
     assert "UNDECLARED" in finding.sentence
     assert "no statement" not in finding.sentence
-    assert "dietitian" in finding.sentence
+    assert finding.sentence.endswith(": a person must decide.")
     assert not check.all_explicit
 
 

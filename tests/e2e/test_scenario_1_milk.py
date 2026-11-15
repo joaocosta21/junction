@@ -3,7 +3,9 @@
 Milk for coffee is a product type of its own since 14 Nov (Valio Aimo: "no be explicit"), so Arla Cafè milk no
 longer fills the request. Two confirmed milks cover 435 of the 1,000 litres: option 1 is a partial fill, 43.5%,
 and goes to a person for the per-order limit and the minimum fill (P-01, P-03). The alternative is 1,000 litres
-of a milk whose quantity Valio Aimo does not confirm. Asking for 1,500 litres changes only what is missing.
+of a milk whose quantity Valio Aimo does not confirm. Since decision B56 a third option completes the confirmed
+435 litres with 565 litres of Arla Cafè milk from confirmed stock, named as a substitute that is not like for like
+(F-12, P-01): a person decides. Asking for 1,500 litres changes only what is missing.
 Measured at the recording's own clock (Saturday 14 Nov 2026, 02:52 Helsinki time) and, in the tests that take
 `both`, at the demo clock too (Thursday 12 Nov 2026, 14:15): the options, totals and rules are the same at both;
 only the products left out differ (17 against 2: at the demo clock no cut-off has passed).
@@ -20,13 +22,15 @@ from tta.contracts.common import AvailabilityState, ClaimStatus, OptionKind, Ord
 
 PORTION_MILK = "463203"  # Arla portion milk, 100 x 2 cl: a single-serve pack, excluded from a bulk line
 CONFIRMED_MILKS = {"469363": Decimal(384), "462775": Decimal(51)}  # 435 L: all the confirmed stock there is
-COFFEE_MILKS = {"462626", "463380", "464237", "473142"}  # another product type: never offered for milk
+COFFEE_MILKS = {"462626", "463380", "464237", "473142"}  # another product type: never offered as milk
+COFFEE_MILK = "463380"  # Arla Cafè milk: completes the third option as a named substitute (decision B56)
+COMPLETED = {**CONFIRMED_MILKS, COFFEE_MILK: Decimal(565)}  # 1,000 L, all of it from confirmed stock
 UNCONFIRMED_MILK = "464306"  # the cheapest lactose-free milk; Valio does not confirm its stock
 APPROVER_NOTE = "Checked with the kitchen."
 SCENARIO_1_EVENTS = [
     "request.received", "request.parsed", "lookup.performed", "offer.created",
-    "policy.evaluated", "policy.evaluated", "suggestions.shown", "approval.requested", "approval.decided",
-    "order.confirmed",
+    "policy.evaluated", "policy.evaluated", "policy.evaluated",  # one per option: three since decision B56
+    "suggestions.shown", "approval.requested", "approval.decided", "order.confirmed",
 ]
 LEFT_OUT = {  # products left out with a reason, by clock (measured over the recording's 26 lactose-free milks)
     "recording": {"CUTOFF_PASSED": 15, "PORTION_PACK": 1, "NOT_DELIVERABLE": 1},
@@ -53,8 +57,11 @@ def _assert_scenario_1_offer(offer: dict[str, Any], money: Any, fired: Any, line
     assert (money(coverage["covered"]), money(coverage["missing"])) == (Decimal(435), Decimal(565))
     assert best["decision"]["verdict"] == Verdict.APPROVAL
     assert fired(best) == {"P-01", "P-03"}
-    offered = {line["product_id"] for option in offer["options"] for line in option["lines"]}
-    assert not offered & COFFEE_MILKS
+    assert [option["kind"] for option in offer["options"]] == [
+        OptionKind.BEST_CONFIRMED, OptionKind.ALTERNATIVE_UNCONFIRMED, OptionKind.SUBSTITUTE,
+    ]
+    offered = {line["product_id"] for option in offer["options"][:2] for line in option["lines"]}
+    assert not offered & COFFEE_MILKS  # as milk, never: the first two options hold none
     assert offer["notes"][0].startswith("Request line 1: Coffee milk was left out:")
 
     alternative = _option(offer, OptionKind.ALTERNATIVE_UNCONFIRMED)
@@ -63,6 +70,18 @@ def _assert_scenario_1_offer(offer: dict[str, Any], money: Any, fired: Any, line
     assert money(alternative["totals"]["net"]) == Decimal("1010.00")
     assert alternative["decision"]["verdict"] == Verdict.APPROVAL
     assert fired(alternative) == {"F-01", "P-01"}
+
+    completed = _option(offer, OptionKind.SUBSTITUTE)  # decision B56: the whole quantity from confirmed stock
+    assert lines_of(completed) == COMPLETED
+    assert money(completed["totals"]["net"]) == Decimal("2580.64")
+    assert money(completed["fill_ratio"]) == Decimal(1)
+    assert all(line["availability"]["state"] == AvailabilityState.CONFIRMED for line in completed["lines"])
+    stand_ins = {line["product_id"]: line["substitute"] for line in completed["lines"] if line["substitute"]}
+    assert set(stand_ins) == {COFFEE_MILK}  # the one coffee milk offered, and it is named as a substitute
+    assert stand_ins[COFFEE_MILK]["replaceable"]["verdict"] == "NOT_LIKE_FOR_LIKE"
+    assert stand_ins[COFFEE_MILK]["allergen_check"]["passes"] is True
+    assert completed["decision"]["verdict"] == Verdict.APPROVAL
+    assert fired(completed) == {"F-12", "P-01"}  # never ordered by the agent alone (decision B64)
 
     excluded = {exclusion["product_id"]: exclusion for exclusion in offer["excluded"]}
     assert excluded[PORTION_MILK]["reason"] == "PORTION_PACK"
@@ -192,7 +211,7 @@ def test_scenario_1_at_both_clocks_request_offer_order_a_person_confirms_and_the
     )
 
     own, valio = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=APPROVER_NOTE)
-    assert event_types(own)[:7] == SCENARIO_1_EVENTS[:7]
+    assert event_types(own)[:8] == SCENARIO_1_EVENTS[:8]
     assert event_types(own)[-2:] == ["approval.decided", "order.confirmed"]
     assert "authorisation.refused" in event_types(own)
     created = next(event for event in valio["events"] if event["type"].endswith("offer.created"))

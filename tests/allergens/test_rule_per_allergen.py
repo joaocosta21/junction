@@ -123,5 +123,9 @@ def test_the_authority_names_the_allergens_under_each_rule() -> None:
     authority = RulePolicyEngine.from_files().describe_authority(_profile())
 
     sentence = next(rule.sentence for rule in authority.rules if rule.rule_id == "P-04")
-    assert "under rule STRICT: AP" in sentence
-    assert "Under rule DECLARED_ONLY: AS" in sentence
+    assert sentence == (
+        "Test kitchen excludes peanuts, and each must be confirmed absent: a product that may contain one, leaves "
+        "it undeclared or says nothing about it goes to the dietitian. It keeps sesame seeds out as an ingredient: "
+        "a product that may contain one goes to the dietitian; one that says nothing about it passes and is shown "
+        "as unverified."
+    )

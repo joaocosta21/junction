@@ -35,6 +35,11 @@ HOTEL_NO_MILK_NO_GLUTEN = PurchaseRequest(
         ),
     ),
 )
+# The ward asks for a rice drink it can order: the purchasing manager confirms, and nothing asks the dietitian.
+WARD_PLAIN = PurchaseRequest(
+    needed_by=MONDAY,
+    lines=(RequestLine(text="100 L of 473424", product_ids=("473424",), quantity=Decimal(100), unit=Unit.L),),
+)
 HOSTILE = '<script>alert("trade-off")</script>'
 DOUBTFUL = "475224"  # the product of HOTEL_NO_MILK_NO_GLUTEN whose milk is not ruled out
 
@@ -79,7 +84,9 @@ def test_a_card_says_why_a_human_is_needed_shows_the_options_and_the_order_by_ti
     assert "Order by Sunday 15 Nov 2026 at 17:00" in page
     assert "Best confirmed option" in page and "€1,083.39" in page
     assert "Alternative: quantity not confirmed" in page and "€1,010.00" in page
-    assert page.count('name="option"') == 2
+    # Since FIX-O2 a third option completes the confirmed part with a substitute from confirmed stock.
+    assert "Alternative: confirmed stock, completed with a substitute" in page and "€2,580.64" in page
+    assert page.count('name="option"') == 3
     assert 'value="opt_1" checked' in page  # the option the agent proposed
     assert 'value="APPROVE"' in page and 'value="REJECT"' in page and 'name="note"' in page
 
@@ -131,10 +138,12 @@ def test_an_approver_without_the_role_is_refused_and_the_page_says_who_can_decid
     client: TestClient, act_as: Post, decide: Post, identities: Identities, own_book: Callable[..., Any],
     only_order: Callable[..., Any],
 ) -> None:
-    # Since SIMP the hotel's one person holds every role, so the buyer with two people is the ward: its substitute
-    # asks the purchasing manager (Jussi), and the dietitian (Sari) does not hold that role.
-    _order_as(client, identities, own_book, "agent:allergy-ward", WARD_SUBSTITUTE)
+    # Since SIMP the hotel's one person holds every role, so the buyer with two people is the ward. Since FIX-P a
+    # substitute that is not like for like asks its dietitian too, so the order here is of the product asked for:
+    # it asks the purchasing manager (Jussi) alone, and the dietitian (Sari) does not hold that role.
+    _order_as(client, identities, own_book, "agent:allergy-ward", WARD_PLAIN)
     approval = _pending(client, identities, "human:ward-purchasing")
+    assert [role.value for role in approval.required_roles] == ["purchasing_manager"]
     queue = act_as(client, "human:ward-dietitian").text
 
     response = decide(client, approval.approval_id, "APPROVE", option=approval.option_id)
@@ -287,8 +296,12 @@ def test_an_option_whose_lines_need_no_human_shows_no_trade_off(
     run_example(client, "scenario-1")
 
     page = client.get("/approvals").text
+    first, second, third = (card.split("</label>")[0] for card in page.split('<label class="option ')[1:])
 
-    assert "In place of" not in page and "a dietitian must decide" not in page
+    # Options 1 and 2 hold the products asked for. Since FIX-O2 option 3 holds a substitute, and only it says so.
+    for card in (first, second):
+        assert "In place of" not in card and "a person must decide" not in card and "trade-off" not in card
+    assert 'value="opt_3"' in third and "In place of" in third and "Not a like-for-like replacement" in third
 
 
 @pytest.mark.parametrize("field", ["gives_up", "claims_lost", "finding"])

@@ -211,6 +211,10 @@ class Samples:
             statuses[ClaimName.QUANTITY] = ClaimStatus.UNKNOWN
         if allergens is not None and allergens.outcome is AllergenOutcome.REJECT:
             statuses[ClaimName.ALLERGENS] = ClaimStatus.RULED_OUT
+        if substitute is not None and "original_net" not in substitute.model_fields_set:
+            # A substitute at the price of the product asked for, unless the test says what that would have cost:
+            # rule P-05 sends a dearer one, and one whose price cannot be compared, to a person (decision B60).
+            substitute = substitute.model_copy(update={"original_net": net})
         return OfferLine(
             product_id=product_id, name=f"Product {product_id}", category="10400", request_line_index=0,
             quantity=units, sales_unit="ST",

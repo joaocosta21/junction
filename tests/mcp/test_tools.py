@@ -79,7 +79,8 @@ async def test_the_inputs_are_the_contract_models_and_their_fields(connect: Conn
     offer_schema = tools["get_offer"].input_schema
     assert offer_schema["required"] == ["request"]
     assert set(offer_schema["$defs"]["PurchaseRequest"]["properties"]) == {
-        "needed_by", "require_confirmed", "lines", "prefer", "standing_order_id", "accepted_suggestion_id"
+        "needed_by", "require_confirmed", "lines", "prefer", "standing_order_id", "accepted_suggestion_id",
+        "max_net_eur",  # the most the buyer wants to spend on this request: it can only add a check (rule P-01)
     }
     assert set(tools["place_order"].input_schema["required"]) == {"offer_id", "option_id", "idempotency_key"}
     assert tools["get_audit"].input_schema.get("required", []) == []

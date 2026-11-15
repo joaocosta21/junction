@@ -143,7 +143,10 @@ def test_scenario_2_at_both_clocks_the_sentence_is_read_prepared_confirmed_by_a_
     own, valio = two_views(both, "ward", decided, decided_by="ward:purchasing_manager", note=NOTE)
     assert event_types(own) == SCENARIO_2_EVENTS
     read_as = next(event for event in own["events"] if event["type"].endswith("request.parsed"))
-    assert "excluding allergens AM and AW" in read_as["sentence"]  # the buyer reads its own exclusions
+    assert read_as["sentence"] == (  # the buyer reads its own exclusions, by their names
+        "The request was read as: 200 litres of product type plant_drink, excluding allergens milk and cereals "
+        "containing gluten, needed by Monday 16 November 2026, confirmed data only."
+    )
 
 
 def _shop_offer(both: Any, request: dict[str, Any]) -> dict[str, Any]:

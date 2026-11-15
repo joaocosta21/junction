@@ -315,7 +315,8 @@ def test_the_summary_sorts_options_by_what_the_data_confirms_not_by_their_kind(
     # The substitute rests on confirmed stock; the product asked for is the one Valio does not confirm.
     assert "475224" in confirmed and "Valio does not confirm" not in confirmed
     assert "Valio does not confirm the quantity in stock" in unconfirmed and "475224" not in unconfirmed
-    assert "Prepared: confirm to order" in page[page.index('id="glance-outcome"'):page.index('id="request"')]
+    # Since FIX-P and FP-S that substitute is not like for like and dearer (F-12, P-05), so a person decides.
+    assert "Sent for approval" in page[page.index('id="glance-outcome"'):page.index('id="request"')]
 
 
 def test_an_agent_that_stops_without_an_offer_is_shown_with_its_report_and_its_steps(

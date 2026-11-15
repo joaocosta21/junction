@@ -85,8 +85,9 @@ def test_with_the_setting_on_and_everything_confirmed_the_wards_200_litres_are_o
     assert (order.status, order.placed_by, order.approval_id) == (OrderStatus.ORDERED, PlacedBy.AGENT, None)
     assert order.decision.verdict is Verdict.AUTO and order.decision.fired == ()
     assert order.status_sentence == (
-        "The agent placed this order alone for €402.00 net: no rule asked for a human and every statement of the "
-        "offer is confirmed."
+        "The agent placed this order alone for €402.00 net. That was allowed: ordering alone is switched on for My "
+        "kitchen; the total of €402.00 is within the €500 limit per order; today's spend with this order is €402.00 "
+        "of the €1,500 limit per day; every statement of the offer is confirmed; and no rule asked for a person."
     )
     assert book.service.list_approvals(KITCHEN_PURCHASING) == ()
     assert _event_types(book)[-1] == PLACED_BY_AGENT

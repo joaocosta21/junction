@@ -106,8 +106,11 @@ def test_scenario_3_at_both_clocks_nothing_unconfirmed_is_suggested_and_no_optio
 
     first = offer["options"][0]  # confirmed stock of the same kind leads at both clocks (decision B52)
     assert first["kind"] == OptionKind.SUBSTITUTE and lines_of(first) == {CONFIRMED_STAND_IN: Decimal(100)}
-    assert money(first["totals"]["net"]) == Decimal("174.00") and fired(first) == {"F-12"}
-    rule = first["decision"]["fired"][0]  # the rule's own line says why, in the offer's words and numbers
+    assert money(first["totals"]["net"]) == Decimal("174.00") and fired(first) == {"F-12", "P-05"}
+    rule, price = first["decision"]["fired"]  # each rule's own line says why, in the offer's words and numbers
+    assert (rule["rule_id"], price["rule_id"]) == ("F-12", "P-05")
+    # Decision B60: €174.00 against the €137.00 the oat drink asked for would have cost, above the hotel's premium.
+    assert "the substitute costs €37.00 more than the product you asked for (27% more)" in price["sentence"]
     assert "is not a like-for-like replacement: a different formula" in rule["sentence"]
     assert "sugars 1.6 g, not 3.5 g" in rule["sentence"] and rule["sentence"].endswith(
         "A person decides whether it will do."
@@ -138,7 +141,7 @@ def test_scenario_3_with_confirmed_data_only_the_confirmed_stand_in_is_prepared_
     stand_in = offer["options"][0]
     assert lines_of(stand_in) == {CONFIRMED_STAND_IN: Decimal(100)}
     assert money(stand_in["totals"]["net"]) == Decimal("174.00")
-    assert (stand_in["decision"]["verdict"], fired(stand_in)) == (Verdict.APPROVAL, {"F-12"})
+    assert (stand_in["decision"]["verdict"], fired(stand_in)) == (Verdict.APPROVAL, {"F-12", "P-05"})
     gives_up = stand_in["lines"][0]["substitute"]["gives_up"]
     assert "€0.37" in gives_up and "1.6 g" in gives_up  # dearer per litre, and less sugar: said in numbers
     assert {(left["product_id"], left["reason"]) for left in offer["excluded"]} == {
@@ -150,7 +153,8 @@ def test_scenario_3_with_confirmed_data_only_the_confirmed_stand_in_is_prepared_
     decided = both.confirm("hotel", order, NOTE)
     assert (decided["status"], decided["placed_by"]) == (OrderStatus.ORDERED, PlacedBy.HUMAN_APPROVAL)
     assert decided["status_sentence"] == (
-        "Ordered for €174.00 net with approval by Demo approver Hanna: rule F-12 asked for a human and was accepted."
+        "Ordered for €174.00 net with approval by Demo approver Hanna: rules F-12 and P-05 asked for a human and "
+        "were accepted."
     )
     own, _ = two_views(both, "hotel", decided, decided_by="hotel:purchasing_manager", note=NOTE)
     assert event_types(own)[-3:] == ["approval.requested", "approval.decided", "order.confirmed"]

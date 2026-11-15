@@ -125,4 +125,7 @@ def test_the_accepted_event_is_written_with_who_accepted_and_the_new_offer(world
         "suggestion": suggestion_accepted_supplier_facts(cream, offer_id="off_1", new_offer_id="off_2"),
     }
     assert event.data.sentence.startswith("Hanna Laine (purchasing manager) accepted the forgotten item ")
-    assert event.data.supplier_sentence.startswith("The buyer's purchasing manager accepted a forgotten item ")
+    assert event.data.supplier_sentence == (
+        "A person of the buyer accepted a forgotten item suggested with offer off_1. The amended request became "
+        "offer off_2."
+    )

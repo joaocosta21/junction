@@ -166,11 +166,15 @@ def test_the_schools_oat_drink_trend_comes_from_the_standing_order_loaded_at_sta
 def test_scenario_1_keeps_its_options_and_totals(client: TestClient, scenario_1: dict[str, Any]) -> None:
     offer = _offer(client, "hotel", scenario_1)
 
-    best, alternative = offer["options"]
+    best, alternative, completed = offer["options"]  # the third since decision B56
     assert sum(line["covers"] for line in best["lines"]) == 435 and best["totals"]["net"] == 1083.39
     assert [(line["product_id"], line["quantity"]) for line in best["lines"]] == [("469363", 384), ("462775", 51)]
     assert [(line["product_id"], line["quantity"]) for line in alternative["lines"]] == [("464306", 1000)]
     assert alternative["totals"]["net"] == 1010.0
+    assert [(line["product_id"], line["quantity"]) for line in completed["lines"]] == [
+        ("469363", 384), ("462775", 51), ("463380", 565),
+    ]
+    assert sum(line["covers"] for line in completed["lines"]) == 1000 and completed["totals"]["net"] == 2580.64
 
 
 # --- what is already ordered, the setting, a failure --------------------------------------------------------

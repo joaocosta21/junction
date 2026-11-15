@@ -138,7 +138,10 @@ def test_a_bakery_order_with_an_allergen_doubt_is_completed_by_the_owner(client:
 
     assert decided.status_code == 200, decided.text
     assert decided.json()["status"] == "ORDERED"
-    assert "dietitian" in decided.json()["status_sentence"]
+    # The person is named, and no role: one person signs at the bakery (decisions B54 and B61).
+    assert decided.json()["status_sentence"] == (
+        "Ordered for €57.70 net with approval by Demo approver Marko: rule P-04 asked for a human and was accepted."
+    )
 
 
 # --- GET /v1/customers ----------------------------------------------------------------------------------

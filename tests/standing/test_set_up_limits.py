@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tta.api import create_app, hooks, wiring
-from tta.api.limits import CallKind, RateLimit, call_limits
+from tta.api.limits import MAX_LOOKUPS_PER_VISITOR_PER_MINUTE, CallKind, RateLimit, call_limits
 from tta.config import Settings
 from tta.contracts.audit import AuditEventType
 from tta.contracts.common import Identity, Unit
@@ -123,7 +123,9 @@ def _body(lines: int = 1, text: str = "100 L of milk 469363") -> dict[str, Any]:
 def test_the_reviews_flood_is_refused_over_rest(client: TestClient) -> None:
     """A3 F1's proof, shortened: the largest request, sent again and again."""
     large = client.post("/v1/standing-orders", json=_body(lines=20, text="x" * 2000), headers=AGENT)
-    answers = [client.post("/v1/standing-orders", json=_body(), headers=AGENT) for _ in range(40)]
+    # 60 lookups a minute for one address since decision B55 (20 before): the flood has to pass that to be counted.
+    flood = MAX_LOOKUPS_PER_VISITOR_PER_MINUTE + 10
+    answers = [client.post("/v1/standing-orders", json=_body(), headers=AGENT) for _ in range(flood)]
 
     statuses = [answer.status_code for answer in answers]
     assert large.status_code == 422 and large.json()["type"] == PROBLEM_TYPE_BASE + "invalid-request"
