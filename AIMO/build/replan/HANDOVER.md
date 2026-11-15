@@ -76,3 +76,13 @@ Back office after the hotel's hero order and the forgotten cream: "2 orders conf
 - Your view of the buyer's log shows every rule that fired, with limits and allergens masked. Is that what you meant by a log for both sides?
 
 **For the team** (`DECISIONS.md` C1 to C8): the formula tolerances (six nutrients within 15% or 1 g) and the fat-source word list need a biomedical signature; whether `VEGETARIAN` should stay a claim a substitute must keep; the list of hosts treated as a manufacturer's own page is ours and unverified; and whether a custom kitchen with no dietitian should read "goes to the dietitian" in its authority text.
+
+## 6. Found on Sunday morning by the checks of the submission text, not fixed (the code is final and deployed)
+
+- **A ward substitution asked for tomorrow gets no option and a note that reads wrongly.** As the ward's agent, `POST /v1/offers` with `needed_by` 2026-11-13 and 50 L of product `473609`: `options: []`, and the note "no substitute … passes the allergen rules, fits the request and can be ordered". One does pass (the rice drink `473424`, offered for Monday at €118.00); it is only late. No earliest date is offered in this case.
+- **A dish sentence on the parse route gets a question with no pointer to the planner**, and `/llms.txt` does not name `POST /v1/menus/plan` (it is in `/openapi.json`).
+- **Valio Aimo's token is told it "reads its view of the audit trail and nothing else"** on a refused route, while `GET /v1/insights` answers it.
+- **A suggestion reads two ways:** "€44.40, €42.00 less" to the buyer, and "€44.40 more before tax" in the audit sentence. Both are true (less than the pack it replaces; more than the basket without it).
+- **A renewal of a standing order has no dry run:** `POST …/renew` prepares an order at once.
+- **The demo's stock-out sentence uses a product whose quantity is not confirmed** (`473609`). A product with 0 in stock: `469316`.
+- The source of each: `M2.md` and `M1.md` of the checks, summarised in `AIMO/SUBMISSION.md`, section 3.
