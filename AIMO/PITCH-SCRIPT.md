@@ -1,6 +1,6 @@
 # Pitch script (spoken), three minutes — Sun 15 Nov
 
-Your slide timings, kept as they were. The four corrections are in; three of the four additions fit by replacing weaker lines word for word (the 302 / 303 litres line does not fit and is left out). About the same number of spoken words as your version.
+Your slide timings, kept as they were. The four corrections are in; three of the four additions fit by replacing weaker lines word for word (the 302 / 303 litres line does not fit and is left out). About the same number of spoken words as your version. Slide 5 uses the sentences an independent walk of the live minute timed at about 50 seconds; its runbook is in `AIMO/DEMO-CHECK.md`.
 
 ### Slide 1 — Introduction | 0:00–0:10
 
@@ -34,25 +34,25 @@ Four illustrative buyers, each with different rules.
 
 ### Slide 5 — Working End-to-End Demo | 0:50–1:53
 
-*Start the live demonstration.*
+*Start the live demonstration: paste the sentence, Enter.*
 
-Hanna requests **1,000 litres of lactose-free milk by Monday**.
+Hanna asks for **1,000 litres of lactose-free milk by Monday**.
 
-The gateway checks 26 matching products, but only **435 litres are confirmed**.
+Only **435 litres are confirmed**, so the gateway does not promise the rest.
 
-It invents nothing. The rest is offered two ways, clearly labelled: **cheaper but unconfirmed, or fully confirmed with a barista milk as a named substitute**.
+*Scroll about 300 px, until both alternatives are whole.*
 
-The confirmed offer costs **€1,083.39**, above the hotel's €750 limit.
+It offers two other ways, clearly labelled: **cheaper with unconfirmed stock, or all confirmed with a café milk as a named substitute**.
 
-**So the agent requests human approval.**
+This order is above the hotel's €750 limit and below its 90% minimum, **so the agent asks Hanna**.
 
-*Show Hanna confirming the order.*
+*Click CONFIRM ORDER.*
 
-Hanna approves, and the order is recorded.
+She confirms, and the order is recorded.
 
-*Open the audit trail and supplier view.*
+*Click "Order and audit trail", then "What Valio Aimo sees" at the top right. No scrolling.*
 
-Every decision is documented, with separate views for the buyer and Valio Aimo.
+Every step is in an audit trail that verifies, and Valio Aimo has its own view of it, without the buyer's limits.
 
 **Request, lookup, offer, approval, order: end to end.**
 
