@@ -3,7 +3,7 @@
 Order: profiles → the milk sentence → what the gateway suggests → "Add" on the cream → the full order, confirmed by a person → its audit trail and Valio Aimo's view → the agent ordering alone → the ward's refusal → open standards.
 
 - **Part A, "Step by step":** the moves only, in recording order.
-- **Part B, "The script":** the spoken lines only, with their times in the finished video. About 72 seconds of speech in the 120; the rest is silent.
+- **Part B, "The script":** the spoken lines only, with their times in the finished video. One connected story, about 104 seconds of speech in the 120.
 
 Part A was walked twice as written, each time from a clean start, in Chrome (headless, page area 1440 × 900) on the final code (`b567e5f`), at the demo clock, without a model, which is how your server runs. Both walks gave the same result and no page error. A third walk used a page area 780 px high. Every word and figure below was on screen in those walks. Pictures of each step: `/private/tmp/claude-501/-Users-joaocosta-Pessoal-junction/6585c036-9723-4ff4-97e0-3fba8894a301/scratchpad/vidwalk/shots/` (`s1-…` and `s2-…` are the two walks, `t780-…` the shorter window). Steps 37 and 38 were not rendered: `/llms.txt` was read as text, `/docs` loads a script from the internet.
 
@@ -100,40 +100,21 @@ One move per line, then what must be on screen before the next move. **CUT** mar
 
 ## Part B — The script
 
-Times are those of the finished 2:00 video. Silent stretches are marked; let the figures on screen speak there.
+One story, told over the pictures of Part A: Hanna, who buys for Harbourside Hotel, and what her agent may and may not do for her. Each paragraph is said over one part of the video and describes what is happening on screen; it ends a little before the picture does, so there is a breath before the next one.
 
-| From | To | Picture | Say |
-|---|---|---|---|
-| 0:00 | 0:07 | Title card | "This gateway lets a buyer's agent read Valio Aimo's prices and stock, and order within the buyer's rules." |
-| 0:07 | 0:08 | Title card | *silent* |
-| 0:08 | 0:10 | The customer menu, four customers | "Each buyer has a profile." |
-| 0:10 | 0:15 | The ward's Settings: Milk, Cereals with gluten | "The hospital ward excludes milk and gluten." |
-| 0:15 | 0:21 | The hotel's Settings: the switch, 750, 3000 | "The hotel sets a limit per order, and its agent may not order alone." |
-| 0:21 | 0:23 | The hotel's Settings | *silent* |
-| 0:23 | 0:28 | The sentence being typed | "A thousand litres of lactose-free milk by Monday: the brief's own sentence." |
-| 0:28 | 0:31 | The answer appears | *silent* |
-| 0:31 | 0:34 | The headline, 435 L, €1,083.39 | "Only four hundred and thirty-five litres are confirmed." |
-| 0:34 | 0:35 | The amber box | *silent* |
-| 0:35 | 0:44 | The two alternatives | "For the rest, two ways: cheaper, with stock Valio Aimo does not confirm; or a café milk as a named substitute." |
-| 0:44 | 0:46 | "Why this answer" opens | "And it shows its reasons." |
-| 0:46 | 0:51 | The fold: rules checked, 26 products looked at | *silent* |
-| 0:51 | 0:56 | The click on ADD, then the cream row | "It also suggests the cream this kitchen usually orders. One click." |
-| 0:56 | 1:04 | CHOOSE, "YOUR CHOICE", the click on CONFIRM ORDER | "Hanna takes the full thousand litres. This substitute is not like for like, so a person decides. She confirms." |
-| 1:04 | 1:08 | The green box "Confirmed by Hanna Laine" | *silent* |
-| 1:08 | 1:11 | The order page | "Every step is logged, and the trail verifies." |
-| 1:11 | 1:17 | "Trail intact", the 11 events | *silent* |
-| 1:17 | 1:22 | "What Valio Aimo sees" | "Valio Aimo gets its own view, without the buyer's limits or allergens." |
-| 1:22 | 1:24 | Valio Aimo's view | *silent* |
-| 1:24 | 1:27 | The switch, SAVE | "The buyer can let the agent order alone." |
-| 1:27 | 1:36 | 302 litres: "Ordered by your agent", €748.96 | *silent* |
-| 1:36 | 1:39 | 303 litres: "Needs your decision", €751.44 | "One litre more, and it waits for Hanna." |
-| 1:39 | 1:42 | The amber box | *silent* |
-| 1:42 | 1:49 | The ward's red box | "The allergy ward asks for lactose-free milk. All twenty-six are left out: it is still milk." |
-| 1:49 | 1:52 | The red box | *silent* |
-| 1:52 | 1:57 | `/llms.txt`, then `/docs` | "Open standards: OpenAPI, MCP, signed offers, MIT licence." |
-| 1:57 | 2:00 | `/docs` | *silent* |
+| From | To | Picture | Say | Words | Speech / slot |
+|---|---|---|---|---|---|
+| 0:00 | 0:08 | Title card | "Meet Hanna. She buys for a hotel kitchen, and her purchasing agent talks to Valio Aimo through our gateway." | 19 | 8 s / 8 s |
+| 0:08 | 0:23 | The customer menu, the ward's Settings, the hotel's Settings | "Every buyer has a profile that the agent must respect. A hospital ward excludes milk and gluten. Hanna's hotel allows 750 euros per order, and for now the agent may not order alone." | 33 | 13 s / 15 s |
+| 0:23 | 0:35 | The sentence typed, the answer with 435 L and €1,083.39 | "Hanna needs a thousand litres of lactose-free milk by Monday. The gateway checks Valio Aimo's prices and stock, and can confirm only 435 litres." | 24 | 10 s / 12 s |
+| 0:35 | 0:51 | The two alternatives, then the fold "Why this answer" | "Instead of guessing, it shows two ways to cover the rest: a cheaper milk whose stock is not confirmed, or confirmed stock completed with a café milk, named as a substitute. Each comes with its reasons." | 36 | 14 s / 16 s |
+| 0:51 | 1:08 | The click on ADD, CHOOSE, "YOUR CHOICE", CONFIRM ORDER, the green box | "It also notices this kitchen usually orders cooking cream, and Hanna adds it in one click. She then picks the full thousand litres. A substitute above her limit is not the agent's call, so Hanna confirms it herself." | 38 | 15 s / 17 s |
+| 1:08 | 1:24 | The order page, "Trail intact", "What Valio Aimo sees" | "Every step, from her request to her approval, is now written in a log that cannot be changed unnoticed. Valio Aimo reads the same order in its own view, without the hotel's limits or allergens." | 35 | 14 s / 16 s |
+| 1:24 | 1:42 | The switch and SAVE, 302 litres ordered, 303 litres waiting | "Later Hanna lets the agent order alone. 302 litres stay under her limit, so the agent places the order and says why it was allowed. One litre more is over the limit, so it stops and waits for her." | 39 | 16 s / 18 s |
+| 1:42 | 1:52 | The ward's red box | "At the allergy ward a request for lactose-free milk is refused, all twenty-six products, because lactose-free milk is still milk." | 20 | 8 s / 10 s |
+| 1:52 | 2:00 | `/llms.txt`, then `/docs` | "And all of it is open: OpenAPI, MCP, signed offers, MIT licence. Any agent can connect." | 16 | 6 s / 8 s |
 
-**Count:** 180 words in 16 lines, 72 seconds of speech at 2.5 words a second. The 12 marked silent stretches add up to 42 seconds, and the lines leave about 6 more seconds of air inside their slots. Every line fits its slot at that pace; the two longest are 0:35–0:44 (21 words, 8.4 s) and 0:56–1:04 (19 words, 7.6 s).
+**Count:** 260 words, about 104 seconds of speech at 2.5 words a second, in the 120. Every paragraph fits its slot at that pace. To leave more silence, drop the last sentence of the paragraphs at 0:35 and 1:08: the story still holds.
 
 ## Not for the camera
 - **The window right after ADD (step 16):** its headline reads "…For milk: Milk made for coffee is not offered as milk…", a doubled word in large text. Cut at the click and come back after the scroll of step 17.
