@@ -88,6 +88,9 @@ Last updated: Sat 14 Nov, 20:50.
 | B65 | A candidate that shares no distinguishing name word with the product asked for is never an offer option; it may stay in the substitutes list, marked | CK3: bilberry filling for sodium bicarbonate, sugar strands for couverture, egg white for egg yolk. João: "the main problem is to see if the products are replaceable". No option is better than a wrong one | FIX-O |
 | B66 | At the ward and the school a substitute whose formula or nutrients differ is the dietitian's to decide | The brief's fifth scenario asks for "strict allergen and nutrition rules"; we have no nutrition standard, so the person who knows decides | FIX-P |
 | B67 | A request that cannot arrive by its date is answered with the earliest date as a labelled alternative a person accepts | "For tomorrow" ended in no option; a buyer with a last-minute event needs the next best thing, and Valio the sale | FIX-O |
+| B68 | Where the formula matters, a substitute of the same brand that keeps the formula ranks first | Valio Aimo's people said so to João in person; a brand's own product line is the likeliest to keep a recipe | FP-S |
+| B69 | A flavoured or variant product with no product type of ours gets no substitute rather than another flavour of its line (reverses B1 and B45 for untyped products) | FIX-O1 measured: 275 of 1,163 recorded products lose their substitute, about half of which were wrong products; a wrong substitute in front of food-service people costs more than none | FIX-O1 |
+| B70 | The price bound on a substitute judged replaceable is built tonight, not claimed | João asked to write it as done; a claim the system does not keep is what the checks were run to find | FP-S |
 
 ## C. Questions for the team (domain)
 
