@@ -166,7 +166,7 @@ Other exception paths, measured at the recording's clock:
 | No `Idempotency-Key` on an order | 400 |
 | A text the rules cannot read | 422 with a question |
 
-Described with their figures in `docs/DEMO.md` and `AIMO/COVERAGE.md`: suggestions from the customer's pattern and Valio Aimo's own, standing orders and their renewal on `/shop`, menus from a sentence, the formula rule firing, evidence from a manufacturer's page, and a date that cannot be met answered with the earliest date.
+Described with their figures in `docs/DEMO.md` and `AIMO/COVERAGE.md`: suggestions from the customer's pattern and Valio Aimo's own, standing orders and their renewal on `/shop`, menus from a sentence, the formula rule firing, evidence from a product's web page, and a date that cannot be met answered with the earliest date.
 
 ---
 
@@ -262,7 +262,7 @@ For the demo clock add `TTA_DEMO_CLOCK=2026-11-12T14:15:00+02:00` to the first c
 First what in the demo is ours and stated as such, then what a pilot would add. A next step does not exist today.
 
 - **Orders commit nobody.** `ORDERED` is a record in our order book. No order message reaches Valio and no payment is taken.
-- **A model may read a sentence and never decides.** With a key set it is asked first, and its reading is checked against the text and refused when it does not match. The fixed rules are its check and its fallback; they read the shapes they know and ask about the rest. Every figure of this document was measured with no key set. `fixtures/agent/` holds eleven recordings (4 of a model's answer made on 14 Nov, 7 written by hand); over REST and MCP a sentence that has one for the caller's profile is answered from it, labelled, when no model answers or none is configured; in my runs on `/shop`, with no key, every sentence was read by the rules.
+- **A model may read a sentence and never decides.** With a key set it is asked first, and its reading is checked against the text and refused when it does not match. The fixed rules are its check and its fallback; they read the shapes they know and ask about the rest. Every figure of this document was measured with no key set. `fixtures/agent/` holds eleven recordings (4 of a model's answer made on 14 Nov, 7 written by hand); over REST (no MCP tool reads a product sentence) a sentence that has one for the caller's profile is answered from it, labelled, when no model answers or none is configured; in my runs on `/shop`, with no key, every sentence was read by the rules.
 - **Every customer value is ours.** Limits, people, usual products, order history (synthetic), thresholds.
 - **In replay most of the catalog has no price.** The recordings hold 1,163 of 17,546 products; a product outside it is left out as "not in the recording", never as undeliverable in Valio's name.
 - **The proof is the gateway's, with a demo key** unless a key is set. Nothing is signed by Valio.
