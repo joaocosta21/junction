@@ -161,5 +161,8 @@ def test_tonight_confirmed_only_lists_each_milk_whose_quantity_is_not_confirmed(
     unconfirmed = [each for each in offer.excluded if each.reason is ExclusionReason.QUANTITY_NOT_CONFIRMED]
     assert UNCONFIRMED in {each.product_id for each in unconfirmed}  # the alternative of scenario 1
     assert all("confirmed data only" in each.sentence.lower() for each in unconfirmed)
-    assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED]
+    # The second option completes the confirmed milk from confirmed stock (decision B56,
+    # tests/offers/test_completed_option.py): every line of it is confirmed, so confirmed-only keeps it.
+    assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED, OptionKind.SUBSTITUTE]
+    assert UNCONFIRMED not in {line.product_id for option in offer.options for line in option.lines}
     assert any(UNCONFIRMED in note and "confirmed data only" in note for note in offer.notes)

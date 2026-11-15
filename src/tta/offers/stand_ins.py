@@ -21,28 +21,35 @@ Which candidate of the ranking stands in (ours, decided on 14 Nov 2026):
 
 A request in pieces is converted by content before anything is ranked (`Ranking.per_piece`; review P9b, item
 Q14-1): 100 cartons of 1 L are 100 L, so 10 cases of 10 L stand in, not 100 cases.
+
+What a stand-in gives up is said by `gives_up` as `tta.offers.substitutes` holds it, the function its list of
+candidates uses: a stand-in's line and the list say the same words, whichever module words them.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
-from tta.contracts.common import AvailabilityState
+from tta.contracts.common import QUANTITY_PLACES, AvailabilityState
 from tta.contracts.offer import OfferLine, SubstituteInfo
 from tta.contracts.product import Product, ReplaceVerdict
+from tta.contracts.request import RequestLine
 from tta.offers.candidates import units_needed
 from tta.offers.combining import Fill, floor_to_step, with_picks
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
 from tta.offers.outcome import LineOutcome
 from tta.offers.safety import ruled_out
-from tta.offers.substitute_wording import gives_up
-from tta.offers.substitutes import Judged, Ranking, rank_substitutes
+from tta.offers.substitutes import Judged, Ranking, gives_up, rank_substitutes
 from tta.offers.wording import counted, line_label, measured, plain_name
 
 ZERO = Decimal(0)
+# What a line covers is stated to the places a quantity is written with (`tta.contracts.common`), rounded down:
+# 31 packs of 0.7 kg for packs of 1.1 kg cover 19.727 of them, never 19.72727272727272727272727273 (review
+# C3-F7), and never more than their content gives.
+COVERS_STEP = Decimal(1).scaleb(-QUANTITY_PLACES)
 NO_FORMULA_KEEPER = "no substitute that keeps the formula can be ordered"
 
 
@@ -65,6 +72,12 @@ class _Found:
     alternative: OfferLine | None = None
     said: str = ""
     notes: tuple[str, ...] = ()
+
+
+def no_stand_ins(request_lines: int) -> StandIns:
+    """What `substitute_lines` answers when no request line needs a stand-in."""
+    nothing = (None,) * request_lines
+    return StandIns(lines=nothing, alternatives=nothing, said=("",) * request_lines, notes=())
 
 
 def substitute_lines(outcomes: Sequence[LineOutcome], fills: Sequence[Fill], deps: OfferDeps) -> StandIns:
@@ -106,7 +119,7 @@ def _substitute_line(
     gap = replace(outcome.need, quantity=picked.missing)
     ranking = rank_substitutes(original, gap, deps, skip=outcome.asked.product_ids)
     keep = outcome.need.formula_matters
-    lines = [(judged, _line_from(judged, ranking, used_elsewhere)) for judged in _in_order(outcome, ranking, keep)]
+    lines = [(judged, line_from(judged, ranking, used_elsewhere)) for judged in _in_order(outcome, ranking, keep)]
     orderable = [(judged, line) for judged, line in lines if line is not None]
     named = f"{plain_name(original.display_name)} ({original.id})"
     label = line_label(outcome.need.index)
@@ -137,15 +150,7 @@ def _substitute_line(
 
 def _in_order(outcome: LineOutcome, ranking: Ranking, keep: bool) -> list[Judged]:
     """The candidates that fit the request line, in the order the module's docstring gives."""
-    required = frozenset(claim.strip().upper() for claim in outcome.asked.required_claims)
-    labels = frozenset(label.strip().upper() for label in outcome.asked.required_labels)
-    # A stand-in must carry every nutritional claim and certificate label the request line requires (SPEC
-    # section 3, step 4; task SUST-1).
-    fitting = [
-        judged for judged in ranking.ranked
-        if required.issubset(judged.candidate.product.nutritional_claims)
-        and labels.issubset(judged.candidate.product.labels)
-    ]
+    fitting = [judged for judged in ranking.ranked if carries_required(judged.candidate.product, outcome.asked)]
     return sorted(  # stable: within each group the ranking's own order holds
         fitting,
         key=lambda each: (
@@ -155,6 +160,14 @@ def _in_order(outcome: LineOutcome, ranking: Ranking, keep: bool) -> list[Judged
             _confirmed_same_kind(each, ranking),
         ),
     )
+
+
+def carries_required(product: Product, asked: RequestLine) -> bool:
+    """A stand-in must carry every nutritional claim and certificate label the request line requires (SPEC
+    section 3, step 4; task SUST-1)."""
+    required = frozenset(claim.strip().upper() for claim in asked.required_claims)
+    labels = frozenset(label.strip().upper() for label in asked.required_labels)
+    return required.issubset(product.nutritional_claims) and labels.issubset(product.labels)
 
 
 def _confirmed_like_for_like(judged: Judged) -> bool:
@@ -225,7 +238,7 @@ def _original(outcome: LineOutcome, picked: Fill, deps: OfferDeps) -> Product:
     return product
 
 
-def _line_from(judged: Judged, ranking: Ranking, used_elsewhere: Mapping[str, Decimal]) -> OfferLine | None:
+def line_from(judged: Judged, ranking: Ranking, used_elsewhere: Mapping[str, Decimal]) -> OfferLine | None:
     """An offer line for the substitute, or `None` when it cannot be ordered for this line.
 
     Under confirmed-only a candidate with a claim that is not confirmed is not orderable: it was judged
@@ -255,4 +268,10 @@ def _line_from(judged: Judged, ranking: Ranking, used_elsewhere: Mapping[str, De
     )
     # `covers` is in the request's unit: content turned back into pieces where the request was in pieces.
     covers = min(units * candidate.per_unit, need.quantity) / (ranking.per_piece or Decimal(1))
-    return line_for(candidate, ranking.asked, units, covers, now, info)
+    return line_for(candidate, ranking.asked, units, _stated(covers), now, info)
+
+
+def _stated(covers: Decimal) -> Decimal:
+    """`covers` as it is written: unchanged when `COVERS_STEP` holds it, else cut to it."""
+    cut = covers.quantize(COVERS_STEP, rounding=ROUND_FLOOR)
+    return covers if cut == covers else cut

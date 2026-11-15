@@ -63,25 +63,25 @@ COFFEE_LINE_1 = " Request line 1:" + COFFEE
 
 # --- coverage per line ----------------------------------------------------------------------------------------
 
-def test_a_two_line_offer_says_how_many_lines_it_covers_in_full_and_what_each_line_gets(
+def test_a_two_line_offer_says_how_many_items_it_covers_in_full_and_names_only_what_falls_short(
     milk_and_cheese: Offer,
 ) -> None:
     option = of_kind(milk_and_cheese, OptionKind.BEST_CONFIRMED)
 
+    # The line covered in full (milk) is not listed; the one with nothing is named by its own words.
     assert option.summary == (
-        "1 confirmed product covers 1 of the 2 request lines in full, for €248.00 before tax. "
-        "Covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1." + COFFEE_LINE_1
+        "1 confirmed product covers 1 of the 2 items asked for in full, for €248.00 before tax. "
+        "Nothing with confirmed stock for cheese." + COFFEE_LINE_1
     )
-    assert "least covered" not in option.summary
+    assert "least covered" not in option.summary and "request line 2" not in option.summary
 
 
 def test_the_unconfirmed_alternative_says_the_same_of_its_lines(milk_and_cheese: Offer) -> None:
     option = of_kind(milk_and_cheese, OptionKind.ALTERNATIVE_UNCONFIRMED)
 
-    assert "(464306) for 1 of the 2 request lines in full, €101.00 before tax." in option.summary
-    assert option.summary.endswith(
-        "Covered: 0 of 10 kg of cheese, request line 2; 100 of 100 L of milk, request line 1."
-    )
+    assert "(464306) for 1 of the 2 items asked for in full, €101.00 before tax." in option.summary
+    # This option holds a product whose quantity is not confirmed, so it does not speak of confirmed stock.
+    assert option.summary.endswith("Nothing is offered for cheese.")
 
 
 def test_p03_names_the_least_covered_line_and_what_each_line_gets_while_the_ratio_stays_the_lowest(
@@ -116,7 +116,7 @@ def test_a_one_line_partial_fill_keeps_its_wording_and_gains_the_amounts(
     )
 
 
-def test_each_line_is_named_by_type_by_product_or_by_name_term_with_the_short_lines_first(
+def test_a_line_with_nothing_is_named_and_a_line_covered_in_part_keeps_its_amounts(
     serve: Callable[..., OfferService], price: Any, stock: Any, agent_hotel: Identity
 ) -> None:
     request = PurchaseRequest(
@@ -132,11 +132,10 @@ def test_each_line_is_named_by_type_by_product_or_by_name_term_with_the_short_li
     option = of_kind(offer, OptionKind.BEST_CONFIRMED)
 
     assert option.summary == (
-        "2 confirmed products cover 1 of the 3 request lines in full, for €160.80 before tax. "
-        "Covered: 0 of 5 L of 'oat drink', request line 3; 60 of 100 L of milk, request line 1; "
-        "10 of 10 L of product 463149, request line 2." + COFFEE_LINE_1
+        "2 confirmed products cover 1 of the 3 items asked for in full, for €160.80 before tax. "
+        "Nothing with confirmed stock for 'oat drink'. Covered in part: 60 of 100 L of milk." + COFFEE_LINE_1
     )
-    assert p03(option).sentence.startswith("Only 0% of the quantity of request line 3 is covered")
+    assert p03(option).facts["option.fill_ratio"] == 0.0  # the rule still judges the least covered line
 
 
 def test_an_option_that_covers_every_line_in_full_reads_as_before(
@@ -150,7 +149,7 @@ def test_an_option_that_covers_every_line_in_full_reads_as_before(
     offer = serve(prices, [stock(A, 500), stock(REGULAR, 100)]).build_offer(request, agent_hotel)
 
     assert offer.options[0].summary == (
-        "2 confirmed products cover all 2 request lines in full, for €260.00 before tax." + COFFEE_LINE_1
+        "2 confirmed products cover all 2 items asked for in full, for €260.00 before tax." + COFFEE_LINE_1
     )
 
 
@@ -163,7 +162,30 @@ def test_no_line_in_full_reads_none(
     )
     offer = serve([price(A, "2.48"), price(B, "2.57")], [stock(A, 50), stock(B, 5)]).build_offer(request, agent_hotel)
 
-    assert "2 confirmed products cover none of the 2 request lines in full" in offer.options[0].summary
+    # The milk line takes both milks (55 L), so nothing is left for the line that names 462775 by id; a line that
+    # names only product ids is never said as a list of ids.
+    assert offer.options[0].summary.startswith(
+        "2 confirmed products cover none of the 2 items asked for in full, for €136.85 before tax. Nothing with "
+        "confirmed stock for the product named on line 2. Covered in part: 55 of 100 L of milk."
+    )
+
+
+def test_lines_that_share_their_words_also_say_their_line_and_ids_are_never_listed(
+    serve: Callable[..., OfferService], price: Any, stock: Any, agent_hotel: Identity
+) -> None:
+    request = PurchaseRequest(
+        needed_by=MONDAY,
+        lines=(
+            MILK, MILK.model_copy(update={"quantity": Decimal(40)}),
+            RequestLine(text="two by id", product_ids=(REGULAR, NO_PRICE), quantity=Decimal(10), unit=Unit.L),
+        ),
+    )
+
+    offer = serve([price(A, "2.48")], [stock(A, 100)]).build_offer(request, agent_hotel)
+
+    assert (
+        "Nothing with confirmed stock for milk (line 2) and the products named on line 3."
+    ) in of_kind(offer, OptionKind.BEST_CONFIRMED).summary
 
 
 @pytest.mark.parametrize(
@@ -192,13 +214,16 @@ def test_a_request_for_tomorrow_that_nothing_meets_names_the_earliest_date_and_t
 
     note = next(note for note in offer.notes if note.startswith(LATE_NOTE))
 
-    assert offer.options == ()
+    # Since decision B67 the earliest date is also offered, as options for a person
+    # (tests/offers/test_later_date.py); the note still names the date and the products that make it.
+    assert offer.options
+    assert all(option.title.startswith("Alternative: delivered Monday 16 Nov") for option in offer.options)
     assert late  # every delivery date in tonight's capture is Monday 16 Nov (AIMO/USE-CASES.md, use case 2)
     assert (
         f"The earliest delivery date in Valio's data for a product that otherwise fits is Monday 16 Nov, "
         f"for {len(late)} products: {', '.join(late[:10])}"
     ) in note
-    assert offer.notes[-1].startswith("No option can be offered")
+    assert not any(note.startswith("No option can be offered") for note in offer.notes)
 
 
 def test_the_earliest_date_names_only_the_products_that_make_it_and_otherwise_fit(

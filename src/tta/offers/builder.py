@@ -8,12 +8,11 @@ from __future__ import annotations
 import uuid
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from tta.allergens.codes import describe
 from tta.availability.wording import format_day
-from tta.contracts.common import ExclusionReason, Preference
+from tta.contracts.common import AvailabilityState, ExclusionReason, Preference
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.contracts.policy import BuyerProfile
 from tta.contracts.ports import Catalog
@@ -27,8 +26,10 @@ from tta.offers.candidates import (
     find_products,
     need_for,
     supplier_reason_for,
+    units_needed,
 )
 from tta.offers.deps import Lookup, OfferDeps, look_up
+from tta.offers.later import earliest_later, later_outcomes
 from tta.offers.options import finish_options
 from tta.offers.planning import LineOutcome, plan_options
 from tta.offers.preference import KEY_WORDS
@@ -40,6 +41,15 @@ OFFER_ID_PREFIX = "off_"
 OFFER_ID_HEX_DIGITS = 12
 SENTENCE_END = ". "
 NO_OPTION_NOTE = "No option can be offered for this request. Each product that dropped out is listed with its reason."
+# A dated request that nothing meets (decision B67): what cannot arrive and what can, as the first note.
+NOTHING_BY = "Nothing can arrive by {asked}."
+OFFERED_LATER = (
+    "{nothing} The options are for delivery {when}, {days} later than asked: a person must accept the later date."
+)
+ASK_FOR_LATER = (
+    "{nothing} The earliest date on which {what} can be delivered is {day}: send the same request with needed_by "
+    "{iso} to be offered it."
+)
 
 
 def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps, *, agent_id: str) -> Offer:
@@ -57,11 +67,16 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
     )
     outcomes = tuple(outcome for outcome, _ in judged)
     late = tuple(candidates for _, candidates in judged)
-    plan = plan_options(outcomes, lookup.now, deps, request.prefer)
+    plan = plan_options(outcomes, lookup.now, deps, request.prefer, minimum_fill=profile.min_fill_ratio)
     type_notes = _type_notes(request.lines, deps.catalog)
-    options = finish_options(
-        plan.drafts, request, needs, profile, deps, lookup.now, headline=_headline(type_notes, len(request.lines))
-    )
+    headline = _headline(type_notes, len(request.lines))
+    in_time = finish_options(plan.drafts, request, needs, profile, deps, lookup.now, headline=headline)
+    options, later_notes = in_time, ()
+    if not in_time and (later := later_outcomes(outcomes, late, lookup.now)):
+        # Nothing meets the request as asked: the same products on the earliest date they can be delivered.
+        later_plan = plan_options(later, lookup.now, deps, request.prefer, stand_in=False)
+        options = finish_options(later_plan.drafts, request, needs, profile, deps, lookup.now, headline=headline)
+        later_notes = tuple(note for note in later_plan.notes if note not in plan.notes)
     return Offer(
         offer_id=OFFER_ID_PREFIX + uuid.uuid4().hex[:OFFER_ID_HEX_DIGITS],
         created_at=deps.clock.now(),
@@ -75,10 +90,11 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
         time_now=lookup.now,
         time_basis=lookup.time_basis,
         notes=(
+            *_date_notes(request.needed_by, outcomes, late, options, lookup.now),
             *(f"{line_label(index)}: {note}" for index, note in type_notes),
             *_strict_notes(needs), *_variant_notes(request.lines, options, deps.catalog),
-            *_search_notes(found), *plan.notes, *_unused_notes(outcomes, options, request.prefer),
-            *_empty_notes(outcomes, late, options, lookup.now),
+            *_search_notes(found), *plan.notes, *later_notes, *_unused_notes(outcomes, options, request.prefer),
+            *_empty_notes(outcomes, late, in_time, lookup.now, nothing_offered=not options),
             *_later_recorded(deps, options),
         ),
     )
@@ -186,61 +202,94 @@ def _unused_notes(
 ) -> tuple[str, ...]:
     """The candidates that fit and are in no option, so every candidate is accounted for: it is in an
     option, in `excluded` with a reason, or named here. A product that fits has not dropped out, and
-    `ExclusionReason` has no code for "not needed"."""
+    `ExclusionReason` has no code for "not needed".
+
+    Two notes per request line, because the reason differs (review C2-4): confirmed stock is left out when
+    cheaper or better-ranked products cover the quantity; a product whose quantity Valio does not confirm is left
+    out for that, and the one of them that is offered is named, so the note never reads as stock left unused."""
     offered = {line.product_id for option in options for line in option.lines}
     taken = "the cheapest products" if prefer is Preference.PRICE else (
         f"the products ranked first by {KEY_WORDS[prefer]}, then price,"
     )
     notes = []
     for outcome in outcomes:
-        unused = [each.product.id for each in outcome.fitting if each.product.id not in offered]
-        if not unused:
-            continue
-        fit = "fits the request and is" if len(unused) == 1 else "fit the request and are"
-        notes.append(
-            f"{line_label(outcome.need.index)}: {counted(len(unused), 'product')} {fit} in no option, because "
-            f"the options take {taken} that cover the quantity: {listed(unused)}."
-        )
+        unused = [each for each in outcome.fitting if each.product.id not in offered]
+        confirmed = [each.product.id for each in unused if each.state is AvailabilityState.CONFIRMED]
+        unconfirmed = [each.product.id for each in unused if each.state is not AvailabilityState.CONFIRMED]
+        label = line_label(outcome.need.index)
+        if confirmed:
+            notes.append(
+                f"{label}: {counted(len(confirmed), 'product')} {_fit(confirmed)} in no option, because "
+                f"the options take {taken} that cover the quantity: {listed(confirmed)}."
+            )
+        if unconfirmed:
+            its = "its" if len(unconfirmed) == 1 else "their"
+            notes.append(
+                f"{label}: {counted(len(unconfirmed), 'product')} {_fit(unconfirmed)} in no option because Valio "
+                f"does not confirm {its} quantity: {listed(unconfirmed)}.{_alternative_shown(outcome, options)}"
+            )
     return tuple(notes)
 
 
+def _fit(ids: Sequence[str]) -> str:
+    return "fits the request and is" if len(ids) == 1 else "fit the request and are"
+
+
+def _alternative_shown(outcome: LineOutcome, options: Sequence[OfferOption]) -> str:
+    """` The cheapest product whose quantity is not confirmed, 464306, is the alternative shown.` Which of the
+    line's products whose quantity is not confirmed an option does hold, and that it is the cheapest for the
+    quantity asked when it is; empty when no option holds one."""
+    unconfirmed = {
+        each.product.id: each for each in outcome.fitting if each.state is not AvailabilityState.CONFIRMED
+    }
+    shown = next(
+        (
+            line.product_id for option in options for line in option.lines
+            if line.request_line_index == outcome.need.index and line.substitute is None
+            and line.product_id in unconfirmed
+        ),
+        None,
+    )
+    quantity = outcome.need.quantity
+    if shown is None or quantity is None:
+        return ""
+    totals = {
+        product_id: units_needed(each, quantity) * each.unit_price for product_id, each in unconfirmed.items()
+    }
+    if totals[shown] <= min(totals.values()):
+        return f" The cheapest product whose quantity is not confirmed, {shown}, is the alternative shown."
+    return f" The alternative shown is {shown}."
+
+
 def _empty_notes(
-    outcomes: Sequence[LineOutcome], late: Sequence[tuple[Candidate, ...]], options: Sequence[OfferOption],
-    now: datetime,
+    outcomes: Sequence[LineOutcome], late: Sequence[tuple[Candidate, ...]], in_time: Sequence[OfferOption],
+    now: datetime, *, nothing_offered: bool,
 ) -> tuple[str, ...]:
-    """Why a request line has no product in any option, the earliest date a late product could make, and that
-    there is no option at all."""
-    offered = {line.request_line_index for option in options for line in option.lines}
+    """Why a request line has no product in any option that meets the request as asked (`in_time`), the
+    earliest date a late product could make, and that there is no option at all (`nothing_offered`: not even
+    one for a later date)."""
+    offered = {line.request_line_index for option in in_time for line in option.lines}
+    for_a_later_date = not in_time and not nothing_offered  # every option there is delivers later than asked
     notes: list[str] = []
     for outcome, arrive_later in zip(outcomes, late, strict=True):
         if outcome.need.index in offered or not outcome.considered:
             continue
-        notes.append(_nothing_for(outcome))
+        notes.append(_nothing_for(outcome, by_the_date=for_a_later_date))
         notes.extend(_earliest_date(outcome.need, arrive_later, now))
-    if not options:
+    if nothing_offered:
         notes.append(NO_OPTION_NOTE)
     return tuple(notes)
 
 
 def _earliest_date(need: Need, arrive_later: Sequence[Candidate], now: datetime) -> tuple[str, ...]:
     """When nothing of a dated line arrives in time: the earliest delivery date among the products that would
-    fit on their own date, and which products make it, so the buyer can decide (task FIX-12b).
-
-    A product counts only when it passes every other check with its own date as the needed-by date: one with
-    no price, or one that confirmed-only would leave out, is not named.
-    """
-    if need.needed_by is None:
+    fit on their own date, and which products make it, so the buyer can decide (task FIX-12b;
+    `tta.offers.later.earliest_later` says which products count)."""
+    found = earliest_later(need, arrive_later, now)
+    if found is None or need.needed_by is None:
         return ()
-    fits = [
-        (day, candidate.product.id)
-        for candidate in arrive_later
-        if (day := candidate.assessment.available_date) is not None
-        and exclusion_for(candidate, replace(need, needed_by=day), now) is None
-    ]
-    if not fits:
-        return ()
-    earliest = min(day for day, _ in fits)
-    ids = [product_id for day, product_id in fits if day == earliest]
+    earliest, candidates = found
+    ids = [candidate.product.id for candidate in candidates]
     return (
         f"{line_label(need.index)}: nothing can arrive by {format_day(need.needed_by)}. The earliest delivery date "
         f"in Valio's data for a product that otherwise fits is {format_day(earliest)}, for "
@@ -248,9 +297,54 @@ def _earliest_date(need: Need, arrive_later: Sequence[Candidate], now: datetime)
     )
 
 
-def _nothing_for(outcome: LineOutcome) -> str:
+def _date_notes(
+    asked: date | None, outcomes: Sequence[LineOutcome], late: Sequence[tuple[Candidate, ...]],
+    options: Sequence[OfferOption], now: datetime,
+) -> tuple[str, ...]:
+    """The first note of a dated request that nothing meets (decision B67): what cannot arrive in time, what
+    can, and when. With options for a later date, that they are for that date and that a person accepts it;
+    with none, the earliest date and the request to send. Nothing when a product arrives in time, when no late
+    product would fit on its own date, or when an option exists for another reason."""
+    if asked is None or any(outcome.fitting for outcome in outcomes):
+        return ()
+    nothing = NOTHING_BY.format(asked=format_day(asked))
+    offered = sorted({
+        day for option in options for line in option.lines
+        if (day := line.availability.available_date) is not None and day > asked
+    })
+    if offered:
+        return (OFFERED_LATER.format(nothing=nothing, when=_when(offered), days=_days_later(offered[-1], asked)),)
+    if options:
+        return ()
+    found = (
+        earliest_later(outcome.need, arrive_later, now) for outcome, arrive_later in zip(outcomes, late, strict=True)
+    )
+    days = sorted({each[0] for each in found if each is not None})
+    if not days:
+        return ()
+    what = "a product that otherwise fits" if len(days) == 1 else "every request line that has such a product"
+    return (
+        ASK_FOR_LATER.format(nothing=nothing, what=what, day=format_day(days[-1]), iso=days[-1].isoformat()),
+    )
+
+
+def _when(days: Sequence[date]) -> str:
+    """`on Monday 16 Nov`, or `between Monday 16 Nov and Tuesday 17 Nov` when the lines arrive on several days."""
+    if len(days) == 1:
+        return f"on {format_day(days[0])}"
+    return f"between {format_day(days[0])} and {format_day(days[-1])}"
+
+
+def _days_later(day: date, asked: date) -> str:
+    return counted((day - asked).days, "day")
+
+
+def _nothing_for(outcome: LineOutcome, *, by_the_date: bool = False) -> str:
+    """`by_the_date`: the offer holds options for a later date, so "no product can be offered" would not be
+    true of the line; what is true is that none can arrive by the date asked."""
     counts = Counter(exclusion.reason for exclusion in outcome.excluded)
     reasons = ", ".join(f"{count} {reason_words(reason)}" for reason, count in counts.most_common())
     checked = counted(outcome.considered, "candidate")
     why = f": {reasons}" if reasons else ""
-    return f"{line_label(outcome.need.index)}: no product can be offered. {checked} checked{why}."
+    nothing = "no product can arrive by the date asked" if by_the_date else "no product can be offered"
+    return f"{line_label(outcome.need.index)}: {nothing}. {checked} checked{why}."

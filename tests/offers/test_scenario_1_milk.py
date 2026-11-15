@@ -148,18 +148,23 @@ def test_the_offer_says_where_its_data_came_from(offer: Offer, now: datetime, ag
     assert len(offer.options) <= 3
 
 
-def test_the_offer_costs_one_price_call_and_one_availability_call(
+def test_the_offer_costs_one_look_at_its_own_products_and_one_at_the_candidates_that_could_complete_it(
     replay: object,
     counting: Callable[..., object],
     deps_for: Callable[..., OfferDeps],
     make_request: Callable[..., object],
     agent_hotel: Identity,
 ) -> None:
+    """One price call and one availability call for the 26 products of the request, as before. Confirmed stock
+    covers 435 of the 1,000 litres, so the products that could complete it are looked up once more (decision B56),
+    as the stand-ins of a product named by id are. A request met in full still costs one call each
+    (tests/offers/test_completed_option.py)."""
     gateway = counting(replay)
 
     OfferService(deps_for(gateway)).build_offer(make_request(1000), agent_hotel)
 
-    assert sorted(endpoint for endpoint, _, _ in gateway.calls) == ["availability", "price"]
+    assert sorted(endpoint for endpoint, _, _ in gateway.calls) == ["availability", "availability", "price", "price"]
+    assert [count for _, count, _ in gateway.calls[:2]] == [26, 26]
     assert all(fresh is False for _, _, fresh in gateway.calls)
 
 

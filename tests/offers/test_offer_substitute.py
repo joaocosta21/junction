@@ -175,7 +175,11 @@ def test_the_ward_may_not_take_a_substitute_without_a_human(
     assert option.lines[0].product_id == "464056"
     # 464056 lacks FREE_FROM_PRESERVATIVES: not a dietary claim, so it is named and not counted as lost.
     assert option.lines[0].substitute.claims_lost == ()
-    assert "FREE_FROM_PRESERVATIVES" in option.lines[0].substitute.gives_up
+    # The line says what the substitutes list says of the same pair, and that names the claim.
+    listed = service.find_substitutes("464013", agent_ward, SubstituteQuery(quantity=Decimal(100), unit=Unit.L))
+    said = next(each.gives_up for each in listed.candidates if each.product_id == "464056")
+    assert option.lines[0].substitute.gives_up == said
+    assert "preservatives" in said.lower()
     assert option.decision.verdict is Verdict.APPROVAL
     assert "P-05" in option.decision.rule_ids
     assert "F-08" not in option.decision.rule_ids

@@ -100,9 +100,9 @@ def test_a_request_line_with_no_product_is_reported_in_the_option_and_in_the_not
     assert found[(1, ConstraintKind.PACK, "BULK")] is CheckResult.NOT_MET
     assert found[(0, ConstraintKind.QUANTITY, "100 L")] is CheckResult.MET
     assert option.fill_ratio == 0
-    assert "covers 1 of the 2 request lines in full" in option.summary
+    assert "covers 1 of the 2 items asked for in full" in option.summary
     assert option.summary.endswith(
-        "Covered: 0 of 30 kg of beef chuck, request line 2; 100 of 100 L of milk, request line 1."
+        "Nothing with confirmed stock for beef chuck."
         " Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured "
         "coffee milk."
     )
@@ -164,7 +164,7 @@ def test_two_lines_covered_in_full_say_so_in_the_summary(
 
     offer = service.build_offer(request, agent_hotel)
 
-    assert "all 2 request lines in full" in of_kind(offer, OptionKind.BEST_CONFIRMED).summary
+    assert "all 2 items asked for in full" in of_kind(offer, OptionKind.BEST_CONFIRMED).summary
 
 
 # --- tax ---------------------------------------------------------------------------------------------------
@@ -271,7 +271,11 @@ def test_a_stand_in_that_drops_a_claim_of_the_original_goes_to_a_human(
     line = option.lines[0]
     assert (line.product_id, line.quantity) == (REGULAR_MILK, 100)
     assert line.substitute.claims_lost == ("FREE_FROM_LACTOSE",)
-    assert "FREE_FROM_LACTOSE" in line.substitute.gives_up
+    # The line says what the substitutes list says of the same pair, and that names the claim.
+    listed = service.find_substitutes(A, agent_hotel, SubstituteQuery(quantity=Decimal(100), unit=Unit.L))
+    said = next(each.gives_up for each in listed.candidates if each.product_id == REGULAR_MILK)
+    assert line.substitute.gives_up == said
+    assert "lactose" in said.lower()
     assert option.decision.verdict is Verdict.APPROVAL
     assert "F-08" in option.decision.rule_ids
 

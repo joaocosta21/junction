@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from tta.availability.wording import format_amount
-from tta.contracts.common import AvailabilityState, CheckResult, OptionKind, Preference
+from tta.availability.wording import format_amount, format_day
+from tta.contracts.common import AvailabilityState, CheckResult, OptionKind, Preference, Unit, Verdict
 from tta.contracts.offer import (
     ConstraintCheck,
     Coverage,
@@ -38,7 +38,7 @@ from tta.offers.preference import (
 from tta.offers.safe_swap import SAFE_SWAP_TITLE, safe_swap_said
 from tta.offers.safety import has_doubt, open_allergens, who_decides
 from tta.offers.variants import regular_words, variant_word
-from tta.offers.wording import counted, eur, line_label, line_words, measured, plain_name
+from tta.offers.wording import UNIT_WORDS, counted, eur, joined, line_words, measured, plain_name
 
 MAX_OPTIONS = 3
 # Under a preference other than price the cheapest confirmed option is a fourth one, so the trade-off is on the
@@ -75,6 +75,12 @@ PARTIAL_SUFFIX = " (partial fill)"
 ESTIMATE_NOTE = " The total is an estimate: a product is sold by weight, and Valio Aimo invoices the weight delivered."
 ABOUT = "about "
 DEPOSIT_NOTE = " Deposits are not included in the total."
+# The confirmed fill of a request by type or by words, completed from confirmed stock of the nearest kind
+# (`tta.offers.completing`, decision B56). Each completing line is a substitute and is judged as one.
+COMPLETED = "confirmed stock, completed with a substitute"
+# A dated request that nothing meets, offered for the earliest date it can be met (`tta.offers.later`, decision
+# B67). Rule F-07 sends every such option to a person: the date asked for is not met.
+ACCEPT_LATER = " A person must accept the later date."
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,8 @@ class Draft:
     kind: OptionKind
     lines: tuple[OfferLine, ...]
     said: str = ""  # a sentence for the summary that only the planning knows: what the stand-in search found
+    # The confirmed fill with what completes it (`tta.offers.completing`): listed after every other option.
+    completed: bool = False
 
 
 @dataclass(frozen=True)
@@ -102,10 +110,21 @@ class _Assembled:
     safe_swap: str = ""  # the substitute was chosen for an excluded allergen, said (`tta.offers.safe_swap`)
     # Per request line where the formula matters, who says so (`Need.formula_said`).
     formula_said: Mapping[int, str] = field(default_factory=dict)
+    needed_by: date | None = None  # the date the request asks for
 
     @property
     def compared(self) -> OptionComparison:
         return self.comparison or compare(self.draft.lines)
+
+    @property
+    def delivered_later(self) -> tuple[date, ...]:
+        """The delivery dates of the lines that arrive after the date asked for, the earliest first; empty when
+        every line arrives in time or no date was asked. Only an option built for a later date holds such a
+        line (`tta.offers.later`): a product that is late for the date asked has dropped out of every other."""
+        if self.needed_by is None:
+            return ()
+        days = {line.availability.available_date for line in self.draft.lines}
+        return tuple(sorted(day for day in days if day is not None and day > self.needed_by))
 
     @property
     def quantity_unconfirmed(self) -> bool:
@@ -149,13 +168,15 @@ def finish_options(
     headline: str = "",
 ) -> tuple[OfferOption, ...]:
     """At most three options in rank order (four with the cheapest confirmed one), each with its totals, checks,
-    comparison and the policy verdict. `headline` is added to the summary of the first option: what the
-    request's product type left out."""
+    comparison and the policy verdict; then the completed option, when the planning drafted one (`Draft.completed`).
+    `headline` is added to the summary of the first option: what the request's product type left out."""
     assembled = _cheaper_only([_assemble(draft, request, needs, deps) for draft in drafts if draft.lines])
-    priced = _traded_off(assembled, request.prefer)
+    priced = _traded_off([each for each in assembled if not each.draft.completed], request.prefer)
     ranked = _safe_swaps(_safe_first(sorted(priced, key=_rank_key)[: _cap(priced)]))
     if ranked and headline:
         ranked = [replace(ranked[0], named=f"{ranked[0].named} {headline}"), *ranked[1:]]
+    # The completed option is one more, after the others: it takes no place of theirs and changes none of them.
+    ranked = [*ranked, *(each for each in assembled if each.draft.completed)]
     # The day's committed spend must reach the policy, or every option reads APPROVAL for a missing fact.
     committed, waiting = spend_parts(deps.day_spend(profile.profile_id))
     context = PolicyContext(
@@ -163,8 +184,13 @@ def finish_options(
         standing_history=standing_history_of(deps, profile.profile_id, request.standing_order_id),  # P-08
     )
     options = (_option(rank, each, request.prefer) for rank, each in enumerate(ranked, start=1))
-    return tuple(
+    judged = (
         option.model_copy(update={"decision": deps.policy.evaluate(option, profile, context)}) for option in options
+    )
+    # A completed option that a rule blocks is not offered: it is last, so leaving it out moves no other option.
+    return tuple(
+        option for option, each in zip(judged, ranked, strict=True)
+        if not (each.draft.completed and option.decision is not None and option.decision.verdict is Verdict.BLOCK)
     )
 
 
@@ -178,6 +204,7 @@ def _assemble(draft: Draft, request: PurchaseRequest, needs: Sequence[Need], dep
         + mixed_formulas(draft.lines, deps.catalog),
         extra=draft.said,
         formula_said={need.index: need.formula_said for need in needs if need.formula_matters},
+        needed_by=request.needed_by,
     )
 
 
@@ -349,7 +376,16 @@ def _kind_order(assembled: _Assembled) -> int:
 def _title(assembled: _Assembled, prefer: Preference, fill_ratio: Decimal) -> str:
     kind = assembled.draft.kind
     title = TITLES[kind]
-    if kind is OptionKind.BEST_CONFIRMED:
+    if assembled.delivered_later:
+        doubts = [
+            _later_words(assembled),
+            *([QUANTITY_NOT_CONFIRMED] if assembled.quantity_unconfirmed else []),
+            *([ALLERGEN_NOT_RULED_OUT] if assembled.allergen_doubt else []),
+        ]
+        title = ALTERNATIVE + ", ".join(doubts)
+    elif assembled.draft.completed:
+        title = ALTERNATIVE + COMPLETED
+    elif kind is OptionKind.BEST_CONFIRMED:
         ranked_by = title_suffix(prefer)
         title = DEMOTED_TITLE + ranked_by.replace(",", "", 1) if assembled.demoted else title + ranked_by
     elif kind is OptionKind.ALTERNATIVE_UNCONFIRMED:
@@ -373,7 +409,8 @@ def _option(rank: int, assembled: _Assembled, prefer: Preference) -> OfferOption
     fill_ratio = lowest_fill_ratio(assembled.coverage)
     return OfferOption(
         option_id=f"opt_{rank}",
-        kind=draft.kind,
+        # An option for a later date than asked is an alternative, whatever it holds: never "best confirmed".
+        kind=OptionKind.ALTERNATIVE_UNCONFIRMED if assembled.delivered_later else draft.kind,
         rank=rank,
         title=_title(assembled, prefer, fill_ratio),
         summary=_summary(assembled),
@@ -392,7 +429,9 @@ def _summary(assembled: _Assembled) -> str:
     lines, totals = assembled.draft.lines, assembled.totals
     money = f"{ABOUT if totals.is_ceiling else ''}{eur(totals.net)} before tax"
     covered = _covered_phrase(assembled.coverage)
-    if assembled.draft.kind in (OptionKind.BEST_CONFIRMED, OptionKind.CHEAPEST_CONFIRMED):
+    if assembled.draft.completed:
+        text = _completed_summary(assembled, money)
+    elif assembled.draft.kind in (OptionKind.BEST_CONFIRMED, OptionKind.CHEAPEST_CONFIRMED):
         verb = "covers" if len(lines) == 1 else "cover"
         text = f"{counted(len(lines), 'confirmed product')} {verb} {covered}, for {money}."
         if assembled.draft.kind is OptionKind.CHEAPEST_CONFIRMED:
@@ -409,7 +448,67 @@ def _summary(assembled: _Assembled) -> str:
         said = assembled.formula_changed_said
         text += FORMULA_NOTE.format(said=said[0].upper() + said[1:])
     notes = (ESTIMATE_NOTE if totals.is_ceiling else "") + (DEPOSIT_NOTE if totals.excludes_deposits else "")
-    return text + assembled.extra + _per_line(assembled.coverage, assembled.asked) + notes + assembled.named
+    if assembled.delivered_later and assembled.needed_by is not None:
+        later = _later_words(assembled)
+        text = (
+            f"Nothing can arrive by {format_day(assembled.needed_by)}. {later[0].upper()}{later[1:]}: {text}"
+            f"{ACCEPT_LATER}"
+        )
+    return text + assembled.extra + _per_line(assembled.coverage, assembled.asked, lines) + notes + assembled.named
+
+
+def _later_words(assembled: _Assembled) -> str:
+    """`delivered Monday 16 Nov, 3 days later than asked`; with lines on several dates, the last of them:
+    `delivered by Tuesday 17 Nov, 4 days later than asked`."""
+    days = assembled.delivered_later
+    if not days or assembled.needed_by is None:
+        return ""
+    by = "" if len(days) == 1 else "by "
+    return (
+        f"delivered {by}{format_day(days[-1])}, {counted((days[-1] - assembled.needed_by).days, 'day')} later "
+        "than asked"
+    )
+
+
+def _completed_summary(assembled: _Assembled, money: str) -> str:
+    """`All 1,000 L from confirmed stock, if 565 L may be X (id) at €2.65 per L: €2,580.64 before tax.` Then, for
+    each completing product, whether it replaces like for like and what differs, in the substitute check's own
+    sentence, and the product it was measured against."""
+    stand_ins = [line for line in assembled.draft.lines if line.substitute is not None]
+    units = {entry.request_line_index: entry.unit for entry in assembled.coverage}
+    may_be = joined([
+        f"{measured(line.covers, units[line.request_line_index])} may be {_names([line])} at "
+        f"{_price_per_measure(line, units[line.request_line_index])}"
+        for line in stand_ins
+    ])
+    text = f"{_from_confirmed_stock(assembled.coverage)}, if {may_be}: {money}."
+    several = len(stand_ins) > 1
+    for line in stand_ins:
+        info = line.substitute
+        if info is None:
+            continue
+        judged = info.replaceable.sentence if info.replaceable is not None else ""
+        subject = f"{_names([line])}: " if several else ""
+        said = " ".join(part for part in (judged, f"It was compared with {_original_name(info)}.") if part)
+        text += f" {subject}{said}"
+    return text
+
+
+def _from_confirmed_stock(coverage: Sequence[Coverage]) -> str:
+    """`All 1,000 L from confirmed stock`, or what of it when the completed option still falls short."""
+    if len(coverage) == 1 and coverage[0].missing <= 0:
+        return f"All {measured(coverage[0].requested, coverage[0].unit)} from confirmed stock"
+    phrase = _covered_phrase(coverage)
+    return f"{phrase[0].upper()}{phrase[1:]} from confirmed stock"
+
+
+def _price_per_measure(line: OfferLine, unit: Unit) -> str:
+    """`€2.65 per L`: the price of one litre or kilogram where the pack size is known in the request's unit,
+    else the price of one sales unit."""
+    pack = line.pack_size
+    if unit is not Unit.UNIT and pack.is_known and pack.unit is unit and pack.value:
+        return f"{eur(line.unit_net_price / pack.value)} per {UNIT_WORDS[unit]}"
+    return f"{eur(line.unit_net_price)} per sales unit"
 
 
 def _alternative_summary(assembled: _Assembled, covered: str, money: str) -> str:
@@ -452,25 +551,55 @@ def _covered_phrase(coverage: Sequence[Coverage]) -> str:
         return f"{measured(only.covered, only.unit)} of {asked} ({measured(only.missing, only.unit)} missing)"
     full = sum(entry.missing <= 0 for entry in coverage)
     if full == len(coverage):
-        return f"all {len(coverage)} request lines in full"
-    return f"{full or 'none'} of the {len(coverage)} request lines in full"
+        return f"all {len(coverage)} items asked for in full"
+    return f"{full or 'none'} of the {len(coverage)} items asked for in full"
 
 
-def _per_line(coverage: Sequence[Coverage], asked: Sequence[RequestLine]) -> str:
-    """What each request line gets, the least covered first, when an option of several lines falls short on
-    one. Rule P-03 compares the lowest line's ratio and names the lines the same way (`tta.policy.coverage`)."""
+def _per_line(coverage: Sequence[Coverage], asked: Sequence[RequestLine], lines: Sequence[OfferLine]) -> str:
+    """` Nothing with confirmed stock for sugar, eggs and butter. Covered in part: 60 of 100 L of milk.` Only the
+    request lines an option of several lines falls short on, each by its own words: one that is covered in
+    full is not listed, and one that is covered in part keeps its amounts, the least covered first. Rule P-03
+    still says what every line gets, with the line numbers (`tta.policy.coverage`)."""
     if len(coverage) <= 1 or all(entry.missing <= 0 for entry in coverage):
         return ""
-    least_first = sorted(coverage, key=lambda entry: (entry.fill_ratio, entry.request_line_index))
-    return f" Covered: {'; '.join(_line_covered(entry, asked[entry.request_line_index]) for entry in least_first)}."
+    names = _line_names(asked)
+    nothing = [names[entry.request_line_index] for entry in coverage if entry.covered <= 0]
+    in_part = sorted(
+        (entry for entry in coverage if entry.covered > 0 and entry.missing > 0),
+        key=lambda entry: (entry.fill_ratio, entry.request_line_index),
+    )
+    confirmed_only = all(line.availability.state is AvailabilityState.CONFIRMED for line in lines)
+    said = ""
+    if nothing:
+        what = "Nothing with confirmed stock for" if confirmed_only else "Nothing is offered for"
+        said += f" {what} {joined(nothing)}."
+    if in_part:
+        amounts = "; ".join(_line_covered(entry, names[entry.request_line_index]) for entry in in_part)
+        said += f" Covered in part: {amounts}."
+    return said
 
 
-def _line_covered(entry: Coverage, asked: RequestLine) -> str:
-    """`0 of 10 kg of butter, request line 2`."""
-    words = line_words(asked)
-    named = f" of {words}" if words else ""
-    label = line_label(entry.request_line_index).lower()
-    return f"{format_amount(entry.covered)} of {measured(entry.requested, entry.unit)}{named}, {label}"
+def _line_covered(entry: Coverage, name: str) -> str:
+    """`6 of 10 kg of butter`."""
+    return f"{format_amount(entry.covered)} of {measured(entry.requested, entry.unit)} of {name}"
+
+
+def _line_names(asked: Sequence[RequestLine]) -> tuple[str, ...]:
+    """Each request line by its own words: its product type or the words of its name; a line that names only
+    product ids is `the products named on line 5`, never the list of ids. Two lines with the same words also
+    say their line."""
+    words = [line_words(line) if line.product_type or line.name_terms else "" for line in asked]
+    names = []
+    for index, (line, own) in enumerate(zip(asked, words, strict=True)):
+        number = index + 1
+        if not own:
+            named = "the product" if len(set(line.product_ids)) == 1 else "the products"
+            names.append(f"{named} named on line {number}")
+        elif words.count(own) > 1:
+            names.append(f"{own} (line {number})")
+        else:
+            names.append(own)
+    return tuple(names)
 
 
 def _names(lines: Iterable[OfferLine]) -> str:

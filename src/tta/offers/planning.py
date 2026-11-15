@@ -4,7 +4,8 @@ BEST_CONFIRMED uses confirmed stock only, ranked by the buyer's preference and t
 CHEAPEST_CONFIRMED is the price fill of the same stock, when a preference other than price chose another one.
 ALTERNATIVE_UNCONFIRMED is the fitting product whose quantity Valio does not confirm with the lowest total for
 the quantity asked. SUBSTITUTE keeps the confirmed stock of a product named by id and fills what is missing
-with the best substitute.
+with the best substitute. A line asked for by type or by words whose confirmed stock falls short gets one more
+draft: the same confirmed stock, completed from confirmed stock of the nearest kind (`tta.offers.completing`).
 
 Safe first (review P4, item M1): with an allergen excluded, the three kinds above take only products whose data
 rules it out. Confirmed stock whose data leaves a doubt goes into a second ALTERNATIVE_UNCONFIRMED draft, the
@@ -28,17 +29,19 @@ from tta.contracts.offer import OfferLine
 from tta.contracts.request import RequestLine
 from tta.offers.candidates import Candidate, units_needed
 from tta.offers.combining import Fill, Supply, fill, with_picks
+from tta.offers.completing import completing_lines
 from tta.offers.deps import OfferDeps
 from tta.offers.lines import line_for
 from tta.offers.options import Draft
 from tta.offers.outcome import LineOutcome
 from tta.offers.preference import tiers
 from tta.offers.safety import open_allergens, ruled_out, who_decides
-from tta.offers.stand_ins import StandIns, substitute_lines
+from tta.offers.stand_ins import StandIns, no_stand_ins, substitute_lines
 from tta.offers.variants import variant_word
 from tta.offers.wording import counted, eur, line_label, listed
 
 ZERO = Decimal(0)
+WHOLE = Decimal(1)
 CONFIRMED_ONLY = "confirmed data only was asked for"
 # What the note says of the products that dropped out for a reason that exists only under confirmed-only.
 LEFT_OUT_UNDER_CONFIRMED_ONLY = {
@@ -66,15 +69,19 @@ class _Pools:
 
 
 def plan_options(
-    outcomes: Sequence[LineOutcome], now: datetime, deps: OfferDeps, prefer: Preference = Preference.PRICE
+    outcomes: Sequence[LineOutcome], now: datetime, deps: OfferDeps, prefer: Preference = Preference.PRICE, *,
+    minimum_fill: Decimal = WHOLE, stand_in: bool = True,
 ) -> Plan:
+    """`minimum_fill`: the share of a quantity the buyer accepts, for the draft that completes a partial fill.
+    `stand_in=False` leaves out everything that asks for substitutes: the stand-ins of products named by id and
+    the completed draft (`tta.offers.later` plans a later date from the request's own products only)."""
     pools = [_pools(outcome) for outcome in outcomes]
     fills = _confirmed_fills(outcomes, pools, prefer)
     confirmed = _all_confirmed_lines(outcomes, pools, fills, now)
     by_price = fills if prefer is Preference.PRICE else _confirmed_fills(outcomes, pools, Preference.PRICE)
     cheapest = confirmed if prefer is Preference.PRICE else _all_confirmed_lines(outcomes, pools, by_price, now)
     alternatives, dear_notes = _unconfirmed_lines(outcomes, pools, cheapest, now)
-    stand_ins = substitute_lines(outcomes, fills, deps)
+    stand_ins = substitute_lines(outcomes, fills, deps) if stand_in else no_stand_ins(len(outcomes))
     substitutes, substitute_notes = stand_ins.lines, stand_ins.notes
     drafts = [Draft(OptionKind.BEST_CONFIRMED, _flatten(confirmed), said=_said(outcomes, stand_ins.said))]
     if [each.picks for each in by_price] != [each.picks for each in fills]:
@@ -86,10 +93,36 @@ def plan_options(
     if any(substitutes):
         drafts.append(Draft(_stand_in_kind(substitutes), _extended(confirmed, substitutes)))
     drafts.extend(_labelled_stand_ins(confirmed, stand_ins))
+    if stand_in:
+        drafts.extend(_completed(outcomes, fills, confirmed, stand_ins, minimum_fill, deps))
     kept, filter_notes = _confirmed_only(outcomes, [draft for draft in drafts if draft.lines])
     notes = [note for pool in pools for note in pool.notes]
     safety_notes = _no_safe_notes(outcomes, pools, substitutes)
     return Plan(drafts=tuple(kept), notes=(*notes, *safety_notes, *dear_notes, *substitute_notes, *filter_notes))
+
+
+def _completed(
+    outcomes: Sequence[LineOutcome], fills: Sequence[Fill], confirmed: Sequence[tuple[OfferLine, ...]],
+    stand_ins: StandIns, minimum_fill: Decimal, deps: OfferDeps,
+) -> tuple[Draft, ...]:
+    """The draft that holds the confirmed fill of every line and, where that falls short on a line asked for by
+    type or by words, the confirmed product of the nearest kind that completes it (`tta.offers.completing`)."""
+    lines = completing_lines(outcomes, fills, _taken(fills, stand_ins), minimum_fill, deps)
+    if not any(lines):
+        return ()
+    return (Draft(OptionKind.SUBSTITUTE, _extended(confirmed, lines), completed=True),)
+
+
+def _taken(fills: Sequence[Fill], stand_ins: StandIns) -> Mapping[str, Decimal]:
+    """Confirmed stock already spoken for, in sales units per product: every confirmed fill, and every stand-in
+    of a product named by id."""
+    used: Mapping[str, Decimal] = {}
+    for picked in fills:
+        used = with_picks(used, picked)
+    for line in (*stand_ins.lines, *stand_ins.alternatives):
+        if line is not None and line.availability.state is AvailabilityState.CONFIRMED:
+            used = {**used, line.product_id: used.get(line.product_id, ZERO) + line.quantity}
+    return used
 
 
 def _labelled_stand_ins(confirmed: Sequence[tuple[OfferLine, ...]], stand_ins: StandIns) -> tuple[Draft, ...]:

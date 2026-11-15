@@ -2,7 +2,9 @@
 
 Valio Aimo, 14 Nov 2026, asked whether a buyer who asks for milk accepts milk for coffee: "no be explicit".
 Before, Arla Cafè milk (463380) supplied 565 of the 1,000 litres of the main request. Now a request for milk
-gets no milk for coffee and no flavoured milk, and a note on the offer says that and how to ask for it.
+gets no milk for coffee and no flavoured milk, and a note on the offer says that and how to ask for it. Since
+decision B56 (15 Nov) one more option, the last, completes the confirmed milk with it as a named substitute that a
+person confirms (tests/offers/test_completed_option.py): it never fills a request for milk as milk.
 Replay over tonight's capture at the recording's own clock (Saturday 14 Nov 2026, 02:52 Helsinki time).
 """
 
@@ -30,11 +32,14 @@ def milk(service: OfferService, make_request: Callable[..., object], agent_hotel
     return service.build_offer(make_request(1000), agent_hotel)
 
 
-def test_a_request_for_milk_is_offered_no_coffee_milk(milk: Offer) -> None:
-    offered = {line.product_id for option in milk.options for line in option.lines}
+def test_a_request_for_milk_is_offered_coffee_milk_only_as_a_named_substitute(milk: Offer) -> None:
+    as_milk = {line.product_id for option in milk.options for line in option.lines if line.substitute is None}
+    stand_ins = {line.product_id for option in milk.options for line in option.lines if line.substitute is not None}
     excluded = {exclusion.product_id for exclusion in milk.excluded}
 
-    assert not offered & COFFEE_MILKS
+    assert not as_milk & COFFEE_MILKS
+    assert stand_ins == {"463380"}  # only in the last option, named as a substitute (decision B56)
+    assert not any(line.substitute for option in milk.options[:2] for line in option.lines)
     assert not excluded & COFFEE_MILKS  # they are not candidates at all: another product type
     assert milk.candidates_considered == 26  # 30 lactose-free milks before, 4 of them for coffee
 
