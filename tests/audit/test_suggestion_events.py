@@ -34,7 +34,7 @@ OWN = {**CREAM, "suggestion_id": "sug_from_supplier_462775_hotel-kitchen", "kind
 YOGHURT = {"suggestion_id": "sug_forgotten_item_464517_school-kitchen", "kind": "FORGOTTEN_ITEM",
            "product_id": "464517", "name": "AIMO NATURAL YOGURT 5KG 2% LACTOSE FREE",
            "reason": "ALLERGEN_NOT_RULED_OUT",
-           "sentence": "The product makes no statement about tree nuts (AN): a dietitian must decide.",
+           "sentence": "The product makes no statement about tree nuts (AN): a person must decide.",
            "summary": "its data does not rule out tree nuts (AN)"}
 WHIPPING = {"suggestion_id": "sug_forgotten_item_469346_bakery-cafe", "kind": "FORGOTTEN_ITEM", "serves": "BUYER",
             "product_id": "469346", "quantity": "40", "unit": "L", "replaces_product_id": None,

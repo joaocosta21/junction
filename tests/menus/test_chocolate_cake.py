@@ -36,12 +36,16 @@ FLOUR, COCOA, MILK, BAKING_POWDER = "460856", "475703", "463047", "466228"
 # The sugar and the whole egg of the alternative, by servings. Since lane FC2 the offer takes the lowest total for a
 # small need: the 500 g sugar and the 1 kg egg for 2 and 20 servings (0.04 and 0.4 kg of each), and the 10 x 1 kg
 # sugar and the 5 kg egg for 200 (4 kg of each). Before, it took the 25 kg sugar sack (460460) for 40 g.
-SUGAR_AND_EGGS = {2: ("461329", "468269"), 20: ("461329", "468269"), 200: ("460334", "475201")}
+# Since lane FIX-O1 (commit 904d6d2) the sugar type holds the plain product only, so the raw sugar (Dansukker
+# Rawsugar Granulated 500g, 461329, €1.98) is no longer the recipe's granulated sugar: the 1 kg organic granulated
+# sugar (468569, €2.92) is, for 2 and 20 servings. Re-pinned by lane FP-M on 15 Nov 2026 at both clocks.
+SUGAR_AND_EGGS = {2: ("468569", "468269"), 20: ("468569", "468269"), 200: ("460334", "475201")}
 # Net totals before tax: (the best confirmed option, the alternative whose quantity is not confirmed). Measured at
-# both clocks on 15 Nov 2026; the alternative was 61.02 / 99.73 (default) and 104.65 / 129.12 (demo) before FC2.
+# both clocks on 15 Nov 2026; the alternative was 61.02 / 99.73 (default) and 104.65 / 129.12 (demo) before FC2,
+# and 22.50 for 2 and 20 servings before FIX-O1 (the sugar above: 2.92 - 1.98 = 0.94 more).
 TOTALS = {
-    ("default", 2): ("15.19", "22.50"), ("default", 20): ("15.19", "22.50"), ("default", 200): ("39.66", "84.32"),
-    ("demo", 2): ("15.19", "22.50"), ("demo", 20): ("15.19", "22.50"), ("demo", 200): ("39.66", "84.32"),
+    ("default", 2): ("15.19", "23.44"), ("default", 20): ("15.19", "23.44"), ("default", 200): ("39.66", "84.32"),
+    ("demo", 2): ("15.19", "23.44"), ("demo", 20): ("15.19", "23.44"), ("demo", 200): ("39.66", "84.32"),
 }
 # The unsalted butter of the alternative: the 500 g block at both clocks. Before FC2 the demo clock took the 4x5 kg
 # laminating butter (464761), whose cut-off has not passed on Thursday: the lowest total now wins there too.
@@ -238,8 +242,8 @@ def test_for_two_servings_each_sentence_says_the_pack_and_what_is_left_over(
     sugar = _sentence(plan, "sugar")
     assert "It is not in option 1 (Best confirmed option (partial fill)): it has no confirmed stock." in sugar
     assert sugar.endswith(
-        "Option 2 offers 1 × Dansukker Rawsugar Granulated 500g (461329) for €1.98 before tax, quantity not "
-        "confirmed. 0.04 kg is needed and the pack holds 0.5 kg, so 0.46 kg is left over."
+        "Option 2 offers 1 × Dansukker Organic Granulated Sugar 1kg (468569) for €2.92 before tax, quantity not "
+        "confirmed. 0.04 kg is needed and the pack holds 1 kg, so 0.96 kg is left over."
     )
     assert _sentence(plan, "milk").endswith("0.03 L is needed and the pack holds 1 L, so 0.97 L is left over.")
 

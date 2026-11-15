@@ -65,7 +65,7 @@ def test_the_cheaper_doubtful_product_is_a_labelled_alternative_for_the_dietitia
     assert "P-04" in alternative.decision.rule_ids
     assert alternative.summary == (
         "Fazer Aito Professional Barista Oat drink, gluten-free 1L UHT (475224) for the 10 L asked for, €17.40 before "
-        "tax. The product data does not rule out cereals containing gluten (AW), so a dietitian must decide."
+        "tax. The product data does not rule out cereals containing gluten (AW), so a person must decide."
     )
 
 
@@ -103,7 +103,7 @@ def test_when_no_safe_product_exists_the_offer_says_so_and_only_labelled_alterna
     assert all("P-04" in option.decision.rule_ids for option in offer.options)
     assert (
         "Request line 1: no product whose data rules out cereals containing gluten (AW) can be offered, so no "
-        "option is suggested as safe: a dietitian must decide on each alternative."
+        "option is suggested as safe: a person must decide on each alternative."
     ) in offer.notes
 
 

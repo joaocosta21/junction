@@ -41,7 +41,7 @@ def test_the_almond_drink_declared_free_from_tree_nuts_goes_to_a_dietitian(
     assert finding.matched_code == "SA"
     assert finding.sentence == (
         'The ingredient list names "ALMOND" and says "MAY CONTAIN REMAINS FROM NUTS (NOT PEANUTS)", while the '
-        "product states it is free from tree nuts (AN): a dietitian must decide."
+        "product states it is free from tree nuts (AN): a person must decide."
     )
 
 
@@ -76,7 +76,7 @@ def test_no_statement_and_a_named_allergen_goes_to_a_dietitian_even_under_declar
     assert check.outcome is TO_HUMAN
     assert check.findings[0].sentence == (
         'The ingredient list names "WHEAT", while the product makes no statement about cereals containing '
-        "gluten (AW): a dietitian must decide."
+        "gluten (AW): a person must decide."
     )
 
 
@@ -88,7 +88,7 @@ def test_undeclared_and_a_may_contain_phrase_goes_to_a_dietitian(statements: Sta
     assert check.outcome is TO_HUMAN
     assert check.findings[0].sentence == (
         'The ingredient list says "May contain traces of milk", while the product marks milk (AM) as '
-        "UNDECLARED: a dietitian must decide."
+        "UNDECLARED: a person must decide."
     )
 
 

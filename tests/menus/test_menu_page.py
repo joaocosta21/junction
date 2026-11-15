@@ -209,10 +209,10 @@ def test_the_bakerys_sentence_becomes_a_plan_with_packs_stock_what_is_left_over_
         "Offered: 1 × Myllyn Paras Emännän Semi Coarse Wheat Flour 2kg (460856) for €2.57 before tax, 976 sales "
         "units confirmed in stock. 0.4 kg is needed and the pack holds 2 kg, so 1.6 kg is left over."
     ) in text
-    assert "Option 2 offers 1 × Dansukker Rawsugar Granulated 500g (461329) for €1.98 before tax" in text
+    assert "Option 2 offers 1 × Dansukker Organic Granulated Sugar 1kg (468569) for €2.92 before tax" in text
     assert "<h3>Cannot be sourced</h3>" not in text
     assert "Option 1, Best confirmed option (partial fill): €15.19 before tax, €17.24 with tax." in text
-    assert "Option 2, Alternative: quantity not confirmed: €22.50 before tax, €25.54 with tax." in text
+    assert "Option 2, Alternative: quantity not confirmed: €23.44 before tax, €26.60 with tax." in text
     assert "7 of the 9 products of this offer have their price and stock from the later recording" in text
     assert text.count("have their price and stock from the later recording") == 1  # said once on the page
     assert "Valio Aimo said on 14 Nov 2026 that its test data is static" in text
@@ -278,4 +278,4 @@ def test_at_the_demo_clock_the_page_counts_the_day_from_thursday(
         assert "Read as: chocolate cake, 20 servings, by Friday 13 Nov." in friday
         assert "Monday 16 Nov" in friday
         assert "Read as: chocolate cake, 20 servings, by Monday 16 Nov." in text
-        assert "Option 2, Alternative: quantity not confirmed: €22.50 before tax, €25.54 with tax." in text
+        assert "Option 2, Alternative: quantity not confirmed: €23.44 before tax, €26.60 with tax." in text

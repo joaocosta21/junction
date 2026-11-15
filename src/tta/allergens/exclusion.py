@@ -5,7 +5,7 @@ A nutritional claim is never an input here: `FREE_FROM_LACTOSE` is not a stateme
 
 The product's own ingredient list counts as a statement: when it names an excluded allergen that the
 declaration states FREE_FROM, marks UNDECLARED or does not state, the finding is MAY_CONTAIN and goes to a
-dietitian, with a sentence quoting both. A declared CONTAINS stays a rejection.
+person, with a sentence quoting both. A declared CONTAINS stays a rejection.
 """
 
 from __future__ import annotations
@@ -59,7 +59,9 @@ _DIRECT_FACT = {
     AllergenRelation.UNDECLARED: "The product marks {allergen} as UNDECLARED, which is not a free-from statement",
 }
 
-_TO_HUMAN_ENDING = ": a dietitian must decide."
+# No role is named: who decides is the buyer's (a dietitian at the ward and the school; at the hotel and the
+# bakery the one person who orders), and this rule does not know the buyer (lane FP-M).
+_TO_HUMAN_ENDING = ": a person must decide."
 _UNVERIFIED_ENDING = ": it passes as unverified."
 
 # The declarations an ingredient list can contradict; CONTAINS and MAY_CONTAIN already say as much.

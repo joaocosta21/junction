@@ -20,7 +20,7 @@ from tta.policy import RulePolicyEngine
 
 ORIGINAL = "473609"  # an oat drink the ward cannot order: it states nothing about milk
 NOT_STATED = "475224"  # states nothing about milk or gluten; the hotel's chosen substitute in scenario 3
-DIETITIAN = "a dietitian must decide"
+DIETITIAN = "a person must decide"
 
 
 @pytest.fixture(scope="module")

@@ -68,7 +68,7 @@ def test_the_schools_forgotten_yoghurt_states_nothing_about_nuts_or_sesame_and_i
     yoghurt = next(each for each in found.dropped if each.product_id == "464517")
     assert (yoghurt.kind, yoghurt.reason) == (SuggestionKind.FORGOTTEN_ITEM, DropReason.ALLERGEN_NOT_RULED_OUT)
     for allergen in ("tree nuts (AN)", "peanuts (AP)", "sesame seeds (AS)"):
-        assert f"The product makes no statement about {allergen}: a dietitian must decide." in yoghurt.sentence
+        assert f"The product makes no statement about {allergen}: a person must decide." in yoghurt.sentence
     assert yoghurt.sentence.endswith("A product whose data does not rule out an excluded allergen is not suggested.")
 
 

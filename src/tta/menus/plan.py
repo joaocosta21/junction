@@ -12,7 +12,7 @@ from tta.contracts.menu import DishPlan, IngredientPlan, IngredientStatus, LineP
 from tta.contracts.offer import Exclusion, Offer, OfferOption
 from tta.menus.allergens import StandInAllergens
 from tta.menus.cover import cover_of, cover_words, decision_words, gap_of, line_names, share_words, why_words
-from tta.menus.earliest import earliest_date, offered_later
+from tta.menus.earliest import arrives_after, earliest_date, offered_later
 from tta.menus.needs import ZERO, Need, Use, as_recipe, group
 from tta.menus.offered import offered_words, total_words
 from tta.menus.recipes import Alternative
@@ -101,6 +101,20 @@ def best_fill_of(offer: Offer | None, index: int) -> Decimal:
     return ZERO if best is None else _fill_in(best, index)
 
 
+def in_time_fill_of(offer: Offer | None, index: int, needed_by: date | None) -> Decimal:
+    """The largest share of request line `index` that an option of the offer covers with products that arrive by
+    the day asked; 0 when no option does. An option that holds the line for a later day (decision B67,
+    `tta.offers.later`) covers none of it in time, so the recipe's alternatives are tried before a person is
+    asked to accept a later date. With no day asked this is `best_fill_of`."""
+    if offer is None:
+        return ZERO
+    in_time = [
+        option for option in offer.options
+        if arrives_after([line for line in option.lines if line.request_line_index == index], needed_by) is None
+    ]
+    return max((_fill_in(option, index) for option in in_time), default=ZERO)
+
+
 def excluded_of(offer: Offer | None, index: int) -> tuple[Exclusion, ...]:
     return () if offer is None else tuple(item for item in offer.excluded if item.request_line_index == index)
 
@@ -131,7 +145,7 @@ class _Reader:
         if index is None:
             return ""
         first = self.outcome.first
-        fill = best_fill_of(first, index)
+        fill = in_time_fill_of(first, index, self.request.needed_by)
         return found_words(
             use.ingredient, excluded_of(first, index), fill, self.request.needed_by, self.earliest(use),
         )
@@ -167,7 +181,7 @@ class _Reader:
                 found.append(NOT_TRIED.format(choice=choice_words(alternative), limit=MAX_PROBE_LINES))
                 continue
             probe = self.outcome.probe
-            fill = best_fill_of(probe, index)
+            fill = in_time_fill_of(probe, index, self.request.needed_by)
             earliest = earliest_date(probe, index, self.request.needed_by)
             found.append(
                 found_words(alternative, excluded_of(probe, index), fill, self.request.needed_by, earliest)

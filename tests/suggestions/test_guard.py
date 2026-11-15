@@ -74,7 +74,7 @@ def test_a_product_that_passes_leaves_complete(world_now: Any) -> None:
         (HOTEL, MILK, "463797", {"required_claims": ["FREE_FROM_GLUTEN"]}, DropReason.DIETARY_CLAIM_MISSING,
          "The request line requires FREE_FROM_GLUTEN, which this product does not carry."),
         (SCHOOL, MILK, "464517", {"unit": "KG", "quantity": "20"}, DropReason.ALLERGEN_NOT_RULED_OUT,
-         "The product makes no statement about tree nuts (AN): a dietitian must decide."),
+         "The product makes no statement about tree nuts (AN): a person must decide."),
         (WARD, MILK, "463797", {}, "ALLERGEN_DECLARED", "milk"),
     ],
 )

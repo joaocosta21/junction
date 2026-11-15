@@ -258,7 +258,7 @@ def test_the_allergen_claim_is_the_buyers_own_rule_and_no_statement_is_never_saf
         "sentence": "The product data does not confirm that it is free from an excluded allergen (AM, AW).",
     }
     assert (silent["orderable"], silent["reason"]) == (False, "ALLERGEN_NOT_STATED")
-    assert "The product makes no statement about milk (AM): a dietitian must decide." in silent["sentence"]
+    assert "The product makes no statement about milk (AM): a person must decide." in silent["sentence"]
     assert (_claim(no_statement, "allergens")["status"], no_statement["orderable"]) == ("UNKNOWN", False)
     assert _claim(free_from, "allergens") == {
         "claim": "allergens", "status": "CONFIRMED",

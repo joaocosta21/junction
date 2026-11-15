@@ -58,6 +58,14 @@ named_products:
       - "468660"   # 15x Meira Baking powder 50g
       - "476689"   # Salliselta Baking powder 630g
       - "476737"   # Sallinen Baking Powder 5 kg
+  # A flour for a kitchen that excludes gluten (lane FP-M, 15 Nov 2026): the "Gluten-free All-purpose flour mix"
+  # products of category 21310, by their English name in the catalog. Naming them here states nothing about their
+  # allergens: each passes or fails the buyer's allergen rule by its own data, in the offer.
+  gluten_free_flour_mix:
+    product_ids:
+      - "472562"   # Fazer Gluten-free All-purpose flour mix 500 g
+      - "473319"   # Virtasalmen Viljatuote Gluten-free All-purpose flour mix 3kg
+      - "473484"   # Virtasalmen Viljatuote Gluten-free All-purpose flour mix 25kg
 
 dishes:
   beef_stew:
@@ -175,7 +183,9 @@ dishes:
         per_serving: 0.04
         unit: KG
         role: "gives the batter body"
-        alternatives: []
+        alternatives:
+          - product_type: gluten_free_flour_mix
+            reason: "A gluten-free all-purpose flour mix gives the batter the same body; the pancake is a little more crumbly."
       - product_type: sugar
         per_serving: 0.01
         unit: KG

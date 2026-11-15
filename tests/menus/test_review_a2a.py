@@ -158,7 +158,11 @@ def test_m3_an_unsourced_ingredient_stays_in_the_final_offer_and_the_rules_send_
     offer = parts.service.get_offer(agent_hotel, plan.offer_id)
     assert [line.product_type for line in offer.request.lines] == ["pasta", "minced_meat", "milk", "eggs"]
     top = offer.options[0]
-    assert top.totals.net == Decimal("60.44") and top.fill_ratio == 0  # 8 x 463047 milk and 1 x 466032 eggs
+    # 8 x 463047 milk. It was 60.44 with 1 x 466032, a scrambled egg mix: since lane FIX-O1 (commit 904d6d2) the
+    # eggs type holds the plain product only, and no egg has confirmed stock: eggs are in the second option, with a
+    # quantity that is not confirmed (2 x 467880). Re-pinned by lane FP-M on 15 Nov 2026, the recording's clock.
+    assert top.totals.net == Decimal("16.08") and top.fill_ratio == 0
+    assert [line.product_id for line in offer.options[1].lines] == ["469477", "467880"]
     assert top.decision.verdict is Verdict.APPROVAL
     assert {"F-07", "P-03"} <= set(top.decision.rule_ids)  # the date is not met for every line; fill below minimum
     meat = _ingredient(plan, "macaroni_casserole", "minced_meat")
@@ -184,7 +188,9 @@ def test_m3_with_ordering_alone_switched_on_the_incomplete_menu_still_waits_for_
     assert book.kitchen.profile.auto_order_enabled is True
     assert order.status is OrderStatus.PENDING_APPROVAL and order.placed_by is None
     assert {"F-07", "P-03"} <= set(order.decision.rule_ids)
-    assert "0 of 4 kg of pasta" in reasons  # the person reads which ingredient the order leaves out
+    # The person reads which ingredients the order leaves out (the rules' sentences were reworded on 15 Nov 2026:
+    # they name what is missing, where they said "0 of 4 kg of pasta").
+    assert "Nothing is offered for pasta, minced meat and eggs" in reasons
 
 
 # --- M-4 ----------------------------------------------------------------------------------------------------
