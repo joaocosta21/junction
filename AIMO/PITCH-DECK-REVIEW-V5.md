@@ -54,3 +54,49 @@
 - **Pages 12 to 14:** what ran on Context.dev, Aiven and Modal is from `docs/`, not re-run.
 - **The final commit:** the tree was still moving; `docs/READING-TABLE.md` is one of the files that will change (row 1).
 - **PowerPoint or Google Slides:** seen only through LibreOffice, without Inter.
+
+## Pages 12 to 14 (the technology partners): what to change, Sun 15 Nov
+
+From three checks, each by an agent acting as that partner's judge, against the deck v5 saved at 03:00. "Must" is a fact that is wrong or stale today; "better" raises the score. Replacements are about as long as the originals.
+
+### Page 12, Context.dev
+
+| Box | Now | Put instead | |
+|---|---|---|---|
+| Title | "Context.dev: the maker's page, beside the allergen question" | "Context.dev: the product's web page, beside an allergen doubt" | Must |
+| Subtitle | "…the approver sees the manufacturer's own page." | "When Valio Aimo's data does not rule out an excluded allergen, the person who decides sees the product's web page." | Must |
+| Figure | "9 of 13" | "30 of 92" | Must |
+| Under the figure | "manufacturer pages accepted as evidence; 4 rejected… (13 recorded answers, from 25 requests sent)" | "products asked show a web page as evidence; 39 pages rejected, each with its reason; 23 had no page (92 recorded answers)" | Must |
+| 01 | "…finds the manufacturer's page and returns seven fields…" | "One endpoint, Answers (POST /v1/web/answers): one request per product looks for its web page and fills our own schema of seven fields: page found, address, title, product name, contains, may contain, free from" | Must (the phrase) |
+| 02 | "We send only the product name (English and Finnish) and the brand: nothing about the customer" | "Called in the approval step of an order, only for a product with an allergen doubt. We send its English and Finnish names and its brand: nothing about the buyer" | Better |
+| 05 | "A page can add a doubt, never remove one: no verdict changes, the person decides" | "A page can add a doubt, never remove one: the person decides. Each answer is stored once per product, so no request is paid for twice" | Better |
+| Strip | "Real example: … Sample figures, not the whole catalog." | "Example: Alpro's barista almond drink, alpro.com: “contains almond; may contain nuts” (translated). The demo link replays 92 recorded answers: a sample." | Better |
+
+### Page 13, Aiven
+
+| Box | Now | Put instead | |
+|---|---|---|---|
+| Strip | "Ran on 14 Nov: the public link on Aiven, “connected, no fall-back”. 20 tests pin…" | "On the public link, /healthz names the store and the trail's head. Assumptions: the shop page keeps each browser's orders in memory; the gateway's login owns the audit table. Next step: a gateway login that does not." | Must (the link never says the quoted words) |
+| 01 | "Aiven for PostgreSQL refuses to change or delete an audit event: triggers fire for every login, even the gateway's own" | "Triggers in Aiven for PostgreSQL refuse UPDATE and DELETE of an audit event, for the gateway's own login too: tried on the live trail on 15 Nov, refused with our error TA001" | Better |
+| 04 | "…run on Aiven on 14 Nov with a test login. Next step: Valio Aimo's own login" | "A role with one grant and no login: on the live trail on 15 Nov it read that view and was refused the audit table, the buyer's view and the orders. Next step: Valio Aimo's own login" | Better |
+| Figure and caption | "2 views" · "of one audit log: the buyer's and Valio Aimo's…" | "68 of 68" · "tests passed against the live Aiven service on 15 Nov, each in a schema of its own: the triggers, both views, the role, a whole order flow" | Better |
+| The ask | "An Aiven service as a significant part of the project, and showing what it makes possible." | "One Aiven service as a meaningful part of the project, and a demonstration of what it enables." | Better (their words) |
+
+Do not put counts of the live trail on the page ("33 events", "26 of 33"): they change with every check of the link.
+
+### Page 14, Modal
+
+| Box | Now | Put instead | |
+|---|---|---|---|
+| Strip | "…the model that reads sentences is Gemini, asked over its API. Next step: the reader as an open model on a Modal GPU; its deploy file is written." | "Assumption: today Modal hosts the gateway; on the demo link sentences are read by fixed rules, and the model reader is an option that is off there. Next step: the reader as an open model on a Modal GPU; its deploy file is written." | Must (no text names the model or says one runs on the demo link) |
+| 05 | "Built next, not yet run on Modal: reading up to 40 manufacturer pages in parallel, and an hourly witness of the audit log" | "Ran on 15 Nov: one batch fan-out, 76 product-page lookups mapped over up to 40 CPU containers, done in 58 seconds. Built, not yet run on Modal: an hourly witness of the audit log" | Must (it ran) |
+| 04 | "…all 7 checks passed on 14 Nov; 10 today" | "…five deploys, all 10 checks passed after the last, on 15 Nov" | Must |
+| 03 | "…where a quiet gateway costs almost nothing" | "One container, kept running for the review day (1 core, 4,096 MiB; 553 MiB measured after start); one constant takes it back to scale-to-zero" | Better (the cost was never measured) |
+| 01 | "The entire gateway is hosted on Modal: REST, MCP and the pages…" | "The whole gateway is one Modal web endpoint: REST, MCP (13 tools for agents) and the pages, behind one public address, the demo link" | Better |
+
+Order of the five points, better: hosting, the batch that ran, plain Python, the checks, one container. The speaker notes of page 14 name the model too: they matter only if the deck is uploaded as .pptx or exported with notes.
+
+### Other pages
+
+- Page 6: "109 test sentences: 55 read, 54 asked about" is now 126 sentences: 67 read, 59 asked about, 0 read wrong.
+- Pages 3, 5, 6 and 10 say a model reads the sentence. That stays (João's decision): it must read as an option, since the demo link and the video run on fixed rules, and no page names the model.

@@ -10,7 +10,7 @@ Rewritten Sun 15 Nov after three independent checks of the text against the fina
 |---|---|---|---|
 | Project name | 30 | The one you typed, or `Trusted Trade Agents` (20) | — |
 | Punchline | 200 | Section 2 | Paste |
-| Description | 5,000 | Section 3 (4,922 characters; 4,972 if the form counts a line break as two) | Paste, then read the preview: the form may not render markdown |
+| Description | 5,000 | Section 3 (4,948 characters; 4,996 if the form counts a line break as two) | Paste, then read the preview: the form may not render markdown |
 | Challenge | — | Valio Aimo — "Trusted Trade Agents" | Select |
 | Project demo | link | `https://joaocostared--trusted-trade-agents.us-east.modal.run/shop` | Live with the final code; 10 of 10 deployment checks passed |
 | Source code | link | `https://github.com/joaocosta21/junction` | Pushed: `main` is the clean branch. **Still to do: make it public** (after Valio Aimo's answer on their data files) and open it in a private window. Context.dev's brief requires a GitHub repository |
@@ -23,73 +23,73 @@ Rewritten Sun 15 Nov after three independent checks of the text against the fina
 
 ## 2. Punchline (200 characters at most)
 
-Recommended (168 characters; it uses the brief's own words: fixed prices, authority, sign-off, logged):
+Chosen by João (187 characters; human, agent, human, and one phrase for each judging criterion):
 
-> An open gateway: any purchasing agent reads Valio Aimo's fixed prices and stock, orders within its authority, and a person signs off the rest. Every decision is logged.
+> A human asks, an agent looks up Valio Aimo's fixed prices and stock, handles shortfalls and substitutes by the buyer's rules, and a human signs off. Open standards, every decision logged.
 
 Alternative (147 characters):
 
 > An open gateway that lets any purchasing agent read Valio Aimo's prices and stock, prepare an order, and stop for a person exactly where it should.
 
-## 3. Description (4,922 of 5,000 characters; markdown)
+## 3. Description (4,948 of 5,000 characters; markdown)
 
 Each heading answers one of the organiser's lists in their own words: the flow and the three core items; the four "problems we'd love to see tackled"; the optional direction on delivery and sustainability; the six example scenarios; the openness criterion; then one paragraph for each technology partner.
 
 ```markdown
 ## What it is
 
-Valio Aimo asked how a food-service wholesaler can be **safely and openly readable by autonomous agents**. We built the wholesaler's side: a typed gateway between a buyer's purchasing agent and Valio Aimo's price and availability data, with rules, human sign-off and an audit trail. Not a chatbot on a webshop.
+Valio Aimo asked how a food-service wholesaler can be **safely and openly readable by autonomous agents**. We built the wholesaler's side: one open interface where a buyer's agent looks up Valio Aimo's products, fixed prices and stock, prepares an order, and a person signs off. Not a chatbot on a webshop.
 
 ## Request → lookup → order/approval, end to end
 
-A kitchen types **"1,000 litres of lactose-free milk by Monday"**, or an agent sends it over REST or MCP.
+A kitchen types **"1,000 litres of lactose-free milk by Monday"**, or an agent sends it as a typed request over REST or MCP.
 
-1. **Lookup.** An agent searches 17,546 products and gets price and availability in structured form. Here: the 26 lactose-free milks, coffee milk not counted as milk. Of 126 test sentences, 67 were read, 59 asked about, none read wrong.
-2. **Inquiry to commitment, at fixed prices.** Three options at Valio Aimo's prices, nothing negotiated: 435 L confirmed for €1,083.39; 1,000 L for €1,010.00 with a quantity Valio Aimo does not confirm; 1,000 L from confirmed stock for €2,580.64, with a café milk named as a substitute. Price and stock are asked again when the order is placed.
-3. **Permission and human approval.** `GET /v1/authority` tells the agent what it may decide alone. The agent prepares the order; a person signs off.
+1. **Lookup.** An agent searches 17,546 products and gets price and availability in structured form. The demo has recorded prices and stock for 1,163 of them: try milk, cream, butter, oat drink or flour. Here: the 26 lactose-free milks, coffee milk not counted as milk. What the rules cannot read is asked, never guessed: of 126 test sentences, 67 were read, 59 asked about, none read wrong.
+2. **Inquiry to commitment, at fixed prices.** Three options at Valio Aimo's prices, nothing negotiated: 435 L confirmed for €1,083.39; 1,000 L for €1,010.00 with a quantity Valio Aimo does not confirm; 1,000 L from confirmed stock for €2,580.64, with a café milk named as a substitute. Price and stock are checked again at the order.
+3. **Permission and human approval.** `GET /v1/authority` tells the agent what it may decide alone; a person signs off the rest.
 
 ## The four problems
 
-- **Trust protocol.** Every line states price, stock, delivery date, allergens and origin as confirmed, unknown or ruled out; offers and orders are signed (Ed25519, published keys). For an allergen the buyer excludes, no statement means unknown, not safe: at a milk-allergy ward all 26 lactose-free milks are refused.
-- **Guardrails model.** Rules are data. Human sign-off above the buyer's spend threshold and for substitutions outside stated preferences (not like for like, or over 25% dearer). Fully autonomous only if the buyer switches it on: then 302 L (€748.96) is ordered alone and says why; 303 L (€751.44) waits, above the €750 limit. Over REST and MCP an agent can never approve.
+- **Trust protocol.** Every line states price, stock, delivery date, allergens and origin as confirmed, unknown or ruled out; offers and orders carry the gateway's signature, which anyone can check (demo key today). For an allergen the buyer excludes, no statement means unknown, not safe: at a milk-allergy ward all 26 lactose-free milks are refused.
+- **Guardrails model.** Human sign-off above the buyer's spend threshold and for substitutions outside stated preferences (not like for like, or over 25% dearer). The agent orders alone only if the buyer switches it on (shop page; off for demo tokens): then 302 L (€748.96) is ordered alone and says why; 303 L (€751.44) waits, above the €750 limit. Over REST and MCP an agent can never approve.
 - **Response logic.** Partial availability is offered as partial. Substitutes from Valio Aimo's own assortment are ranked good-better-best: same product in another pack, same brand, other brand. Where nothing fits, it says so.
 - **Audit trail.** A human-readable log, one sentence per step with the rule that fired, hash-chained, for both buyer and Valio Aimo, who sees no limit, allergen or person's name.
 
-**Not just price:** each option states delivery reliability, carbon footprint and certificate labels; "most reliable delivery" re-ranks the offer.
+**Not just price:** each option carries delivery reliability, carbon footprint and certificate labels where known; "most reliable delivery" re-ranks the offer.
 
 ## The six example scenarios
 
-- **Recipe → order:** "a chocolate cake for 20" becomes one 7-line order from our 10 recipes; kitchen stock is taken off.
+- **Recipe → order:** "a chocolate cake for 20" becomes one offer for its 7 ingredients from our 10 recipes; kitchen stock is taken off.
 - **Last-minute event:** "beef stew for 80 for tomorrow" names each ingredient that cannot arrive and offers the earliest date.
-- **Stock-out:** a product with 0 in stock gets a ranked substitute, the trade-off in figures (2.9 L packs, not 3 L).
-- **Selling agent:** with an offer, Valio Aimo suggests a related product (the same oat drink in a larger pack, €42.00 less on 30 L), added only if accepted. Its back office counts what it sold and could not sell.
+- **Stock-out:** product 469316, 0 in stock, gets a ranked substitute, the trade-off in figures (2.9 L packs, not 3 L).
+- **Selling agent:** with an offer, Valio Aimo suggests a related product (the same oat drink in a larger pack, €42.00 less), added only if accepted.
 - **Allergen-safe substitution:** at the ward an oat drink with no milk statement is replaced by a rice drink that states free from; the dietitian must approve.
 - **Standing order drift:** a weekly 100 L renewed at 290 L is outside the 25% tolerance and waits for a person.
 
 ## Open standards, technical choices
 
-OpenAPI 3.1, JSON Schema, MCP (13 tools, none approves), RFC 9457 errors, RFC 9727 discovery, `/llms.txt`, GS1 allergen codes: no proprietary format. Fixed rules decide, never a model, so the same request on the same data gets the same answer. MIT.
+OpenAPI 3.1, MCP (13 tools, none approves), RFC 9457, RFC 9727, `/llms.txt`, GS1 allergen codes: no proprietary format. Fixed rules decide, never a model, so the same request on the same data gets the same answer. MIT. About 6,200 automated tests.
 
 ## Assumptions
 
-The demo replays a recording of Valio Aimo's mock (1,163 products with prices and stock) at a fixed clock. A stock figure of 999,999 or more is read as not known (confirmed by Valio Aimo). Customers, histories, recipes and limits are synthetic and ours. The order step is ours by design. The demo page has no login and keeps each browser's orders in memory; on the demo link REST and MCP write to PostgreSQL.
+The demo replays a recording of Valio Aimo's mock. A stock figure of 999,999 or more is read as not known (Valio Aimo confirmed). Customers, histories, recipes and limits are synthetic and ours. The order step is ours by design. The demo page has no login and keeps each browser's orders in memory.
 
 ## Next steps
 
-Valio Aimo signing its own statements; orders as Peppol BIS; sign-in for people and agents; new and seasonal products marked; a check that runs before the kitchen asks; a nutrition standard; Finnish.
+Valio Aimo signing its own statements; orders as Peppol BIS; sign-in for people and agents; proactive checks; seasonal products; a nutrition standard; Finnish.
 
 ## Built with
 
-Python, FastAPI, MCP, YAML rules. About 6,200 automated tests.
+**Context.dev** (Answers, our 7-field schema): at approval, the person deciding an allergen doubt sees the product's web page. Of 92 recorded answers, 30 shown, 39 rejected with the reason. `docs/CONTEXTDEV.md`
 
-**Context.dev** (Answers): the product's web page beside an allergen doubt, for the person who decides. Of 92 products asked, 30 shown, 39 rejected with the reason. `docs/CONTEXTDEV.md`
+**Aiven PostgreSQL** holds the audit trail REST and MCP callers write on the demo link. Triggers refuse UPDATE and DELETE, for the gateway's login too (tried live); a one-grant role reads only Valio Aimo's view. `docs/AIVEN.md` §4
 
-**Aiven PostgreSQL** keeps the audit trail: triggers refuse UPDATE and DELETE (tried on the live trail) and a role with one grant reads only Valio Aimo's view. `docs/AIVEN.md`
-
-**Modal** hosts the demo link (one web endpoint, 10 of 10 deploy checks) and ran a batch fan-out: 76 product-page lookups over 40 CPU containers in 58 seconds. `docs/AWARDS.md`
+**Modal** hosts the gateway (REST, MCP, pages) from one Python file and ran a batch fan-out: 76 product-page lookups on up to 40 CPU containers in 58 seconds. `docs/AWARDS.md`
 ```
 
 What the checks changed, so nobody puts it back:
+- After a fourth check, by an agent acting as Valio Aimo's judge who tried the system (7.85 of 10 by its own scoring): the text says what the demo can answer ("try milk, cream, butter, oat drink or flour": chicken, cheese and salmon have no recorded price), where the agent orders alone (the shop page; off for the demo tokens), and whose signature an offer carries (the gateway's, a demo key today).
+- The three partner paragraphs are the partner judges' own replacements (Context.dev 6.5, Aiven 5.5, Modal 3 of 10 by their scoring).
 - "The manufacturer's own page" became "the product's web page": 17 of the 30 pages shown are on a site whose owner was not checked.
 - The audit trail in Aiven PostgreSQL is the one REST and MCP callers write to on the demo link. The `/shop` page keeps each browser's order book in memory. The Assumptions say so.
 - "A passed order deadline goes to a person" was wrong: the product is left out for that date, and the later date goes to a person.
