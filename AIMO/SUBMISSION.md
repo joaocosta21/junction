@@ -13,7 +13,7 @@ Rewritten Sun 15 Nov after three independent checks of the text against the fina
 | Description | 5,000 | Section 3 (4,922 characters; 4,972 if the form counts a line break as two) | Paste, then read the preview: the form may not render markdown |
 | Challenge | — | Valio Aimo — "Trusted Trade Agents" | Select |
 | Project demo | link | `https://joaocostared--trusted-trade-agents.us-east.modal.run/shop` | Live with the final code; 10 of 10 deployment checks passed |
-| Source code | link | `https://github.com/joaocosta21/junction` | **Not ready until pushed and public:** section 5, step 3. Context.dev's brief requires a GitHub repository |
+| Source code | link | `https://github.com/joaocosta21/junction` | Pushed: `main` is the clean branch. **Still to do: make it public** (after Valio Aimo's answer on their data files) and open it in a private window. Context.dev's brief requires a GitHub repository |
 | Video | link, max 2:00, public | Record from `AIMO/VIDEO-SHOTLIST.md` | Record, upload to YouTube or Vimeo, check the link in a private window |
 | Other link | link | `https://joaocostared--trusted-trade-agents.us-east.modal.run/docs` (the typed API a judge can try) | — |
 | Presentation | PDF/PPTX, 20 MB | Deck v5 with the three rows of `AIMO/PITCH-DECK-REVIEW-V5.md` | On page 12 use **30 pages shown, 39 rejected, 23 with no page, of 92** (not 29 and 40). Export to PDF on the machine the deck was made on (it needs the font Inter), look at every page |
@@ -110,7 +110,7 @@ Do not put counts of the live trail (events, orders) in the form: they change wi
 
 1. Record the video from `AIMO/VIDEO-SHOTLIST.md` against `http://127.0.0.1:8011/shop`; upload; check the link in a private window.
 2. Ask Valio Aimo at the booth whether their data files may stay in a public repository.
-3. Source code: `git push origin replan-build`, then `git push origin delivery:main` (the clean branch without the team's working notes), make the repository public, tell the teammates their commit e-mail addresses become public, and open the repository in a private window.
+3. Source code: both branches are pushed (`main` is the clean branch without the team's working notes). Make the repository public, tell the teammates their commit e-mail addresses become public, and open the repository in a private window.
 4. Deck: the three rows of `AIMO/PITCH-DECK-REVIEW-V5.md` and the Context.dev figures above; export to PDF.
 5. Fill in the form from sections 1 to 4; set FINAL; re-open and check.
 6. Rehearse the three-minute pitch once with the live minute (`AIMO/PITCH-SCRIPT.md`; the runbook is at the end of `AIMO/DEMO-CHECK.md`).
