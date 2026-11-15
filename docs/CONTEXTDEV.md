@@ -1,8 +1,8 @@
 # Context.dev in the gateway
 
-Which Context.dev endpoint the gateway uses, why, and where its data shows. This is the note the "Best Use of Context.dev" award asks for. Code: `src/tta/evidence/`. Tests: `tests/evidence/` (241 tests; none calls Context.dev). Recorded answers: `fixtures/evidence/` (13 files).
+Which Context.dev endpoint the gateway uses, why, and where its data shows. This is the note the "Best Use of Context.dev" award asks for. Code: `src/tta/evidence/`. Tests: `tests/evidence/` (241 tests; none calls Context.dev). Recorded answers: `fixtures/evidence/` (92 files: 13 of Sat 14 Nov, 79 of Sun 15 Nov).
 
-Checked against the code at commit `c2106fe`, offline; who decides, the rule ids of "The demo moments" and Valio Aimo's view were checked again on Sun 15 Nov 2026 at commit `94b21a5`. Every figure below was produced by running the code over the recorded answers in replay, unless it says "from the log".
+Checked against the code at commit `c2106fe`, offline; who decides, the rule ids of "The demo moments" and Valio Aimo's view were checked again on Sun 15 Nov 2026 at commit `94b21a5`. **On Sun 15 Nov 2026, 03:49 to 03:54 Helsinki, 79 more requests were sent to Context.dev** (2 by the recording script, 77 as a fan-out on Modal): see "The 79 answers of 15 Nov". Every figure below was produced by running the code over the recorded answers in replay, unless it says "from the log".
 
 ## The note, in short
 
@@ -12,6 +12,7 @@ Checked against the code at commit `c2106fe`, offline; who decides, the rule ids
 - **Sent:** the product's English name, its Finnish name and its brand. Nothing about the buyer.
 - **Checked:** the page must be shown to be this product, variant and pack included. A failed or partial answer is not evidence.
 - **Stored** once per product, because a cached answer costs the same as a fresh one.
+- **Measured (a sample of 92 products, not a catalog figure):** 92 products asked once each; a page came back for 69; 29 are shown as evidence, 40 were dropped with the reason in a sentence, 23 had no page.
 - **It never changes a verdict.** A page can add a doubt and never removes one.
 
 ## Why it sits in the approval step
@@ -65,7 +66,7 @@ For each allergen the order excludes, the sentence puts Valio Aimo's data beside
 | arla | `arla.fi`, `arla.com`, `arlapro.com` |
 | alpro | `alpro.com` |
 
-A page on any other host reads, in the sentence: "A web page whose owner was not checked, “…” on <host> says: …". All 9 kept recordings are on a listed host, so this wording does not appear in replay.
+A page on any other host reads, in the sentence: "A web page whose owner was not checked, “…” on <host> says: …". Of the 29 kept recordings, 12 are on a listed host and 17 are not (wholesalers and importers such as finefoods.fi, hkfoodservice.fi, metrotukku.fi, topfoods.fi), so 17 read with this wording in replay.
 
 **The headings.** The shop's card is headed "Found on the web, not Valio Aimo data", whoever owns the page; the sentence under it says whose page it is. The older `/approvals` page still prints "Found on the manufacturer's page — not Valio data" for every page: there only the sentence tells the two cases apart.
 
@@ -75,7 +76,7 @@ One file per product, `<TTA_DATA_DIR>/evidence/<product id>.json`: what was sent
 
 **Lookup order:** stored answer → recording in `fixtures/evidence/` → Context.dev. Without a key the gateway reads stored and recorded answers only and asks nobody; a product with neither gets "no recorded page of this product is stored and no Context.dev key is set, so nothing was looked up".
 
-**The cap.** One gateway sends at most 40 requests (`DEFAULT_MAX_CALLS`). The count is kept on disk in `<TTA_DATA_DIR>/evidence/request-count.json`, so a restarted container goes on from it. No such file exists in this repository's data folder: the gateway itself has sent no request from this machine since the count was added. The recording script has its own cap per run (`--limit`, default 10).
+**The cap.** One gateway sends at most 40 requests (`DEFAULT_MAX_CALLS`). The count is kept on disk in `<TTA_DATA_DIR>/evidence/request-count.json`, so a restarted container goes on from it. The recording script has its own cap per run (`--limit`, default 10). The two recording scripts share a total across runs (`--total-cap`, default 60), counted in `var/evidence/request-count.json` on the machine that runs them. **That file reads 181 on the team's machine and 104 requests were really sent:** a first fan-out of 77 on 15 Nov failed before any request left (see below), and its 77 were counted before sending, as the script is written to do. With 92 recordings the floor of the count is 104, above the default total of 60, so every further run needs `--total-cap` and says "The total is spent" without it, a dry run included.
 
 ## Where it shows
 
@@ -111,9 +112,9 @@ curl -s "$BASE/v1/approvals?status=pending" -H "Authorization: Bearer demo-appro
 curl -s "$BASE/v1/audit?order_id=<order_id>" -H "Authorization: Bearer demo-agent-hotel-kitchen"      # → evidence.attached
 ```
 
-## The 13 recorded answers
+## The 13 recorded answers of 14 Nov
 
-All recorded on Saturday 14 Nov 2026 in mode `ultra`: five at about 10:06 Helsinki, eight between 19:56 and 19:58. Kept or dropped is what the matcher at commit `c2106fe` decided, run offline over the files: **9 kept, 4 dropped** (not run again on 15 Nov). This is a sample of 13 products, not a catalog figure.
+All recorded on Saturday 14 Nov 2026 in mode `ultra`: five at about 10:06 Helsinki, eight between 19:56 and 19:58. Kept or dropped is what the matcher at commit `c2106fe` decided, run offline over the files: **9 kept, 4 dropped** (the same on 15 Nov, read again over the files). This is a sample of 13 products, not a catalog figure.
 
 | Product (name in Valio Aimo's file) | Page found | Result | What the approver reads |
 |---|---|---|---|
@@ -133,23 +134,101 @@ All recorded on Saturday 14 Nov 2026 in mode `ultra`: five at about 10:06 Helsin
 
 Two of the dropped pages may well be the same product (`462775` under its retail name; the two AIMO yoghurts under their maker's brand). Nothing shows that they are, so they are not shown. Who makes the AIMO own-label yoghurts is a question for Valio Aimo.
 
+## The 79 answers of 15 Nov
+
+Sent on Sunday 15 Nov 2026 between 03:49 and 03:54 Helsinki, mode `ultra`, 100 credits each by each answer's own `key_metadata` (7,900 credits). João approved going past the first total of 60 on 14 Nov at 20:51. All figures are of these runs: a sample, not a catalog fact.
+
+**The two demo products that had no page** (`scripts/record_evidence.py --ids 469363 469386 --limit 2`, 17 seconds, one request after the other; the same two the dry run of `--demo-set` lists at the demo clock):
+
+| Product | Page found | Result | What the person reads |
+|---|---|---|---|
+| `469386` 5 x Arla Lactose- and fatfree milkdrink 1 L Suomi ESL | arla.fi, "Arla Maitoa Suomesta Laktoositon rasvaton maitojuoma Suomi 1 l" | kept | contains Maito; free from Laktoositon. The page does not say "ESL" and the matcher does not ask for it. |
+| `469363` Arla Semi skimmed milkdrink 1 L UHT lactose free Suomesta | arla.fi, "Arla Maitoa Suomesta Laktoositon kevytmaitojuoma (UHT) 1 l" | **dropped, wrongly** | "the product asked for is fat-free; the page does not say fat-free" |
+
+**`469363` is a fault of the matcher, not of the page.** The mark "fat-free" (`src/tta/evidence/matching.py`, `MARKS`) matches the word "skimmed", and so also "Semi skimmed". The page is this product (kevytmaitojuoma is semi-skimmed milk drink; UHT, lactose-free, 1 l, Arla). Checked in memory, without changing the file: with "skimmed" not read after "semi ", this page is kept ("contains Maito; free from laktoositon") and no other of the 92 recordings reads differently. Until the code is changed, a card about `469363` gives the wrong reason. The fault only drops a page; it cannot show a wrong one.
+
+**The fan-out on Modal** (`deploy/evidence_batch.py`): every product of the recording `2026-11-14-demo` whose data holds no allergen statement at all and that had no recorded page: 77 products (79 hold no statement; 2 were recorded on 14 Nov). One call per product, spread over at most 40 containers, each call sending one request.
+
+- A first run of 77 at 03:51 failed in every container before a request left: the batch image lacked PyYAML, which `tta.evidence` imports through `tta.catalog`. 0 answers, 0 credits (the next answer's balance was exactly 100 lower than the one before the run). One line was added to the image's pinned libraries (`pyyaml==6.0.3`, the gateway's own pin).
+- Then 1 product (`460394`) to check the corrected image, then the other 76: `.venv/bin/modal run -q deploy/evidence_batch.py --limit 76 --total-cap 181`. **76 answers in 58 seconds from start to exit; 40 containers alive at once, the cap, from second 14 to the end** (counted with `modal container list` about every 2 seconds; 6, 12, 20, 29, then 40). Not measured, an estimate: one after the other, at the 8 to 9 seconds each of the two requests above took, the same 76 take about 11 minutes.
+
+| Of the 77 | Products asked | A page came back | Shown as evidence | Dropped, with the reason | No page |
+|---|---|---|---|---|---|
+| With a brand in Valio Aimo's data | 36 | 34 | 19 | 15 | 2 |
+| Without a brand | 41 | 20 | 0 | 20 | 21 |
+| All | 77 | 54 | 19 | 35 | 23 |
+
+- **The 41 products without a brand could not be kept and were asked anyway**, 4,100 credits: the matcher's first check needs a brand, or Valio Aimo's own site for its own label. 23 of them are the "AIMO" own label, for which a page on valioaimo.fi could have counted; one such page came back (`465513`) and was dropped on another check: its name carries the maker's name, Savo-Karjalan Liha Oy, which the product's name does not. They were asked so that the figure covers every product of the recording with no allergen statement, and so that the fan-out reached its 40 containers. A next run should leave out a product with no brand that is not of the own label.
+- Of the 19 kept, 2 are on a host we list as the brand owner's (`463773` on valio.fi, `469288` on oddlygood.com). The other 17 read "A web page whose owner was not checked".
+- 2 of the 19 name something under "contains" (`462322`: Kookospähkinä; `469288`: maissia), 5 carry a free-from list (`469288` both), 13 name no allergen in their text. 68 of the 77 products are meat (54, mostly raw beef) or coconut products (14): a page that names no allergen is the expected answer there, and it still leaves Valio Aimo's data silent, so the status stays unknown.
+- Several drops of a branded product look like the same product written another way, not another product: "ulkofile" on the page against "ulkofilee" in the catalog (`464814`), "flank steak" against "Flanksteak" (`464115`), "sous vide" added (`466210`), "n." before a weight read as a word (`464370`, `464814`). Words are compared as written, and a false match is treated as worse than a missing page. Nobody checked these pages by hand.
+
+Kept, 19:
+
+| Product (name in Valio Aimo's file) | Page | What the person reads |
+|---|---|---|
+| `460394` Spice Up! Coconut milk 2900ml | finefoods.fi (owner not checked) | names no allergen in its text |
+| `462322` Santa Maria 2900ml Coconut Milk | pauligpro.com (owner not checked) | contains Kookospähkinä |
+| `463067` Naturkött 2,8kg Beef Striploin | metrotukku.fi (owner not checked) | names no allergen in its text |
+| `463263` Spice Up! Coconut cream 1000ml | finefoods.fi (owner not checked) | names no allergen in its text |
+| `463773` Valio clear cake jelly 5 kg | valio.fi (manufacturer's page) | names no allergen in its text |
+| `463917` HK Beef Knuckle | hkfoodservice.fi (owner not checked) | free from Gluteeniton, Laktoositon, Maidoton |
+| `464217` Spice Up! Coconut cream 165ml | finefoods.fi (owner not checked) | names no allergen in its text |
+| `464393` Topfoods beef short loin fresh app. 2kg | topfoods.fi (owner not checked) | names no allergen in its text |
+| `464744` Evryday c3kg Beef Chuck roll square cut | pikatukku.valioaimo.fi (owner not checked) | names no allergen in its text |
+| `464852` Topfoods beef topside cap off app. 3kg | topfoods.fi (owner not checked) | names no allergen in its text |
+| `465421` Familia Beef fillet ~2kg | pnmchipsters.fi (owner not checked) | names no allergen in its text |
+| `467009` HK Beef burger minced | hkfoodservice.fi (owner not checked) | free from Gluteeniton, Laktoositon, Maidoton |
+| `467039` HK Beef Silverside without membrane | sydanmerkki.fi (owner not checked) | free from Laktoositon, Maidoton, Gluteeniton |
+| `467150` Spice Up! Condensed coconut milk 320g | finefoods.fi (owner not checked) | names no allergen in its text |
+| `467244` Spice Up! Coconut milk 1000ml | finefoods.fi (owner not checked) | names no allergen in its text |
+| `469288` Oddlygood® Easy Whipping 2,5 dl UHT | oddlygood.com (manufacturer's page) | contains maissia; free from gluteeniton, ei sisällä maitoa |
+| `469415` Spice Up! Coconut milk 400ml | finefoods.fi (owner not checked) | names no allergen in its text |
+| `470057` Tamminen Beef Picanha appr 700 g | hkfoodservice.fi (owner not checked) | free from Gluteeniton, Laktoositon, Maidoton |
+| `470182` Familia Grainfed veal topside PAD chilled ~4kg NL | pnmchipsters.fi (owner not checked) | names no allergen in its text |
+
+Dropped though the product has a brand, 15:
+
+| Product | Page found | Dropped because |
+|---|---|---|
+| `463059` Naturkött Beef Tenderloin ca 1,8kg | norvida.se, "Oxfilé 1,8 kg+, färsk" | the page does not show the brand “Naturkött” |
+| `463180` Naturkött Beef Cuberoll ca. 2kg | english.norvida.se, "Entrecôte" | the page does not show the brand “Naturkött” |
+| `463746` Peter´s Farm beef short loin fresh app. 2,4kg | topfoods.fi, "PETER’S FARM MAITOVASIKAN ULKOFILEE SISÄLTÄÄ RASVAN JA KALVON N. 2,4 KG" | the page's product name says “MAITOVASIKAN”, which the product asked for does not |
+| `464115` Tamminen Rotukarja Beef Flanksteak appr 700 g | tamminen.fi, "Rotukarja naudan flank steak" | the page's product name says “flank”, “steak”, which the product asked for does not |
+| `464370` Topfoods rumb heart pad 2kg+ | topfoods.fi, "NAUDAN PAAHTOPAISTI, KALVOTON N. +2 KG" | the page's product name says “N”, which the product asked for does not |
+| `464689` Evryday Beef Cube Roll ca. 1,6kg | kespro.com, "Evryday naudan entrecote n. 1,6kg" | the page's product name says “naudan”, “entrecote”, which the product asked for does not |
+| `464814` Evryday Beef Striploin c3,5kg | kespro.com, "Evryday Naudan ulkofile n.3,5kg tuore" | the page's product name says “ulkofile”, “n”, “tuore”, which the product asked for does not |
+| `465089` Hutten Beef Beef topside PAD chilled ~2kg | huttenbeef.com, "Topside pad" | the page does not show the brand “Hutten Beef” |
+| `466210` HK Beef mince browned 3 kg | hkfoodservice.fi, "HK Ruskistettu naudan jauheliha, sous vide (7663)" | the page's product name says “sous”, “vide”, which the product asked for does not |
+| `469316` Urtekram Organic Coconut milk Fairtrade BIB 3l | urtekram.fi, "Kookosmaito" | the product asked for is organic; the page does not say organic |
+| `469345` Kung Markatta coconutmilk organic 3l | midsonafoodservice.fi, "Kung Markatta Kooksmaito 3l" | the product asked for is organic; the page does not say organic |
+| `469380` Urtekram Organic Creamy Coconut milk Fairtrade BIB 3l | urtekram.fi, "Kookosmaito" | the product asked for is organic; the page does not say organic |
+| `469426` Well Beef Beef Entrecote n 2 kg | kaivonliha.fi, "Well Beef naudan entrecôte n. 2,5kg" | the page is for the 2.5 kg pack; the product asked for is 2 kg |
+| `472243` Oddlygood® Easy Whipping 1 L UHT | valio.fi, "Oddlygood® Easy Whipping" | the product asked for is UHT; the page does not say UHT |
+| `473941` Fazer Aito Plant-based Whipping, gluten-free whippable vegetable fat product 1L | fazer.com, "Fazer Aito Kasvipohjainen Vispi 1 L" | the page's product name carries too little of the name of the product asked for |
+
+Dropped because the product has no brand in Valio Aimo's data, 20 (one of them because the answer named no page it read, one on a page name with other words): `462199`, `462314`, `462870`, `462880`, `462892`, `463125`, `463135`, `463147`, `463778`, `465122`, `465331`, `465476`, `465513`, `465538`, `466510`, `467983`, `468359`, `468417`, `468810`, `469118`. No page found, 23: `462416` and `467496` (with a brand), and `462286`, `462309`, `462323`, `463020`, `463071`, `463076`, `463098`, `463105`, `463116`, `463121`, `463771`, `464023`, `464025`, `464037`, `464753`, `464759`, `464788`, `467245`, `468887`, `469867`, `475044`.
+
+**Not on the public link yet.** The link was deployed at 03:35 on 15 Nov with the 13 recordings of 14 Nov. The 79 new files are in `fixtures/evidence/` on the team's machine and reach the link at the next deploy. Four tests of `tests/evidence` pin the old set of files and fail until they are brought to the new one: three in `test_record_script.py` (the default total of 60 now reads as spent, exit status 7) and `test_recordings.py::test_every_recording_sent_names_only` (it lists the 13 files; its own checks hold for all 92: checked by hand).
+
 ## Requests spent
 
-From the team's log, not re-read on Context.dev's dashboard: **25 requests in all, of the 60 the team approved.**
+**104 requests in all, 10,400 credits by our count** (25 through 14 Nov, 79 on 15 Nov). The balance was not read on Context.dev's dashboard. Each answer reports a balance; read at the same moment by 40 containers they disagree, and the lowest reported is 45,185, where 48,885 − 7,900 gives 40,985.
 - 17 before the evening of 14 Nov: 10 trials by hand, 5 that produced the first recordings, 2 sent by an early test with a fake key and refused with 401 before that test was cut off from the network.
 - 8 that evening, sent by the orchestrator with `scripts/record_evidence.py --demo-set`: the demo's products with an allergen doubt and no recorded page. All 8 answered with a page.
+- 79 on 15 Nov: above.
 
 No test calls Context.dev: the client tests use `httpx.MockTransport`.
 
 ## Still to run
 
-- **The batch on Modal** (`deploy/evidence_batch.py`): the same request for many products at once, at most 40 at a time. Only its offline dry run and its tests with a stand-in sender exist.
-- **The public link does not have the 8 recordings of 14 Nov evening or the stricter matcher** until someone redeploys (`docs/DEPLOY.md`, "To run"); at 00:30 on 15 Nov it still ran Saturday morning's code.
+- **A deploy that carries the 79 new recordings**, after the matcher's reading of "semi skimmed" is corrected and the four tests are brought to the new files.
+- **A lookup from the public link itself.** The link carries no Context.dev key by choice (`TTA_DEPLOY_WITH_EVIDENCE_LOOKUPS` is not set: any visitor could then spend credits), so it shows recorded pages only and looks nothing up.
 
 ## Assumptions and next steps
 
 - **It informs a person; it decides nothing.** That is the design. Whether the award's "core flow" requirement counts it is a question for Context.dev's judge.
 - **Waiting time.** A lookup runs when an approval is created. A product that is neither stored nor recorded can hold that order for up to 40 seconds, once, when a key is set. *Next:* attach the evidence after the approval is written, as its own audited event.
-- **Language.** Matching is by words, untranslated. Only the variant marks are read in both English and Finnish, and they only ever drop a page. *Next:* a product identifier (GTIN) on the page, which needs no words.
+- **Language.** Matching is by words, untranslated. Only the variant marks are read in both English and Finnish, and they only ever drop a page. In the fan-out of 15 Nov, spellings that differ by a letter or a space dropped several branded meat products (above). *Next:* a product identifier (GTIN) on the page, which needs no words.
 - **Whose page.** The host list is ours and unverified (above). *Next:* the team or the brand owners confirm it; an access policy at Context.dev that lists those domains.
 - **Freshness.** An answer is kept until its file is deleted. *Next:* a maximum age.

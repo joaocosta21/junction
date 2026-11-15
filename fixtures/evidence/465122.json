@@ -1,0 +1,53 @@
+{
+  "product_id": "465122",
+  "retrieved_at": "2026-11-15T01:54:16.108799+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'AIMO CREME FRAICHE 2KG 28% LACTOSE FREE' (Finnish name 'AIMO CREME FRAICHE 2KG 28% LAKTON'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.kespro.com/tuotteet/valio-creme-frache-2-kg-laktoositon-6408430041343",
+      "page_title": "Valio crème fraîche 2 kg laktoositon",
+      "product_name_on_page": "Valio crème fraîche 2 kg laktoositon",
+      "contains": [
+        "Maito"
+      ],
+      "may_contain": [],
+      "free_from": [
+        "Laktoositon"
+      ]
+    },
+    "sources": [
+      "https://www.metrotukku.fi/en/EUR/products/dairy-products-cheese-fats-and-eggs/valio-creme-fraiche-2kg-lactose-free/6408430041343",
+      "https://www.kespro.com/tuotteet/valio-cr-me-fra-che-2-kg-laktoositon-6408430041343",
+      "https://www.kespro.com/tuotteet/valio-creme-frache-2-kg-laktoositon-6408430041343"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 48085
+    },
+    "request_id": "e4fe976f-c66e-4c5f-80a1-3e23b877694e"
+  }
+}

@@ -6,24 +6,25 @@ This is a database swap with three consequences the SQLite file could not give. 
 
 ## What ran, and what did not
 
-Checked against the code at commit `c2106fe`, offline, and brought up to date on Sun 15 Nov 2026 from the code at commit `94b21a5` and the run's log (`AIMO/build/replan/STATUS.md`). No call to the Aiven service was made for this page. One was made by mistake during the night: see the third point.
+Brought up to date on Sun 15 Nov 2026 at 04:00 Helsinki, after the runs of that night against the Aiven service. Times are Helsinki.
 
-- **Ran against the Aiven service, on the morning of Saturday 14 Nov** (commit `67f3b00`, by the earlier log; not repeated since): the store, the migrations, the triggers, the two views and the supplier role, through the tests of `tests/store_pg`; the figures of "The service and the connection" and "What it costs" come from that morning.
-- **Changed on 14 Nov, offline:** Valio Aimo's view (`sql/003_reader_views.sql`) now shows every rule that fired and names a person by role. It is dropped and created again at every start. A setting, `TTA_DB_SCHEMA`, chooses the schema.
-- **Ran by mistake, on 14 Nov at 21:22** (from the log): a local server was started with the team's settings, which carry `DATABASE_URL`, and used this service for about four minutes. At its start the schema statements ran, the rewritten view of Valio Aimo among them, without error: the first time that SQL ran on a database. The server stored the four customers' demo standing orders with their synthetic past orders, and one offer (the bakery, 10 kg of flour); nothing was ordered. An audit event cannot be removed, so those rows are in the trail of schema `tta`. A redeploy with `DATABASE_URL` must therefore run the same code line, or start a new trail in a new schema (`TTA_DB_SCHEMA`).
-- **Checked offline:** `tests/audit/test_sql_view.py` (9 tests) compares the SQL file with the Python reader as text: the columns, the roles, the words. `tests/audit/test_pinned_hashes.py` (20 tests) pins the hashes of stored events, so a change to what is hashed fails a test before it can make the trail already in the database unverifiable.
-- **Not run: the view's SQL as it stands now.** It changed after the run of 21:22 (the product of an `evidence.attached` event is masked), and the tests that execute it have not been run since the view was rewritten: they are the live ones of `tests/store_pg` (117 tests in the folder; the live ones are skipped unless the run selects `-m live`). They must pass against the service before any deploy with `DATABASE_URL`: a view that fails to create fails the whole start-up, and the gateway then runs on SQLite with the reason in `/healthz`.
-- **Not run: the proof script against a database** (section 4). Only its dry run, which sends nothing.
-- **Not created: the supplier's login.** The role exists without a login; "Valio Aimo reads its own view" has been shown by a test login only.
-- **Not run: the witness** (section 5).
+- **Ran on 15 Nov, 03:45 to 03:47: the 68 live tests of `tests/store_pg`, against the service, with tonight's SQL. 68 passed, 0 failed** (`test_reader_views.py` 6 in 13 s, `test_postgres_store.py` 25 in 38 s, `test_flow_on_postgres.py` 1 in 11 s, `test_store_contract.py` 36 in 46 s; one file at a time). Each test made its own schema `tta_test_<random>_<n>` with its roles and dropped them; afterwards the database held the schema `tta` and the role `tta_supplier` and nothing else of ours. This is the first time Valio Aimo's view as it stands now (`sql/003_reader_views.sql`) was compared row by row on a database with what `tta.audit` shows the same reader.
+- **Ran on 15 Nov, 03:47: the proof on the deployed schema `tta`** (section 4, with its whole output): the database refused an `UPDATE` and a `DELETE` of the audit table from the gateway's own login with `TA001`; with the rights of the supplier's role, the view answered 33 events and every table behind it, the buyer's view and both changes were refused with `42501`.
+- **The public link runs on this service** since the deploy of 15 Nov at 03:35: `/healthz` says `store.kind: postgresql`, and its audit head (33 events, last hash `c5cfc61f…a813e3`) is the one the database answers. 26 of the 33 events are older than the container that serves the link: they were written on 14 Nov by earlier containers and by the mistake below, so the trail has outlived its redeploys.
+- **Ran by mistake, on 14 Nov at 21:22** (from the log): a local server was started with the team's settings, which carry `DATABASE_URL`, and used this service for about four minutes. It stored the four customers' demo standing orders with their synthetic past orders, and one offer (the bakery, 10 kg of flour); nothing was ordered. An audit event cannot be removed, so those rows are in the trail of schema `tta` (the 9 events of 14 Nov, 21:00 to 22:00).
+- **Ran on the morning of 14 Nov** (commit `67f3b00`, by the earlier log): the store, the migrations, the triggers, the two views and the supplier role; the figures of "The service and the connection" and "What it costs" come from that morning.
+- **Checked offline:** `tests/audit/test_sql_view.py` (9 tests) compares the SQL file with the Python reader as text. `tests/audit/test_pinned_hashes.py` (20 tests) pins the hashes of stored events, so a change to what is hashed fails a test before it can make the trail already in the database unverifiable.
+- **Not created: the supplier's own login.** The role `tta_supplier` exists and cannot log in. What it may read was shown twice: by a login the live test creates and drops in its own schema, and on the deployed schema by the gateway's login taking the role's rights for one transaction (`SET LOCAL ROLE`). A login that Valio Aimo itself would hold does not exist.
+- **Not run: `scripts/aiven_proof.py` against a database.** It needs that login (`SUPPLIER_DATABASE_URL`). Section 4 shows the same statements, and more, sent another way.
+- **Not run on Modal: the witness** (section 5). Its code ran once by hand on the team's machine against the deployed view.
 
 ## The service and the connection
 
 | | |
 |---|---|
-| Service | Aiven for PostgreSQL, server 18.7 (`SHOW server_version`, read on the morning of 14 Nov) |
+| Service | Aiven for PostgreSQL, server 18.7 (read again on 15 Nov at 03:47) |
 | Driver | psycopg 3.3.9 with its binary wheel, which bundles libpq 18. No system library is needed. |
-| TLS | As the service URI asks: Aiven's URI carries `sslmode=require`. A test checks that the store's session is encrypted (`pg_stat_ssl`); a probe of the service saw TLS 1.3. `require` encrypts the traffic but does not check the server's certificate. |
+| TLS | As the service URI asks: Aiven's URI carries `sslmode=require`. A test checks that the store's session is encrypted (`pg_stat_ssl`); the proof of 15 Nov read TLS 1.3 for its own session. `require` encrypts the traffic but does not check the server's certificate. |
 | Schema | The one `TTA_DB_SCHEMA` names, when it is set (a plain lower-case name of at most 41 characters; any other value is refused and the gateway falls back to SQLite, saying so). Otherwise `tta` for the deployed gateway (`TTA_ENV=demo` or `prod`) and `tta_dev` for a local run (`TTA_ENV=dev`), so a laptop with the same URL never writes into the demo's trail, which cannot be cleaned afterwards. An audit event cannot be removed, so a build that can no longer read an old trail starts a new one in a new schema and the old one stays as it is. Tests use their own schemas `tta_test_<random>_<n>`, dropped after each test. |
 | Secret | The URL is read through `tta.config` only, where the connection is opened. libpq's own error text names the server, and for a malformed URL it repeats the password. So a failed connection is logged by its error class alone and is not chained to the raised error (`tests/store_pg/test_unreachable.py`). |
 | Start-up | The store connects, creates its schema and runs the migrations of `src/tta/store/sql/` in one transaction under a lock, so two containers starting together take turns. Every migration is idempotent and runs at every start. |
@@ -78,7 +79,7 @@ The two readers of SPEC §9 are views (`sql/003_reader_views.sql`):
 - **`audit_buyer`**: every field, with the buyer profile, so a buyer's query names its own profile. The gateway keeps one buyer from another: it checks who is asking.
 - **`audit_supplier`**: what Valio Aimo may see. It has no buyer profile, and it uses the supplier's sentence and facts, which the audit package builds from an allow-list: the buyer's limit amounts, its allergen exclusions and the products they concern are masked there. It shows every rule that fired, each id once, in the order they fired. It shows an agent by kind and id only, and a person by the approver roles they hold ("The buyer's purchasing manager"; "The buyer's purchasing manager, finance, dietitian" at the hotel and the bakery, where one person holds every role), never by name or id; a person who holds no approver role reads "A human at the buyer". The view is dropped and created again at every start, because PostgreSQL refuses to replace a view whose columns changed; `sql/004` gives the grant again right after.
 
-Both views must show exactly what `tta.audit` shows the same reader. Offline, `tests/audit/test_sql_view.py` compares the SQL text with the reader. On a database (live only, not run since the view changed on 14 Nov), `tests/store_pg/test_reader_views.py` records the audit package's own two flows (`tests/audit/conftest.py`: the hotel order sent to a human, the ward order placed by the agent) through `AuditTrail` on PostgreSQL. It then compares every row of each view with `AuditTrail.view(...)`. It also runs the audit package's own redaction check on the supplier view: no limit value, no allergen exclusion, no approver name or note.
+Both views must show exactly what `tta.audit` shows the same reader. Offline, `tests/audit/test_sql_view.py` compares the SQL text with the reader. On a database (live only; run on 15 Nov at 03:45 against the service, 6 of 6 passed), `tests/store_pg/test_reader_views.py` records the audit package's own two flows (`tests/audit/conftest.py`: the hotel order sent to a human, the ward order placed by the agent) through `AuditTrail` on PostgreSQL. It then compares every row of each view with `AuditTrail.view(...)`. It also runs the audit package's own redaction check on the supplier view: no limit value, no allergen exclusion, no approver name or note.
 
 `sql/004_supplier_role.sql` creates the role `<schema>_supplier` (`tta_supplier` for the schema `tta`). It cannot log in, and it holds one privilege: `SELECT` on `tta.audit_supplier`. A view reads its tables with its owner's rights, so the role reads the projection and never the rows behind it. The supplier's own login is made a member of the role. **This login has not been created on the service yet:**
 
@@ -102,9 +103,140 @@ SELECT seq, sentence FROM tta.audit_buyer    WHERE order_id = '<order id>' ORDER
 SELECT seq, sentence FROM tta.audit_supplier WHERE order_id = '<order id>' ORDER BY seq;
 ```
 
-## 4. The proof in one command (built, not run against a database)
+## 4. The proof (ran on 15 Nov on the deployed schema; the one-command script still waits for the supplier's login)
 
-`scripts/aiven_proof.py` connects with the supplier's own login, read from `SUPPLIER_DATABASE_URL`, and prints each statement before its result. `--dry-run` lists the statements and sends nothing; `--schema` names another schema than `tta`. The dry run, run offline on 14 Nov, lists 8 statements:
+**What ran.** On Sun 15 Nov 2026 at 03:47 Helsinki, against the schema `tta` that the public link writes to, with the gateway's own login read through `tta.config`. Every statement ran in a transaction that was rolled back. The only changes attempted were an `UPDATE` and a `DELETE` written `WHERE false`: they match no row, so a database that did not refuse them would still have changed nothing. No `TRUNCATE`, no `INSERT`, nothing created. The supplier's seat was taken with `SET LOCAL ROLE tta_supplier` inside such a transaction: the statements then run with the role's rights and nothing else. The statements were sent by a short script kept outside the repository; they are all below, so anyone with the login can send them again. The whole output:
+
+```
+Run at 2026-11-15T01:47:30+00:00
+
+-- server
+SELECT split_part(version(), ' on ', 1), current_setting('server_version');
+   -> PostgreSQL 18.7 | 18.7
+
+-- TLS of this session
+SELECT ssl, version FROM pg_stat_ssl WHERE pid = pg_backend_pid();
+   -> True | TLSv1.3
+
+-- schemas whose name starts with tta
+SELECT nspname FROM pg_namespace WHERE starts_with(nspname, 'tta') ORDER BY 1;
+   -> tta
+
+-- roles whose name starts with tta or valio
+SELECT rolname, rolcanlogin FROM pg_roles WHERE starts_with(rolname, 'tta') OR starts_with(rolname, 'valio') ORDER BY 1;
+   -> tta_supplier | False
+
+-- the triggers on the audit table ('A' = fires always)
+SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid = 'tta.audit_events'::regclass AND NOT tgisinternal ORDER BY 1;
+   -> audit_events_append_only | A
+   -> audit_events_follow_head | A
+
+-- the head of the trail (compare with /healthz audit_head)
+SELECT count(*) AS events, max(seq) AS last_seq, min(time) AS first_event, max(time) AS last_event FROM tta.audit_events;
+   -> 33 | 33 | 2026-11-14 09:15:58.166751+00:00 | 2026-11-15 01:35:28.606903+00:00
+
+-- the last hash
+SELECT seq, hash FROM tta.audit_events ORDER BY seq DESC LIMIT 1;
+   -> 33 | c5cfc61f3895365357b81aeb07b082e6ad7d2b5ea0257a3cb8eee65a04a813e3
+
+-- event types in the trail
+SELECT type, count(*) FROM tta.audit_events GROUP BY type ORDER BY 2 DESC, 1;
+   -> tta.v1.lookup.performed | 5
+   -> tta.v1.offer.created | 5
+   -> tta.v1.policy.evaluated | 5
+   -> tta.v1.request.parsed | 5
+   -> tta.v1.request.received | 5
+   -> tta.v1.standing_order.created | 4
+   -> tta.v1.order.placed_by_agent | 2
+   -> tta.v1.approval.requested | 1
+   -> tta.v1.suggestions.shown | 1
+
+-- orders in the shared book by status
+SELECT status, count(*) FROM tta.orders GROUP BY status ORDER BY 1;
+   -> ORDERED | 2
+   -> PENDING_APPROVAL | 1
+
+-- what the supplier role holds
+SELECT table_schema, table_name, privilege_type FROM information_schema.role_table_grants WHERE grantee = 'tta_supplier';
+   -> tta | audit_supplier | SELECT
+
+-- the supplier view's columns
+SELECT column_name FROM information_schema.columns WHERE table_schema = 'tta' AND table_name = 'audit_supplier' ORDER BY ordinal_position;
+   -> seq
+   -> offer_id
+   -> order_id
+   -> approval_id
+   -> id
+   -> type
+   -> time
+   -> actor
+   -> sentence
+   -> rule_ids
+   -> facts
+   -> hash
+
+== The gateway's own login (the table's owner) tries to change the trail ==
+
+-- an UPDATE of the audit table
+UPDATE tta.audit_events SET hash = hash WHERE false;
+   -> refused: SQLSTATE TA001, audit_events is append-only: UPDATE is refused, an event cannot be changed or removed
+
+-- a DELETE on the audit table
+DELETE FROM tta.audit_events WHERE false;
+   -> refused: SQLSTATE TA001, audit_events is append-only: DELETE is refused, an event cannot be changed or removed
+
+== With the rights of the supplier's role (SET LOCAL ROLE, rolled back) ==
+
+-- who
+SELECT current_user;   [as role tta_supplier]
+   -> tta_supplier
+
+-- the supplier reads its view
+SELECT count(*), max(seq) FROM tta.audit_supplier;   [as role tta_supplier]
+   -> 33 | 33
+
+-- the last three sentences of its view
+SELECT seq, type, sentence FROM tta.audit_supplier ORDER BY seq DESC LIMIT 3;   [as role tta_supplier]
+   -> 33 | tta.v1.approval.requested | The agent could not place order ord_cdb1800d43fe alone under the buyer's rules. The order (200 pcs of 464013 for €402.00 net) was sent to a person of the buyer for approval. Rule that applied: F-10, a rule the buyer set (every order needs human approval): approval by a person of the buyer.
+   -> 32 | tta.v1.suggestions.shown | 1 suggestion was shown to the buyer with offer off_72e0f68fe2e8: a forgotten item. 1 was not shown: 1 with too little confirmed stock for the quantity.
+   -> 31 | tta.v1.policy.evaluated | The buyer's rules were checked for option opt_1: a person of the buyer must approve this order. Rule that applied: F-10, a rule the buyer set (every order needs human approval): approval by a person of the buyer. The strictest outcome among the rules that applied decides.
+
+-- the supplier role reads audit_events
+SELECT 1 FROM tta.audit_events LIMIT 1;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table audit_events
+
+-- the supplier role reads audit_buyer
+SELECT 1 FROM tta.audit_buyer LIMIT 1;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for view audit_buyer
+
+-- the supplier role reads orders
+SELECT 1 FROM tta.orders LIMIT 1;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table orders
+
+-- the supplier role reads offers
+SELECT 1 FROM tta.offers LIMIT 1;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table offers
+
+-- the supplier role reads approvals
+SELECT 1 FROM tta.approvals LIMIT 1;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table approvals
+
+-- the supplier role tries an UPDATE
+UPDATE tta.audit_events SET hash = hash WHERE false;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table audit_events
+
+-- the supplier role tries a DELETE
+DELETE FROM tta.audit_events WHERE false;   [as role tta_supplier]
+   -> refused: SQLSTATE 42501, permission denied for table audit_events
+```
+
+What it shows:
+- **The database refuses, not the application.** The gateway's login owns the table, and its `UPDATE` and `DELETE` are still refused, by the trigger, with our own SQLSTATE `TA001`. Both triggers are `A`: they fire always.
+- **Valio Aimo's role reads its view and nothing behind it.** 33 events through `audit_supplier`; `permission denied` (`42501`) for `audit_events`, `audit_buyer`, `orders`, `offers` and `approvals`, and for both changes. The role holds one grant, `SELECT` on `tta.audit_supplier`, and cannot log in.
+- **The head is the link's.** 33 events and the hash `/healthz` shows as `audit_head`.
+- **Not shown here:** a `TRUNCATE`, and a change after `SET session_replication_role = replica`. Both are refused in the live tests, in a schema of their own (`tests/store_pg/test_postgres_store.py`); on the deployed trail they were not tried, because a database that failed to refuse them would have lost the trail.
+
+**What did not run: `scripts/aiven_proof.py`.** It connects with the supplier's own login, read from `SUPPLIER_DATABASE_URL`, and prints each statement before its result. `--dry-run` lists the statements and sends nothing; `--schema` names another schema than `tta`. Its 8 statements:
 
 | # | Statement | The database must |
 |---|---|---|
@@ -117,11 +249,22 @@ SELECT seq, sentence FROM tta.audit_supplier WHERE order_id = '<order id>' ORDER
 | 7 | `SELECT count(*) AS events, max(seq) AS last_seq FROM tta.audit_supplier` | answer |
 | 8 | `SELECT seq, hash FROM tta.audit_supplier ORDER BY seq DESC LIMIT 1` | answer |
 
-Statements 5 and 6 are written `WHERE false`, so a database that did not refuse them would still change nothing. With the supplier's login the refusals are "permission denied"; the append-only triggers are what refuse the gateway's own login (section 2), and the script does not show that case. The script exits 0 when every statement did what the table says, 1 when one did not, 2 when nothing could be sent. It has 13 offline tests with a stand-in connection (`tests/store/test_aiven_proof.py`). The script does not create the supplier's login: that is the `CREATE ROLE` statement of section 3, run by hand. The commands are in `docs/DEPLOY.md`, "To run".
+With the supplier's login the refusals are "permission denied", as in the output above. The script exits 0 when every statement did what the table says, 1 when one did not, 2 when nothing could be sent. It has 13 offline tests with a stand-in connection (`tests/store/test_aiven_proof.py`). It does not create the supplier's login: that is the `CREATE ROLE` statement of section 3, run once by a person who then holds the password. With the login's URL in the environment as `SUPPLIER_DATABASE_URL`: `.venv/bin/python scripts/aiven_proof.py`.
 
-## 5. A witness of the trail's head (built, not run)
+## 5. A witness of the trail's head (its code ran once by hand; not scheduled on Modal)
 
-The hash chain shows a changed event in the middle. A trail cut at its end, or rewritten whole, still verifies by itself unless another party holds an earlier head. `deploy/witness.py` is that other party, in the supplier's seat: with the supplier's read-only login it reads the count, the last position and the last hash from `audit_supplier`, notes them, and at its next run checks that the head it noted is still in place. Its findings are: first run, same head, grown, shortened, rewritten. `deploy/modal_app.py` schedules it hourly on Modal only when `SUPPLIER_DATABASE_URL` is set on the deploying machine. That value has never been set, so the witness has never run.
+The hash chain shows a changed event in the middle. A trail cut at its end, or rewritten whole, still verifies by itself unless another party holds an earlier head. `deploy/witness.py` is that other party, in the supplier's seat: with the supplier's read-only login it reads the count, the last position and the last hash from `audit_supplier`, notes them, and at its next run checks that the head it noted is still in place. Its findings are: first run, same head, the same head for six hours or longer, grown, shortened, rewritten. `deploy/modal_app.py` schedules it hourly on Modal only when `SUPPLIER_DATABASE_URL` is set in the shell that deploys. That value has never been set, so no such function exists on Modal.
+
+**Ran once by hand, on 15 Nov at 03:57, on the team's machine:** the module's own `witness_once`, twice, over a connection that had taken the supplier role's rights (`SET ROLE tta_supplier`, read only), with its notes in a plain dict where Modal would keep a `modal.Dict`. The last two lines are the pure function alone, with no database:
+
+```
+connected as: tta_supplier | session user is the gateway's login
+run 1 at 2026-11-15T01:57:07+00:00: FIRST: First run: the head was noted (33 events, last number 33, hash c5cfc61f3895…).
+run 2 at 2026-11-15T01:57:07+00:00: SAME: The head is the one noted last time (33 events, last number 33, hash c5cfc61f3895…).
+note kept: {'count': 33, 'seq': 33, 'hash': 'c5cfc61f3895365357b81aeb07b082e6ad7d2b5ea0257a3cb8eee65a04a813e3', 'noted_at': '2026-11-15T01:57:07.673004+00:00', 'moved_at': '2026-11-15T01:57:07.590974+00:00', 'finding': 'SAME'}
+if the trail lost its last event: The audit trail was shortened: 33 events were noted (last number 33), and it holds 32 now (last number 32). The earlier note is kept.
+if the noted event were rewritten: The audit trail was rewritten: event number 33 was noted with hash c5cfc61f3895…, and that place holds ffffffffffff… now. The earlier note is kept.
+```
 
 ## What it costs
 
@@ -140,10 +283,10 @@ From a container far from the service, each round trip costs more.
 ## Reproduce
 
 1. Put the service URI from the Aiven console (Service → Connection information) in `.env` as `DATABASE_URL`.
-2. Run the tests against the service: `.venv/bin/python -m pytest tests/store_pg -q -m live`. Each test creates its own schema and drops it, with its roles. The tests that need no service run without `-m live`: `.venv/bin/python -m pytest tests/store_pg tests/api/test_store_choice.py -q`.
+2. Run the tests against the service: `.venv/bin/python -m pytest tests/store_pg -q -m live` (68 tests; run on 15 Nov, one file at a time, in under two minutes). Each test creates its own schema and drops it, with its roles. The tests that need no service run without `-m live`: `.venv/bin/python -m pytest tests/store_pg tests/api/test_store_choice.py -q`.
 3. Run the gateway locally: `TTA_ENV=dev .venv/bin/uvicorn --factory tta.api:create_app`. It writes schema `tta_dev`. Run the queries above with `psql "$DATABASE_URL"`, with `tta_dev` in place of `tta`.
 
-Steps 2 and 3 send SQL to the service. Neither was run on purpose since the morning of 14 Nov. Start a local gateway with `--no-proxy-headers` when it should not believe a forwarded address (`docs/ASSUMPTIONS.md`, row "Rate limits").
+Steps 2 and 3 send SQL to the service. Step 2 ran on 15 Nov; step 3 was not run on purpose since the morning of 14 Nov. Start a local gateway with `--no-proxy-headers` when it should not believe a forwarded address (`docs/ASSUMPTIONS.md`, row "Rate limits").
 
 ## Assumptions and next steps
 

@@ -1,0 +1,47 @@
+{
+  "product_id": "469426",
+  "retrieved_at": "2026-11-15T01:54:04.595598+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'Well Beef Beef Entrecote n 2 kg' (Finnish name 'Well Beef Naudan Entrecote n 2 kg', brand 'Well Beef'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://kaivonliha.fi/tuotteet/fileet/entrecote/",
+      "page_title": "Well Beef naudan entrecôte",
+      "product_name_on_page": "Well Beef naudan entrecôte n. 2,5kg",
+      "contains": [],
+      "may_contain": [],
+      "free_from": []
+    },
+    "sources": [
+      "https://kaivonliha.fi/tuotteet/fileet/entrecote/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 45385
+    },
+    "request_id": "3f252160-e1fb-449a-9735-8f308e8f2782"
+  }
+}

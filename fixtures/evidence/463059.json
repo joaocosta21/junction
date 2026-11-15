@@ -1,0 +1,48 @@
+{
+  "product_id": "463059",
+  "retrieved_at": "2026-11-15T01:54:05.597623+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'Naturkött Beef Tenderloin ca 1,8kg' (Finnish name 'Naturkött Härän Sisäfilee n1,8kg', brand 'Naturkött'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://norvida.se/produkt/oxfile-18-kg-3/",
+      "page_title": "Oxfilé 1,8 kg+, färsk",
+      "product_name_on_page": "Oxfilé 1,8 kg+, färsk",
+      "contains": [],
+      "may_contain": [],
+      "free_from": []
+    },
+    "sources": [
+      "https://norvida.se/produkt/oxfile-18-kg-3/",
+      "https://www.naturkott.se/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 48485
+    },
+    "request_id": "1bf06c6b-f960-4064-bc38-9b16b2231e70"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "product_id": "469386",
+  "retrieved_at": "2026-11-15T01:49:42.669000+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product '5 x Arla Lactose- and fatfree milkdrink 1 L Suomi ESL' (Finnish name '5 x Arla Laktoositon rasvaton maitojuoma 1 L Suomi ESL', brand 'Arla'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.arla.fi/tuotteet/maito/laktoositon-rasvaton-maitojuoma-suomi-1l-695740/",
+      "page_title": "Arla Maitoa Suomesta Laktoositon rasvaton maitojuoma Suomi 1 l",
+      "product_name_on_page": "Arla Maitoa Suomesta Laktoositon rasvaton maitojuoma Suomi 1 l",
+      "contains": [
+        "Maito"
+      ],
+      "may_contain": [],
+      "free_from": [
+        "Laktoositon"
+      ]
+    },
+    "sources": [
+      "https://www.arlapro.com/fi/tuotteet/arla-lton-rton-maitojuoma-1l-suomi-esl/",
+      "https://www.arla.fi/tuotteet/maito/laktoositon-rasvaton-maitojuoma-suomi-1l-695740/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 48685
+    },
+    "request_id": "e843be97-8757-431b-8e5a-8dcc5fe3d63d"
+  }
+}

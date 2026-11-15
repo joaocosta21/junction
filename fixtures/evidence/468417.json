@@ -1,0 +1,47 @@
+{
+  "product_id": "468417",
+  "retrieved_at": "2026-11-15T01:54:00.852071+00:00",
+  "endpoint": "POST https://api.context.dev/v1/web/answers",
+  "request": {
+    "mode": "ultra",
+    "task": "Find the official product page of the manufacturer or brand owner for the food product 'OAT DRINK CHOCO 1 L' (Finnish name 'KAURAJUOMA KAAKAO 1 L'), and read it. Report only what that page states. product_name_on_page and page_title: exactly as the page shows them. source_url: the address of that page. contains: each allergen the page names in its allergen information or marks in the ingredient list (for example in bold). may_contain: each allergen of a 'may contain' or traces statement. free_from: each allergen the page says the product is free from (for example gluten-free, milk-free, lactose-free). Use the page's own words. Leave a list empty when the page says nothing for it. Set page_found to false when no page of this product is found.",
+    "json_format": {
+      "page_found": true,
+      "source_url": "",
+      "page_title": "",
+      "product_name_on_page": "",
+      "contains": [
+        ""
+      ],
+      "may_contain": [
+        ""
+      ],
+      "free_from": [
+        ""
+      ]
+    },
+    "timeoutOpts": {
+      "milliseconds": 40000,
+      "behavior": "fail"
+    }
+  },
+  "response": {
+    "json_content": {
+      "page_found": true,
+      "source_url": "https://www.fazeraito.com/fi/tuotteet/93288/fazer-aito-choco-kaurajuoma-1l-uht/",
+      "page_title": "Fazer Aito Choco Kaurajuoma 1L UHT",
+      "product_name_on_page": "Fazer Aito Choco Kaurajuoma 1L UHT",
+      "contains": [],
+      "may_contain": [],
+      "free_from": []
+    },
+    "sources": [
+      "https://www.fazeraito.com/fi/tuotteet/93288/fazer-aito-choco-kaurajuoma-1l-uht/"
+    ],
+    "key_metadata": {
+      "credits_consumed": 100,
+      "credits_remaining": 46985
+    },
+    "request_id": "9661a44c-e67f-4637-b1c4-28bf925cc451"
+  }
+}

@@ -57,7 +57,7 @@ CALL_TIMEOUT_SECONDS = 120  # the request's own deadline is 40 s and its HTTP ti
 NO_RETRIES = 0
 SECRET_NAME = "CONTEXT_DEV_API_KEY"  # noqa: S105 - the name of the value, not the value
 # What `tta.evidence.batch` imports, at the versions of deploy/modal_app.py (tests/deploy checks they agree).
-PINNED = ("pydantic==2.14.3", "pydantic-settings==2.16.3", "httpx==0.28.1")
+PINNED = ("pydantic==2.14.3", "pydantic-settings==2.16.3", "httpx==0.28.1", "pyyaml==6.0.3")  # yaml: tta.catalog
 IMAGE_ENV = {"PYTHONPATH": f"{APP_ROOT}/src", "TTA_ENV": "demo", "TTA_MODE": "replay"}
 DEFAULT_TOTAL_CAP = 60  # tta.evidence.batch.DEFAULT_TOTAL_CAP (tests/deploy checks they agree)
 EXIT_OK, EXIT_NOTHING_ANSWERED, EXIT_SOME_FAILED, EXIT_TOTAL_SPENT, EXIT_COUNT_UNREADABLE = 0, 4, 5, 7, 8
