@@ -6,13 +6,13 @@
 - "Log hh:mm" = an entry of `AIMO/build/replan/STATUS.md`. `file:line` = the working tree.
 - João's rule for slides is applied to every replacement: no "limits" or "limitations" for what the demo does not do; the words are **Assumptions** and **Next steps**. The word "limit" stays only where it is a buyer's spend limit (the €750).
 
-## 0. Read this first: what changed after the review (Sun 15 Nov, 02:55)
+## 0. Read this first: what changed after the review (Sun 15 Nov)
 
 Four things were decided or built after the review below was written. Where this section and a row below disagree, this section wins.
 
 ### 0.1 The reader: a model and the rules, both
 
-The deck must say both. Measured at 02:45 on the local server with the team's key: the brief's own sentence was read by `gemini-3.6-flash` into 1,000 L of lactose-free milk for Monday 16 Nov; a loosely worded sentence whose day the model got wrong was refused by the gateway's check of the reading against the text; and when the model answered "rate limited" twice, the fixed rules read the sentence instead and the answer said so.
+The deck must say both. Measured on the local server with the team's key: the brief's own sentence was read by `gemini-3.6-flash` into 1,000 L of lactose-free milk for Monday 16 Nov; a loosely worded sentence whose day the model got wrong was refused by the gateway's check of the reading against the text; and when the model answered "rate limited" twice, the fixed rules read the sentence instead and the answer said so.
 
 - **Line for the solution page (page 3 or 4, wherever "fixed rules" stands):** "A model reads the sentence. The gateway checks the reading against the text, and fixed rules decide. If the model does not answer, the rules read it too."
 - **Why both, if asked:** reading and deciding are two jobs. The model understands messy language; what may be ordered is decided by rules a person can read and audit. A model never decides.

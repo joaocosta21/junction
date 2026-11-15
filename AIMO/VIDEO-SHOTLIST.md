@@ -1,4 +1,4 @@
-# Video: shot list (2:00, strictly) — FINAL, Sun 15 Nov 03:55
+# Video: shot list (2:00, strictly) — FINAL, Sun 15 Nov
 
 Every block below was walked as written in Chrome (headless, 1440 × 900) on commit `dbb8e13`, at the demo clock, with the pictures looked at, without a model, which is how your server runs. One lane is still adding a price limit read from the sentence: it changes none of these blocks.
 
@@ -11,7 +11,7 @@ Every block below was walked as written in Chrome (headless, 1440 × 900) on com
 - Type the sentences exactly. Say litres, not cartons. No price in a sentence.
 
 ### The reader
-The server runs without a model, like the public link (João, 03:50: "the public link without the model so the experience is fluid"). Sentences are read by the fixed rules, at once, and the grey line under "Asked" says so. No waiting between requests is needed. The deck still says, truthfully, that a model can read the sentence and that the rules check it and decide: that path exists and was measured, it is only not switched on here.
+The server runs without a model, like the public link (João: "the public link without the model so the experience is fluid"). Sentences are read by the fixed rules, at once, and the grey line under "Asked" says so. No waiting between requests is needed. The deck still says, truthfully, that a model can read the sentence and that the rules check it and decide: that path exists and was measured, it is only not switched on here.
 
 ## The blocks
 

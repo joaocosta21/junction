@@ -1,4 +1,4 @@
-# Pitch script (spoken), three minutes — Sun 15 Nov, 04:25
+# Pitch script (spoken), three minutes — Sun 15 Nov
 
 Your slide timings, kept as they were. The four corrections are in; three of the four additions fit by replacing weaker lines word for word (the 302 / 303 litres line does not fit and is left out). About the same number of spoken words as your version.
 
