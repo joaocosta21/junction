@@ -162,7 +162,7 @@ def test_the_model_reads_a_sentence_and_the_reading_says_who_read_it(
     assert body["model"] == MODEL and body["temperature"] == 0
     assert body["response_format"]["type"] == "json_schema"
     required = body["response_format"]["json_schema"]["schema"]["required"]
-    assert required == ["needed_by", "require_confirmed", "prefer", "lines"]
+    assert required == ["needed_by", "require_confirmed", "prefer", "max_net_eur", "lines"]
     assert [message["role"] for message in body["messages"]] == ["system", "user"]
     assert body["messages"][1]["content"] == MILK and "JSON Schema" in body["messages"][0]["content"]
     assert built.status.reachable is True

@@ -73,8 +73,11 @@ def test_canonical_option_is_explained_in_one_sentence_with_the_numbers_and_the_
     assert decision.fired[0].sentence == (
         "The total of €1,980.77 before tax is above the €750 limit per order of Harbourside Hotel."
     )
+    # The limit the order was judged against and where it came from (lane FP-B): the request named no amount.
     assert decision.fired[0].facts == {
         "option.net_eur": 1980.77, "profile.max_order_net_eur": 750.0, "profile.display_name": "Harbourside Hotel",
+        "order.spend_limit_net_eur": 750.0, "order.spend_limit_said": "the €750 limit per order of Harbourside Hotel",
+        "order.spend_limit_source": "the buyer's limit per order", "request.max_net_eur": None,
     }
     assert decision.fired[1].facts == {
         "option.fill_ratio": 0.749, "profile.min_fill_ratio": 0.9, "option.least_covered": "the requested quantity",

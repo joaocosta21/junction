@@ -279,7 +279,8 @@ def test_only_the_top_option_of_the_latest_offer_may_be_ordered(
     run = runner.run_agent(SCENARIO_1, agent_hotel, parts.service)
 
     assert [step.ok for step in run.steps] == [True, True, False, True]
-    assert [option["option_id"] for option in run.steps[1].result["options"]] == ["opt_1", "opt_2"]
+    # Three options since the fix lanes of 15 Nov 2026 (measured at the recording's clock, Sat 14 Nov 2026 02:52).
+    assert [option["option_id"] for option in run.steps[1].result["options"]] == ["opt_1", "opt_2", "opt_3"]
     refused = run.steps[2]
     assert refused.result["error"] == "invalid-request"
     assert refused.sentence and "opt_1" in refused.sentence and "opt_2" not in refused.sentence

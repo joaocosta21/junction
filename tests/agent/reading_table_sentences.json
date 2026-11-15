@@ -1,5 +1,5 @@
 {
-  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. review_s3_s4: the sentences of the review of the whole diff of 14 Nov 2026 (AIMO/build/replan/REVIEW.md, findings S3 and S4). review_p: the sentences of the Python review of the same day (findings P1, P6 and P7). l1_3: the sentences of lane L1-3 (decisions B39 and B40, and the place that is not a use). fix_r: the sentences of the checks of 15 Nov 2026 (AIMO/build/replan/REVIEW.md, rows C2-8 and C4-F9): a minus, a pack word, an amount of money, another language, a drink by the kilogram. A sentence that starts with [ward] is read for the allergy ward, one that starts with [school] for the school kitchen; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
+  "_about": "The sentences of docs/READING-TABLE.md that no page holds. review_40: the 40 hard sentences of the review of 14 Nov 2026 (replan A2b). a5: the 15 requests R01 to R15 of AIMO/build/replan/A5-rubric-score.md section 6. review_s3_s4: the sentences of the review of the whole diff of 14 Nov 2026 (AIMO/build/replan/REVIEW.md, findings S3 and S4). review_p: the sentences of the Python review of the same day (findings P1, P6 and P7). l1_3: the sentences of lane L1-3 (decisions B39 and B40, and the place that is not a use). fix_r: the sentences of the checks of 15 Nov 2026 (AIMO/build/replan/REVIEW.md, rows C2-8 and C4-F9): a minus, a pack word, an amount of money, another language, a drink by the kilogram. fp_b: the sentences of lane FP-B (15 Nov 2026): an amount of money read as the most to spend on the request, before tax, and the amounts that are still asked about (a unit price, two amounts, another currency, no word that makes it a limit, a number that can be read two ways). A sentence that starts with [ward] is read for the allergy ward, one that starts with [school] for the school kitchen; every other one for the hotel. read_wrong: a sentence whose reading a person judged wrong, with why; a row that changes fails the test until it is judged again.",
   "brief": "I need 1,000 litres of lactose-free milk by Monday. Find an option that meets our requirements based on price and availability.",
   "review_40": [
     "1,000 litres of milk by Monday",
@@ -106,6 +106,25 @@
     "Tarvitsen 500 litraa laktoositonta maitoa maanantaiksi",
     "Jag behöver 500 liter laktosfri mjölk till måndag",
     "5 KG of milk"
+  ],
+  "fp_b": [
+    "1,000 litres of lactose-free milk by Monday, no more than €1,000",
+    "1,000 litres of lactose-free milk by Monday within a budget of 1,000 euros",
+    "1,000 litres of lactose-free milk by Monday for less than 800 €",
+    "200 litres of lactose-free milk by Monday, under €400",
+    "200 litres of lactose-free milk by Monday, under €600",
+    "200 litres of lactose-free milk by Monday, up to 399,50 €",
+    "200 litres of milk and 5 kg of butter by Monday, a budget of 600",
+    "200 litres of lactose-free milk by Monday with a €400 budget",
+    "[school] 40 litres of oat drink by Monday, at most 100 euros",
+    "200 litres of milk under €2 a litre",
+    "200 litres of milk, max 2 euros per litre",
+    "200 litres of milk under €400 and 5 kg of butter under €50",
+    "200 litres of milk under $400",
+    "200 litres of milk for €400",
+    "200 litres of milk, at least €400",
+    "200 litres of milk under €1.000",
+    "200 litres of milk, max 400"
   ],
   "read_wrong": {}
 }

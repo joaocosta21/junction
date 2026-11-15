@@ -126,6 +126,12 @@ facts:
   option.total_excludes_deposits: {type: bool,     source: option, label: "whether the total says it leaves deposits out", note: "totals.excludes_deposits"}
   option.net_above_cheapest:      {type: money,    source: option, label: "what the option costs above the cheapest confirmed option", note: "OfferOption.net_above_cheapest, set on the option ranked by the buyer's preference when a cheaper confirmed option is offered next to it; 0 when the offer sets none"}
   option.preference_premium_ratio: {type: ratio,   source: engine, label: "the premium of the preference", note: "option.net_above_cheapest as a share of the cheapest confirmed option's net total (option.net_eur minus option.net_above_cheapest); 0 when the option costs nothing more; missing when that total is not above 0"}
+  # --- the request, as the buyer sent it ---
+  request.max_net_eur:            {type: limit,  source: context, label: "the most the request says to spend", note: "PurchaseRequest.max_net_eur, euros before tax: the amount a buyer names in the request ('under €1,000'); read from the request as sent, which the gateway holds while it builds an offer and the order book while an order is placed. Read by no condition, so a request that names none is never a missing fact"}
+  order.spend_limit_net_eur:      {type: limit,  source: engine,  label: "the spend limit for this order", note: "the lower of profile.max_order_net_eur and request.max_net_eur; the profile's own when the request names no amount. The amount can only lower the limit, for the one request that names it"}
+  order.spend_limit_source:       {type: string, source: engine,  label: "where the spend limit for this order came from", note: "'the buyer's limit per order', or 'the amount the request names' when that amount is below the buyer's limit"}
+  order.spend_limit_said:         {type: string, source: engine,  label: "the spend limit for this order, in words", note: "rule P-01's words: 'the €750 limit per order of Harbourside Hotel', or 'the €1,000 you named for this request' when the named amount is the lower one"}
+  order.within_spend_limit_said:  {type: string, source: engine,  label: "the limits an order placed alone is within, in words", note: "'the €750 limit per order'; with an amount named in the request, 'the €750 limit per order and the €600 you named for this request'"}
   # --- the order context ---
   context.at_order_time:          {type: bool,  source: context, label: "whether an order is being placed"}
   context.day_committed_net_eur:  {type: money, source: context, label: "today's committed spend", missing_role: finance, note: "ORDERED and PENDING_APPROVAL orders of the profile today, this order excluded"}
@@ -484,13 +490,18 @@ rules:
     scope: order
     when:
       all:
-        - {fact: option.net_eur, op: gt, value: {fact: profile.max_order_net_eur}}
+        # The lower of the buyer's limit per order and the amount the request names ("under €1,000"), when it
+        # names one (tta.policy.spend_limit_facts). The amount can only lower the limit, for that one request.
+        - {fact: option.net_eur, op: gt, value: {fact: order.spend_limit_net_eur}}
     verdict: APPROVAL
     approver_role: purchasing_manager
-    message: "the total of €{option.net_eur} before tax is above the €{profile.max_order_net_eur} limit per order of {profile.display_name}"
+    # "… is above the €750 limit per order of Harbourside Hotel", or "… is above the €1,000 you named for this
+    # request" when the named amount is the lower of the two.
+    message: "the total of €{option.net_eur} before tax is above {order.spend_limit_said}"
+    records: [order.spend_limit_source, profile.max_order_net_eur, profile.display_name, request.max_net_eur]
     authority:
       - text: "An order above €{profile.max_order_net_eur} before tax goes to the purchasing manager."
-    justification: "Standard spend control; the brief names it as a guardrail."
+    justification: "Standard spend control; the brief names it as a guardrail. A buyer who writes 'under €1,000' in a request names a tighter limit for that one request: the lower of the two applies, so the amount can send an option to a person and can never let one through that the buyer's own limit would stop."
 
   - id: P-02
     fixed: false
@@ -672,7 +683,7 @@ decision_sentences:
   # AUTO is read only of an order the agent really may place: with the buyer's setting off, or with a statement
   # that is not confirmed, F-10 replaces this sentence (tta.policy.human_approval). So it can say why the order is
   # allowed, with the figures the engine read, and it names no rule id: a person reads it on the order.
-  AUTO: "The agent may place this order alone: ordering alone is switched on for {profile.display_name}; the total of €{option.net_eur} before tax is within the €{profile.max_order_net_eur} limit per order; today's spend with this order would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day; {option.fill_ratio} of the requested quantity is covered; every statement of the offer is confirmed; and no rule asks for a person."
+  AUTO: "The agent may place this order alone: ordering alone is switched on for {profile.display_name}; the total of €{option.net_eur} before tax is within {order.within_spend_limit_said}; today's spend with this order would be €{order.day_net_eur} of the €{profile.max_daily_net_eur} limit per day; {option.fill_ratio} of the requested quantity is covered; every statement of the offer is confirmed; and no rule asks for a person."
   APPROVAL: "The agent cannot place this order alone: {reasons}. It needs {roles}."
   BLOCK: "This order cannot be placed, even with approval: {reasons}."
 

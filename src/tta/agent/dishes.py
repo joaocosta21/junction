@@ -10,6 +10,8 @@ no catalog, no clock. It is given the dish names of the recipe table and today's
 - a number is never shared between dishes: "lasagne and oven pancake for 50" asks about the lasagne;
 - a dish that is not among the names ("tiramisu for 10") is named as unknown, never matched to a near one;
 - the day is read by the request reader's calendar rule (`tta.agent.days`); two days are asked about.
+- an amount of money ("under €100") is asked about: a product request carries the most to spend
+  (`tta.agent.budget`), a menu plan does not yet, and an amount is never dropped (lane FP-B).
 A sentence that names no dish and no "... for N" reads as nothing (`None`).
 """
 
@@ -20,6 +22,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from tta.agent.budget import amounts_said
 from tta.agent.days import day_spans, impossible_dates, named_dates
 from tta.availability.wording import format_day
 
@@ -45,6 +48,11 @@ NAMED_TWICE = "{dish} is named twice ({first} and {second} servings). Name a dis
 SEVERAL_DAYS = "The sentence names {count} days ({days}). Which day is it needed by?"
 NOT_A_DATE = '"{said}" is not a date. Which day is it needed by?'
 IN_THE_PAST = "{day} is in the past. Which day is it needed by?"
+MONEY_NOT_APPLIED = (
+    'The sentence gives an amount of money ("{said}"), and a spend limit is not applied to a menu plan yet. Can '
+    "you send it again without the amount? The plan states each option's total before tax, and above your limit "
+    "per order or per day a person approves."
+)
 # What stands before a dish in a sentence and is no part of its name, stripped when an unknown dish is quoted.
 _LEAD_IN = re.compile(
     r"^(?:(?:i|we)(?:'d| would)? (?:want|need|like|plan|have)(?: to)?|please|can you|could you|let's|lets|"
@@ -260,5 +268,7 @@ def read_dishes(text: str, names: Mapping[str, Sequence[str]], today: date) -> D
     first_of_each = {dish.dish_id: dish for dish in reversed(dishes)}
     return DishSentence(
         dishes=tuple(first_of_each[dish_id] for dish_id in dict.fromkeys(dish.dish_id for dish in dishes)),
-        unknown=unknown, needed_by=needed_by, problems=(*_dish_problems(found, numbers), *day_problems),
+        unknown=unknown, needed_by=needed_by,
+        problems=(*_dish_problems(found, numbers), *day_problems,
+                  *(MONEY_NOT_APPLIED.format(said=said) for said in amounts_said(folded)[:1])),
     )

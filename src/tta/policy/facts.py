@@ -52,6 +52,7 @@ from tta.policy.human_approval import ROLE_NAMES, decided_as, dietitian_is_secon
 from tta.policy.last_resort_facts import LAST_RESORT_FACTS
 from tta.policy.premium_facts import PREMIUM_LINE_FACTS, PREMIUM_ORDER_FACTS, PREMIUM_PROFILE_FACTS, price_said
 from tta.policy.reading import Missing, Reading
+from tta.policy.spend_limit_facts import SPEND_LIMIT_FACTS
 from tta.policy.standing_facts import STANDING_FACTS
 from tta.policy.text import format_datetime, join_words, plain_name, unique
 
@@ -298,6 +299,7 @@ ORDER_FACTS: Mapping[str, Callable[[OrderScope], Reading]] = {
     "option.total_is_ceiling": lambda scope: scope.option.totals.is_ceiling,
     "option.total_excludes_deposits": lambda scope: scope.option.totals.excludes_deposits,
     "context.at_order_time": lambda scope: scope.context.at_order_time,
+    **SPEND_LIMIT_FACTS,  # rule P-01: the lower of the buyer's limit per order and the amount a request names
     **DAY_FACTS,  # the day's spend, rule P-02
     "order.stale_reason": _stale_reason,
     "revalidation.ok": _revalidation_ok,

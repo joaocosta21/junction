@@ -230,12 +230,14 @@ def test_the_use_narrows_only_the_line_it_is_said_on(rules: ModelRequestParser, 
 
 
 def test_cream_for_whipping_finds_whipping_creams_only(catalog: ProductCatalog) -> None:
-    """Measured on the product file: the 42 creams, 15 with "whipping" in the name, 17 with "cooking"."""
+    """Measured on the product file on 15 Nov 2026, with the product-type table as lane FIX-O1 left it (a type
+    holds only the plain product): 32 creams, 15 with "whipping" in the name, 10 with "cooking". Before that
+    lane: 42, 15 and 17."""
     cream = catalog.search(ProductQuery(product_type="cream"))
     whipping = catalog.search(ProductQuery(product_type="cream", name_terms=("whipping",)))
     cooking = catalog.search(ProductQuery(product_type="cream", name_terms=("cooking",)))
 
-    assert (cream.total, whipping.total, cooking.total) == (42, 15, 17)
+    assert (cream.total, whipping.total, cooking.total) == (32, 15, 10)
     assert all("whipping" in product.name_en.casefold() for product in whipping.products)
     assert all("cooking" in product.name_en.casefold() for product in cooking.products)
 

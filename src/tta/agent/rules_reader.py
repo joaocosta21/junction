@@ -35,7 +35,10 @@ and read nothing else. Deterministic: no model, no network.
   ("no sugar"),
   two days, a day before today, two preferences, both "strict" and "declared only", and every wording of
   `tta.agent.asking` (a negation, a deadline in days or weeks, an allergen named outside an exclusion, a case,
-  a box, a carton, a pallet or a portion, an amount of money), and a number with a minus (`tta.agent.quantity`).
+  a box, a carton, a pallet or a portion), and a number with a minus (`tta.agent.quantity`).
+- One amount in euros with a word that makes it a limit ("under €1,000", "a budget of 1,000 euros") is the most
+  to spend on the request, before tax (`max_net_eur`); the words that say it are set aside before anything else
+  is read. Any other amount of money is asked about (`tta.agent.budget`).
 - A quantity in packs, pieces or units is read as sales units, and a drink asked for by the kilogram is read by
   weight: the reading says both (`tta.agent.measures`; review C2-8). Nothing about a unit is read without a word.
 - A text in Finnish or Swedish that the rules cannot read is answered as such: they read English only for now
@@ -58,12 +61,12 @@ from tta.agent.asking import (
     refuse_a_deadline_with_no_day,
     refuse_a_pack_of_unknown_size,
     refuse_an_allergen_left_unsaid,
-    refuse_an_amount_of_money,
     refuse_an_unread_deadline,
     refuse_negations,
     unknown_product_word,
 )
 from tta.agent.brands import NO_BRANDS, Brands
+from tta.agent.budget import split_budget
 from tta.agent.days import day_spans, named_dates
 from tta.agent.language import in_another_language
 from tta.agent.leftover import parts_per_line, refuse_an_order_taken_back, with_the_rest_settled
@@ -189,8 +192,12 @@ class RuleReader:
 
     def _proposal(self, text: str, today: date) -> JsonDict:
         seen = Text.of(text, today)
+        _refuse_before_the_amount(seen, milk_substitute=self._reads_milk_substitute)
+        amount, rest = split_budget(seen.folded)  # raises for an amount that is not clearly the most to spend
+        if amount is not None:
+            seen = Text.of(rest, today)  # the words that say the amount say nothing else
         excluded, excluding = exclusions(seen.words)
-        _refuse_what_is_not_read(seen, excluding, milk_substitute=self._reads_milk_substitute)
+        _refuse_what_is_not_read(seen, excluding)
         parts = with_lone_product_numbers(seen, [part_of(seen, span) for span in seen.parts])
         usual = usual_words(seen.asked(excluding))
         if usual and not any(self._named(seen, part, excluding) or part.product_ids for part in parts):
@@ -223,7 +230,7 @@ class RuleReader:
         refuse_an_allergen_left_unsaid(  # "declared allergens only" says the rule, not an allergen
             seen.asked(excluding), self._product_words(seen, lines, excluding) | rule_words
         )
-        return {**_request_facts(seen), "lines": read}
+        return {**_request_facts(seen), "max_net_eur": None if amount is None else str(amount), "lines": read}
 
     def _named(self, seen: Text, part: Part, excluding: frozenset[int]) -> dict[str, frozenset[int]]:
         """The types the part names, leaving out the words of an exclusion: "no milk" names no milk. "A milk
@@ -318,13 +325,17 @@ def _name_terms(context: _Context, number: int, part: Part, key: str | None, cov
     return list(dict.fromkeys([*brands, *narrowing, *([variant.term] if variant else [])]))
 
 
-def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int], *, milk_substitute: bool) -> None:
+def _refuse_before_the_amount(seen: Text, *, milk_substitute: bool) -> None:
+    """What is asked about before an amount of money is looked for: "cancel the order of €1,000" is an order
+    taken back, whatever its amount."""
     other_substitute = MILK_SUBSTITUTE.sub("", seen.folded) if milk_substitute else seen.folded
     if SUBSTITUTE.search(other_substitute):
         raise NotReadByRules(A_SUBSTITUTE, ASK_WHICH_INSTEAD)
     refuse_an_order_taken_back(seen)
+
+
+def _refuse_what_is_not_read(seen: Text, excluding: frozenset[int]) -> None:
     asked = seen.asked(excluding)
-    refuse_an_amount_of_money(asked)  # before "no more than" is taken for an exclusion and "within" for a deadline
     refuse_negations(asked)
     refuse_an_unread_deadline(asked)
     refuse_a_changed_amount(without_usual(asked))  # "the same as usual" is not "the same again"

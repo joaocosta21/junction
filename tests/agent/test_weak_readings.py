@@ -9,7 +9,8 @@ Saturday 14 Nov 2026. No model is called.
   10400 in the product file, 55 have the sales unit `KI` and 33 `ST`, counted on 15 Nov 2026. One sales unit of
   the oat drink 471690 (`KI`) is a case of ten 1-litre packs, one of the milk 464306 (`ST`) a single 1-litre
   pack: a carton is not a sales unit for sure;
-- "under €1,000" was answered "What does 1,000 stand for?";
+- "under €1,000" was answered "What does 1,000 stand for?". Since lane FP-B such an amount is read as the most to
+  spend on the request (`tests/agent/test_budget.py`); an amount that is not clearly that is still asked about;
 - a Finnish sentence was answered "Which product is needed on line 1?";
 - "5 KG of milk" was read as kilograms without a word, and the offer counts one-litre packs.
 """
@@ -48,10 +49,10 @@ MINUS_ASK = (
 )
 PACK_ASK = "How many litres, kilograms or packs is that? Write the quantity in one of those units."
 MONEY_ASK = (
-    "Can you send it again without the amount of money? Every option of the offer states its total before tax, and "
-    "unless the request prefers something else each takes the cheapest products that cover the quantity. The limits "
-    "that are applied are the buyer's settings: above the limit per order or per day, a person approves."
+    'Is {said} the most to spend on this request, before tax? Then write "under {said}". A price is not agreed in '
+    "a request: every option of the offer states its total before tax."
 )
+USED = "is read as the most to spend on this request, before tax: an option above it goes to a person."
 ENGLISH_ASK = "Can you write it in English? For example: 200 litres of oat drink by Monday."
 SALES_UNITS = (
     "A sales unit is the pack Valio Aimo sells a product in: a single pack for some products, a case of several for "
@@ -213,24 +214,44 @@ def test_a_quantity_in_litres_says_nothing_about_sales_units(rules: ModelRequest
 @pytest.mark.parametrize(
     ("text", "said"),
     [
-        ("1,000 litres of lactose-free milk by Monday, under €1,000", "€1,000"),
-        ("1,000 litres of lactose-free milk by Monday, max 1000 euros", "1000 euros"),
-        ("1,000 litres of lactose-free milk by Monday with a budget of €1,000", "€1,000"),
-        ("1,000 litres of milk under €1,000", "€1,000"),
-        ("1000 litres of milk, at most 1 000 €", "1 000 €"),
-        ("1000 litres of milk for less than EUR 1000", "eur 1000"),
-        ("1000 litres of milk, a budget of 1000", "budget of 1000"),
+        ("1,000 litres of lactose-free milk by Monday for €1,000", "€1,000"),
+        ("1,000 litres of lactose-free milk by Monday, 1000 euros", "1000 euros"),
+        ("1,000 litres of milk at about €1,000", "€1,000"),
+        ("1000 litres of milk, at least 1 000 €", "1 000 €"),
+        ("1000 litres of milk for more than EUR 1000", "eur 1000"),
     ],
 )
 def test_an_amount_of_money_is_asked_about_with_a_sentence_that_helps(
     rules: ModelRequestParser, text: str, said: str
 ) -> None:
+    """An amount with no word that makes it a limit is never dropped and never taken for one: the question says
+    how to name the most to spend, and what the offer states either way."""
     refused = _asked(rules, text)
 
-    assert refused.why == (
-        f'it gives an amount of money ("{said}"), and a price limit in the sentence is not applied yet'
-    )
-    assert refused.ask == MONEY_ASK
+    assert refused.why == f'it gives an amount of money ("{said}") without saying that it is the most to spend'
+    assert refused.ask == MONEY_ASK.format(said=said)
+
+
+@pytest.mark.parametrize(
+    ("text", "amount"),
+    [
+        ("1,000 litres of lactose-free milk by Monday, under €1,000", "€1,000"),
+        ("1,000 litres of lactose-free milk by Monday, max 1000 euros", "€1,000"),
+        ("1,000 litres of lactose-free milk by Monday with a budget of €1,000", "€1,000"),
+        ("1,000 litres of milk under €1,000", "€1,000"),
+        ("1000 litres of milk, at most 1 000 €", "€1,000"),
+        ("1000 litres of milk for less than EUR 1000", "€1,000"),
+        ("1000 litres of milk, a budget of 1000", "€1,000"),
+    ],
+)
+def test_an_amount_named_as_a_limit_is_read_and_the_reading_says_how_it_is_used(
+    rules: ModelRequestParser, text: str, amount: str
+) -> None:
+    """The sentences that were refused until lane FP-B: "a price limit in the sentence is not applied yet"."""
+    reading = _read(rules, text)
+
+    assert reading.request.max_net_eur == Decimal(1000)
+    assert _says(reading).endswith(f"{amount} {USED}")
 
 
 @pytest.mark.parametrize(
@@ -238,11 +259,11 @@ def test_an_amount_of_money_is_asked_about_with_a_sentence_that_helps(
     ["1000 litres of milk by Monday, no more than €1,000", "1000 litres of milk by Monday within a budget of "
      "€1,000", "1000 litres of organic milk, not above €1,000"],
 )
-def test_the_money_is_named_before_the_words_around_it_are_taken_for_something_else(
+def test_the_money_is_read_before_the_words_around_it_are_taken_for_something_else(
     rules: ModelRequestParser, text: str
 ) -> None:
     """ "No more than" used to be asked about as an exclusion, and "within" as a deadline."""
-    assert "an amount of money" in _asked(rules, text).why
+    assert _read(rules, text).request.max_net_eur == Decimal(1000)
 
 
 def test_a_number_with_no_currency_and_no_budget_is_asked_about_as_before(rules: ModelRequestParser) -> None:
@@ -259,9 +280,9 @@ def test_an_order_taken_back_is_still_named_first(rules: ModelRequestParser) -> 
     assert '"cancel"' in _asked(rules, "200 litres of milk, cancel the order of €1,000").why
 
 
-def test_an_amount_of_money_is_asked_about_whoever_reads() -> None:
+def test_an_unclear_amount_of_money_is_asked_about_whoever_reads() -> None:
     with pytest.raises(NotReadByRules, match="amount of money"):
-        ask_whoever_reads("1,000 litres of milk under €1,000", SATURDAY)
+        ask_whoever_reads("1,000 litres of milk for €1,000", SATURDAY)
 
 
 # --- 4. another language (C2-8) ----------------------------------------------------------------------------
@@ -356,7 +377,7 @@ ASKED_OVER_REST = [
     ("hotel-kitchen", "-5 litres of milk", "Is 5 litres meant?"),
     ("school-kitchen", "-5 litres of milk", "Is 5 litres meant?"),
     ("hotel-kitchen", "50 cartons of lactose-free milk", "How many litres, kilograms or packs is that?"),
-    ("hotel-kitchen", "1,000 litres of lactose-free milk by Monday, under \u20ac1,000", "Can you send it again"),
+    ("hotel-kitchen", "1,000 litres of lactose-free milk by Monday for \u20ac1,000", "Is \u20ac1,000 the most to"),
     ("hotel-kitchen", "Tarvitsen 500 litraa laktoositonta maitoa maanantaiksi", "Can you write it in English?"),
 ]
 

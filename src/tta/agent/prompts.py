@@ -65,7 +65,10 @@ say.
 16. required_labels are certificate labels the product itself must carry, as codes of the table below, only \
 when the text names one: "organic" ("luomu", "ekologisk") is EU_ORGANIC_FARMING, "MSC" is \
 MARINE_STEWARDSHIP_COUNCIL_LABEL, "Fairtrade" is FAIR_TRADE_MARK. Otherwise empty. A label is never a claim and \
-never an allergen exclusion."""
+never an allergen exclusion.
+17. max_net_eur is the most the buyer wants to spend on the whole request, in euros before tax, only when the \
+text names one amount in euros as a limit ("under €1,000", "a budget of 1,000 euros", "max 1000 euros"). null \
+when the text names none. Never a price per unit, never an amount in another currency, never a guess."""
 
 RUNNER_INSTRUCTION = """\
 You are the purchasing agent of one buyer. You act only by calling the functions of the supplier's gateway.

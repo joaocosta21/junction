@@ -162,3 +162,24 @@ def test_the_longest_dish_name_wins_and_a_name_inside_another_word_is_not_a_dish
 
     assert read_dishes("chocolate cake for 20", names, SATURDAY).dishes == (DishRead("chocolate_cake", 20),)
     assert read_dishes("pancake for 20", names, SATURDAY).dishes == ()
+
+
+# --- an amount of money (lane FP-B) -------------------------------------------------------------------------
+
+
+def test_an_amount_of_money_in_a_dish_sentence_is_asked_about_and_never_dropped() -> None:
+    """A product request carries the most to spend ("under €100"); a menu plan does not yet, so the dish sentence
+    is asked about instead of being planned with the amount left out."""
+    reading = _read("I want to make a chocolate cake for 20 people by Monday, under €100")
+
+    assert reading is not None and not reading.is_complete
+    assert reading.dishes == (DishRead("chocolate_cake", 20),) and reading.needed_by == date(2026, 11, 16)
+    assert reading.problems == (
+        'The sentence gives an amount of money ("€100"), and a spend limit is not applied to a menu plan yet. Can '
+        "you send it again without the amount? The plan states each option's total before tax, and above your limit "
+        "per order or per day a person approves.",
+    )
+
+
+def test_a_dish_sentence_with_no_amount_of_money_is_read_as_before() -> None:
+    assert _read("I want to make a chocolate cake for 20 people by Monday").problems == ()

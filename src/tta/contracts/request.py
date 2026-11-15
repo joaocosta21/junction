@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, ConfigDict, Field, StringConstraints, model_validator
 
-from tta.contracts.common import AllergenStrictness, Contract, PackPreference, Preference, Quantity, Unit
+from tta.contracts.common import AllergenStrictness, Contract, Money, PackPreference, Preference, Quantity, Unit
 
 MAX_PRODUCT_IDS = 1000
 MAX_REQUEST_LINES = 20
@@ -22,6 +22,8 @@ MAX_TERM_LENGTH = 60
 MAX_ID_LENGTH = 20
 MAX_SUGGESTION_ID_LENGTH = 120  # as `tta.contracts.suggestion.MAX_ID_LENGTH`, which imports this module
 MAX_ROLE_LENGTH = 200
+MAX_NET_EUR = Decimal(10_000_000)  # far above any real order; keeps arithmetic and JSON bounded
+MONEY_DECIMALS = 2
 
 _FORBIDDEN_IN_A_TERM = frozenset('"\u201c\u201d\u201e\u00ab\u00bb<>')
 
@@ -138,6 +140,13 @@ class PurchaseRequest(Contract):
         description="The `suggestion_id` of the suggestion this request accepts: set in every suggestion's "
         "`accept_request`. The gateway records the acceptance in the audit trail when an earlier offer of the same "
         "buyer showed that suggestion. It changes nothing in the offer: the request meets every rule like any other",
+    )
+    max_net_eur: Money | None = Field(
+        default=None, gt=0, le=MAX_NET_EUR, decimal_places=MONEY_DECIMALS,
+        description="The most the buyer wants to spend on this request, in euros before tax. An option whose total "
+        "before tax is above it goes to a person (rule P-01), as one above the buyer's own limit per order does: "
+        "the lower of the two applies. It can only add a check: it never raises the buyer's limit, it is not the "
+        "limit per day, and it removes no option",
     )
 
 

@@ -10,7 +10,8 @@ The sentences: the brief's own; every example a page offers (`tta.ui.examples`, 
 `ui/static/shop/js/kitchens.js`, both read here and owned by other lanes), each for its own customer and compared
 with the typed request the example carries; the review's 40 hard sentences, A5's R01 to R15, the sentences of the
 review of the whole diff (S3, S4), of lane L1-3 and of the checks of 15 Nov 2026 (lane FIX-R: a minus, a pack word,
-an amount of money, another language, a drink by the kilogram) (`reading_table_sentences.json`). No model is
+an amount of money, another language, a drink by the kilogram), and those of lane FP-B (an amount of money read
+as the most to spend on the request, and the amounts still asked about) (`reading_table_sentences.json`). No model is
 called: the reader is `RuleModel` behind the parser, at the clock of
 the recording (`fixtures/valio/2026-11-14-demo`).
 """
@@ -46,6 +47,7 @@ WRITE = "TTA_WRITE_READING_TABLE"
 HOTEL, WARD, SCHOOL = "hotel-kitchen", "allergy-ward", "school-kitchen"
 MARKS = {"[ward] ": WARD, "[school] ": SCHOOL}  # how a sentence of the file names its customer; none: the hotel
 SAME, NO_EXAMPLE = "same", ""
+MOST_TO_SPEND = "is read as the most to spend on this request, before tax: an option above it goes to a person."
 
 Json = dict[str, Any]
 
@@ -132,7 +134,7 @@ def shop_examples() -> list[tuple[str, str, PurchaseRequest]]:
 
 def rows() -> list[Row]:
     """Every sentence once per customer, in the order: the brief, the pages, the shop, the review, A5, the review
-    of the whole diff (S3 and S4), lane L1-3, the checks of 15 Nov (lane FIX-R)."""
+    of the whole diff (S3 and S4), lane L1-3, the checks of 15 Nov (lane FIX-R), the amounts of lane FP-B."""
     data = json.loads(SENTENCES.read_text(encoding="utf-8"))
     listed: list[Row] = [Row(HOTEL, data["brief"], ("the brief",))]
     listed += [Row(example.agent_id.removeprefix("agent:"), example.text, (f"page example {example.key}",),
@@ -141,7 +143,7 @@ def rows() -> list[Row]:
                for customer, text, request in shop_examples()]
     for name, label in (("review_40", "review {n}"), ("a5", "A5 R{n:02d}"), ("review_s3_s4", "review S3/S4 {n}"),
                         ("review_p", "review P {n}"),
-                        ("l1_3", "L1-3 {n}"), ("fix_r", "FIX-R {n}")):
+                        ("l1_3", "L1-3 {n}"), ("fix_r", "FIX-R {n}"), ("fp_b", "FP-B {n}")):
         for number, raw in enumerate(data[name], start=1):
             mark = next((mark for mark in MARKS if raw.startswith(mark)), "")
             listed.append(Row(MARKS.get(mark, HOTEL), raw.removeprefix(mark), (label.format(n=number),)))
@@ -181,6 +183,9 @@ def one_line(request: PurchaseRequest) -> str:
         facts.append(f"prefer {request.prefer.value}")
     if request.require_confirmed:
         facts.append("confirmed data only")
+    if request.max_net_eur is not None:
+        amount = request.max_net_eur
+        facts.append(f"at most €{amount:{',.0f' if amount == amount.to_integral_value() else ',.2f'}} before tax")
     return "; ".join(facts)
 
 
@@ -251,7 +256,8 @@ reader disagree. Do not edit it by hand.
   products, as the offer for the example's typed request.
 
 How to read a row: product type, the words that narrow it in quotes, quantity and unit; then claims, labels, the
-allergens left out with the rule in force, `keep_formula`; then the day, the preference and "confirmed data only".
+allergens left out with the rule in force, `keep_formula`; then the day, the preference, "confirmed data only" and
+the most to spend on the request ("at most €1,000 before tax").
 An allergen rule is compared as the rule in force: the line's own, else the customer's profile's.
 
 | # | Customer | Sentence | From | The fixed rules | The reading also says | Against the example | A model |
@@ -344,16 +350,33 @@ def test_the_review_and_a5_sentences_are_all_in_the_table(outcomes: list[Outcome
 
 
 def test_the_sentences_of_the_checks_of_15_nov_are_in_the_table_asked_about_or_said(outcomes: list[Outcome]) -> None:
-    """Lane FIX-R (review C2-8, C4-F9): of its twelve sentences ten are asked about; the two that are read say in
-    the reading how their unit was taken."""
+    """Lane FIX-R (review C2-8, C4-F9): of its twelve sentences seven are asked about; the two that are read by
+    their unit say in the reading how it was taken, and the three with an amount of money say how it is used
+    (lane FP-B: they were asked about until the typed request could carry the amount)."""
     ours = [item for item in outcomes if any(source.startswith("FIX-R ") for source in item.row.sources)]
     read = {item.row.text: item.says for item in ours if item.read is not None}
+    money = {text for text in read if "€" in text or "euros" in text}
 
-    assert len(ours) == 12 and sum(item.read is None for item in ours) == 10
+    assert len(ours) == 12 and sum(item.read is None for item in ours) == 7
     assert [item.row.profile for item in ours if item.row.text == "-5 litres of milk"] == [HOTEL, SCHOOL]
-    assert set(read) == {"50 packs of lactose-free milk", "5 KG of milk"}
+    assert set(read) - money == {"50 packs of lactose-free milk", "5 KG of milk"} and len(money) == 3
     assert read["50 packs of lactose-free milk"].startswith('"50 packs" is read as 50 sales units.')
     assert read["5 KG of milk"].startswith("5 kg of milk is read by weight")
+    assert all(read[text].endswith(f"€1,000 {MOST_TO_SPEND}") for text in money)
+
+
+def test_an_amount_of_money_is_in_the_table_read_as_the_most_to_spend_or_asked_about(outcomes: list[Outcome]) -> None:
+    """Lane FP-B: nine sentences name the most to spend and are read with it, each saying how it is used; eight
+    are asked about (a unit price, two amounts, another currency, no limit word, a number read two ways, a number
+    with no currency)."""
+    ours = [item for item in outcomes if any(source.startswith("FP-B ") for source in item.row.sources)]
+    read = [item for item in ours if item.read is not None]
+    demo = next(item for item in outcomes if item.row.text.endswith("by Monday, under €1,000"))
+
+    assert (len(ours), len(read)) == (17, 9)
+    assert all(item.read.max_net_eur is not None and item.says.endswith(MOST_TO_SPEND) for item in read if item.read)
+    assert all("?" in item.cell for item in ours if item.read is None)
+    assert demo.cell == "milk 1000 L, claim FREE_FROM_LACTOSE; by 2026-11-16; at most €1,000 before tax"
 
 
 def test_no_row_is_judged_read_wrong(outcomes: list[Outcome]) -> None:

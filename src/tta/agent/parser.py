@@ -14,7 +14,8 @@ The answer is also held to the text itself, without a model (`tta.agent.textchec
 must be a number the text gives, each unit one it names, `needed_by` the date the calendar rule gives for the
 day it names (none when it names none), every allergen it excludes must be excluded, `require_confirmed` true
 only when it asks for confirmed data, a product number a whole token of it, and a `prefer` other than the default
-PRICE or a certificate label one it has a word for (task FALLBACK-1). A disagreement is a fault like
+PRICE or a certificate label one it has a word for (task FALLBACK-1), and `max_net_eur` the amount the text
+states as the most to spend, none when it states none (`tta.agent.budget`, lane FP-B). A disagreement is a fault like
 any other, named by its field: "the reading did not match the text". It is never corrected here. A text that
 names no number, or no unit word, has its quantity or its unit reported as missing.
 
@@ -40,6 +41,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from tta.agent.brands import NO_BRANDS, Brands
+from tta.agent.budget import budget_stated, without_budget
 from tta.agent.days import helsinki_date
 from tta.agent.faults import MAX_ANSWERS, NOT_JSON, Fault, validation_faults
 from tta.agent.held import added_faults, ask_whoever_reads
@@ -93,6 +95,8 @@ NOT_ASKED_CONFIRMED = "the text does not ask for confirmed data"
 NOT_IN_TEXT = "a product number that is not in the text"
 NO_SUCH_LABEL = "the text names no such label"
 NO_SUCH_PREFERENCE = "the text names no such preference"
+NO_SUCH_AMOUNT = "the text states no such amount as the most to spend"
+AMOUNT_LEFT_OUT = "the text states an amount of money the reading leaves out"
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,9 @@ class RequestProposal(_Proposal):
     require_confirmed: bool
     lines: tuple[LineProposal, ...]
     prefer: Preference | None = None
+    # The most to spend the text names, in euros before tax. An answer made before the field existed (lane FP-B)
+    # does not say it.
+    max_net_eur: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +209,15 @@ def _line_faults(index: int, line: LineProposal, facts: TextFacts, keys: Sequenc
     return faults + _text_faults(at, line, facts)
 
 
+def _budget_faults(proposal: RequestProposal, text: str) -> list[Fault]:
+    """An amount the reading carries must be the one the text states as the most to spend, and an amount of
+    money the text gives is never left out (`tta.agent.budget`)."""
+    stated, gives_money = budget_stated(text)
+    if proposal.max_net_eur is None:
+        return [_mismatch("max_net_eur", AMOUNT_LEFT_OUT)] if gives_money else []
+    return [] if proposal.max_net_eur == stated else [_mismatch("max_net_eur", NO_SUCH_AMOUNT)]
+
+
 def _request_faults(proposal: RequestProposal, facts: TextFacts, today: date) -> list[Fault]:
     faults = []
     needed_by = proposal.needed_by
@@ -227,7 +243,7 @@ def _faults(
     names_a_use = formula_matters(text)
     formula = [_mismatch(f"lines[{index}].keep_formula", NO_USE_NAMED)
                for index, line in enumerate(proposal.lines) if line.keep_formula and not names_a_use]
-    return (*_request_faults(proposal, facts, today), *lines, *formula)
+    return (*_request_faults(proposal, facts, today), *_budget_faults(proposal, text), *lines, *formula)
 
 
 def _line_missing(index: int, line: LineProposal, facts: TextFacts) -> list[Missing]:
@@ -282,6 +298,7 @@ def _typed(proposal: RequestProposal, text: str) -> PurchaseRequest | tuple[Faul
         return PurchaseRequest.model_validate({
             "needed_by": proposal.needed_by, "require_confirmed": proposal.require_confirmed, "lines": lines,
             **({} if proposal.prefer is None else {"prefer": proposal.prefer}),  # left out, PRICE applies
+            **({} if proposal.max_net_eur is None else {"max_net_eur": proposal.max_net_eur}),
         })
     except ValidationError as error:
         return validation_faults(error)
@@ -353,7 +370,7 @@ class ModelRequestParser:
             system=parser_instruction(today, self._keys), text=words, schema=self._schema,
             profile_id=identity.profile_id, today=today,
         )
-        facts = TextFacts.of(words, today)
+        facts = TextFacts.of(without_budget(words), today)  # the most to spend is no quantity of a line
         faults: tuple[Fault, ...] = ()
         for answer_number in range(1, MAX_ANSWERS + 1):
             answer = self._model.extract(call)

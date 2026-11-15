@@ -6,6 +6,8 @@ not the buyer's to say are left out: the buyer's own words (`text`) are set by t
 a request renews (`standing_order_id`) and the recipe ingredient a line stands in for (`stands_in_for`,
 `stands_in_role`) by the gateway (tasks FALLBACK-1, MENU-1). `keep_formula` is the reader's to set: the buyer's
 words say what the product is for ("for whipping"), and the parser refuses it when the text names no such use.
+`max_net_eur` is the reader's to set too: the most to spend the text names ("under €1,000"), which the parser
+refuses unless the text states that amount as a limit (`tta.agent.budget`).
 A test compares the fields with the contract, field by field: a new contract field fails it until it is placed.
 
 Only keywords the Gemini documentation lists as enforced are used (structured output, read 14 Nov 2026):
@@ -120,6 +122,12 @@ def proposal_schema(product_type_keys: Sequence[str]) -> JsonDict:
         "prefer": _choice(
             [value.value for value in Preference],
             "What to rank by, only when the text says (as soon as possible, most reliable, lowest carbon); else null.",
+        ),
+        "max_net_eur": _nullable(
+            {"type": "number"},
+            "The most to spend on this request, in euros before tax, only when the text names one amount in euros "
+            "as a limit (under €1,000, a budget of 1,000 euros, max 1000 euros); otherwise null. Never a price per "
+            "unit, never an amount in another currency.",
         ),
         "lines": {"type": "array", "items": _line_schema(keys), "description": "One per product asked for."},
     })

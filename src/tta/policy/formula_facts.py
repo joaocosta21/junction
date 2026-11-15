@@ -69,6 +69,11 @@ def request_as_sent(request: PurchaseRequest | None) -> Iterator[None]:
         _AS_SENT.reset(token)
 
 
+def sent_request() -> PurchaseRequest | None:
+    """The request as the buyer sent it, inside a `request_as_sent` block; None when nobody said."""
+    return _AS_SENT.get()
+
+
 def _line_says(line: OfferLine) -> bool:
     return getattr(line, LINE_SAYS_FIELD, None) is True
 
