@@ -4,8 +4,8 @@
 // One box for two kinds of request: a sentence goes to the reader, as for any product; one it does not read as a
 // product request goes to the recipe planner (plan.js), which says whether it names a dish of the gateway's recipe
 // table. A product request costs the one round trip it always did; a dish sentence costs one more.
-import { app, api, deliveryOf, on, refresh, render, reveal, toast, verifyRules, withRules } from "../core.js";
-import { contact, customerKnown, customerOf, loadCustomer, productLabel, unitWord } from "../customer.js";
+import { app, deliveryOf, on, refresh, render, reveal, sender, toRequestBox, toast, verifyRules, withRules } from "../core.js";
+import { contact, customerKnown, customerOf, loadCustomer, myRoles, productLabel, unitWord } from "../customer.js";
 import { clock, html, longDate, num } from "../dom.js";
 import { MENU_EXAMPLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
@@ -65,6 +65,15 @@ function update(turn) {
   return turn;
 }
 
+// A request is its customer's from the click to its last step (core.js, `sender`): each step below is given the
+// customer the request was sent for (`who`) and asks that customer's gateway, settings and people, never the page's
+// customer of the moment. The result lives in that customer's list, so no other customer's page draws it; the page
+// is brought back to an answer only while it still shows that customer.
+const revealAnswer = (turn, who) => {
+  if (who.shown()) reveal(turn.id, { again: true });
+};
+const holds = (who, role) => myRoles(who.id).includes(role);
+
 // ---- asking -----------------------------------------------------------------------------------------------
 
 // A reading that holds no typed request: the reader's own sentence and question, if it gave one.
@@ -79,37 +88,37 @@ function unread(reading) {
 async function ask(text, typed = null, { menu = false } = {}) {
   text = text.trim();
   if (!text) return;
-  const k = active();
+  const who = sender(); // this customer's request to its end, whatever the page is switched to meanwhile
   const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "reading" };
-  mine().thread.push(turn);
+  who.mine().thread.push(turn);
   app.ui.draft = "";
   reveal(turn.id); // the page goes to the result: the answer is read where the window is
   update(turn);
   let step = "rules";
   try {
-    await verifyRules(); // never ask under rules the gateway has not confirmed
+    await verifyRules(who); // never ask under rules the gateway has not confirmed
     step = "reading";
     let request;
     if (typed) {
       request = structuredClone(typed);
       turn.reading = { source: "example" };
     } else {
-      const { reading, refusal } = menu ? {} : await readText(text);
+      const { reading, refusal } = menu ? {} : await readText(text, who);
       if (!reading?.request?.lines?.length) {
-        if (await planInstead(turn, text, menu ? null : refusal || unread(reading))) return;
+        if (await planInstead(turn, text, menu ? null : refusal || unread(reading), who)) return;
       }
       request = reading.request;
       turn.reading = { source: reading.source, sentence: reading.sentence, model: reading.model };
     }
     step = "offer";
-    const prepared = prepare(request, k, mine(), app.data.authority?.profile);
+    const prepared = prepare(request, who.kitchen, who.mine(), who.data.authority?.profile);
     turn.applied = prepared.applied;
     turn.sent = prepared.request;
-    await answerWith(turn, prepared.request);
+    await answerWith(turn, prepared.request, who);
   } catch (error) {
     turn.phase = "failed";
     turn.problem = problemOf(error, error?.step || step);
-    reveal(turn.id, { again: true });
+    revealAnswer(turn, who);
     update(turn);
   }
 }
@@ -117,9 +126,9 @@ async function ask(text, typed = null, { menu = false } = {}) {
 // The reader's answer, or its refusal when it asks a question (422) or cannot read at all (503): such a sentence may
 // name a dish. Any other refusal (a rate limit, no connection, settings not in force) is thrown as it is.
 const MAY_NAME_A_DISH = [422, 503];
-async function readText(text) {
+async function readText(text, who) {
   try {
-    return { reading: await withRules(() => api().read(text)) };
+    return { reading: await withRules(() => who.api().read(text), who) };
   } catch (error) {
     if (!MAY_NAME_A_DISH.includes(error?.status)) throw error;
     return { refusal: error };
@@ -129,11 +138,11 @@ async function readText(text) {
 // The sentence planned from the gateway's recipe table. True: planned, the plan and its offer are on the result.
 // A refusal about a dish of the table (no servings, two days) is the question shown; a sentence that names no dish
 // of it keeps the reader's question (`readerError`), with the planner's list of dishes when it named an unknown one.
-async function planInstead(turn, text, readerError) {
+async function planInstead(turn, text, readerError, who) {
   turn.phase = "planning";
   update(turn);
   try {
-    turn.plan = await withRules(() => api().plan(text));
+    turn.plan = await withRules(() => who.api().plan(text), who);
   } catch (error) {
     const p = error?.problem || {};
     const aboutADish = Array.isArray(p.dishes_named) && p.dishes_named.length > 0;
@@ -152,7 +161,7 @@ async function planInstead(turn, text, readerError) {
   turn.reading = { source: "plan" };
   turn.sent = turn.plan.request;
   try {
-    await answerWithPlan(turn);
+    await answerWithPlan(turn, who);
   } catch (error) {
     if (error && !error.step) error.step = "plan"; // the plan was made: what failed is reading its offer
     throw error;
@@ -162,41 +171,41 @@ async function planInstead(turn, text, readerError) {
 
 // The manufacturer's page for each option that asks the person signed in an allergen question on the result itself
 // (question.js, `ownQuestion`): no approval exists yet to carry it, so it is read here, from the recordings.
-function loadOwnEvidence(turn) {
-  if (!isMine(DIETITIAN)) return;
+function loadOwnEvidence(turn, who) {
+  if (!holds(who, DIETITIAN)) return;
   for (const option of turn.offer?.options || []) {
-    if (dietitianRules(option.decision).length) loadEvidence(turn, option);
+    if (dietitianRules(option.decision).length) loadEvidence(turn, option, who.api());
   }
 }
 
 // The plan's offer, read from this book as it was made, then what it suggests and the one order placed without a
 // click (`act`). No brand question: the plan's lines are the recipe's, not a product the buyer named.
-async function answerWithPlan(turn) {
+async function answerWithPlan(turn, who) {
   turn.phase = "looking";
   update(turn);
-  if (turn.plan.offer_id) turn.offer = await withRules(() => api().getOffer(turn.plan.offer_id));
+  if (turn.plan.offer_id) turn.offer = await withRules(() => who.api().getOffer(turn.plan.offer_id), who);
   turn.flags = [];
   turn.phase = "done";
-  reveal(turn.id, { again: true });
+  revealAnswer(turn, who);
   update(turn);
   if (!turn.offer) return;
-  loadWhyNot(turn);
-  loadOwnEvidence(turn);
-  await act(turn);
+  loadWhyNot(turn, who.api());
+  loadOwnEvidence(turn, who);
+  await act(turn, who);
 }
 
 // The offer for a typed request, then what it suggests and does not, then the one order placed without a click.
-async function answerWith(turn, request) {
+async function answerWith(turn, request, who) {
   turn.phase = "looking";
   update(turn);
-  turn.offer = await withRules(() => api().offer(request));
-  turn.flags = review(turn.offer, mine());
+  turn.offer = await withRules(() => who.api().offer(request), who);
+  turn.flags = review(turn.offer, who.mine());
   turn.phase = "done";
-  reveal(turn.id, { again: true });
+  revealAnswer(turn, who);
   update(turn);
-  loadWhyNot(turn);
-  loadOwnEvidence(turn);
-  await act(turn);
+  loadWhyNot(turn, who.api());
+  loadOwnEvidence(turn, who);
+  await act(turn, who);
 }
 
 // A request the gateway wrote (a suggestion's, "you usually order this", a standing order's renewal), sent unchanged
@@ -205,21 +214,22 @@ async function answerWith(turn, request) {
 // `extra.replaces`: the result this request takes the place of. The usual quantity a result's own bar offers
 // (regular.js sends the request that result carries) replaces that result too.
 export async function sendAsWritten(source, text, request, extra = {}) {
-  const from = extra.replaces ? null : mine().thread.find((t) => t.regular?.usualRequest === request);
+  const who = sender(); // this customer's request to its end, whatever the page is switched to meanwhile
+  const from = extra.replaces ? null : who.mine().thread.find((t) => t.regular?.usualRequest === request);
   const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "looking", reading: { source }, sent: request, ...(from ? { replaces: from.id } : {}), ...extra };
-  mine().thread.push(turn);
+  who.mine().thread.push(turn);
   reveal(turn.id); // the page goes to the new result, the first one: its offer is the one to confirm
   update(turn);
   toast("Sent as a new request: its offer is the first result.");
   let step = "rules";
   try {
-    await verifyRules(); // never ask under rules the gateway has not confirmed
+    await verifyRules(who); // never ask under rules the gateway has not confirmed
     step = "offer";
-    await answerWith(turn, request);
+    await answerWith(turn, request, who);
   } catch (error) {
     turn.phase = "failed";
     turn.problem = problemOf(error, step);
-    reveal(turn.id, { again: true });
+    revealAnswer(turn, who);
     update(turn);
   }
   return turn;
@@ -236,40 +246,43 @@ function accept(suggestion, from = null) {
 // The only order placed without a click: the buyer switched ordering alone on (a setting, off in every shipped
 // profile), the gateway confirms that setting is in force, and its decision is that the agent may order alone
 // (every statement confirmed, no rule asks for a person). Everything else waits for "Confirm order".
-async function act(turn) {
+// `who`: the customer the request was sent for; its own setting and its own book decide, whatever the page shows.
+async function act(turn, who = sender()) {
   const first = turn.offer?.options?.[0];
   if (!first || turn.order || turn.flags?.length) return;
-  const alone = app.data.authority?.profile?.auto_order_enabled === true;
-  if (alone && first.decision?.verdict === "AUTO") await place(turn, first.option_id, false);
+  const alone = who.data.authority?.profile?.auto_order_enabled === true;
+  if (alone && first.decision?.verdict === "AUTO") await place(turn, first.option_id, false, {}, who);
 }
 
 // The signed-in person's one decision. The gateway signs it for every role they hold that the order still needs
 // (tta.ui.shop_api), so one click is their whole part, whatever rules asked. `decision` REJECT: they leave it out.
-async function signMine(turn, { decision = "APPROVE", note = CONFIRM_NOTE } = {}) {
+// `who`: the customer whose result was clicked. Its book is asked and its own person signs, by the customer file's name.
+async function signMine(turn, { decision = "APPROVE", note = CONFIRM_NOTE } = {}, who = sender()) {
   const order = turn.order;
   if (order?.status !== "PENDING_APPROVAL" || !order.approval_id) return;
-  const approval = app.data.approvals.find((a) => a.approval_id === order.approval_id);
+  const approval = who.data.approvals.find((a) => a.approval_id === order.approval_id);
   const needed = approval ? rolesStillNeeded(approval) : order.decision?.required_roles || [];
-  const role = needed.find(isMine);
+  const role = needed.find((r) => holds(who, r));
   if (!role) return;
-  turn.order = await api().decide(order.approval_id, role, decision, note, signerName(role));
-  turn.signedBy = personFor(role);
+  turn.order = await who.api().decide(order.approval_id, role, decision, note, signerName(role, who.id));
+  turn.signedBy = personFor(role, who.id);
   turn.leftOut = decision === "REJECT";
   update(turn);
 }
 
 // `how`: the decision and its note, when the click was one of the three choices of a question asked on the result.
-async function place(turn, optionId, sign, how = {}) {
+// `who`: the customer whose result it is (the one the page shows when "Confirm order" is clicked).
+async function place(turn, optionId, sign, how = {}, who = sender()) {
   turn.busy = true;
   turn.problem = null;
   turn.chosen = optionId;
   update(turn);
   try {
-    const key = `shop.${active().id}.${turn.offer.offer_id}.${optionId}`;
-    if (sign) await loadCustomer(); // who signs is the customer file's person, never a name the page made up
-    await verifyRules(); // the order is judged again when placed, under the rules in force then
-    turn.order = await withRules(() => api().order(turn.offer.offer_id, optionId, key));
-    if (sign) await signMine(turn, how);
+    const key = `shop.${who.id}.${turn.offer.offer_id}.${optionId}`;
+    if (sign) await loadCustomer(who.id); // who signs is the customer file's person, never a name the page made up
+    await verifyRules(who); // the order is judged again when placed, under the rules in force then
+    turn.order = await withRules(() => who.api().order(turn.offer.offer_id, optionId, key), who);
+    if (sign) await signMine(turn, how, who);
   } catch (error) {
     turn.problem = problemOf(error, "order");
   }
@@ -279,11 +292,12 @@ async function place(turn, optionId, sign, how = {}) {
 }
 
 async function signPending(turn) {
+  const who = sender(); // the customer whose result was clicked
   turn.busy = true;
   turn.problem = null;
   update(turn);
   try {
-    await signMine(turn);
+    await signMine(turn, {}, who);
   } catch (error) {
     turn.problem = problemOf(error, "order");
   }
@@ -372,6 +386,9 @@ on("flag-no", async (el) => {
   update(turn);
   await act(turn);
 });
+// Back to the request box with the cursor in it (the frame scrolls and focuses after the redraw). The key "/" does
+// the same from anywhere on the page (main.js).
+on("new-request", () => toRequestBox());
 on("clear", () => {
   mine().thread = [];
   save();
@@ -403,6 +420,12 @@ function readAs(request, names = {}) {
 // result's text), then what this renewal holds.
 const renewalOf = (turn) => (turn.reading?.source === "standing" && turn.text ? `${turn.text}, renewed once: ` : "");
 
+// On the newest result only, in the corner of its first line: the page has scrolled to that line, so the control
+// is in the window with the answer, and the request box, which is above the window by then, is one click or one
+// "/" away. It takes no line of its own: the answer stays where it was.
+const isNewest = (turn) => mine().thread.at(-1) === turn;
+const newRequest = () => html`<button class="new-request" data-act="new-request" title="Back to the request box, with the cursor in it. The key / does the same.">New request<kbd aria-hidden="true">/</kbd></button>`;
+
 function asked(turn) {
   const request = turn.offer?.request || turn.sent;
   const wrote = ["example", "suggestion", "reorder", "standing"].includes(turn.reading?.source) ? "" : `You wrote “${turn.text}”`;
@@ -412,7 +435,8 @@ function asked(turn) {
   // the safe reading." Sentences about keys or routes are for developers and stay out (forPeople).
   const reading = turn.reading?.sentence ? forPeople(turn.reading.sentence) : [];
   const read = turn.plan ? planReadAs(turn.plan) || turn.text : request ? `${renewalOf(turn)}${readAs(request, turn.names)}` : turn.text;
-  return html`<div class="asked">
+  return html`<div class="asked ${isNewest(turn) ? "newest" : ""}">
+    ${isNewest(turn) ? newRequest() : ""}
     <span class="label">Asked</span>
     <div class="read">
       <b>${read}</b>

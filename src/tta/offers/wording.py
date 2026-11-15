@@ -73,8 +73,33 @@ def listed(ids: Sequence[str]) -> str:
 
 
 def line_label(index: int) -> str:
-    """`Request line 1` for index 0."""
+    """`Request line 1` for index 0: how a note of the offer says which line it is about (programs read the
+    number there). A sentence of an option's summary names the line by its own words instead (`line_names`)."""
     return f"Request line {index + 1}"
+
+
+def line_names(asked: Sequence[RequestLine]) -> tuple[str, ...]:
+    """Each request line by its own words: its product type or the words of its name; a line that names only
+    product ids is `the products named on line 5`, never the list of ids. Two lines with the same words also
+    say their line."""
+    words = [line_words(line) if line.product_type or line.name_terms else "" for line in asked]
+    names = []
+    for index, (line, own) in enumerate(zip(asked, words, strict=True)):
+        number = index + 1
+        if not own:
+            named = "the product" if len(set(line.product_ids)) == 1 else "the products"
+            names.append(f"{named} named on line {number}")
+        elif words.count(own) > 1:
+            names.append(f"{own} (line {number})")
+        else:
+            names.append(own)
+    return tuple(names)
+
+
+def for_line(name: str) -> str:
+    """`For milk`: what stands before a sentence about one line of a request of several lines, where a person
+    reads it (an option's summary)."""
+    return f"For {name}"
 
 
 def joined(items: Sequence[str]) -> str:

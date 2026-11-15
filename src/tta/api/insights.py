@@ -71,7 +71,8 @@ DEMAND_COUNTED = (
     HowCounted(figure="Orders", how="Each order once, by its latest step: confirmed by a person, placed by the "
                "agent alone, rejected, expired (also when its approval's time has passed), or still waiting."),
     HowCounted(figure="Euros", how="The net total, before tax, of the option as ordered, at the fixed prices of "
-               "the offer: confirmed orders, and orders still waiting for a person."),
+               "the offer, each summed apart: orders confirmed by a person, orders placed by the agent alone, and "
+               "orders still waiting for a person. \"Confirmed, before tax\" is the first two together."),
 )
 SUGGESTIONS_COUNTED = (
     HowCounted(figure="Shown and accepted", how="Each suggestion of each \"suggestions shown\" step, by kind, and "
@@ -88,8 +89,11 @@ def _demand(steps: Sequence[Step], orders: dict[str, Order]) -> Demand:
     kinds = Counter(step.kind for step in steps)
     ordered = [order for order in orders.values() if order.status == OrderStatus.ORDERED]
     waiting = [order for order in orders.values() if order.status == OrderStatus.PENDING_APPROVAL]
-    by_person = sum(order.placed_by == PlacedBy.HUMAN_APPROVAL for order in ordered)
-    by_agent = sum(order.placed_by == PlacedBy.AGENT for order in ordered)
+    of_person = [order for order in ordered if order.placed_by == PlacedBy.HUMAN_APPROVAL]
+    of_agent = [order for order in ordered if order.placed_by == PlacedBy.AGENT]
+    by_person, by_agent = len(of_person), len(of_agent)
+    # Each figure of the sentence counts only its own orders; the field `confirmed_net_eur` is all that is ordered.
+    person_net, agent_net = sum((o.net for o in of_person), ZERO), sum((o.net for o in of_agent), ZERO)
     statuses = Counter(order.status for order in orders.values())
     rejected, expired = statuses[OrderStatus.REJECTED], statuses[OrderStatus.EXPIRED]
     confirmed_net, waiting_net = sum((o.net for o in ordered), ZERO), sum((o.net for o in waiting), ZERO)
@@ -97,8 +101,8 @@ def _demand(steps: Sequence[Step], orders: dict[str, Order]) -> Demand:
     sentence = (
         f"{count(requests, 'request')} came in through the agent channel and {count(offers, 'offer')} went out. "
         f"{count(len(orders), 'order')} {'was' if len(orders) == 1 else 'were'} prepared: {by_person} confirmed by "
-        f"a person ({money(confirmed_net)} before tax), {by_agent} placed by the agent alone, {len(waiting)} waiting "
-        f"for a person ({money(waiting_net)}), {rejected} rejected and {expired} expired."
+        f"a person ({money(person_net)} before tax), {by_agent} placed by the agent alone ({money(agent_net)} before "
+        f"tax), {len(waiting)} waiting for a person ({money(waiting_net)}), {rejected} rejected and {expired} expired."
     )
     return Demand(
         requests=requests, offers=offers, orders_prepared=len(orders), confirmed_by_person=by_person,

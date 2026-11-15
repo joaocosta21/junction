@@ -57,8 +57,13 @@ def milk_and_cheese(service: OfferService, agent_hotel: Identity) -> Offer:
     return service.build_offer(MILK_AND_CHEESE, agent_hotel)
 
 # The headline (the first option's summary) says what the product type milk left out (B0's leftover, lane L2b).
-COFFEE = " Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
-COFFEE_LINE_1 = " Request line 1:" + COFFEE
+# Lane FP-Z: the note is one sentence that is true above an option that names a café milk as a substitute, and a
+# request of several lines names the line by its own words ("For milk:"), never by its number.
+COFFEE = (
+    " Milk made for coffee is not offered as milk: it appears only as a named substitute, or when coffee milk is "
+    "asked for by name (product type coffee_milk)."
+)
+COFFEE_LINE_1 = " For milk:" + COFFEE
 
 
 # --- coverage per line ----------------------------------------------------------------------------------------
@@ -79,7 +84,8 @@ def test_a_two_line_offer_says_how_many_items_it_covers_in_full_and_names_only_w
 def test_the_unconfirmed_alternative_says_the_same_of_its_lines(milk_and_cheese: Offer) -> None:
     option = of_kind(milk_and_cheese, OptionKind.ALTERNATIVE_UNCONFIRMED)
 
-    assert "(464306) for 1 of the 2 items asked for in full, €101.00 before tax." in option.summary
+    # Lane FP-Z: the product is said with the item it fills, never as one product "for 1 of the 2 items".
+    assert "(464306) for the 100 L of milk: 1 of the 2 items asked for in full, €101.00 before tax." in option.summary
     # This option holds a product whose quantity is not confirmed, so it does not speak of confirmed stock.
     assert option.summary.endswith("Nothing is offered for cheese.")
 

@@ -103,8 +103,8 @@ def test_a_request_line_with_no_product_is_reported_in_the_option_and_in_the_not
     assert "covers 1 of the 2 items asked for in full" in option.summary
     assert option.summary.endswith(
         "Nothing with confirmed stock for beef chuck."
-        " Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured "
-        "coffee milk."
+        " For milk: Milk made for coffee is not offered as milk: it appears only as a named substitute, or when "
+        "coffee milk is asked for by name (product type coffee_milk)."
     )
     assert any(note.startswith("Request line 2: no product can be offered") for note in offer.notes)
     assert "P-03" in option.decision.rule_ids

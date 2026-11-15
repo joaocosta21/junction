@@ -37,10 +37,14 @@ DEMO_SET_AT_THE_DEMO_CLOCK = (
 )
 DEMO_CLOCK = datetime.fromisoformat("2026-11-12T14:15:00+02:00")
 RECORDED = "469512"
-# A gap, not a goal. The pages were recorded on 14 Nov at 17:58 UTC (fixtures/evidence/), before these two joined
-# the list: they have no recorded page, so a run of the demo set would ask Context.dev for each of them once, and
-# until then a card about them says that no page is stored. Recording one is a paid request, which no test sends.
-NOT_YET_RECORDED = ("469363", "469386")
+# The products of the demo set that have no recorded page: a run of the demo set would ask Context.dev for each of
+# them once. None since 15 Nov: 469363 and 469386, the two that joined the list after the first recordings, were
+# recorded with 77 more pages (92 recordings in fixtures/evidence/, were 13). Recording one is a paid request, which
+# no test sends.
+NOT_YET_RECORDED: tuple[str, ...] = ()
+# 92 recordings and the 12 requests that left none are 104, past the default total of 60 (the script then sends
+# nothing and exits 7): a run over the repository's own recordings is given a total above what they hold.
+TOTAL_CAP_OVER_THE_RECORDINGS = ("--total-cap", "200")
 USED_IN_AN_EMPTY_FOLDER = (
     "Requests to Context.dev: 12 used of 60 (0 recordings that carry a paid answer, 12 requests of the team's log "
     "that left no recording; the count file holds 0). 48 left."
@@ -128,22 +132,22 @@ def test_the_demo_set_is_measured_in_replay_and_no_product_with_a_recorded_page_
     recorded = [product_id for product_id in demo_set if product_id not in NOT_YET_RECORDED]
     asked = [product_id for product_id in demo_set if product_id in NOT_YET_RECORDED]
 
-    code = script.main(["--demo-set", "--dry-run"], settings=settings, catalog=catalog,
-                       counter=tmp_path / COUNT_FILE, out=lines.append)
+    code = script.main(["--demo-set", "--dry-run", *TOTAL_CAP_OVER_THE_RECORDINGS], settings=settings,
+                       catalog=catalog, counter=tmp_path / COUNT_FILE, out=lines.append)
 
     assert code == 0  # against the repository's own fixtures/evidence/, read only
-    # S17: a fresh checkout does not restart at 0. 13 recordings and the 12 requests that left none: the team's 25.
+    # S17: a fresh checkout does not restart at 0. 92 recordings and the 12 requests that left none: 104 used.
     assert lines[-2] == (
-        "Requests to Context.dev: 25 used of 60 (13 recordings that carry a paid answer, 12 requests of the team's "
-        "log that left no recording; the count file holds 0). 35 left."
+        "Requests to Context.dev: 104 used of 200 (92 recordings that carry a paid answer, 12 requests of the "
+        "team's log that left no recording; the count file holds 0). 96 left."
     )
     assert f"Products with an allergen doubt on the list: {', '.join(demo_set)}." in lines
     assert f"Already recorded, not asked again: {', '.join(recorded)}." in lines
-    # Only a product with no recorded page would be asked for: one at the recording's clock, two at the demo clock.
+    # Only a product with no recorded page would be asked for: none at either clock, since every one is recorded.
     assert [line for line in lines if line.endswith("would be sent (100 credits):")] == [
         f"{product_id} would be sent (100 credits):" for product_id in asked
     ]
-    assert len(asked) == (1 if demo_clock is None else 2)
+    assert asked == []
     assert lines[-1].startswith(
         f"Dry run: {len(asked)} request(s) would be sent to Context.dev, 100 credits each, {100 * len(asked)} credits"
     )
@@ -405,8 +409,8 @@ def test_an_offer_of_the_demo_set_that_cannot_be_built_is_named_counted_and_in_t
     monkeypatch.setattr(script.OfferService, "build_offer", failing_once)
     lines: list[str] = []
 
-    code = script.main(["--demo-set", "--dry-run"], settings=Settings.for_tests(), catalog=catalog,
-                       counter=tmp_path / COUNT_FILE, out=lines.append)
+    code = script.main(["--demo-set", "--dry-run", *TOTAL_CAP_OVER_THE_RECORDINGS], settings=Settings.for_tests(),
+                       catalog=catalog, counter=tmp_path / COUNT_FILE, out=lines.append)
 
     assert code == 6
     skipped = [line for line in lines if line.startswith("No offer for ")]

@@ -51,10 +51,11 @@ export function evidenceBlock(holder) {
 
 // The evidence for one option of a result, read once and kept on the turn (`turn.evidence[option_id]`): an empty
 // list when the gateway has none or does not answer, so the question is asked either way.
-export async function loadEvidence(turn, option) {
+// `gateway`: the book of the customer that asked (assistant.js gives the one the request was sent for), so a switch
+// of customer meanwhile reads nothing from another book.
+export async function loadEvidence(turn, option, gateway = api()) {
   const id = option?.option_id;
   if (!turn.offer?.offer_id || !id || turn.evidence?.[id]) return;
-  const gateway = api(); // the book of the customer that asked, even if the visitor switches meanwhile
   let found = [];
   try {
     found = await gateway.evidence(turn.offer.offer_id, id);

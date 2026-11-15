@@ -4,7 +4,7 @@ import { money } from "../core.js";
 import { cutoff, html, initials, num, shortDate, tile, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
 import { contact, customerKnown, customerProblem, people } from "../customer.js";
-import { ROLES } from "../kitchens.js";
+import { ROLES, kitchenById } from "../kitchens.js";
 import { active } from "../store.js";
 import { plain } from "../words.js";
 
@@ -213,9 +213,10 @@ export function statusTag(order) {
 }
 
 // Who holds a role at this customer, from the customer file (customer.js); the role's name until the route answers.
-export const personFor = (role) => people()[role] || ROLES[role] || role;
+// `id`: another customer than the one the page shows (the customer a request was sent for, assistant.js).
+export const personFor = (role, id) => people(id)[role] || ROLES[role] || role;
 // The name the audit trail prints for whoever signs in this role.
-export const signerName = (role) => `${personFor(role)}, ${active().name}`;
+export const signerName = (role, id) => `${personFor(role, id)}, ${(id ? kitchenById(id) : active()).name}`;
 
 // The roles an approval has obtained: those of each decision that approved, as the gateway counts them
 // (`Approval.roles_obtained`). A decision with no `decision` field is read as an approval.

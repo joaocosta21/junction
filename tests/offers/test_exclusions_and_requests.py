@@ -299,7 +299,7 @@ def test_confirmed_only_leaves_the_unconfirmed_product_out_and_says_so(
 
     assert [option.kind for option in offer.options] == [OptionKind.BEST_CONFIRMED]
     type_note, left_out = offer.notes  # the note of product type milk comes first (coffee milk is another type)
-    assert type_note.startswith("Request line 1: Coffee milk was left out:")
+    assert type_note.startswith("Request line 1: Milk made for coffee is not offered as milk:")
     assert UNCONFIRMED in left_out and "confirmed data only" in left_out.lower()
     assert reasons(offer)[UNCONFIRMED] is ExclusionReason.QUANTITY_NOT_CONFIRMED  # listed, not only in the note
 

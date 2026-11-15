@@ -38,7 +38,7 @@ from tta.offers.preference import tiers
 from tta.offers.safety import open_allergens, ruled_out, who_decides
 from tta.offers.stand_ins import StandIns, no_stand_ins, substitute_lines
 from tta.offers.variants import variant_word
-from tta.offers.wording import counted, eur, line_label, listed
+from tta.offers.wording import counted, eur, for_line, line_label, line_names, listed
 
 ZERO = Decimal(0)
 WHOLE = Decimal(1)
@@ -146,11 +146,14 @@ def _stand_in_kind(stand_ins: Sequence[OfferLine | None]) -> OptionKind:
 
 
 def _said(outcomes: Sequence[LineOutcome], said: Sequence[str]) -> str:
-    """What the stand-in search has to say on the option that offers only the named products."""
+    """What the stand-in search has to say on the option that offers only the named products. It is part of
+    the option's summary, which a person reads: with several lines each sentence names its line by the line's
+    own words, never by its number."""
     several = len(outcomes) > 1
+    names = line_names(tuple(outcome.asked for outcome in outcomes))
     return "".join(
-        f" {line_label(outcome.need.index)}: {each[0].lower()}{each[1:]}" if several else f" {each}"
-        for outcome, each in zip(outcomes, said, strict=True) if each
+        f" {for_line(name)}: {each[0].lower()}{each[1:]}" if several else f" {each}"
+        for name, each in zip(names, said, strict=True) if each
     )
 
 

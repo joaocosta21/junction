@@ -62,7 +62,7 @@ def _assert_scenario_1_offer(offer: dict[str, Any], money: Any, fired: Any, line
     ]
     offered = {line["product_id"] for option in offer["options"][:2] for line in option["lines"]}
     assert not offered & COFFEE_MILKS  # as milk, never: the first two options hold none
-    assert offer["notes"][0].startswith("Request line 1: Coffee milk was left out:")
+    assert offer["notes"][0].startswith("Request line 1: Milk made for coffee is not offered as milk:")
 
     alternative = _option(offer, OptionKind.ALTERNATIVE_UNCONFIRMED)
     assert lines_of(alternative) == {UNCONFIRMED_MILK: Decimal(1000)}

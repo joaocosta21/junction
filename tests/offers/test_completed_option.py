@@ -45,8 +45,9 @@ TITLE = "Alternative: confirmed stock, completed with a substitute"
 FIRST_SUMMARY = (
     "2 confirmed products cover 435 L of the 1,000 L asked for (565 L missing), for €1,083.39 before tax. Arla "
     "Milkdrink 1L lactose free fat free UHT Suomesta (462775) differs in formula from Arla Semi skimmed milkdrink 1 "
-    "L UHT lactose free Suomesta (469363), which fills the same request line: fat 0 g, not 1.5 g. Coffee milk was "
-    "left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
+    "L UHT lactose free Suomesta (469363), which fills the same request line: fat 0 g, not 1.5 g. Milk made "
+    "for coffee is not offered as milk: it appears only as a named substitute, or when coffee milk is asked for by "
+    "name (product type coffee_milk)."
 )
 SECOND_SUMMARY = (
     "Valio Hyvä suomalainen Arki® Eila® semi skimmed milk drink 1 l lactose free (464306) for the 1,000 L asked "

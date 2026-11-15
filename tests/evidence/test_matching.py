@@ -251,3 +251,49 @@ def test_an_own_label_product_on_valio_aimos_own_site_is_kept_when_everything_el
         == "the page is for the 10% product; the product asked for is 2%"
     other = catalog.get_product("469512").model_copy(update={"brand": None})
     assert why_not_this_product("Elovena Kaurajuoma kahviin", None, "https://valioaimo.fi/x", other) == NO_BRAND
+
+
+# --- lane FP-Z, item 7a: "semi skimmed" is not "skimmed" -------------------------------------------------------------
+
+SEMI_SKIMMED = "469363"  # Arla Semi skimmed milkdrink 1 L UHT lactose free Suomesta / Arla Kevytmaitojuoma ...
+SKIMMED = "463149"  # Valio Plus™ skimmed milk 1 l / Valio Plus™ rasvaton maito 1 l
+FAT_FREE_NOT_ON_PAGE = "the product asked for is fat-free; the page does not say fat-free"
+FAT_FREE_NOT_ON_PRODUCT = "the page says fat-free; the product asked for does not say fat-free"
+
+
+def test_a_semi_skimmed_product_is_not_read_as_fat_free(catalog: ProductCatalog) -> None:
+    """The recording of 469363 was dropped with "the product asked for is fat-free; the page does not say fat-free":
+    the fat-free mark read the "skimmed" of "Semi skimmed"."""
+    from tta.config import Settings
+    from tta.evidence.cache import EvidenceCache
+    from tta.evidence.reading import read_answer
+
+    record = EvidenceCache(Settings.for_tests().tta_fixtures_dir / "evidence").get(SEMI_SKIMMED)
+
+    evidence = read_answer(record, catalog.get_product(SEMI_SKIMMED))
+
+    assert evidence.found
+    assert evidence.sentence == (
+        "The manufacturer's page “Arla Maitoa Suomesta Laktoositon kevytmaitojuoma (UHT) 1 l” on arla.fi says: "
+        "contains “Maito”; free from “laktoositon”."
+    )
+
+
+def test_a_product_that_is_fat_free_still_asks_the_page_to_say_so(catalog: ProductCatalog) -> None:
+    skimmed = catalog.get_product(SKIMMED)
+    url = "https://www.valio.fi/tuotteet/x/"
+
+    assert why_not_this_product("Valio Plus™ rasvaton maito 1 l", None, url, skimmed) is None
+    assert why_not_this_product("Valio Plus™ skimmed milk 1 l", None, url, skimmed) is None
+    assert why_not_this_product("Valio Plus™ maito 1 l", None, url, skimmed) == FAT_FREE_NOT_ON_PAGE
+    # A page of the semi-skimmed milk is no page of the skimmed one, in English either.
+    assert why_not_this_product("Valio Plus™ semi skimmed milk 1 l", None, url, skimmed) == FAT_FREE_NOT_ON_PAGE
+    assert why_not_this_product("Valio Plus™ semi-skimmed milk 1 l", None, url, skimmed) == FAT_FREE_NOT_ON_PAGE
+
+
+def test_a_fat_free_page_is_no_page_of_a_semi_skimmed_product(catalog: ProductCatalog) -> None:
+    semi = catalog.get_product(SEMI_SKIMMED)
+
+    assert why_not_this_product(
+        "Arla Maitoa Suomesta Laktoositon rasvaton maitojuoma (UHT) 1 l", None, "https://www.arla.fi/x/", semi,
+    ) == FAT_FREE_NOT_ON_PRODUCT

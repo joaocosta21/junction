@@ -35,7 +35,7 @@ from tta.offers.planning import LineOutcome, plan_options
 from tta.offers.preference import KEY_WORDS
 from tta.offers.recorded import later_recorded_note
 from tta.offers.variants import regular_words, variant_claims_for, variant_word
-from tta.offers.wording import counted, joined, line_label, line_words, listed, reason_words
+from tta.offers.wording import counted, for_line, joined, line_label, line_names, line_words, listed, reason_words
 
 OFFER_ID_PREFIX = "off_"
 OFFER_ID_HEX_DIGITS = 12
@@ -69,7 +69,7 @@ def build_offer(request: PurchaseRequest, profile: BuyerProfile, deps: OfferDeps
     late = tuple(candidates for _, candidates in judged)
     plan = plan_options(outcomes, lookup.now, deps, request.prefer, minimum_fill=profile.min_fill_ratio)
     type_notes = _type_notes(request.lines, deps.catalog)
-    headline = _headline(type_notes, len(request.lines))
+    headline = _headline(type_notes, request.lines)
     in_time = finish_options(plan.drafts, request, needs, profile, deps, lookup.now, headline=headline)
     options, later_notes = in_time, ()
     if not in_time and (later := later_outcomes(outcomes, late, lookup.now)):
@@ -147,13 +147,15 @@ def _type_notes(lines: Sequence[RequestLine], catalog: Catalog) -> tuple[tuple[i
     return tuple(notes)
 
 
-def _headline(type_notes: Sequence[tuple[int, str]], request_lines: int) -> str:
-    """The first sentence of each type note, for the summary of the first option: what was left out. How to
-    ask for it stays in `offer.notes`. A request of several lines says which line."""
+def _headline(type_notes: Sequence[tuple[int, str]], lines: Sequence[RequestLine]) -> str:
+    """The first sentence of each type note, for the summary of the first option: what the product type leaves
+    out. A request of one line says nothing before it; a request of several lines says which line by the
+    line's own words (`For milk: ...`), never by its number. The number stays on `offer.notes`."""
+    names = line_names(lines)
     sentences = []
     for index, note in type_notes:
         first = note.split(SENTENCE_END, 1)[0].rstrip(".") + "."
-        sentences.append(first if request_lines == 1 else f"{line_label(index)}: {first}")
+        sentences.append(first if len(lines) == 1 else f"{for_line(names[index])}: {first}")
     return " ".join(dict.fromkeys(sentences))
 
 

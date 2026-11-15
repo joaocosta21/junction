@@ -38,7 +38,7 @@ from tta.offers.preference import (
 from tta.offers.safe_swap import SAFE_SWAP_TITLE, safe_swap_said
 from tta.offers.safety import has_doubt, open_allergens, who_decides
 from tta.offers.variants import regular_words, variant_word
-from tta.offers.wording import UNIT_WORDS, counted, eur, joined, line_words, measured, plain_name
+from tta.offers.wording import UNIT_WORDS, counted, eur, joined, line_names, line_words, measured, plain_name
 
 MAX_OPTIONS = 3
 # Under a preference other than price the cheapest confirmed option is a fourth one, so the trade-off is on the
@@ -518,10 +518,10 @@ def _alternative_summary(assembled: _Assembled, covered: str, money: str) -> str
     open_lines = [
         line for line in lines if line.availability.state is not AvailabilityState.CONFIRMED or has_doubt(line)
     ]
-    stand_ins = [line.substitute for line in open_lines if line.substitute is not None]
-    originals = ", ".join(dict.fromkeys(_original_name(each) for each in stand_ins))
-    in_place = f", a substitute for {originals}," if stand_ins else ""
-    text = f"{_names(open_lines)}{in_place} for {covered}, {money}."
+    if len(assembled.coverage) == 1:
+        text = f"{_named_with_originals(open_lines)} for {covered}, {money}."
+    else:
+        text = f"{_by_item(assembled, open_lines)}: {covered}, {money}."
     if assembled.quantity_unconfirmed or not assembled.allergen_doubt:
         part = _unconfirmed_part(assembled)
         text += f" Valio does not confirm the quantity in stock{part}, so a human must approve this option."
@@ -532,13 +532,58 @@ def _alternative_summary(assembled: _Assembled, covered: str, money: str) -> str
     return text
 
 
+def _named_with_originals(lines: Sequence[OfferLine]) -> str:
+    """`X (id)`, and what it stands in for when it is a substitute: `X (id), a substitute for Y (id),`."""
+    stand_ins = [line.substitute for line in lines if line.substitute is not None]
+    originals = ", ".join(dict.fromkeys(_original_name(each) for each in stand_ins))
+    return f"{_names(lines)}, a substitute for {originals}," if stand_ins else _names(lines)
+
+
+def _by_item(assembled: _Assembled, open_lines: Sequence[OfferLine]) -> str:
+    """`X (id) for the 100 L of milk, and from confirmed stock the 10 L of Y (id)`: an alternative to a request
+    of several lines says which products fill which item. The products that make it an alternative come first
+    (quantity not confirmed, or an allergen not ruled out); what the option also holds from confirmed stock
+    follows. Before, the first products alone were said to be `for all 2 items asked for in full`."""
+    names = line_names(assembled.asked)
+    entries = {entry.request_line_index: entry for entry in assembled.coverage}
+    still_open = {id(line) for line in open_lines}
+    confirmed = [line for line in assembled.draft.lines if id(line) not in still_open]
+
+    def said(lines: Sequence[OfferLine]) -> str:
+        parts = []
+        for index in dict.fromkeys(line.request_line_index for line in lines):
+            own = [line for line in lines if line.request_line_index == index]
+            parts.append(_for_item(own, entries[index], assembled.asked[index], names[index]))
+        return joined(parts)
+
+    text = said(open_lines)
+    if confirmed:
+        text += f", and from confirmed stock {said(confirmed)}"
+    return text
+
+
+def _for_item(lines: Sequence[OfferLine], entry: Coverage, asked: RequestLine, name: str) -> str:
+    """`X (id) for the 100 L of milk`, `X (id) for 40 L of the 100 L of milk`; a line that asked for the product
+    itself by its id reads `the 10 L of Y (id)`, as the item has no other words than the product's."""
+    covers = sum((line.covers for line in lines), Decimal(0))
+    whole = f"the {measured(entry.requested, entry.unit)}"
+    amount = whole if covers >= entry.requested else f"{measured(covers, entry.unit)} of {whole}"
+    by_id_only = not (asked.product_type or asked.name_terms)
+    if by_id_only and all(line.substitute is None for line in lines):
+        return f"{amount} of {_names(lines)}"
+    return f"{_named_with_originals(lines)} for {amount} of {line_words(asked) if by_id_only else name}"
+
+
 def _unconfirmed_part(assembled: _Assembled) -> str:
     """` for 616 L of it`: how much of a one-line request the unconfirmed products cover, when the option also
-    holds confirmed stock; empty when all of it is unconfirmed or the request has several lines."""
+    holds confirmed stock. ` of 464306`: which products, when a request of several lines also gets confirmed
+    stock. Empty when all of the option is unconfirmed."""
     lines, coverage = assembled.draft.lines, assembled.coverage
     unconfirmed = [line for line in lines if line.availability.state is not AvailabilityState.CONFIRMED]
-    if len(coverage) != 1 or not unconfirmed or len(unconfirmed) == len(lines):
+    if not unconfirmed or len(unconfirmed) == len(lines):
         return ""
+    if len(coverage) != 1:
+        return f" of {joined(tuple(dict.fromkeys(line.product_id for line in unconfirmed)))}"
     return f" for {measured(sum((line.covers for line in unconfirmed), Decimal(0)), coverage[0].unit)} of it"
 
 
@@ -562,7 +607,7 @@ def _per_line(coverage: Sequence[Coverage], asked: Sequence[RequestLine], lines:
     still says what every line gets, with the line numbers (`tta.policy.coverage`)."""
     if len(coverage) <= 1 or all(entry.missing <= 0 for entry in coverage):
         return ""
-    names = _line_names(asked)
+    names = line_names(asked)
     nothing = [names[entry.request_line_index] for entry in coverage if entry.covered <= 0]
     in_part = sorted(
         (entry for entry in coverage if entry.covered > 0 and entry.missing > 0),
@@ -582,24 +627,6 @@ def _per_line(coverage: Sequence[Coverage], asked: Sequence[RequestLine], lines:
 def _line_covered(entry: Coverage, name: str) -> str:
     """`6 of 10 kg of butter`."""
     return f"{format_amount(entry.covered)} of {measured(entry.requested, entry.unit)} of {name}"
-
-
-def _line_names(asked: Sequence[RequestLine]) -> tuple[str, ...]:
-    """Each request line by its own words: its product type or the words of its name; a line that names only
-    product ids is `the products named on line 5`, never the list of ids. Two lines with the same words also
-    say their line."""
-    words = [line_words(line) if line.product_type or line.name_terms else "" for line in asked]
-    names = []
-    for index, (line, own) in enumerate(zip(asked, words, strict=True)):
-        number = index + 1
-        if not own:
-            named = "the product" if len(set(line.product_ids)) == 1 else "the products"
-            names.append(f"{named} named on line {number}")
-        elif words.count(own) > 1:
-            names.append(f"{own} (line {number})")
-        else:
-            names.append(own)
-    return tuple(names)
 
 
 def _names(lines: Iterable[OfferLine]) -> str:

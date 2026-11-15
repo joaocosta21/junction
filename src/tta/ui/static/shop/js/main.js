@@ -1,6 +1,6 @@
 // The page frame: header with the customer switcher, hash routing, events, and the render function.
 import { health } from "./api.js";
-import { app, freshData, handlers, keepFolds, on, pushKitchen, refresh, render, restoreFolds, setRenderer, startingCustomer, toast } from "./core.js";
+import { app, freshData, handlers, keepFolds, on, pushKitchen, refresh, render, restoreFolds, setRenderer, startingCustomer, toRequestBox, toast } from "./core.js";
 import { contact, loadCustomer } from "./customer.js";
 import { html, initials } from "./dom.js";
 import { icon } from "./icons.js";
@@ -92,6 +92,8 @@ on("push-again", async () => {
 
 // ---- events: one listener per kind, routed by data-act / data-change / data-input --------------------------
 
+const FIELDS = "input, textarea, select, [contenteditable]"; // where a key is typed text, not a shortcut
+
 function dispatch(event, el) {
   const fn = handlers[el.dataset.act];
   if (!fn) return;
@@ -135,6 +137,14 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey && event.target.matches("textarea[data-send]")) {
     event.preventDefault();
     event.target.form?.requestSubmit();
+  }
+  // "/" goes to the request box with the cursor in it, from anywhere on the page, when no field has the focus (in
+  // a field it is a character like any other). Shift is not looked at: on many keyboards "/" is typed with it.
+  if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.target.closest?.(FIELDS)) {
+    event.preventDefault();
+    toRequestBox();
+    if (app.route.name === "assistant") render();
+    else location.hash = "#/"; // the request page is drawn by the change of route, and the box is found then
   }
 });
 
@@ -243,6 +253,22 @@ function revealPending() {
   if (document.activeElement?.id === "ask-text") document.activeElement.blur();
 }
 
+// "New request" or "/" asked for the request box (core.js, `toRequestBox`): once the request page is drawn, the box
+// is brought under the header (the top of the page when the box fits in the window from there) and takes the
+// cursor. The box itself stays where it is on the page.
+function boxPending() {
+  if (!app.ui.toBox) return;
+  const box = document.getElementById("ask-text");
+  if (!box) return; // another view is shown: kept until the request page is drawn
+  app.ui.toBox = false;
+  const header = document.querySelector("header.header");
+  const frame = (box.closest(".ask") || box).getBoundingClientRect();
+  const fromTop = frame.bottom + window.scrollY <= window.innerHeight; // whole in the first window of the page
+  const top = fromTop ? 0 : frame.top + window.scrollY - (header?.offsetHeight || 0) - REVEAL_GAP;
+  window.scrollTo(0, Math.max(0, Math.round(top)));
+  box.focus({ preventScroll: true });
+}
+
 // A redraw replaces the page. On the same view of the same customer it keeps what a person did to it: the folds
 // they opened or closed, where they scrolled to, the field they type in. A toast is no part of it (core.js).
 let drawn = null;
@@ -279,6 +305,7 @@ setRenderer(() => {
   }
   if (folds && window.scrollY !== y) window.scrollTo(0, y);
   revealPending();
+  boxPending();
 });
 
 // ---- start -----------------------------------------------------------------------------------------------

@@ -21,7 +21,10 @@ from tta.offers import OfferService
 REGULAR = "469549"  # Valio semi skimmed milk 1 l ESL: no lactose claim
 LACTOSE_FREE = "469363"  # Arla semi skimmed milk drink, lactose free
 LOW_LACTOSE = "463047"  # Arla whole milk, low lactose: 132 confirmed in the recording, €2.01
-COFFEE_HEADLINE = " Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
+COFFEE_HEADLINE = (  # lane FP-Z: one sentence, true above an option that names a café milk as a substitute
+    " Milk made for coffee is not offered as milk: it appears only as a named substitute, or when coffee milk is "
+    "asked for by name (product type coffee_milk)."
+)
 
 Build = Callable[..., Offer]
 
@@ -119,7 +122,7 @@ def test_a_type_with_nothing_left_out_adds_nothing_to_the_headline(
 ) -> None:
     offer = service.build_offer(make_request(10, product_type="cream"), agent_hotel)
 
-    assert "left out" not in offer.options[0].summary
+    assert "is not offered as" not in offer.options[0].summary
 
 
 def test_an_offer_carries_a_list_of_suggestions_that_nothing_fills_yet(plain: Offer) -> None:

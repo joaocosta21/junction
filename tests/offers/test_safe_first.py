@@ -120,7 +120,8 @@ def test_under_declared_only_a_product_with_no_statement_is_a_labelled_alternati
     assert "P-04" not in only.decision.rule_ids
     assert only.summary.endswith(
         "The product data does not rule out soybeans (AY), so the person who confirms the order must decide."
-        " Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee milk."
+        " Milk made for coffee is not offered as milk: it appears only as a named substitute, or when coffee milk is"
+        " asked for by name (product type coffee_milk)."
     )
 
 

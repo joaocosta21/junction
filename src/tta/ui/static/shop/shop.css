@@ -271,6 +271,21 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
   display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: baseline;
 }
 .asked .read b { color: var(--navy); font-size: 16px; }
+/* "New request" in the corner of the newest result's first line: back to the request box, with the cursor in it.
+   Out of the flow, so the answer under it is not moved; only the bold line makes room for it. */
+.asked.newest { position: relative; }
+.asked.newest .read b { display: block; padding-right: 150px; }
+.new-request {
+  position: absolute; top: 10px; right: 14px; height: 28px; padding: 0 8px 0 12px;
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  background: #fff; color: var(--navy); border: 1px solid var(--navy); border-radius: 99px;
+  font: inherit; font-size: 13px; font-weight: 700; white-space: nowrap;
+}
+.new-request:hover { background: var(--bg); }
+.new-request kbd {
+  font-family: ui-monospace, Menlo, monospace; font-size: 12px; font-weight: 500; line-height: 16px;
+  min-width: 18px; text-align: center; color: var(--muted); border: 1px solid var(--line); border-radius: 4px;
+}
 .asked .read .small { margin-top: 2px; }
 .applied { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 

@@ -31,8 +31,8 @@ BAKERY_OAT = {"needed_by": "2026-11-17", "lines": [
 NOTHING_YET = "Nothing has been ordered in this demonstration yet. Make a request as a customer, then come back."
 DEMAND = (
     "3 requests came in through the agent channel and 3 offers went out. 2 orders were prepared: 1 confirmed by a "
-    "person (€248.00 before tax), 0 placed by the agent alone, 1 waiting for a person (€44.40), 0 rejected and "
-    "0 expired."
+    "person (€248.00 before tax), 0 placed by the agent alone (€0.00 before tax), 1 waiting for a person "
+    "(€44.40), 0 rejected and 0 expired."
 )
 
 

@@ -44,8 +44,8 @@ BAKERY_OAT = {"needed_by": TUESDAY, "lines": [
 
 DEMAND = (
     "5 requests came in through the agent channel and 5 offers went out. 4 orders were prepared: 2 confirmed by a "
-    "person (€1,364.49 before tax), 0 placed by the agent alone, 1 waiting for a person (€44.40), 1 rejected and "
-    "0 expired."
+    "person (€1,364.49 before tax), 0 placed by the agent alone (€0.00 before tax), 1 waiting for a person "
+    "(€44.40), 1 rejected and 0 expired."
 )
 SUGGESTIONS = (
     "6 suggestions were shown with offers and 2 were accepted (33.3%); 1 of those ended in a confirmed order. "
@@ -402,3 +402,25 @@ def test_a_substitute_that_was_offered_and_not_ordered_adds_nothing_to_what_was_
         "320 L asked for could not be covered by confirmed stock of the product asked for: about €640 at offered "
         "prices."
     )
+
+
+def test_each_figure_of_the_orders_sentence_counts_only_its_own_orders() -> None:
+    """The back office said "1 confirmed by a person (€1,832.35 before tax), 1 placed by the agent alone" after an
+    order of €748.96 the agent placed alone: the money in the brackets was both orders'."""
+    option = {"option_id": "opt_1", "kind": "BEST_CONFIRMED", "lines": []}
+    by_person = {"order_id": "ord_1", "offer_id": "off_1", "status": "ORDERED", "placed_by": "HUMAN_APPROVAL",
+                 "updated_at": CLOCK, "option": {**option, "totals": {"net": 1083.39}}}
+    by_agent = {"order_id": "ord_2", "offer_id": "off_2", "status": "ORDERED", "placed_by": "AGENT",
+                "updated_at": CLOCK, "option": {**option, "totals": {"net": 748.96}}}
+    events = [_step(1, "order.confirmed", "off_1", {"order": by_person}),
+              _step(2, "order.confirmed", "off_2", {"order": by_agent})]
+
+    demand = insights(events, now=_now()).demand
+
+    assert (demand.confirmed_by_person, demand.placed_by_agent) == (1, 1)
+    assert "1 confirmed by a person (€1,083.39 before tax), 1 placed by the agent alone (€748.96 before tax), " in (
+        demand.sentence)
+    assert "€1,832.35" not in demand.sentence
+    # The tile's figure stays what its field says: everything confirmed, by a person or by the agent alone.
+    assert demand.confirmed_net_eur == Decimal("1832.35")
+    assert any("each summed apart" in row.how for row in demand.counted if row.figure == "Euros")

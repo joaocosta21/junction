@@ -67,7 +67,9 @@ OWN_LABEL_HOSTS = ("valioaimo.fi",)
 MARKS: dict[str, re.Pattern[str]] = {
     "lactose-free": re.compile(r"\blaktoosit[oö]n|\blactose[ -]?free\b", re.IGNORECASE),
     "low-lactose": re.compile(r"\bvähälaktoosi|\blow[ -]?lactose\b", re.IGNORECASE),
-    "fat-free": re.compile(r"\brasvat[oö]n|\bfat[ -]?free\b|(?<![\w-])skimmed\b", re.IGNORECASE),
+    # "skimmed", never the "skimmed" of "semi skimmed" or "semi-skimmed" (recording 469363, a semi-skimmed milk
+    # drink, was dropped as "fat-free; the page does not say fat-free").
+    "fat-free": re.compile(r"\brasvat[oö]n|\bfat[ -]?free\b|(?<![\w-])(?<!semi )skimmed\b", re.IGNORECASE),
     "whole milk": re.compile(r"\btäysmai|\bwhole milk\b", re.IGNORECASE),
     "UHT": re.compile(r"\buht\b", re.IGNORECASE),
     "organic": re.compile(r"\bluomu|\borganic\b", re.IGNORECASE),

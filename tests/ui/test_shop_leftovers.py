@@ -162,7 +162,8 @@ def test_the_page_shows_the_evidence_with_the_question_on_the_result_and_on_the_
 
     own = question.split("export function ownQuestion", 1)[1]
     assert own.index("${evidenceFor(turn, option)}") < own.index('<ol class="choices">')  # read before choosing
-    assert "loadOwnEvidence(turn);" in assistant and "evidenceBlock(approval)" in approvals
+    # Lane FP-Z: read from the book of the customer the request was sent for (`who`), whatever is switched to since.
+    assert "loadOwnEvidence(turn, who);" in assistant and "evidenceBlock(approval)" in approvals
     assert "Found on the web, not Valio Aimo data" in evidence and "this changes no status and no decision" in evidence
     assert "/evidence?offer_id=${q(offerId)}&option_id=${q(optionId)}" in _read("api.js")
 

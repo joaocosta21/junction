@@ -1,6 +1,7 @@
 // State and helpers shared by every view. The page frame (main.js) sets the renderer.
 import { gateway } from "./api.js";
 import { day, isoDay } from "./dom.js";
+import { kitchenById } from "./kitchens.js";
 import { memory, mine } from "./store.js";
 
 // `authority` is the gateway's own answer about the rules in force for this kitchen's book, never this
@@ -12,7 +13,7 @@ export const freshData = () => ({ authority: null, refused: null, pushing: false
 export const app = {
   route: { name: "assistant", id: null },
   data: freshData(),
-  ui: { menu: false, redraft: {}, reveal: null, revealed: null },
+  ui: { menu: false, redraft: {}, reveal: null, revealed: null, toBox: false },
   health: null, // the gateway's GET /healthz answer, null when it did not answer
   healthAsked: false,
 };
@@ -29,6 +30,23 @@ export function on(name, fn) {
 }
 
 export const api = () => gateway(memory.active);
+
+// A request belongs to the customer that was active when it was sent. `sender()` is taken once, as the request is
+// sent, and every later step of that request asks it instead of the page: its gateway (that customer's order book),
+// its settings and what its agent learned, and the rules the gateway confirmed for it. A switch of customer while
+// the request is on its way then changes nothing of it: its answer is made under its own customer's rules and kept
+// in that customer's results, which only that customer's page draws.
+export function sender() {
+  const id = memory.active;
+  return {
+    id,
+    kitchen: kitchenById(id),
+    data: app.data, // the page data of the customer as it was opened: the rules in force are read into it
+    api: () => gateway(id),
+    mine: () => mine(id), // read each time: a save or a reset makes new lists
+    shown: () => memory.active === id, // the page shows this customer now
+  };
+}
 
 // The page's own figures, written as the gateway writes them in its sentences ("€1,083.39"): one format on a page,
 // from this one function.
@@ -69,18 +87,19 @@ export const rulesLost = (error) => {
 };
 
 // The book's answer is this kitchen's settings, not a book that started again from the defaults ("My kitchen").
-const isThisKitchens = (authority) => Boolean(authority?.profile) && authority.profile.display_name === mine().settings.display_name;
+const isThisKitchens = (authority, who) => Boolean(authority?.profile) && authority.profile.display_name === who.mine().settings.display_name;
 
 // Make this kitchen's settings the rules of its book, trying once more when refused. The rules then shown are the
-// gateway's answer. Written into the data of the kitchen that asked, so a switch meanwhile cannot mix two kitchens.
-export async function pushKitchen() {
-  const data = app.data;
-  const settings = mine().settings;
+// gateway's answer. Sent to the book of the kitchen that asked and written into its data (`who`, the customer in use
+// when none is given), so a switch meanwhile cannot mix two kitchens.
+export async function pushKitchen(who = sender()) {
+  const data = who.data;
+  const settings = who.mine().settings;
   data.pushing = true;
   let last = null;
   for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
     try {
-      data.authority = await api().setKitchen(settings);
+      data.authority = await who.api().setKitchen(settings);
       data.refused = null;
       data.pushing = false;
       return data.authority;
@@ -96,18 +115,19 @@ export async function pushKitchen() {
 }
 
 // The rules in force, set up first when the gateway has not confirmed them.
-export async function ensureRules() {
-  return app.data.authority || pushKitchen();
+export async function ensureRules(who = sender()) {
+  return who.data.authority || pushKitchen(who);
 }
 
 // Before a request is read or an order confirmed: read the rules back from the gateway, and set them up again when
-// its book no longer holds this kitchen's settings (dropped after idling, or the gateway restarted).
-export async function verifyRules() {
-  const data = app.data;
+// its book no longer holds this kitchen's settings (dropped after idling, or the gateway restarted). `who`: the
+// customer the request was sent for.
+export async function verifyRules(who = sender()) {
+  const data = who.data;
   if (data.authority && !data.pushing) {
     try {
-      const authority = await api().authority();
-      if (isThisKitchens(authority)) {
+      const authority = await who.api().authority();
+      if (isThisKitchens(authority, who)) {
         data.authority = authority;
         return authority;
       }
@@ -115,29 +135,31 @@ export async function verifyRules() {
       if (!rulesLost(error)) return data.authority; // the check itself failed: the gateway's last answer stands
     }
   }
-  return pushKitchen();
+  return pushKitchen(who);
 }
 
 // A call that needs this kitchen's rules: set them up first; when the book lost them meanwhile, set them up again
-// and make the call once more. Nothing is ever asked or ordered under rules the gateway did not confirm.
-export async function withRules(call) {
-  await ensureRules();
+// and make the call once more. Nothing is ever asked or ordered under rules the gateway did not confirm. `who`: the
+// customer the request was sent for; the call is made on that customer's gateway (`who.api()`).
+export async function withRules(call, who = sender()) {
+  await ensureRules(who);
   try {
     return await call();
   } catch (error) {
     if (!rulesLost(error)) throw error;
-    app.data.authority = null;
-    await pushKitchen();
+    who.data.authority = null;
+    await pushKitchen(who);
     return call();
   }
 }
 
 // Read the rules back from the gateway; when they are not this kitchen's, send the settings again.
-async function checkRules(data) {
+async function checkRules(who) {
+  const data = who.data;
   if (data.pushing) return; // a push is on its way: its answer is the rules in force
   try {
-    const authority = await api().authority();
-    if (isThisKitchens(authority)) {
+    const authority = await who.api().authority();
+    if (isThisKitchens(authority, who)) {
       data.authority = authority;
       return;
     }
@@ -148,17 +170,20 @@ async function checkRules(data) {
   data.authority = null;
   if (data.refused) return; // just refused twice: the banner offers to send again, and so does the next request
   try {
-    await pushKitchen();
+    await pushKitchen(who);
   } catch {
     // kept in app.data.refused and shown on every view
   }
 }
 
+// The orders and approvals of the customer the page shows, read from that customer's book whatever is switched to
+// while the calls are on their way.
 export async function refresh() {
-  const data = app.data;
+  const who = sender();
+  const data = who.data;
   try {
-    await checkRules(data);
-    const [list, queue] = await Promise.all([api().orders(), api().approvals()]);
+    await checkRules(who);
+    const [list, queue] = await Promise.all([who.api().orders(), who.api().approvals()]);
     data.orders = list;
     data.approvals = queue;
     data.problem = null;
@@ -249,6 +274,15 @@ export function reveal(id, { again = false } = {}) {
     if (!shown || shown.id !== id || typeof window === "undefined" || Math.abs(window.scrollY - shown.y) > 2) return;
   }
   app.ui.reveal = id;
+}
+
+// "New request" on the newest result, and the key "/" (main.js): the next redraw brings the request box back under
+// the header and puts the cursor in it, so the next sentence is one keystroke away. An answer still on its way then
+// leaves the page where the person is typing (`revealed` is forgotten, so `reveal(…, { again })` does nothing).
+export function toRequestBox() {
+  app.ui.toBox = true;
+  app.ui.reveal = null;
+  app.ui.revealed = null;
 }
 
 // Spend that counts against today's limit: orders of the data clock's day that are ordered or waiting.

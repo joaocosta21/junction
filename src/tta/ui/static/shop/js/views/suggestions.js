@@ -18,9 +18,10 @@ const findTurn = (id) => mine().thread.find((t) => t.id === id);
 
 // ---- what was not suggested, read once per result --------------------------------------------------------------
 
-export async function loadWhyNot(turn) {
+// `gateway`: the book of the customer that asked (assistant.js gives the one the request was sent for), so a switch
+// of customer meanwhile reads nothing from another book.
+export async function loadWhyNot(turn, gateway = api()) {
   if (!turn.offer?.suggestions?.length || turn.whyNot) return;
-  const gateway = api(); // the book of the customer that asked, even if the visitor switches meanwhile
   try {
     turn.whyNot = await gateway.suggestions(turn.offer.offer_id);
     turn.whyNotProblem = null;

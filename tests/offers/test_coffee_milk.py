@@ -21,9 +21,8 @@ from tta.offers import OfferService
 
 COFFEE_MILKS = {"462626", "463380", "464237", "473142"}  # the four milks for coffee of category 10400
 NOTE = (
-    "Request line 1: Coffee milk was left out: a request for milk gets no milk for coffee and no flavoured coffee "
-    "milk. It is offered only as a named substitute, or when coffee milk is asked for by name "
-    "(product type coffee_milk)."
+    "Request line 1: Milk made for coffee is not offered as milk: it appears only as a named substitute, or when "
+    "coffee milk is asked for by name (product type coffee_milk)."
 )
 
 
@@ -74,7 +73,7 @@ def test_a_request_for_coffee_milk_by_its_own_type_gets_coffee_milk_and_no_note(
     offered = {line.product_id for option in offer.options for line in option.lines}
     assert offered and offered <= COFFEE_MILKS
     assert "463380" in offered  # Arla Cafè milk: 698 units confirmed in the recording
-    assert not any("Coffee milk was left out" in note for note in offer.notes)
+    assert not any("Milk made for coffee" in note for note in offer.notes)
 
 
 def test_a_type_with_nothing_to_say_adds_no_note(

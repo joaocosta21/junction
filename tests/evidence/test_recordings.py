@@ -71,6 +71,7 @@ EXPECTED = {
     "469162": "The manufacturer's page “Valio Ruoka 15%” on valio.fi says: contains “maito”; free from “laktoositon”.",
 }
 KEPT = ("463047", "463975", "464401", "465793", "468465", "469162", "469512", "473609", "475224")
+RECORDED = 92  # the files of fixtures/evidence/
 
 
 def test_nine_recordings_are_kept_and_four_are_dropped(catalog: ProductCatalog) -> None:
@@ -95,7 +96,8 @@ def test_each_recording_reads_as_recorded(catalog: ProductCatalog, product_id: s
 def test_every_recording_sent_names_only(catalog: ProductCatalog) -> None:
     files = sorted(Path(RECORDINGS).glob("*.json"))
 
-    assert [path.stem for path in files] == sorted(EXPECTED)
+    # 92 recordings since 15 Nov (were the 13 of EXPECTED, whose sentences stay pinned above): each is checked below.
+    assert len(files) == RECORDED and set(EXPECTED) <= {path.stem for path in files}
     for path in files:
         record = EvidenceCache(RECORDINGS).get(path.stem)
         assert set(record.request) == {"mode", "task", "json_format", "timeoutOpts"}
