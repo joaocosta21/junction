@@ -76,6 +76,9 @@ h3 { font-size: 18px; line-height: 1.2; }
 }
 .strip .tab svg { width: 18px; height: 18px; }
 .strip .tab.on { background: var(--lilac); color: var(--navy); }
+/* Valio Aimo's own screen: apart from the customer's two tabs, at the other end of the strip */
+.strip .tab.office { margin-left: auto; font-style: italic; }
+.strip .tab.office + .mode { margin-left: 12px; }
 .strip .mode {
   margin-left: auto; align-self: center;
   font-size: 12px; color: #c4d6e0;
@@ -90,10 +93,10 @@ h3 { font-size: 18px; line-height: 1.2; }
 .header-in {
   max-width: 1240px; margin: 0 auto;
   height: 72px; padding: 0 24px;
-  display: flex; align-items: center; gap: 28px;
+  display: flex; align-items: center; gap: 20px;
 }
 .brand {
-  display: flex; align-items: baseline; gap: 6px; text-decoration: none;
+  display: flex; align-items: baseline; gap: 6px; text-decoration: none; flex: none; white-space: nowrap;
   font-family: var(--head); color: var(--navy);
 }
 .brand b { font-size: 30px; font-style: italic; letter-spacing: -0.5px; }
@@ -102,8 +105,8 @@ h3 { font-size: 18px; line-height: 1.2; }
 .nav { display: flex; gap: 4px; }
 .nav a {
   position: relative;
-  text-decoration: none; color: var(--navy); font-weight: 600;
-  padding: 8px 12px; border-radius: 8px;
+  text-decoration: none; color: var(--navy); font-weight: 600; white-space: nowrap;
+  padding: 8px 10px; border-radius: 8px;
 }
 .nav a:hover { background: #e3daf0; }
 .nav a.on { background: #fff; box-shadow: inset 0 -3px 0 var(--navy); }
@@ -124,11 +127,6 @@ h3 { font-size: 18px; line-height: 1.2; }
 .icon-btn:hover { background: #e3daf0; }
 .icon-btn svg { width: 26px; height: 26px; }
 .icon-btn .badge { position: absolute; top: -2px; right: -4px; }
-.date-chip {
-  display: flex; align-items: center; gap: 6px;
-  color: var(--navy); font-weight: 700; font-size: 13px; text-decoration: none;
-}
-.date-chip svg { width: 24px; height: 24px; }
 
 /* user switcher */
 .who { position: relative; }
@@ -167,6 +165,8 @@ h3 { font-size: 18px; line-height: 1.2; }
 .menu button b { display: block; color: var(--navy); font-size: 14px; }
 .menu button span { display: block; font-size: 12px; color: var(--muted); }
 .menu button .tag { margin-left: auto; }
+.menu button .avatar { display: grid; font-size: 13px; color: #fff; }
+.menu button .tag { display: inline-flex; }
 .menu .menu-foot { border-top: 1px solid var(--line-soft); margin-top: 6px; padding: 8px 10px 4px; font-size: 12px; color: var(--muted); }
 
 /* ---------- page ---------- */
@@ -224,6 +224,7 @@ h3 { font-size: 18px; line-height: 1.2; }
   color: var(--petrol); font-weight: 600; text-decoration: underline; text-underline-offset: 2px;
 }
 .link.quiet { color: var(--muted); font-weight: 500; }
+.link svg { width: 15px; height: 15px; vertical-align: -2px; }
 
 /* ---------- request page: a form and its results, not a chat ---------- */
 
@@ -255,8 +256,16 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .label-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 2px; }
 
 .results { margin-top: 20px; }
+/* A request that was just sent goes to the top of the window (main.js): there is room to scroll it there even
+   while its result is one line high. 84px: the header that stays on screen and the gap under it. */
+.results.some { min-height: calc(100vh - 84px); }
 .answer { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .answer + .answer { margin-top: 18px; }
+/* a result a newer one replaced: what was asked and one line that says so; nothing in it can be ordered */
+.answer.was-replaced { background: #f8fafb; }
+.answer.was-replaced .asked .read b { color: var(--muted); }
+.replaced { display: flex; gap: 8px; align-items: flex-start; margin: 0; font-size: 14px; color: var(--muted); }
+.replaced svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
 .asked {
   padding: 14px 18px; border-bottom: 1px solid var(--line-soft);
   display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: baseline;
@@ -311,7 +320,7 @@ pre.json {
 
 /* product lines, shaped like the shop's product rows */
 .lines { border: 1px solid var(--line-soft); border-radius: 8px; }
-.pline { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; padding: 12px 14px; align-items: center; }
+.pline { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 14px; padding: 12px 14px; align-items: start; }
 .pline + .pline { border-top: 1px solid var(--line-soft); }
 .thumb {
   width: 52px; height: 52px; border-radius: 8px; background: var(--bg);
@@ -343,6 +352,9 @@ pre.json {
 
 .totals { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 14px; background: var(--bg); border-radius: 0 0 8px 8px; }
 .totals b { font-size: 18px; color: var(--ink); }
+/* the request page says the total before the lines, beside the button: a row of its own, then the decision, then the lines */
+.totals.alone { border-radius: 8px; }
+.answer-body > .lines { margin-top: 14px; }
 
 details.why { margin-top: 14px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
 details.why summary { cursor: pointer; font-weight: 600; color: var(--petrol); list-style: none; display: flex; align-items: center; gap: 6px; }
@@ -438,10 +450,10 @@ details.why[open] summary svg { transform: rotate(90deg); }
 .section-label { margin: 28px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
 
 .timeline { list-style: none; margin: 0; padding: 0; position: relative; }
-.timeline li { position: relative; padding: 0 0 18px 26px; }
-.timeline li::before { content: ""; position: absolute; left: 6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--navy); }
-.timeline li::after { content: ""; position: absolute; left: 10px; top: 18px; bottom: 0; width: 2px; background: var(--line); }
-.timeline li:last-child::after { display: none; }
+.timeline > li { position: relative; padding: 0 0 18px 26px; }
+.timeline > li::before { content: ""; position: absolute; left: 6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--navy); }
+.timeline > li::after { content: ""; position: absolute; left: 10px; top: 18px; bottom: 0; width: 2px; background: var(--line); }
+.timeline > li:last-child::after { display: none; }
 .timeline .ev { font-size: 12px; color: var(--muted); }
 .timeline .ev code { font-size: 11px; }
 .timeline p { margin: 2px 0 0; font-size: 14px; }
@@ -470,6 +482,9 @@ details.why[open] summary svg { transform: rotate(90deg); }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.legend .m-ok { background: #3faa5c; }
+.legend .m-wait { background: #f2b51b; }
+.legend .m-past { background: #9fb0bb; }
 .lead { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
 .lead div { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
 .lead b { display: block; font-family: var(--head); font-size: 22px; color: var(--navy); }
@@ -588,7 +603,7 @@ select { height: 40px; border: 1px solid var(--line); border-radius: 6px; paddin
   .strip .mode { display: none; }
   .header-in { padding: 0 16px; gap: 10px; height: 64px; }
   .brand b { font-size: 24px; }
-  .brand span, .date-chip span { display: none; }
+  .brand span { display: none; }
   .who-btn .who-text { display: none; }
   .who-btn { padding: 4px; }
   .who-btn > svg { display: none; }
@@ -679,17 +694,17 @@ details.why.fold summary { font-size: 13px; }
 .proof { display: flex; gap: 6px; align-items: flex-start; margin: 6px 0 0; }
 .proof svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--petrol); }
 
-/* ---------- "you usually order this": a notification at the top of the request view, never a blocking dialog ---------- */
+/* ---------- "you usually order this": a compact block under the request box, never above it and never a dialog ---------- */
 
-.reorder { border: 1px solid #b9d3df; border-left: 4px solid var(--petrol); background: var(--info-bg); border-radius: 8px; padding: 12px 14px; margin: 0 0 18px; min-width: 0; overflow-wrap: anywhere; }
-.reorder-head { display: flex; align-items: center; gap: 8px; color: var(--petrol-ink); }
-.reorder-head > svg { width: 18px; height: 18px; flex: none; color: var(--petrol); }
-.reorder-head b { flex: 1; }
-.reorder .reorder-x { width: 34px; height: 34px; }
-.reorder .reorder-x svg { width: 18px; height: 18px; }
-.reorder p { margin: 6px 0 0; font-size: 14px; }
-.reorder-lines { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px; }
-.reorder .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.reorder { border: 1px solid #b9d3df; border-left: 4px solid var(--petrol); background: var(--info-bg); border-radius: 8px; padding: 10px 14px; margin: 14px 0 0; min-width: 0; overflow-wrap: anywhere; }
+.reorder-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--petrol-ink); }
+.reorder-row > svg { width: 18px; height: 18px; flex: none; color: var(--petrol); }
+.reorder-row p { flex: 1 1 280px; margin: 0; font-size: 14px; }
+.reorder .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.reorder details.why { margin-top: 8px; padding-top: 6px; border-top-color: #c9dde8; }
+.reorder details.why summary { font-size: 13px; }
+.reorder .why-body { gap: 8px; }
+.reorder .why-body p { margin: 0; }
 
 /* six links in the main navigation: the chips of the small screens take over before the header crowds */
 @media (max-width: 1120px) {
@@ -717,22 +732,23 @@ details.why.fold summary { font-size: 13px; }
   .plan-offer { grid-column: 1 / -1; }
 }
 
-/* "This is one of your regular orders": one bar at the top of a result, above its options (views/regular.js). */
-.regular-bar { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--petrol); border-radius: 8px; background: var(--info-bg); min-width: 0; overflow-wrap: anywhere; }
-.regular-bar > svg { flex: none; width: 20px; height: 20px; margin-top: 1px; color: var(--petrol); }
-.regular-bar > div { flex: 1; min-width: 0; }
-.regular-bar p { margin: 0; font-size: 14px; }
-.regular-bar p + p { margin-top: 6px; }
-.regular-bar .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-.regular-bar.amber { background: var(--wait-bg); border-color: #efd9ad; border-left-color: var(--wait); color: #5b3800; }
+/* "This is one of your regular orders" (views/regular.js draws it): one calm line under the answer's headline, said
+   once. No fill and no box: the first thing of a result is its answer, and its one button is "Confirm order", so
+   what this line offers are quiet links. */
+.regular-bar { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; padding: 1px 0 1px 10px; border-left: 3px solid var(--line); min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.regular-bar > svg { flex: none; width: 15px; height: 15px; margin-top: 2px; color: var(--petrol); }
+.regular-bar > div { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.regular-bar p { margin: 0; font-size: 13px; }
+.regular-bar .actions { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: baseline; }
+.regular-bar .btn { min-height: 0; padding: 0; border: 0; background: none; font: 600 13px/1.45 var(--body); text-transform: none; letter-spacing: 0; color: var(--petrol); text-decoration: underline; text-underline-offset: 2px; }
+.regular-bar .btn:hover { background: none; color: var(--petrol-ink); }
+.regular-bar .btn:disabled { text-decoration: none; }
+.regular-bar.amber { border-left-color: #e6c27a; }
 .regular-bar.amber > svg { color: var(--wait); }
-.regular-bar.done { background: var(--ok-bg); border-color: #c5e3d1; border-left-color: var(--ok); }
+.regular-bar.done { border-left-color: var(--ok); }
 .regular-bar.done > svg { color: var(--ok); }
 
-/* Valio Aimo back office (views/backoffice.js): Valio Aimo's screen, set apart from the customer's menu. */
-.nav a[href="#/backoffice"] { margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--line); border-radius: 0 6px 6px 0; color: var(--petrol); font-style: italic; }
-.mobile-nav a[href="#/backoffice"] { background: var(--lilac); border: 1px dashed var(--navy); }
-.mobile-nav a[href="#/backoffice"].on { background: var(--navy); border-style: solid; }
+/* Valio Aimo back office (views/backoffice.js): Valio Aimo's screen, reached from the strip (.tab.office). */
 .bo-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .bo-block { min-width: 0; overflow-wrap: anywhere; }
 .bo-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -740,7 +756,7 @@ details.why.fold summary { font-size: 13px; }
 .bo-tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #fff; min-width: 0; }
 .bo-tile b { display: block; font-family: var(--head); font-size: 30px; line-height: 1.1; color: var(--navy); font-variant-numeric: tabular-nums; }
 .bo-tile span { display: block; margin-top: 4px; font-size: 13px; color: var(--muted); }
-.bo-tile.lead { background: var(--info-bg); border-color: #c9dde8; }
+.bo-tile.lead { display: block; margin-bottom: 0; background: var(--info-bg); border-color: #c9dde8; }
 .bo-tile.good { background: var(--ok-bg); border-color: #c5e3d1; }
 .bo-tile.good b { color: var(--ok); }
 .bo-tile.warn { background: var(--wait-bg); border-color: #efd9ad; }

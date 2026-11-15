@@ -1,8 +1,8 @@
 // The page frame: header with the customer switcher, hash routing, events, and the render function.
 import { health } from "./api.js";
-import { app, freshData, handlers, nextDeliveryDay, on, pushKitchen, refresh, render, setRenderer, toast } from "./core.js";
+import { app, freshData, handlers, keepFolds, on, pushKitchen, refresh, render, restoreFolds, setRenderer, startingCustomer, toast } from "./core.js";
 import { contact, loadCustomer } from "./customer.js";
-import { html, initials, isoDay, shortDate } from "./dom.js";
+import { html, initials } from "./dom.js";
 import { icon } from "./icons.js";
 import { KITCHENS, kitchenById } from "./kitchens.js";
 import { active, memory, save } from "./store.js";
@@ -25,8 +25,10 @@ const NAV = [
   ["approvals", "#/approvals", "Waiting for someone else"], // shown with its count, hidden when nothing waits
   ["orders", "#/orders", "Orders"],
   ["settings", "#/settings", "Settings"],
-  ["backoffice", "#/backoffice", "Valio Aimo back office"], // Valio Aimo's screen, set apart in the menu (shop.css)
 ];
+// Valio Aimo's own screen is no entry of the customer's menu: it is reached from the strip above it, which says
+// whose it is.
+const BACK_OFFICE = ["#/backoffice", "Valio Aimo's back office (demo)"];
 
 // ---- loading and switching customer ----------------------------------------------------------------------
 
@@ -57,6 +59,7 @@ async function switchKitchen(id) {
   app.data = freshData();
   settings.forget();
   if (location.hash && location.hash !== "#/") location.hash = "#/";
+  window.scrollTo(0, 0); // another customer's page begins at its top
   await load();
   const k = kitchenById(id);
   const me = contact(id);
@@ -93,10 +96,14 @@ function dispatch(event, el) {
   const fn = handlers[el.dataset.act];
   if (!fn) return;
   event.preventDefault();
-  Promise.resolve(fn(el, event)).catch((error) => {
-    console.error(error);
-    toast(error.message || "Something went wrong.");
-  });
+  // Each action ends with one redraw, whatever its handler drew on the way: a toast redraws nothing (core.js), so
+  // a view that says its outcome in a toast is shown as it now is.
+  Promise.resolve(fn(el, event))
+    .catch((error) => {
+      console.error(error);
+      toast(error.message || "Something went wrong.");
+    })
+    .finally(render);
 }
 
 document.addEventListener("click", (event) => {
@@ -140,8 +147,8 @@ function route() {
 window.addEventListener("hashchange", () => {
   route();
   app.ui.menu = false;
+  window.scrollTo(0, 0); // before the redraw: a result waiting to be shown is scrolled to by it (revealPending)
   render();
-  window.scrollTo(0, 0);
   VIEWS[app.route.name].enter?.();
 });
 
@@ -158,7 +165,8 @@ function header() {
   const k = active();
   const me = contact();
   const waiting = approvals.waitingCount();
-  const next = nextDeliveryDay();
+  const wholesale = app.route.name === "deliveries"; // the strip's first tab leads there: selected while it is shown
+  const office = app.route.name === "backoffice";
   const link = ([name, href, label], mobile) =>
     name !== "approvals"
       ? html`<a href="${href}" class="${app.route.name === name ? "on" : ""}">${label}</a>`
@@ -167,8 +175,9 @@ function header() {
         : html`<a href="${href}" class="${app.route.name === name ? "on" : ""}">${approvals.waitingLabel()}${mobile ? ` (${waiting})` : html`<span class="badge">${waiting}</span>`}</a>`;
   return html`
     <div class="strip">
-      <a class="tab" href="#/deliveries" title="Delivery wholesale">${icon("truck")}<span>Delivery wholesale</span></a>
-      <a class="tab on" href="#/">${icon("agent")}<span>Buying agent</span></a>
+      <a class="tab ${wholesale ? "on" : ""}" href="#/deliveries" title="Delivery wholesale">${icon("truck")}<span>Delivery wholesale</span></a>
+      <a class="tab ${wholesale || office ? "" : "on"}" href="#/">${icon("agent")}<span>Buying agent</span></a>
+      <a class="tab office ${office ? "on" : ""}" href="${BACK_OFFICE[0]}" title="${BACK_OFFICE[1]}">${icon("store")}<span>${BACK_OFFICE[1]}</span></a>
       <span class="mode">${modeLabel()}</span>
     </div>
     ${clockStrip(app.health, app.healthAsked, app.ui.clockOpen)}
@@ -177,8 +186,6 @@ function header() {
         <a class="brand" href="#/"><b>Tukku</b><span>Trusted Trade</span></a>
         <nav class="nav" aria-label="Main">${NAV.map((n) => link(n, false))}</nav>
         <div class="tools">
-          <a class="date-chip" href="#/deliveries" title="Next delivery day">${icon("calendar")}<span>${shortDate(isoDay(next))}</span></a>
-          ${waiting ? html`<a class="icon-btn" href="#/approvals" title="${approvals.waitingLabel()}">${icon("bell")}<span class="badge">${waiting}</span></a>` : ""}
           <div class="who">
             <button class="who-btn" data-act="menu" aria-haspopup="menu" aria-expanded="${String(app.ui.menu)}">
               <span class="avatar ${k.id}">${initials(me?.name || k.name)}</span>
@@ -194,7 +201,7 @@ function header() {
                   ${one.id === k.id ? html`<span class="tag ok">${icon("check")}In use</span>` : ""}
                 </button>`
               )}
-              <div class="menu-foot">Demo customers, no login. Each one has its own order book and limits.</div>
+              <div class="menu-foot">${me ? `Demo, no login: you are acting as ${me.name}, ${k.name}.` : `Demo, no login: you are acting for ${k.name}.`} Each customer has its own order book and limits.</div>
             </div>
           </div>
         </div>
@@ -220,9 +227,31 @@ function footer() {
     <span class="foot-links">For developers, the same typed interface: <a href="/docs">REST API pages (OpenAPI)</a> · MCP server at <code>/mcp</code> · <a href="/">the gateway's first pages</a> (request, approvals, kitchen, standing orders, assumptions).</span></div>`;
 }
 
+// The result a request just sent is waiting to show (core.js, `reveal`): once it is drawn, its first line goes to
+// the top of the window, under the header that stays on screen. Not a smooth scroll: a redraw on the way (the
+// answer arriving) would stop it half-way. The request box is left, so the keyboard does not pull the page back.
+const REVEAL_GAP = 12;
+function revealPending() {
+  const id = app.ui.reveal;
+  const result = id ? document.getElementById(`result-${id}`) : null;
+  if (!result) return; // not drawn here (another view is shown): kept until it is
+  app.ui.reveal = null;
+  const header = document.querySelector("header.header");
+  const top = result.getBoundingClientRect().top + window.scrollY - (header?.offsetHeight || 0) - REVEAL_GAP;
+  window.scrollTo(0, Math.max(0, Math.round(top)));
+  app.ui.revealed = { id, y: window.scrollY };
+  if (document.activeElement?.id === "ask-text") document.activeElement.blur();
+}
+
+// A redraw replaces the page. On the same view of the same customer it keeps what a person did to it: the folds
+// they opened or closed, where they scrolled to, the field they type in. A toast is no part of it (core.js).
+let drawn = null;
 setRenderer(() => {
   const root = document.getElementById("app");
   const view = VIEWS[app.route.name];
+  const page = [memory.active, app.route.name, app.route.id || ""].join("|");
+  const folds = page === drawn ? keepFolds(root) : null;
+  const y = window.scrollY;
   const typing = document.activeElement?.matches?.("textarea, input[type=text], input[type=number]");
   const focused = typing ? document.activeElement.id || null : null;
   const caret = focused ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
@@ -230,16 +259,17 @@ setRenderer(() => {
     ${header()}
     <main class="page">${rulesBanner()}${view.view()}</main>
     ${footer()}
-    ${app.ui.toast ? html`<div class="toast" role="status">${app.ui.toast}</div>` : ""}
   `);
+  drawn = page;
   // Widths a style attribute would carry: the page's Content-Security-Policy allows no inline style.
   for (const bar of root.querySelectorAll("[data-w]")) bar.style.width = `${Math.min(100, Number(bar.dataset.w))}%`;
   view.after?.(root);
-  // A render while someone types (an answer arriving, say) keeps the field they were in.
+  if (folds) restoreFolds(root, folds);
+  // A render while someone types (an answer arriving, say) keeps the field they were in, without moving the page.
   if (focused) {
     const again = document.getElementById(focused);
     if (again) {
-      again.focus();
+      again.focus({ preventScroll: true });
       try {
         if (caret && caret[0] !== null) again.setSelectionRange(caret[0], caret[1]);
       } catch {
@@ -247,11 +277,19 @@ setRenderer(() => {
       }
     }
   }
+  if (folds && window.scrollY !== y) window.scrollTo(0, y);
+  revealPending();
 });
 
 // ---- start -----------------------------------------------------------------------------------------------
 
 route();
+// A newcomer starts at the hotel (core.js, `startingCustomer`); a returning visitor where they were.
+const first = startingCustomer(memory.active);
+if (first !== memory.active) {
+  memory.active = first;
+  save();
+}
 health().then((h) => {
   app.health = h;
   app.healthAsked = true;

@@ -4,11 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Delivery wholesale · Trusted Trade</title>
+  <!-- The page has no picture of its own and its policy allows images from this server only: naming a file this
+       server has keeps the browser from asking for /favicon.ico, which nothing answers. -->
+  <link rel="icon" href="/static/shop/shop.css">
   <link rel="stylesheet" href="/static/shop/shop.css">
   <script type="module" src="/static/shop/js/main.js"></script>
 </head>
 <body>
   <div id="app"><p class="boot">Loading the shop…</p></div>
+  <!-- Toasts live beside the page, so that showing one and letting it expire never redraws the page (core.js). -->
+  <div id="toasts" aria-live="polite"></div>
   <noscript><p class="boot">The shop needs JavaScript.</p></noscript>
 </body>
 </html>

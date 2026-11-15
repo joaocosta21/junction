@@ -4,9 +4,9 @@
 // unchanged, as a new request (assistant.js): the answer is a new offer on a new result, and nothing is added to
 // this one. "Not now" hides a suggestion on this result only. What was not suggested, and why, comes from
 // GET /shop/api/suggestions (the buyer's view).
-import { api, on, render } from "../core.js";
+import { api, money, on, render } from "../core.js";
 import { unitWord } from "../customer.js";
-import { html, money, num, shortDate } from "../dom.js";
+import { html, num, shortDate } from "../dom.js";
 import { icon } from "../icons.js";
 import { mine, save } from "../store.js";
 import { plain } from "../words.js";
@@ -49,8 +49,8 @@ on("suggest-show", (el) => {
 // ---- one suggestion --------------------------------------------------------------------------------------------
 
 // What accepting changes in money, before tax, in the gateway's own figures. A suggestion that takes the place of a
-// line of the request changes the order by the difference: "33,10 € more" or "42,00 € less". One that adds a line
-// adds its whole cost, which is never "more" than anything: "Adds 44,40 € to this order". Where the gateway
+// line of the request changes the order by the difference: "€33.10 more" or "€42.00 less". One that adds a line
+// adds its whole cost, which is never "more" than anything: "Adds €44.40 to this order". Where the gateway
 // compared it with the usual product (a lower price for the same formula), the two prices a litre or kilogram are
 // the benefit its sentence states, so the tag beside it says the same thing as the sentence.
 const addsALine = (s) => s.request_line_index === null || s.request_line_index === undefined;
@@ -120,6 +120,9 @@ function addLabel(s) {
 function actions(turn, s) {
   const added = turn.added?.[s.suggestion_id];
   if (added) return html`<p class="small"><b>Sent as a new request:</b> its offer is the result above this one.</p>`;
+  // The suggestion's request is this result's whole request with the suggestion taken: once the result is ordered,
+  // sending it would ask for everything a second time. So no button; the sentence stays.
+  if (turn.order) return html`<p class="small muted">This result is already ordered, so nothing is added to it here: ask for this in a request of its own.</p>`;
   const label = addLabel(s);
   const add = s.accept_request
     ? html`<button class="btn small" data-act="suggest-add" data-turn="${turn.id}" data-id="${s.suggestion_id}">${label}</button>`
@@ -130,7 +133,7 @@ function actions(turn, s) {
 }
 
 function item(turn, s) {
-  return html`<li class="sugg">
+  return html`<li class="sugg" id="sugg-${turn.id}-${s.suggestion_id}">
     <p>${plain(s.sentence)}</p>
     ${effect(s) ? html`<div class="sugg-meta">${effect(s)}</div>` : ""}
     ${why(s)}
@@ -159,8 +162,19 @@ function whyNot(turn) {
 // person's words: the note itself names a field (`accept_request`), which is for developers.
 const NEVER_ADDS_ITSELF = "Nothing is added to this order by itself: “Add” makes a new offer with it, which you confirm like any other.";
 
+// A request that repeats a regular product at another quantity is asked about once per result: the line under
+// the headline asks it (regular.js, with "Yes, … is right" and "Use my usual …"), so the suggestion that asks the
+// same of the same product is not said a second time.
+const BAR_ASKS_THE_QUANTITY = "REGULAR_DIFFERENT_QUANTITY";
+const USUAL_QUANTITY = "USUAL_QUANTITY";
+function askedByTheBar(turn, s) {
+  const bar = turn.regular;
+  if (s.kind !== USUAL_QUANTITY || bar?.finding !== BAR_ASKS_THE_QUANTITY) return false;
+  return (bar.lines || []).some((line) => line?.product_id && line.product_id === s.product_id);
+}
+
 export function suggestionsBox(turn) {
-  const all = (turn.offer?.suggestions || []).filter((s) => s && typeof s === "object" && s.suggestion_id);
+  const all = (turn.offer?.suggestions || []).filter((s) => s && typeof s === "object" && s.suggestion_id && !askedByTheBar(turn, s));
   if (!all.length) return "";
   const hidden = new Set(turn.notNow || []);
   const shown = all.filter((s) => !hidden.has(s.suggestion_id));

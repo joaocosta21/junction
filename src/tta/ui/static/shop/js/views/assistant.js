@@ -4,8 +4,8 @@
 // One box for two kinds of request: a sentence goes to the reader, as for any product; one it does not read as a
 // product request goes to the recipe planner (plan.js), which says whether it names a dish of the gateway's recipe
 // table. A product request costs the one round trip it always did; a dish sentence costs one more.
-import { app, api, deliveryOf, on, refresh, render, toast, verifyRules, withRules } from "../core.js";
-import { contact, customerKnown, customerOf, loadCustomer } from "../customer.js";
+import { app, api, deliveryOf, on, refresh, render, reveal, toast, verifyRules, withRules } from "../core.js";
+import { contact, customerKnown, customerOf, loadCustomer, productLabel, unitWord } from "../customer.js";
 import { clock, html, longDate, num, unit } from "../dom.js";
 import { MENU_EXAMPLES, allergenName } from "../kitchens.js";
 import { icon } from "../icons.js";
@@ -14,12 +14,12 @@ import { active, mine, save } from "../store.js";
 import { plain } from "../words.js";
 import { exclusionsSummary, flagBox, whyBlock } from "./answer-parts.js";
 import { loadEvidence } from "./evidence.js";
-import { hasPerson, netTotal, nobodyHolds, optionBlock, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
+import { hasPerson, netTotal, nobodyHolds, optionLines, optionTotals, personFor, problemBox, rolesStillNeeded, signerName, spinner, substituteNote } from "./parts.js";
 import { planCard, planReadAs } from "./plan.js";
 import { DIETITIAN, askedOf, dietitianRules, isMine, otherPeople, ownQuestion, personWords, reasonOf, said } from "./question.js";
 import { failedAnswer, forPeople, problemOf } from "./refusal.js";
 import { regularBar } from "./regular.js";
-import { hideReorder, reorderPanel, reorderShown } from "./reorder.js";
+import { hideReorder, reorderShown } from "./reorder.js";
 import { side } from "./side.js";
 import { loadWhyNot, suggestionsBox } from "./suggestions.js";
 import { openInterface, typedRequest } from "./typed.js";
@@ -42,6 +42,13 @@ const chosenOf = (turn) => turn.offer?.options?.find((o) => o.option_id === turn
 const isFirst = (turn, option) => Boolean(option) && option === turn.offer?.options?.[0];
 // The order of a result as the gateway has it now, so an order somebody else decided shows here too.
 const orderOf = (turn) => (turn.order ? app.data.orders.find((o) => o.order_id === turn.order.order_id) || turn.order : null);
+
+// A result whose request was sent again in another form (a suggestion accepted from it, its usual quantity) is
+// replaced by the newer one: only that one can be ordered. A newer request that failed replaces nothing.
+const replacementOf = (turn) => mine().thread.find((t) => t.replaces === turn.id && t.phase !== "failed");
+// Nothing more is ordered from it: a newer result took its place, or the question it asked was answered and asked
+// again (`superseded`). A result that holds an order keeps showing it.
+const isReplaced = (turn) => !turn.order && (Boolean(turn.superseded) || Boolean(replacementOf(turn)));
 
 function update(turn) {
   save();
@@ -67,6 +74,7 @@ async function ask(text, typed = null, { menu = false } = {}) {
   const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "reading" };
   mine().thread.push(turn);
   app.ui.draft = "";
+  reveal(turn.id); // the page goes to the result: the answer is read where the window is
   update(turn);
   let step = "rules";
   try {
@@ -92,6 +100,7 @@ async function ask(text, typed = null, { menu = false } = {}) {
   } catch (error) {
     turn.phase = "failed";
     turn.problem = problemOf(error, error?.step || step);
+    reveal(turn.id, { again: true });
     update(turn);
   }
 }
@@ -124,7 +133,10 @@ async function planInstead(turn, text, readerError) {
       error.menu = true;
       throw error;
     }
-    if (Array.isArray(p.unknown_dishes) && p.unknown_dishes.length) readerError.dishNote = error.message;
+    // The planner's own sentence helps beside the reader's question when it knew something of the text: a dish
+    // the recipe table does not have, an ingredient it names dishes for, a dish built around one.
+    const knew = [p.unknown_dishes, p.ingredients_named].some((list) => Array.isArray(list) && list.length) || Boolean(p.built_around);
+    if (knew) readerError.dishNote = error.message;
     readerError.step = "reading";
     throw readerError;
   }
@@ -156,6 +168,7 @@ async function answerWithPlan(turn) {
   if (turn.plan.offer_id) turn.offer = await withRules(() => api().getOffer(turn.plan.offer_id));
   turn.flags = [];
   turn.phase = "done";
+  reveal(turn.id, { again: true });
   update(turn);
   if (!turn.offer) return;
   loadWhyNot(turn);
@@ -170,6 +183,7 @@ async function answerWith(turn, request) {
   turn.offer = await withRules(() => api().offer(request));
   turn.flags = review(turn.offer, mine());
   turn.phase = "done";
+  reveal(turn.id, { again: true });
   update(turn);
   loadWhyNot(turn);
   loadOwnEvidence(turn);
@@ -179,9 +193,13 @@ async function answerWith(turn, request) {
 // A request the gateway wrote (a suggestion's, "you usually order this", a standing order's renewal), sent unchanged
 // as a new request with a result of its own: the gateway knows it again (a suggestion's names the suggestion it
 // accepts, so the acceptance is recorded). The answer is an offer like any other; nothing is ordered by the click.
+// `extra.replaces`: the result this request takes the place of. The usual quantity a result's own bar offers
+// (regular.js sends the request that result carries) replaces that result too.
 export async function sendAsWritten(source, text, request, extra = {}) {
-  const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "looking", reading: { source }, sent: request, ...extra };
+  const from = extra.replaces ? null : mine().thread.find((t) => t.regular?.usualRequest === request);
+  const turn = { id: `t${Date.now().toString(36)}`, text, at: new Date().toISOString(), phase: "looking", reading: { source }, sent: request, ...(from ? { replaces: from.id } : {}), ...extra };
   mine().thread.push(turn);
+  reveal(turn.id); // the page goes to the new result, the first one: its offer is the one to confirm
   update(turn);
   toast("Sent as a new request: its offer is the first result.");
   let step = "rules";
@@ -192,15 +210,18 @@ export async function sendAsWritten(source, text, request, extra = {}) {
   } catch (error) {
     turn.phase = "failed";
     turn.problem = problemOf(error, step);
+    reveal(turn.id, { again: true });
     update(turn);
   }
   return turn;
 }
 
-// "Add": the suggestion's own request. Nothing is added to the offer that showed it.
+// "Add", "Switch", "Use …": the suggestion's own request, which is the request of the result that showed it with
+// the suggestion taken, so the new result replaces that one. Nothing is added to the offer that showed it.
 function accept(suggestion, from = null) {
-  if (from) from.added = { ...(from.added || {}), [suggestion.suggestion_id]: true };
-  return sendAsWritten("suggestion", suggestion.name, suggestion.accept_request, { suggestion });
+  const shownOn = from || mine().thread.find((t) => (t.offer?.suggestions || []).some((s) => s.suggestion_id === suggestion.suggestion_id));
+  if (shownOn) shownOn.added = { ...(shownOn.added || {}), [suggestion.suggestion_id]: true };
+  return sendAsWritten("suggestion", suggestion.name, suggestion.accept_request, { suggestion, ...(shownOn ? { replaces: shownOn.id } : {}) });
 }
 
 // The only order placed without a click: the buyer switched ordering alone on (a setting, off in every shipped
@@ -301,7 +322,7 @@ on("redraft", (el) => {
 });
 on("confirm", (el) => {
   const turn = findTurn(el.dataset.turn);
-  if (!turn || turn.busy || turn.order) return;
+  if (!turn || turn.busy || turn.order || isReplaced(turn)) return;
   const { decision, say } = el.dataset;
   return place(turn, el.dataset.option, true, { decision: decision || "APPROVE", note: say || CONFIRM_NOTE });
 });
@@ -311,7 +332,7 @@ on("sign", (el) => {
 });
 on("choose", (el) => {
   const turn = findTurn(el.dataset.turn);
-  if (!turn || turn.order) return;
+  if (!turn || turn.order || isReplaced(turn)) return;
   turn.chosen = el.dataset.option;
   turn.problem = null;
   update(turn);
@@ -350,14 +371,19 @@ on("clear", () => {
 
 // ---- line 1: what was asked -------------------------------------------------------------------------------
 
+// "without milk and without cereals containing gluten": each allergen with its own "without", and no "with"
+// inside it that would read as the opposite ("without cereals with gluten").
+const WITHOUT = { AW: "cereals containing gluten" };
+const listed = (items) => (items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+
 function readAs(request) {
   const parts = (request?.lines || []).map((l) => {
     const terms = (l.name_terms || []).join(" ");
     const type = l.product_type ? l.product_type.replaceAll("_", " ") : "";
-    const what = l.product_ids?.length ? `product ${l.product_ids.join(", ")}` : [terms, type].filter(Boolean).join(" ") || "products";
+    const what = l.product_ids?.length ? l.product_ids.map((id) => productLabel(id)).join(", ") : [terms, type].filter(Boolean).join(" ") || "products";
     const claims = (l.required_claims || []).map((c) => c.replace(/^FREE_FROM_/, "").toLowerCase().replaceAll("_", " ") + "-free").join(", ");
-    const without = (l.exclude_allergens || []).map((c) => allergenName(c).toLowerCase()).join(", ");
-    return `${num(l.quantity)} ${unit(l.unit)} ${claims ? claims + " " : ""}${what}${without ? `, without ${without}` : ""}`;
+    const without = listed((l.exclude_allergens || []).map((c) => `without ${WITHOUT[c] || allergenName(c).toLowerCase()}`));
+    return `${num(l.quantity)} ${unit(l.unit)} ${claims ? claims + " " : ""}${what}${without ? `, ${without}` : ""}`;
   });
   return `${parts.join(" + ")}${request?.needed_by ? `, by ${longDate(request.needed_by)}` : ""}`;
 }
@@ -398,8 +424,20 @@ const andList = (items) => items.join(" and ");
 const ROLE_AFTER_NAME = /\s\((?:purchasing manager|finance|dietitian)(?:, (?:purchasing manager|finance|dietitian))*\)/g;
 const RULES_ACCEPTED = /: rules? [^.:]* asked for a human and (?:was|were) accepted/;
 const outcome = (sentence) => said(sentence).replace(ROLE_AFTER_NAME, "").replace(RULES_ACCEPTED, "");
-// What the person signed in decided themselves, in the words of the question they answered.
-const youDecided = (order) => `Ordered for ${netTotal(order.option?.totals)}.${onlyPrepared(order.decision) ? "" : ` You decided: ${reasonOf(order.decision?.sentence)}`}`;
+// Why an option needs a person. For a dish (a result with a plan) the planner's own note of that option says it
+// as a cook reads it (which ingredients are covered, what arrives when), where the policy's sentence counts request
+// lines: the note of `plan.notes` that starts "Option <rank>, ", from after its totals. No such note: the policy's.
+const AFTER_TOTALS = "with tax. ";
+function planReason(turn, option) {
+  const start = `Option ${option?.rank}, `;
+  const note = (turn?.plan?.notes || []).find((n) => typeof n === "string" && n.startsWith(start));
+  const at = note ? note.indexOf(AFTER_TOTALS) : -1;
+  return at < 0 ? "" : plain(note.slice(at + AFTER_TOTALS.length)).trim();
+}
+const reasonFor = (turn, option, decision) => planReason(turn, option) || reasonOf(decision?.sentence);
+
+// An order the person signed in confirmed themselves: what it cost, and why it needed them (the gateway's reason).
+const youDecided = (turn, order) => `Ordered for ${netTotal(order.option?.totals)}.${onlyPrepared(order.decision) ? "" : ` Why it needed your confirmation: ${reasonFor(turn, order.option, order.decision)}`}`;
 
 function orderBox(turn, order) {
   const delivery = deliveryOf(order.option);
@@ -411,7 +449,7 @@ function orderBox(turn, order) {
     // The name only when this person's confirmation was the whole of it; else the gateway's sentence names who decided.
     const byMe = Boolean(turn.signedBy) && required.every(isMine);
     return html`<div class="verdict ok">${icon("checkCircle")}<div><b>${alone ? "Ordered by your agent" : byMe ? `Confirmed by ${turn.signedBy}` : "Confirmed"}${when}</b>
-      <p>${byMe ? youDecided(order) : outcome(order.status_sentence)}</p>
+      <p>${byMe ? youDecided(turn, order) : outcome(order.status_sentence)}</p>
       ${alone ? html`<p class="small">You let the agent order alone in Settings. It does so only when every statement is confirmed and no rule asks for a person.</p>` : ""}
       <div class="actions">${trail}</div></div></div>`;
   }
@@ -420,7 +458,7 @@ function orderBox(turn, order) {
     const needed = approval ? rolesStillNeeded(approval) : required;
     const others = otherPeople(needed);
     if (needed.some(isMine)) {
-      return html`<div class="verdict wait">${icon("clock")}<div><b>Needs your decision</b><p>${onlyPrepared(order.decision) ? PREPARED : reasonOf(order.decision?.sentence)}</p>
+      return html`<div class="verdict wait">${icon("clock")}<div><b>Needs your decision</b><p>${onlyPrepared(order.decision) ? PREPARED : reasonFor(turn, order.option, order.decision)}</p>
         <div class="actions"><button class="btn small" data-act="sign" data-turn="${turn.id}" ${turn.busy ? "disabled" : ""}>Confirm order</button>${trail}</div>
         ${others.length ? html`<p class="small">It then waits for ${andList(others.map(personWords))}.</p>` : ""}</div></div>`;
     }
@@ -445,7 +483,7 @@ function verdictBox(turn, option) {
     return html`<div class="verdict stop">${icon("stop")}<div><b>This cannot be ordered, not even with approval</b><p>${said(d.sentence)}</p></div></div>`;
   }
   if (turn.flags?.length && isFirst(turn, option)) {
-    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : onlyPrepared(d) ? PREPARED : reasonOf(d.sentence)}</p></div></div>`;
+    return html`<div class="verdict info">${icon("info")}<div><b>Waiting for your answer before ordering</b><p>${d.verdict === "AUTO" ? "Your agent could order this alone, but the brand question below comes first." : onlyPrepared(d) ? PREPARED : reasonFor(turn, option, d)}</p></div></div>`;
   }
   if (d.verdict === "AUTO") {
     return html`<div class="verdict ok">${icon("checkCircle")}<div><b>Your agent may order this alone</b><p>${why(d.sentence)}</p><div class="actions">${button("Confirm order")}</div></div></div>`;
@@ -456,7 +494,7 @@ function verdictBox(turn, option) {
   const unheld = customerKnown() ? needed.filter((r) => !hasPerson(r)) : [];
   if (unheld.length) {
     return html`<div class="verdict stop">${icon("stop")}<div><b>Nobody here can confirm this option</b>
-      <p>${unheld.map(nobodyHolds).join(" ")} ${reasonOf(d.sentence)}</p>
+      <p>${unheld.map(nobodyHolds).join(" ")} ${reasonFor(turn, option, d)}</p>
       <p class="small">Nothing is ordered. Choose another option below, or ask again without it.</p>
     </div></div>`;
   }
@@ -467,7 +505,7 @@ function verdictBox(turn, option) {
     const theirs = askedOf(d, needed.filter((r) => !isMine(r)));
     const mine = askedOf(d, needed.filter(isMine));
     return html`<div class="verdict wait">${icon("clock")}<div><b>This needs ${andList(others.map(personWords))}</b>
-      <p>${names} will be asked: ${theirs.join(" ") || reasonOf(d.sentence)}</p>
+      <p>${names} will be asked: ${theirs.join(" ") || reasonFor(turn, option, d)}</p>
       ${mine.length ? html`<p>Sending it is also your own confirmation: ${mine.join(" ")}</p>` : ""}
       <div class="actions">${button(`Send to ${names}`)}</div>
       <p class="small">The order then waits for ${names}. Nothing is ordered until then.</p>
@@ -476,7 +514,7 @@ function verdictBox(turn, option) {
   // Their own decision. An allergen question is asked as its three choices; anything else is one confirmation.
   if (isMine(DIETITIAN) && dietitianRules(d).length) return ownQuestion(turn, option, off);
   return html`<div class="verdict wait">${icon("clock")}<div><b>${onlyPrepared(d) ? "Prepared: confirm to order" : "Needs your decision"}</b>
-    <p>${onlyPrepared(d) ? PREPARED : reasonOf(d.sentence)}</p>
+    <p>${onlyPrepared(d) ? PREPARED : reasonFor(turn, option, d)}</p>
     <div class="actions">${button("Confirm order")}</div>
   </div></div>`;
 }
@@ -490,20 +528,36 @@ function verdictTag(option) {
   return html`<span class="tag wait">Needs a person</span>`;
 }
 
+// What the label above an option claims, from the gateway's own kind of option (`OptionKind`). Its suggestion is
+// its first option, unless that one is itself an alternative with something not confirmed (no stock figure, an
+// allergen not ruled out): then nothing is called suggested. An option the person picked is their choice.
+const NOT_CONFIRMED = "ALTERNATIVE_UNCONFIRMED";
+const isSuggestion = (turn, option) => isFirst(turn, option) && option.kind !== NOT_CONFIRMED;
+function optionLabel(turn, option) {
+  if (isSuggestion(turn, option)) return "Suggested";
+  return isFirst(turn, option) ? "No confirmed option" : "Your choice";
+}
+
 function others(turn, chosen) {
   const rest = (turn.offer.options || []).filter((o) => o !== chosen);
   if (!rest.length || !mine().prefs.alternatives) return "";
-  const locked = Boolean(turn.order) || Boolean(turn.superseded);
-  return html`<div class="others"><h4>Alternative products</h4>${rest.map(
+  const locked = Boolean(turn.order) || isReplaced(turn);
+  return html`<div class="others"><h4>Other options</h4>${rest.map(
     (o) => html`<div class="other">
-      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}<div class="small muted">${plain(o.summary)}</div>${o.lines.map((l) => substituteNote(l, { table: false }))}</div>
+      <div class="what"><b>${plain(o.title)}</b> · ${netTotal(o.totals)}${isSuggestion(turn, o) ? html` <span class="tag info">Suggested</span>` : ""}<div class="small muted">${plain(o.summary)}</div>${o.lines.map((l) => substituteNote(l, { table: false }))}</div>
       ${verdictTag(o)}
       ${locked || o.decision?.verdict === "BLOCK" ? "" : html`<button class="btn small line" data-act="choose" data-turn="${turn.id}" data-option="${o.option_id}">Choose</button>`}
     </div>`
   )}</div>`;
 }
 
-const card = (turn, body) => html`<article class="answer">${asked(turn)}${body}</article>`;
+// `id`: where the page scrolls to when the request is sent (main.js), and where its folds are known from (core.js).
+const card = (turn, body, state = "") => html`<article class="answer ${state}" id="result-${turn.id}">${asked(turn)}${body}</article>`;
+
+// A result a newer one replaced: what was asked, and one line that says so. No option, no button, no suggestion.
+function replacedCard(turn) {
+  return card(turn, html`<div class="answer-body"><p class="replaced">${icon("info")}<span>${turn.resolved ? `${turn.resolved} ` : ""}Replaced by the newer request above. Nothing is ordered from this one.</span></p></div>`, "was-replaced");
+}
 
 // The offer with no note the plan above it already says (the later recording is said once).
 function withoutPlanNotes(turn) {
@@ -526,29 +580,62 @@ function answer(turn) {
   if (turn.phase === "planning") return card(turn, spinner("Planning from the recipe table: servings, ingredients, then price and stock with Valio Aimo…"));
   if (turn.phase === "looking") return card(turn, spinner("Checking price and availability with Valio Aimo…"));
   if (turn.phase === "failed") return card(turn, html`<div class="answer-body">${failedAnswer(turn)}</div>`);
+  if (isReplaced(turn)) return replacedCard(turn);
   const option = chosenOf(turn);
   // A recipe plan leads with its own three lines; its offer's options follow as on any result.
   const plan = turn.plan ? html`<div class="answer-body">${planCard(turn, option)}</div>` : "";
   if (turn.plan && !turn.offer) return card(turn, plan);
   if (!option) return card(turn, html`${plan}${nothingOffered(turn)}`);
   const first = isFirst(turn, option);
+  // What is offered, what it costs and the button come first, so that a window shows them without scrolling; the
+  // product lines follow. A request that repeats a regular order is said once, in one line under the headline.
   return card(turn, html`${plan}<div class="answer-body">
-    ${regularBar(turn)}
-    <div class="label-row"><span class="label">Suggested</span><span class="small muted">${plain(option.title)}</span></div>
+    <div class="label-row"><span class="label">${optionLabel(turn, option)}</span><span class="small muted">${plain(option.title)}</span></div>
     <p class="headline">${plain(option.summary)}</p>
-    ${optionBlock(option, prefs.short)}
+    ${regularBar(turn)}
     ${turn.resolved ? html`<p class="small muted">${turn.resolved}</p>` : ""}
-    ${first ? (turn.flags || []).map((f) => flagBox(turn, f)) : ""}
+    ${optionTotals(option)}
     ${verdictBox(turn, option)}
+    ${first ? (turn.flags || []).map((f) => flagBox(turn, f)) : ""}
     ${turn.problem ? html`${problemBox(turn.problem)}<div class="actions"><button class="btn small line" data-act="retry" data-turn="${turn.id}">Ask again</button></div>` : ""}
+    ${optionLines(option, prefs.short)}
     ${others(turn, option)}
-    ${turn.superseded ? "" : suggestionsBox(turn)}
+    ${suggestionsBox(turn)}
     ${prefs.short && !prefs.explain ? "" : whyBlock(withoutPlanNotes(turn), option, prefs.explain)}
     ${typedRequest(turn)}
   </div>`);
 }
 
 // ---- view --------------------------------------------------------------------------------------------------
+
+// "You usually order this", asked each time a customer is opened (reorder.js reads it; "Not now" hides it until
+// then): a compact block under the request box, never above it. What it is and its two buttons at once; the
+// gateway's own account of it (how often, what is not in it and why) is folded under them.
+function reorderPrompt() {
+  const r = reorderShown();
+  if (!r) return "";
+  const whyNot = (Array.isArray(r.why_not) ? r.why_not : []).filter((w) => typeof w === "string" && w.trim());
+  const counted = (line) => (Number(line.orders_considered) > 0 ? ` (in ${line.orders_matching} of the last ${line.orders_considered} orders)` : "");
+  return html`<section class="reorder" role="status" aria-label="You usually order this" id="reorder-prompt">
+    <div class="reorder-row">${icon("refresh")}
+      <p><b>You usually order this:</b> ${r.lines.map((l, i) => html`${i ? ", " : ""}${l.name || `product ${l.product_id}`} × ${num(l.quantity)} ${unitWord(l.unit)}`)}</p>
+      <div class="actions"><button class="btn small" data-act="reorder-go">Order the same again</button><button class="btn small line" data-act="reorder-hide">Not now</button></div>
+    </div>
+    <details class="why"><summary>${icon("right")}Why, and what is not in it</summary><div class="why-body">
+      ${r.sentence ? html`<p>${plain(r.sentence)}</p>` : ""}
+      <ul class="left-out">${r.lines.map((l) => html`<li>${l.name || "Product"} (${l.product_id}) × ${num(l.quantity)} ${unitWord(l.unit)}${counted(l)}</li>`)}${whyNot.map((w) => html`<li>${plain(w)}</li>`)}</ul>
+      ${r.note ? html`<p class="small muted">${plain(r.note)}</p>` : ""}
+      <p class="small muted">“Order the same again” asks for an offer at today's prices and stock. Nothing is ordered until you confirm it.</p>
+    </div></details>
+  </section>`;
+}
+
+// What is true of ordering for this customer now, as the gateway applies it (never this browser's copy).
+function orderingLine() {
+  return app.data.authority?.profile?.auto_order_enabled === true
+    ? "Your agent orders alone only what is fully confirmed and asks no rule for a person; everything else waits for you to confirm it."
+    : "Nothing is ordered until you confirm it.";
+}
 
 export function view() {
   const k = active();
@@ -558,11 +645,10 @@ export function view() {
   return html`
     <div class="page-head">
       <div><div class="crumbs">${[k.name, c?.customer_number ? `customer ${c.customer_number}` : "", c?.address].filter(Boolean).join(" · ")}</div><h1>Purchase request</h1>
-        <div class="sub">${me ? `Signed in as ${me.name}, ${me.title.toLowerCase()}. ` : ""}Nothing is ordered until you confirm it.</div></div>
+        <div class="sub">${me ? `Demo, no login: you are acting as ${me.name}, ${me.title.toLowerCase()}. ` : ""}${orderingLine()}</div></div>
       ${results.length ? html`<div class="right"><button class="link quiet" data-act="clear">Clear results</button></div>` : ""}
     </div>
     ${app.data.problem ? problemBox(app.data.problem) : ""}
-    ${reorderPanel()}
     <div class="grid">
       <section>
         <div class="ask">
@@ -576,7 +662,8 @@ export function view() {
           <div class="examples"><span>Examples:</span>${k.examples.map((e, i) => html`<button class="chip" data-act="example" data-i="${i}">${e.text}</button>`)}${(MENU_EXAMPLES[k.id] || []).map((e, i) => html`<button class="chip" data-act="menu-example" data-i="${i}">${e.text}</button>`)}</div>
           ${openInterface()}
         </div>
-        <div class="results">
+        ${reorderPrompt()}
+        <div class="results ${results.length ? "some" : ""}">
           ${results.length
             ? results.slice().reverse().map(answer)
             : html`<div class="card empty"><h3>No requests yet</h3><p>Write one above, or start from an example: examples are sent as typed requests.</p></div>`}

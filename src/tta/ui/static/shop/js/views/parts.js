@@ -1,6 +1,7 @@
 // Pieces several views share: product rows, status tags, rule lists, who signs. Availability is said in the
 // words of Valio Aimo's webshop: "available in storage", "Delivery date", "Closing time", "Deliverable".
-import { cutoff, html, initials, money, num, shortDate, tile, titleCase, unit } from "../dom.js";
+import { money } from "../core.js";
+import { cutoff, html, initials, num, shortDate, tile, titleCase, unit } from "../dom.js";
 import { icon } from "../icons.js";
 import { contact, customerKnown, customerProblem, people } from "../customer.js";
 import { ROLES } from "../kitchens.js";
@@ -102,7 +103,7 @@ export function substituteNote(line, { sentence = true, table = true } = {}) {
 // A substitute line always says what it gives up, with its numbers: in short answers too, since the formula is what
 // a bakery decides on (Valio Aimo, 14 Nov 2026: "for cakes ... the formula ... can make a difference").
 export function productLine(line, compact = false) {
-  const u = unit(line.sales_unit);
+  const u = stockUnit(line.sales_unit); // a pack is counted in pieces here too: "2 pcs × €2.57", never "2 bag"
   const note = substituteNote(line);
   if (compact) {
     return html`<div class="pline">
@@ -129,22 +130,33 @@ export function productLine(line, compact = false) {
 export const isEstimate = (totals) => totals?.is_estimate === true || totals?.is_ceiling === true;
 export const ESTIMATE_NOTE = "an estimate: sold by weight, Valio Aimo invoices the weight delivered";
 
-// A total as one figure: "about €506,40" when it is an estimate.
+// A total as one figure: "about €506.40" when it is an estimate.
 export function netTotal(totals) {
   if (!totals) return money(null);
   return isEstimate(totals) ? `about ${money(totals.net)}` : money(totals.net);
 }
 
-export function optionBlock(option, compact = false) {
+// The total of an option, as one row. `alone`: it stands by itself, before the lines (the request page).
+function totalsRow(option, alone = false) {
   const t = option.totals || {};
   const estimate = isEstimate(t);
   const about = estimate ? "about " : "";
-  return html`<div class="lines">
-    ${option.lines.map((l) => productLine(l, compact))}
-    <div class="totals">
+  return html`<div class="totals ${alone ? "alone" : ""}">
       <span class="muted small">Total (VAT 0 %)${estimate ? html` · <span class="estimate">${ESTIMATE_NOTE}</span>` : ""}${t.excludes_deposits ? " · deposits not included" : ""}</span>
       <span class="nowrap"><b>${about}${money(t.net)}</b> <span class="muted small">${about}${money(t.gross)} with VAT</span></span>
-    </div>
+    </div>`;
+}
+
+// The request page says what an option costs before its lines, so that the total and the button are on screen
+// together: the total by itself, then the lines without it.
+export const optionTotals = (option) => totalsRow(option, true);
+export const optionLines = (option, compact = false) => html`<div class="lines">${option.lines.map((l) => productLine(l, compact))}</div>`;
+
+// An order's lines with their total under them (the order page, a waiting order's card).
+export function optionBlock(option, compact = false) {
+  return html`<div class="lines">
+    ${option.lines.map((l) => productLine(l, compact))}
+    ${totalsRow(option)}
   </div>`;
 }
 

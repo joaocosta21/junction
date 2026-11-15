@@ -12,7 +12,7 @@ export const freshData = () => ({ authority: null, refused: null, pushing: false
 export const app = {
   route: { name: "assistant", id: null },
   data: freshData(),
-  ui: { menu: false, toast: null, redraft: {} },
+  ui: { menu: false, redraft: {}, reveal: null, revealed: null },
   health: null, // the gateway's GET /healthz answer, null when it did not answer
   healthAsked: false,
 };
@@ -29,6 +29,25 @@ export function on(name, fn) {
 }
 
 export const api = () => gateway(memory.active);
+
+// The page's own figures, written as the gateway writes them in its sentences ("€1,083.39"): one format on a page,
+// from this one function.
+const EUR = new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR" });
+export const money = (n) => (n === null || n === undefined ? "–" : EUR.format(Number(n)));
+
+// A newcomer starts at the hotel, whose first example is the brief's own sentence. Decided once per browser, under a
+// key of its own; after that the customer last used is kept. A window without storage starts there every time.
+export const FIRST_CUSTOMER = "hotel";
+const WELCOMED = "tt-shop-welcomed";
+export function startingCustomer(saved) {
+  try {
+    if (localStorage.getItem(WELCOMED)) return saved;
+    localStorage.setItem(WELCOMED, "1");
+  } catch {
+    // no storage in this window: every load is a newcomer's
+  }
+  return FIRST_CUSTOMER;
+}
 
 // ---- the rules in force -------------------------------------------------------------------------------------
 
@@ -169,14 +188,67 @@ export function nextDeliveryDay() {
 
 export const pendingApprovals = () => app.data.approvals.filter((a) => a.status === "PENDING");
 
-export function toast(text) {
-  app.ui.toast = text;
-  render();
+// A toast comes and goes without redrawing the page: it lives in an element of its own beside the page (#toasts in
+// the shell), so nothing a person opened or scrolled to is touched when it is shown or when it expires.
+const TOAST_MS = 3200;
+function toastHost() {
+  if (typeof document === "undefined") return null;
+  const host = document.getElementById("toasts");
+  if (host) return host;
+  const made = document.createElement("div");
+  made.id = "toasts";
+  document.body.append(made);
+  return made;
+}
+
+export function toast(text, ms = TOAST_MS) {
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => {
-    app.ui.toast = null;
-    render();
-  }, 3200);
+  const host = toastHost();
+  if (!host) return;
+  host.replaceChildren();
+  if (!text) return;
+  const note = document.createElement("div");
+  note.className = "toast";
+  note.setAttribute("role", "status");
+  note.textContent = text;
+  host.append(note);
+  toast.timer = setTimeout(() => note.remove(), ms);
+}
+
+// ---- what a redraw keeps ------------------------------------------------------------------------------------
+// A redraw replaces the page, and a fold a person opened or closed must stay as they left it. A fold is known by
+// where it is (the nearest element with an id: a result card, a suggestion), its words, and its place among the
+// folds with the same words there. A fold whose summary carries `data-act` is drawn from the page's own state (the
+// clock strip) and is left to it.
+function folds(root) {
+  const seen = new Map();
+  const found = [];
+  for (const el of root.querySelectorAll("details")) {
+    const summary = el.querySelector(":scope > summary");
+    if (!summary || summary.dataset.act) continue;
+    const place = `${el.parentElement?.closest("[id]")?.id || ""}|${summary.textContent.trim()}`;
+    const nth = seen.get(place) || 0;
+    seen.set(place, nth + 1);
+    found.push([`${place}|${nth}`, el]);
+  }
+  return found;
+}
+export const keepFolds = (root) => new Map(folds(root).map(([key, el]) => [key, el.open]));
+export function restoreFolds(root, kept) {
+  for (const [key, el] of folds(root)) {
+    if (kept.has(key) && el.open !== kept.get(key)) el.open = kept.get(key);
+  }
+}
+
+// The result the next redraw brings to the top of the window: a request that was just sent (main.js scrolls once the
+// result is drawn). `again`: its answer has arrived; the page goes back to it only if the person has not scrolled
+// away since, so that somebody reading further down is not pulled back.
+export function reveal(id, { again = false } = {}) {
+  if (again) {
+    const shown = app.ui.revealed;
+    if (!shown || shown.id !== id || typeof window === "undefined" || Math.abs(window.scrollY - shown.y) > 2) return;
+  }
+  app.ui.reveal = id;
 }
 
 // Spend that counts against today's limit: orders of the data clock's day that are ordered or waiting.
