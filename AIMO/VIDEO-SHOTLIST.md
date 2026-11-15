@@ -85,6 +85,8 @@ One move per line, then what must be on screen before the next move. **CUT** mar
    **CUT**
 
 ### The ward's refusal (video 1:42–1:52)
+**As recorded by João, this part shows Kilo School instead:** customer button → "Kilo School" → the block under the request box, "You usually order this: …" with the buttons "Order the same again" and "Not now" (the school's regular order, worked out from its past orders; "Order the same again" asks for an offer at today's prices and stock, and nothing is ordered until a person confirms). The ward's refusal below stays as the alternative.
+
 34. *(off camera)* Click the customer button.
 35. *(off camera)* Click "City Hospital, Ward 4". → The ward's Request page; wait for the toast to go.
 36. Type `100 litres of lactose-free milk by Monday`, press Enter (trim the typing). → The tag "Strict: no milk, cereals with gluten"; the red box "Nothing can be offered for this request. 26 products checked, 26 left out. All 26: The product declares that it contains milk, which the buyer excludes." Hold 8 s.
@@ -111,10 +113,10 @@ One story, told over the pictures of Part A: Hanna, who buys for Harbourside Hot
 | 0:51 | 1:08 | The click on ADD, CHOOSE, "YOUR CHOICE", CONFIRM ORDER, the green box | "It also notices this kitchen usually orders cooking cream, and Hanna adds it in one click. She then picks the full thousand litres. A substitute above her limit is not the agent's call, so Hanna confirms it herself." | 38 | 15 s / 17 s |
 | 1:08 | 1:24 | The order page, "Trail intact", "What Valio Aimo sees" | "Every step, from her request to her approval, is now written in a log that cannot be changed unnoticed. Valio Aimo reads the same order in its own view, without the hotel's limits or allergens." | 35 | 14 s / 16 s |
 | 1:24 | 1:42 | The switch and SAVE, 302 litres ordered, 303 litres waiting | "Later Hanna lets the agent order alone. 302 litres stay under her limit, so the agent places the order and says why it was allowed. One litre more is over the limit, so it stops and waits for her." | 39 | 16 s / 18 s |
-| 1:42 | 1:52 | The ward's red box | "At the allergy ward a request for lactose-free milk is refused, all twenty-six products, because lactose-free milk is still milk." | 20 | 8 s / 10 s |
+| 1:42 | 1:52 | Kilo School: the block "You usually order this:" with "Order the same again" | "At the school, the gateway already knows the weekly order from past orders, and offers it again in one click. A person still confirms." | 24 | 10 s / 10 s |
 | 1:52 | 2:00 | `/llms.txt`, then `/docs` | "And all of it is open: OpenAPI, MCP, signed offers, MIT licence. Any agent can connect." | 16 | 6 s / 8 s |
 
-**Count:** 260 words, about 104 seconds of speech at 2.5 words a second, in the 120. Every paragraph fits its slot at that pace. To leave more silence, drop the last sentence of the paragraphs at 0:35 and 1:08: the story still holds.
+**Count:** 264 words, about 106 seconds of speech at 2.5 words a second, in the 120. Every paragraph fits its slot at that pace. To leave more silence, drop the last sentence of the paragraphs at 0:35 and 1:08: the story still holds.
 
 ## Not for the camera
 - **The window right after ADD (step 16):** its headline reads "…For milk: Milk made for coffee is not offered as milk…", a doubled word in large text. Cut at the click and come back after the scroll of step 17.
