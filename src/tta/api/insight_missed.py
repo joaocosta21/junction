@@ -4,6 +4,10 @@ and could not be confirmed; substitutes offered, confirmed and rejected.
 
 Read from Valio Aimo's view of each offer: the products left out for a requirement of the buyer's are not in it, so
 they are neither listed nor counted here (review finding M1).
+
+A request nothing could be offered for because the buyer's own requirements left products out is not a sale Valio
+Aimo could not make: neither its quantity nor its products are counted, and the block says only that such requests
+are not counted, never which requirement or how many products (`_emptied_by_the_buyer`).
 """
 
 from __future__ import annotations
@@ -30,10 +34,24 @@ OWN_REASONS = {
 UNIT_WORDS = {"L": "L", "KG": "kg", "UNIT": "units"}
 FREE_FROM = "FREE_FROM_"
 EVERYTHING_COVERED = "Every quantity asked for was covered by confirmed stock of the product asked for."
+# Said in place of it where the only requests that fell short are the ones not counted (`_emptied_by_the_buyer`).
+NONE_COUNTED = "No quantity is counted here as a sale Valio Aimo could not make."
+# No requirement and no number: either would say what the buyer excludes to a reader who has the catalog.
+BUYERS_OWN = (
+    "Not counted here: requests where nothing could be offered because the buyer's own requirements left products "
+    "out."
+)
 MISSED_COUNTED = (
     HowCounted(figure="Not confirmed", how="Per requested line of each offer: the quantity asked for minus what "
                "the best confirmed option covers. An offer replaced by an accepted suggestion is counted once, "
                "as the amended offer."),
+    HowCounted(figure="Left out by the buyer's own requirements", how="An offer with no option, where more "
+               "products matched the request than Valio Aimo's own data left out: the buyer's own requirements "
+               "left the others out, so it is not a sale Valio Aimo could not make: neither its quantity nor its "
+               "products are counted. Which requirement, and how many products, is not shown. Valio Aimo's view "
+               "does not hold what its own stock would have covered of such a request, so none of it is counted; "
+               "and where an offer has an option, the whole quantity its best confirmed option does not cover is "
+               "counted."),
     HowCounted(figure="Euros", how="The quantity not confirmed at the average net price of what the same offer "
                "did cover. Counted for one-line requests; a line with no offered price has no value."),
     HowCounted(figure="Reasons and products", how="Products that matched a request and were left out for a reason "
@@ -105,6 +123,19 @@ def _not_confirmed_products(offer: JsonDict) -> dict[str, str | None]:
             if as_dict(line.get("availability")).get("state") == AvailabilityState.QUANTITY_NOT_CONFIRMED}
 
 
+def _emptied_by_the_buyer(offer: JsonDict) -> bool:
+    """Whether nothing was offered because the buyer's own requirements left products out: the offer has no
+    option, and more products matched the request than Valio Aimo's own data left out. Every product that matched
+    either fits or drops out with a reason; Valio Aimo's view counts the reasons in its own data and, for a
+    product a rule of the buyer's left out, the reason its own data would have left it out for anyway. What is
+    left over fitted by Valio Aimo's data and was not offered. An offer with an option is never read so: the
+    products that fit and were not picked are not told apart from those in Valio Aimo's view."""
+    if as_list(offer.get("options")):
+        return False
+    own_data = sum((as_decimal(number_of) for number_of in as_dict(offer.get("excluded_by_reason")).values()), ZERO)
+    return as_decimal(offer.get("candidates_considered")) > own_data
+
+
 def _names(offer: JsonDict) -> dict[str, str]:
     named = [*as_list(offer.get("left_out")), *(line for option in as_list(offer.get("options"))
                                               for line in as_list(option.get("lines")))]
@@ -114,8 +145,9 @@ def _names(offer: JsonDict) -> dict[str, str]:
 def missed(steps: Sequence[Step], requests: dict[str, JsonDict], orders: dict[str, Order]) -> Missed:
     replaced = {str(as_dict(step.facts.get("suggestion")).get("offer_id")) for step in steps
                 if step.kind == AuditEventType.SUGGESTION_ACCEPTED}
-    offers = [as_dict(step.facts.get("offer")) for step in steps
-              if step.kind == AuditEventType.OFFER_CREATED and step.offer_id not in replaced]
+    made = [as_dict(step.facts.get("offer")) for step in steps
+            if step.kind == AuditEventType.OFFER_CREATED and step.offer_id not in replaced]
+    offers = [offer for offer in made if not _emptied_by_the_buyer(offer)]
     shorts: defaultdict[tuple[str, str], _Short] = defaultdict(_Short)
     times: Counter[tuple[str, str]] = Counter()
     names: dict[str, str | None] = {}
@@ -145,7 +177,7 @@ def missed(steps: Sequence[Step], requests: dict[str, JsonDict], orders: dict[st
             if len(short) == 1:  # an option line does not say which requested line it serves
                 entry.products["QUANTITY_NOT_CONFIRMED"].update(unconfirmed)
                 entry.substituted += _sold_as_substitute(str(offer.get("offer_id")), orders)
-    return _missed_figures(shorts, times, names, offers, orders)
+    return _missed_figures(shorts, times, names, offers, orders, buyers_own=len(offers) < len(made))
 
 
 def _sold_as_substitute(offer_id: str, orders: dict[str, Order]) -> Decimal:
@@ -175,8 +207,9 @@ def _shortfall(label: str, unit: str, short: _Short) -> Shortfall:
 
 def _missed_figures(
     shorts: dict[tuple[str, str], _Short], times: Counter[tuple[str, str]], names: dict[str, str | None],
-    offers: Sequence[JsonDict], orders: dict[str, Order],
+    offers: Sequence[JsonDict], orders: dict[str, Order], *, buyers_own: bool = False,
 ) -> Missed:
+    """`buyers_own`: a request of the period is not counted because the buyer's own requirements emptied it."""
     rows = sorted((_shortfall(label, unit, short) for (label, unit), short in shorts.items()),
                   key=lambda row: (-(row.value_net_eur or ZERO), -row.not_confirmed, row.label))
     by_unit: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
@@ -199,13 +232,16 @@ def _missed_figures(
         refused=sum(o.status == OrderStatus.REJECTED for o in with_substitute),
     )
     amounts = joined(f"{number(amount)} {UNIT_WORDS.get(unit, unit.lower())}" for unit, amount in by_unit.items())
-    sentence = EVERYTHING_COVERED if not rows else (
+    nothing_short = NONE_COUNTED if buyers_own else EVERYTHING_COVERED
+    sentence = nothing_short if not rows else (
         # "Of the product asked for": an offer may also hold an option that fills the quantity from confirmed
         # stock with a substitute, which a person confirms. That is another product; this figure is the product
         # asked for, as the first option of the answer says it.
         f"{amounts} asked for could not be covered by confirmed stock of the product asked for: about "
         f"€{value:,.0f} at offered prices.{_ordered_instead(instead)}"
     )
+    if buyers_own:
+        sentence = f"{sentence} {BUYERS_OWN}"
     return Missed(
         shortfalls=tuple(rows), value_net_eur=value, top_products=top, substitutes=substitutes, sentence=sentence,
         not_confirmed=tuple(UnitTotal(unit=unit, quantity=amount) for unit, amount in by_unit.items()),
